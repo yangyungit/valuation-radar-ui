@@ -36,19 +36,28 @@ st.markdown("""
 st.title("🏦 首席投资官中枢 (CIO Dashboard)")
 st.caption("基于全局数据的全自动化配置组合：宏观概率分配 ➡️ 板块动量优选 ➡️ 龙头市值加权 ➡️ 净值回测")
 
-MACRO_ASSETS = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "SPY", "CPER", "USO", "XLI", "KRE", "GLD", "VLUE", "MTUM", "XLK"]
+# ==========================================
+# 🧱 块级强覆盖区：修复参数丢失与数据源绝对对齐
+# ==========================================
+# 1. 扩充资产请求包：强行囊括 Page 1 中的所有时钟因子，确保底层 DataFrame 裁切(dropna)的日期与 Page 1 绝对一致！
+MACRO_ASSETS = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "XLI", "KRE", "GLD", "XLK"]
 all_pool_tickers = list(REGIME_MAP.keys())
 FULL_TICKERS = list(set(MACRO_ASSETS + all_pool_tickers))
 
 with st.spinner("⏳ 正在调用中央引擎进行全系推演..."):
     df = get_global_data(FULL_TICKERS)
+    # 提前拉取元数据
+    meta_info = get_stock_metadata(all_pool_tickers)
 
 if df.empty or len(df) < 750:
     st.warning("⚠️ 数据拉取失败或数据长度不足，无法启动配置引擎。")
     st.stop()
 
+# 【架构师核心修复】：向后厨请求漏斗数据时，必须传入元数据和宏观叙事热度！否则股票缺少 10 分加成，将全军覆没导致 0 仓位。
+NARRATIVE_THEMES_HEAT = core_data.get("NARRATIVE_THEMES_HEAT", {})
+
 raw_probs, clock_regime = fetch_macro_scores(df)
-df_scores, _ = fetch_funnel_scores(df, all_pool_tickers, {}, {})
+df_scores, _ = fetch_funnel_scores(df, all_pool_tickers, meta_info, NARRATIVE_THEMES_HEAT)
 
 REGIME_CN_MAP = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
 SECTOR_CN_MAP = {
@@ -76,17 +85,18 @@ portfolio = []
 reasoning_logs = [] 
 
 if not df_scores.empty and normalized_regime_weights:
-    meta_info = get_stock_metadata(all_pool_tickers)
-    
-    # 【架构师终极微服务适配】：镜像云端中文列名，防止下游老代码报错
+    # 镜像云端中文列名，防止下游老代码报错
     df_scores['Sector'] = df_scores['板块']       
     df_scores['Regime'] = df_scores['宏观属性']   
-    df_scores['Score']  = df_scores['Molt评分']   # 补全丢失的 Score
-    df_scores['Ticker'] = df_scores['代码']       # 补全丢失的 Ticker
+    df_scores['Score']  = df_scores['Molt评分']   
+    df_scores['Ticker'] = df_scores['代码']       
     df_scores['MCAP']   = df_scores['代码'].map(lambda x: meta_info.get(x, {}).get('mcap', 1e9))
     
     # 过滤晋级标的
     df_qualified = df_scores[df_scores['Score'] >= 60] 
+# ==========================================
+# 🧱 覆盖区结束
+# ==========================================
     
     for regime, r_weight in normalized_regime_weights.items():
         regime_cn = REGIME_CN_MAP.get(regime, regime)
