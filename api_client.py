@@ -65,3 +65,12 @@ def fetch_macro_scores(df):
     except Exception as e:
         st.error(f"🚨 云端算力引擎请求失败: {e}")
         return {"Soft": 0, "Hot": 0, "Stag": 0, "Rec": 0}, "未知"
+
+def calculate_molt_scores(df, tickers):
+    """
+    架构师注：此为兼容老版本 Page 6 的空壳函数。
+    真实的 40-40-20 漏斗逻辑已实装在 Page 2 内部。
+    为防止前端 DataFrame 链式调用崩溃，返回空 DataFrame。
+    """
+    import pandas as pd
+    return pd.DataFrame()

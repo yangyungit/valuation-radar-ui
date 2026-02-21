@@ -3,8 +3,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_macro_scores
-# 动态向云端 API 请求核心机密数据
+from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_macro_scores, calculate_molt_scores
+
 core_data = fetch_core_data()
 
 # 解包页面需要的字典
