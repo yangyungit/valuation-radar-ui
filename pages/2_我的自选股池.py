@@ -10,8 +10,7 @@ import os
 # 移除了数据漏斗表格中的“核心叙事”长文本列，提升信噪比。
 # 叙事详情仅在选中的“深度归因”卡片中展示，表格仅保留纯粹的分数。
 
-from api_client import fetch_core_data, get_global_data, get_stock_metadata
-
+from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_funnel_scores
 # 动态向云端 API 请求核心机密数据
 core_data = fetch_core_data()
 
@@ -141,108 +140,10 @@ def get_company_profile(ticker):
     
     return {"name": base_name, "summary": f"**{group_info}**\n\n{summary}"}
 
-def calculate_metrics(df_prices, tickers, meta_data, theme_heat_dict):
-    try:
-        from my_stock_pool import STOCK_NARRATIVE_MAP
-    except ImportError:
-        STOCK_NARRATIVE_MAP = {}
-        
-    try:
-        spy_ts = df_prices['SPY'].dropna()
-        spy_mom20 = (float(spy_ts.iloc[-1]) / float(spy_ts.iloc[-21]) - 1) * 100
-    except: spy_mom20 = 0.0
 
-    metrics = []
-    for t in tickers:
-        if t not in df_prices.columns: continue
-        try:
-            s = df_prices[t].dropna()
-            if len(s) < 250: continue
-            
-            curr = float(s.iloc[-1])
-            ma20 = float(s.rolling(20).mean().iloc[-1])
-            ma60 = float(s.rolling(60).mean().iloc[-1])
-            ma200 = float(s.rolling(200).mean().iloc[-1])
-            ma250 = float(s.rolling(250).mean().iloc[-1])
-            std250 = float(s.rolling(250).std().iloc[-1])
-            
-            ma60_support = ma60 * 0.97
-            status = "🔥 主升浪" if curr > ma20 > ma60 > ma200 else ("❄️ 破位" if curr < ma60_support else "📈 多头")
-            mom20 = (curr / float(s.iloc[-21]) - 1) * 100
-            rs = mom20 - spy_mom20
-            z_score = (curr - ma250) / std250 if std250 != 0 else 0.0
-            
-            daily_ret = s.pct_change().dropna()
-            down_ret = daily_ret[daily_ret<0]
-            sortino = (daily_ret.mean() * 252) / (down_ret.std() * np.sqrt(252)) if len(down_ret)>0 and down_ret.std()!=0 else 0.0
-            if pd.isna(sortino) or np.isinf(sortino): sortino = 0.0
-            
-            roll_max = s.rolling(252, min_periods=1).max()
-            max_dd = (s / roll_max - 1.0).min()
-
-            risk = max(curr - ma60_support, curr * 0.03)
-            rr = (float(s.rolling(120).max().iloc[-1]) - curr) / risk if risk > 0 else 0.0
-            if pd.isna(rr) or np.isinf(rr): rr = 0.0
-            
-            mcap = meta_data.get(t, {}).get("mcap", 1e10)
-            if mcap is None or mcap < 1e9: mcap = 1e9
-            
-            log_mc = np.log10(mcap)
-            size_bonus = min(max((log_mc - 9) / 3.5 * 10, 0), 10)
-            
-            if "主升" in status:
-                score_mom = 20.0 + size_bonus 
-            elif "多头" in status:
-                score_mom = 10.0 + (size_bonus * 0.5) 
-            else:
-                score_mom = 0.0
-                
-            score_sortino = min(max(sortino, 0), 3) * 13.33 
-            score_rr = min(max(rr, 0), 3) * 6.66            
-            
-            stock_theme = STOCK_NARRATIVE_MAP.get(t, "⚪ 常规轮动(独立逻辑)")
-            score_narrative = float(theme_heat_dict.get(stock_theme, 3.0)) 
-            
-            score = score_mom + score_sortino + score_rr + score_narrative
-            
-            threshold = 80.0
-            bias_250_pct = (curr / ma250 - 1) * 100 if ma250 > 0 else 0.0
-            
-            if bias_250_pct > threshold:
-                score -= 20
-                status = "🌋 严重泡沫 (熔断)"
-                elimination_reason = f"触发年线熔断(-20分)"
-            elif curr < ma60_support:  
-                elimination_reason = "动量破位(失守防守底线)"
-            elif sortino < 1.0:
-                elimination_reason = "历史抗跌差(Sortino低)"
-            elif rr < 0.5:
-                elimination_reason = "入场性价比差(盈亏比偏低)"
-            else:
-                elimination_reason = "综合得分不及格(总分<60)"
-            
-            cn_name = TIC_MAP.get(t, t)
-            metrics.append({
-                "代码": t, "名称": cn_name, 
-                "板块": SECTOR_MAP.get(t, "-"),
-                "显示标签": f"{cn_name}", 
-                "现价": curr, "状态": status, "相对强度": rs, "Z-Score": z_score,
-                "宏观属性": REGIME_MAP.get(t, "Other"), "Molt评分": round(score, 1),
-                "核心叙事": stock_theme,  # 仍然保留在数据中供顶部深度归因面板使用
-                "叙事(10分)": round(score_narrative, 1),
-                "动能(30分)": round(score_mom, 1),
-                "索提诺(40分)": round(score_sortino, 1),
-                "盈亏比(20分)": round(score_rr, 1),
-                "最大回撤": f"{max_dd*100:.1f}%", 
-                "年线乖离": f"{bias_250_pct:.1f}%", 
-                "Raw_Bias": bias_250_pct, "淘汰死因": elimination_reason
-            })
-        except: continue
-        
-    return pd.DataFrame(metrics), spy_mom20
 
 if not df_prices.empty:
-    df_all, spy_mom = calculate_metrics(df_prices, full_ticker_list, meta_data, current_theme_heat)
+    df_all, spy_mom = fetch_funnel_scores(df_prices, full_ticker_list, meta_data, current_theme_heat)
     if not df_all.empty:
         df_all["相对强度"] = df_all["相对强度"].astype(float)
         df_all["Z-Score"] = df_all["Z-Score"].astype(float)

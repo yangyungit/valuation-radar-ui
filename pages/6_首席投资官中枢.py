@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_macro_scores, calculate_molt_scores
+from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_macro_scores, fetch_funnel_scores,calculate_molt_scores
 
 core_data = fetch_core_data()
 
@@ -48,7 +48,7 @@ if df.empty or len(df) < 750:
     st.stop()
 
 raw_probs, clock_regime = fetch_macro_scores(df)
-df_scores = calculate_molt_scores(df, all_pool_tickers)
+df_scores, _ = fetch_funnel_scores(df, all_pool_tickers, {}, {})
 
 REGIME_CN_MAP = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
 SECTOR_CN_MAP = {

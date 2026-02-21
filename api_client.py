@@ -3,6 +3,8 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta
+import json
+import io
 
 # ==========================================
 # 1. 核心机密数据获取 (通过 API 向后厨请求)
@@ -51,7 +53,7 @@ def get_stock_metadata(tickers):
             metadata[t] = {"mcap": 1e10}
     return metadata
 
-import json
+
 
 def fetch_macro_scores(df):
     """将公开 DataFrame 发送到云端，换取机密打分结果"""
@@ -66,11 +68,24 @@ def fetch_macro_scores(df):
         st.error(f"🚨 云端算力引擎请求失败: {e}")
         return {"Soft": 0, "Hot": 0, "Stag": 0, "Rec": 0}, "未知"
 
-def calculate_molt_scores(df, tickers):
-    """
-    架构师注：此为兼容老版本 Page 6 的空壳函数。
-    真实的 40-40-20 漏斗逻辑已实装在 Page 2 内部。
-    为防止前端 DataFrame 链式调用崩溃，返回空 DataFrame。
-    """
-    import pandas as pd
-    return pd.DataFrame()
+
+
+def fetch_funnel_scores(df, tickers, meta_data, theme_heat_dict):
+    """将沉重的公开数据和参数打包发给云端，换取打分结果"""
+    try:
+        payload = {
+            "df_json": df.to_json(orient="split"),
+            "tickers": tickers,
+            "meta_data": meta_data,
+            "theme_heat_dict": theme_heat_dict
+        }
+        response = requests.post(f"{API_BASE_URL}/api/v1/calculate_funnel", json=payload, timeout=45)
+        response.raise_for_status()
+        data = response.json()
+        
+        # 将云端传回来的精英名单重组为 DataFrame
+        metrics_df = pd.read_json(io.StringIO(data["metrics_json"]), orient="split")
+        return metrics_df, data["spy_mom20"]
+    except Exception as e:
+        st.error(f"🚨 云端漏斗计算引擎连接失败: {e}")
+        return pd.DataFrame(), 0.0
