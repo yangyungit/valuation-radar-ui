@@ -15,9 +15,9 @@ MACRO_TAGS_MAP = core_data.get("MACRO_TAGS_MAP", {})
 USER_GROUPS_DEF = core_data.get("USER_GROUPS_DEF", {})
 
 ALL_TICKERS = list(TIC_MAP.keys())
-# --- 架构师注释: 宏观定调中心 v13.16 (终极对齐版) ---
-# 1. 完美保留您的所有定制化 UI 与实战推荐逻辑。
-# 2. 引入 SPY-reindex 量子纠缠技术，强制全域数据表拥有绝对相同的行数与日期，根除打架。
+# --- 架构师注释: 宏观定调中心 v13.37 (终极量化逻辑升级版) ---
+# 1. 实装 SPY 5阶状态机（强多头/多头回调/上涨力竭/强空头/震荡）。
+# 2. SSOT 对齐缓存，消除 Z-Score 漂移与缩进报错。
 
 st.set_page_config(page_title="宏观定调中心", layout="wide", page_icon="🧭")
 
@@ -138,17 +138,35 @@ if not df.empty and len(df) > 750:
     tip_ief_diff = get_ret('TIP') - get_ret('IEF')
     usd_val = get_ret('UUP')
     
+    # =======================================================
+    # 🧠 架构师级更新：实装 SPY 5阶趋势状态机，精准捕捉“力竭”与“回调”
+    # =======================================================
     spy_ts = df['SPY'].dropna()
+    is_bullish = False
     if len(spy_ts) > 120:
         spy_cur = float(spy_ts.iloc[-1])
         ma20 = float(spy_ts.rolling(20).mean().iloc[-1])
         ma60 = float(spy_ts.rolling(60).mean().iloc[-1])
         ma120 = float(spy_ts.rolling(120).mean().iloc[-1])
-        spy_status = "强多头 (Bull)" if spy_cur > ma20 > ma60 > ma120 else ("空头 (Bear)" if spy_cur < ma20 < ma60 else "震荡/中性")
-    else:
-        spy_status = "震荡/中性"
         
-    spy_color = "status-green" if "多头" in spy_status else ("status-red" if "空头" in spy_status else "status-grey")
+        if spy_cur > ma20 and ma20 > ma60 and ma60 > ma120:
+            spy_status = "🔥 强多头 (完美均线多头排列)"
+            is_bullish = True
+        elif ma20 > spy_cur > ma60 and ma60 > ma120:
+            spy_status = "⚠️ 多头回调 (跌破20日线，短期喘息)"
+            is_bullish = True  # 核心趋势未破，仍定性为上升通道
+        elif spy_cur < ma60 and ma20 > ma120:
+            spy_status = "🌩️ 上涨力竭 (跌破60日生命线/顶背离)"
+            is_bullish = False # 核心趋势已破，警报拉响
+        elif spy_cur < ma20 and ma20 < ma60 and ma60 < ma120:
+            spy_status = "❄️ 强空头 (完美均线空头排列)"
+            is_bullish = False
+        else:
+            spy_status = "⚖️ 震荡分化 (均线交叉纠缠/无趋势)"
+            is_bullish = False
+    else:
+        spy_status = "未知 (数据不足)"
+    # =======================================================
 
     st.header("1️⃣ 宏观底色 (Macro Dashboard)")
     if tlt_shy_diff > 0: rate_txt = "📉 增长放缓"; rate_cls = "status-red" 
@@ -214,7 +232,7 @@ if not df.empty and len(df) > 750:
         <div class="formula-box">
         <b>2. 🎈 通胀轴 (Y轴) - 聪明钱定价:</b><br>
         通过对比 <code>抗通胀债(TIP)</code> 与 <code>中期国债(IEF)</code> 的相对强弱。<br>
-        <span style='color:#aaa; font-size:12px;'><i>逻辑：当大资金预期物价飞涨时，会疯狂抢筹带有通胀保护条款的 TIP 避险。数值向上代表市场正在定价恶性通胀。</i></span>
+        <span style='color:#aaa; font-size:12px;'><i>逻辑：当大资金预期物价飞涨时，会疯狂抢筹带有通胀保护条款的 TIP 避险。数值向上代表市场正在定价恶性通胀（当 Z-Score=0 时，代表预期已完美均值回归）。</i></span>
         </div>
         <div class="formula-box">
         <b>3. 🎯 极值定位 (Z-Score):</b><br>
@@ -296,20 +314,21 @@ if not df.empty and len(df) > 750:
 
     st.header("3️⃣ 四大剧本推演 (The Four Horsemen)")
 
-    # 直接拿云端算好的权威数据，不再自己算！
     prob_a = int(raw_probs.get("Soft", 0) * 100)
     prob_b = int(raw_probs.get("Hot", 0) * 100)
     prob_c = int(raw_probs.get("Stag", 0) * 100)
     prob_d = int(raw_probs.get("Rec", 0) * 100)
 
-    # 架构师重构：白盒化展示，直接 return 拼装好的 HTML，不再需要计算任何分数 p
     def check(condition, desc_pass, desc_fail):
         if condition: return f"<div class='ev-item'><span class='ev-pass'>✅</span> <span>{desc_pass}</span></div>"
         else: return f"<div class='ev-item'><span class='ev-fail'>⚪</span> <span>{desc_fail}</span></div>"
 
+    # =======================================================
+    # 🧠 将全新的 5阶 SPY 状态深度融入白盒化推演中
+    # =======================================================
     items_a = [
         check("Recovery" in api_clock_regime, "时钟指向复苏/软着陆", f"时钟不符 ({api_clock_regime})"),
-        check("多头" in spy_status, f"美股多头趋势 (现价>MA20>MA60>MA120)", f"美股非多头 ({spy_status})"),
+        check(is_bullish, f"美股维持上升通道 ({spy_status})", f"美股动能破坏 ({spy_status})"),
         check(get_ret('XLY') > get_ret('XLP'), f"消费信心强 (XLY收益 > XLP)", f"消费防御占优 (XLY弱于XLP)"),
         check(get_ret('XLK') > 0, f"科技领涨 (+{get_ret('XLK'):.1f}%)", f"科技走弱 ({get_ret('XLK'):.1f}%)"),
         check(hyg_ief_diff > -0.5, f"信用风险低 (HYG-IEF利差: {hyg_ief_diff:.2f}%)", f"信用利差走阔 ({hyg_ief_diff:.2f}%)")
@@ -326,7 +345,7 @@ if not df.empty and len(df) > 750:
         check("熊平" in curve_shape, f"曲线熊平 (短端利率上行抗通胀)", f"形态不符 ({curve_shape})"),
         check(get_ret('GLD') > get_ret('SPY'), "黄金跑赢美股 (GLD > SPY)", "黄金未跑赢"),
         check(get_ret('VLUE') > get_ret('MTUM'), "价值跑赢成长 (VLUE > MTUM)", "成长跑赢价值"),
-        check(get_ret('SPY') < 0, f"股市下跌 ({get_ret('SPY'):.1f}%)", f"股市坚挺 (+{get_ret('SPY'):.1f}%)")
+        check(not is_bullish, f"美股上升趋势破坏 ({spy_status})", f"美股仍具韧性 ({spy_status})")
     ]
     items_d = [
         check("Reflation" in api_clock_regime, "时钟指向衰退", f"时钟不符 ({api_clock_regime})"),
