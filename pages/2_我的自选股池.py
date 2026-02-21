@@ -10,12 +10,21 @@ import os
 # 移除了数据漏斗表格中的“核心叙事”长文本列，提升信噪比。
 # 叙事详情仅在选中的“深度归因”卡片中展示，表格仅保留纯粹的分数。
 
-try:
-    from core_engine import get_global_data, get_stock_metadata
-    from my_stock_pool import TIC_MAP, ASSET_CN_DB, REGIME_MAP, USER_GROUPS_DEF, MACRO_TAGS_MAP, SECTOR_MAP
-except ImportError:
-    st.error("⚠️ 配置文件缺失，请检查项目结构。")
-    st.stop()
+from api_client import fetch_core_data, get_global_data, get_stock_metadata
+
+# 动态向云端 API 请求核心机密数据
+core_data = fetch_core_data()
+
+# 将 JSON 数据解包为全局变量供页面渲染
+TIC_MAP = core_data.get("TIC_MAP", {})
+ASSET_CN_DB = core_data.get("ASSET_CN_DB", {})
+REGIME_MAP = core_data.get("REGIME_MAP", {})
+USER_GROUPS_DEF = core_data.get("USER_GROUPS_DEF", {})
+MACRO_TAGS_MAP = core_data.get("MACRO_TAGS_MAP", {})
+SECTOR_MAP = core_data.get("SECTOR_MAP", {})
+DEEP_INSIGHTS = core_data.get("DEEP_INSIGHTS", {})
+NARRATIVE_THEMES_HEAT = core_data.get("NARRATIVE_THEMES_HEAT", {})
+STOCK_NARRATIVE_MAP = core_data.get("STOCK_NARRATIVE_MAP", {})
 
 st.set_page_config(page_title="超级自选雷达", layout="wide", page_icon="♟️")
 
