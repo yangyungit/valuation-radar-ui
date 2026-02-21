@@ -37,38 +37,37 @@ st.title("🏦 首席投资官中枢 (CIO Dashboard)")
 st.caption("基于全局数据的全自动化配置组合：宏观概率分配 ➡️ 板块动量优选 ➡️ 龙头市值加权 ➡️ 净值回测")
 
 # ==========================================
-# 🧱 块级强覆盖区 (Page 6)：构建与 Page 1 绝对对齐的数据缓存键
+# 🧱 块级强覆盖区 (Page 6)：修复标的池缺失、数据源深度与板块映射
 # ==========================================
-MACRO_ASSETS = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "XLI", "KRE", "GLD", "XLK"]
-all_pool_tickers = list(REGIME_MAP.keys())
+# 解包所有的云端字典，特别是用户自选股(USER_GROUPS_DEF)和板块映射(SECTOR_MAP)
+USER_GROUPS_DEF = core_data.get("USER_GROUPS_DEF", {})
+SECTOR_MAP = core_data.get("SECTOR_MAP", {})
+NARRATIVE_THEMES_HEAT = core_data.get("NARRATIVE_THEMES_HEAT", {})
 
-# 架构师级缓存对齐：生成和 Page 1 绝对相同的 A-Z 排序数组，强行命中同一个内存地址
+MACRO_ASSETS = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "XLI", "KRE", "GLD", "XLK"]
+
+# 架构师级修复1：把主理人所有的自选股（A-E组）和宏观池全部加进来！否则漏斗无股可选！
+all_pool_tickers = []
+for lst in USER_GROUPS_DEF.values(): all_pool_tickers.extend(lst)
+for t in REGIME_MAP.keys(): all_pool_tickers.append(t)
+all_pool_tickers = list(set([t.strip().upper() for t in all_pool_tickers]))
+
 UNIVERSAL_TICKERS = list(set(MACRO_ASSETS + all_pool_tickers + list(TIC_MAP.keys())))
 UNIVERSAL_TICKERS.sort() 
 
 with st.spinner("⏳ 正在调用中央引擎进行全系推演 (SSOT)..."):
-    df = get_global_data(UNIVERSAL_TICKERS)
+    # 架构师级修复2：强制拉取 4 年数据对齐 Page 1！
+    df = get_global_data(UNIVERSAL_TICKERS, years=4)
     meta_info = get_stock_metadata(all_pool_tickers)
 
 if df.empty or len(df) < 750:
     st.warning("⚠️ 数据拉取失败或数据长度不足，无法启动配置引擎。")
     st.stop()
 
-# 向后厨请求漏斗数据时，传入宏观叙事热度，恢复被抹除的 10 分加成！
-NARRATIVE_THEMES_HEAT = core_data.get("NARRATIVE_THEMES_HEAT", {})
-
 raw_probs, clock_regime = fetch_macro_scores(df)
 df_scores, _ = fetch_funnel_scores(df, all_pool_tickers, meta_info, NARRATIVE_THEMES_HEAT)
-# ==========================================
 
 REGIME_CN_MAP = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
-SECTOR_CN_MAP = {
-    "Technology": "科技", "Industrials": "工业", "Financial Services": "金融服务", 
-    "Healthcare": "医疗保健", "Consumer Cyclical": "可选消费", "Consumer Defensive": "必选消费", 
-    "Utilities": "公用事业", "Energy": "能源", "Real Estate": "房地产", 
-    "Basic Materials": "基础材料", "Communication Services": "通讯服务", 
-    "ETF/宏观资产": "ETF/宏观资产", "未知": "未知"
-}
 
 REGIME_NARRATIVE = {
     "软着陆": "享受经济复苏与流动性宽松的双重红利，充当组合的进攻矛。",
@@ -87,14 +86,13 @@ portfolio = []
 reasoning_logs = [] 
 
 if not df_scores.empty and normalized_regime_weights:
-    # 镜像云端中文列名，防止下游老代码报错
-    df_scores['Sector'] = df_scores['板块']       
+    # 架构师级修复3：强制挂载中文板块！如果云端没返回，就用 SECTOR_MAP 兜底！
+    df_scores['Sector'] = df_scores.apply(lambda row: SECTOR_MAP.get(row['代码'], row.get('板块', '综合/未知')) if pd.isna(row.get('板块')) or row.get('板块') in ["未知", "", None] else row.get('板块'), axis=1)       
     df_scores['Regime'] = df_scores['宏观属性']   
     df_scores['Score']  = df_scores['Molt评分']   
     df_scores['Ticker'] = df_scores['代码']       
     df_scores['MCAP']   = df_scores['代码'].map(lambda x: meta_info.get(x, {}).get('mcap', 1e9))
     
-    # 过滤晋级标的
     df_qualified = df_scores[df_scores['Score'] >= 60] 
 # ==========================================
 # 🧱 覆盖区结束
