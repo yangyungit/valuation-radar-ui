@@ -3,8 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from api_client import fetch_core_data, get_global_data, get_stock_metadata
-
+from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_macro_scores
 # 动态向云端 API 请求核心机密数据
 core_data = fetch_core_data()
 
@@ -48,7 +47,7 @@ if df.empty or len(df) < 750:
     st.warning("⚠️ 数据拉取失败或数据长度不足，无法启动配置引擎。")
     st.stop()
 
-raw_probs, clock_regime = calculate_macro_scores(df)
+raw_probs, clock_regime = fetch_macro_scores(df)
 df_scores = calculate_molt_scores(df, all_pool_tickers)
 
 REGIME_CN_MAP = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}

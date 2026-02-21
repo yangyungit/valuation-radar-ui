@@ -120,10 +120,16 @@ with st.spinner("⏳ 正在同步中央厨房数据与计算引擎..."):
     meta_data = get_stock_metadata(full_ticker_list)
 
 def get_company_profile(ticker):
-    try:
-        from my_stock_pool import DEEP_INSIGHTS
-    except ImportError:
-        DEEP_INSIGHTS = {}
+    # 彻底删除局部的 import 尝试，直接使用全局通过 API 获取的字典
+    group_info = ASSET_CN_DB.get(ticker, "")
+    base_name = TIC_MAP.get(ticker, ticker)
+    
+    summary = DEEP_INSIGHTS.get(
+        ticker, 
+        "💡 **【主理人批注】** 暂未录入该标的深度逻辑。<br><br>建议结合系统给出的**宏观剧本属性**与右侧的 **量化雷达** 盲评其动能与性价比进行右侧交易。"
+    )
+    
+    return {"name": base_name, "summary": f"**{group_info}**\n\n{summary}"}
 
     group_info = ASSET_CN_DB.get(ticker, "")
     base_name = TIC_MAP.get(ticker, ticker)

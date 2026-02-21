@@ -49,3 +49,18 @@ def get_stock_metadata(tickers):
         except:
             metadata[t] = {"mcap": 1e10}
     return metadata
+
+import json
+
+def fetch_macro_scores(df):
+    """将公开 DataFrame 发送到云端，换取机密打分结果"""
+    try:
+        # 将 DataFrame 压缩为 JSON 字符串
+        payload = {"df_json": df.to_json(orient="split")}
+        response = requests.post(f"{API_BASE_URL}/api/v1/calculate_macro", json=payload, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        return data["raw_probs"], data["clock_regime"]
+    except Exception as e:
+        st.error(f"🚨 云端算力引擎请求失败: {e}")
+        return {"Soft": 0, "Hot": 0, "Stag": 0, "Rec": 0}, "未知"
