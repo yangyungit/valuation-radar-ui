@@ -3,14 +3,13 @@ import pandas as pd
 import yfinance as yf
 import plotly.express as px
 import numpy as np
-import json
-import os
 
-# --- 架构师注释: 自选股池 v13.41 (极简 UI 降噪版) ---
+# --- 架构师注释: 自选股池 v13.41 (极简 UI 降噪版 - 云端全解耦) ---
 # 移除了数据漏斗表格中的“核心叙事”长文本列，提升信噪比。
-# 叙事详情仅在选中的“深度归因”卡片中展示，表格仅保留纯粹的分数。
+# 彻底剥离本地 JSON 与算力，100% 依赖云端微服务。
 
 from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_funnel_scores
+
 # 动态向云端 API 请求核心机密数据
 core_data = fetch_core_data()
 
@@ -26,31 +25,6 @@ NARRATIVE_THEMES_HEAT = core_data.get("NARRATIVE_THEMES_HEAT", {})
 STOCK_NARRATIVE_MAP = core_data.get("STOCK_NARRATIVE_MAP", {})
 
 st.set_page_config(page_title="超级自选雷达", layout="wide", page_icon="♟️")
-
-# ==========================================
-# 🗄️ 叙事热度持久化管理 (按主题)
-# ==========================================
-THEME_FILE = "theme_heat.json"
-
-def load_theme_heat():
-    if os.path.exists(THEME_FILE):
-        with open(THEME_FILE, 'r') as f:
-            return json.load(f)
-    else:
-        try:
-            from my_stock_pool import NARRATIVE_THEMES_HEAT
-            default_heat = NARRATIVE_THEMES_HEAT
-        except:
-            default_heat = {"⚪ 常规轮动(独立逻辑)": 3.0} 
-        with open(THEME_FILE, 'w') as f:
-            json.dump(default_heat, f)
-        return default_heat
-
-def save_theme_heat(data):
-    with open(THEME_FILE, 'w') as f:
-        json.dump(data, f)
-
-current_theme_heat = load_theme_heat()
 
 # ==========================================
 # 基础定义
@@ -69,7 +43,7 @@ for t in REGIME_MAP.keys(): all_default_tickers.append(t)
 full_ticker_list = list(set([t.strip().upper() for t in all_default_tickers]))
 
 # ==========================================
-# 🎛️ 侧边栏 UI
+# 🎛️ 侧边栏 UI 与 动态热度抓取
 # ==========================================
 with st.sidebar:
     st.header("🎯 战术筛选台")
@@ -79,7 +53,8 @@ with st.sidebar:
     st.header("🎛️ 宏观叙事方向盘")
     st.caption("为宏观事件赋分，底层关联个股将继承该叙事加成。")
     
-    df_heat = pd.DataFrame(list(current_theme_heat.items()), columns=["宏观主线/叙事", "热度(0-10)"])
+    # 直接继承云端字典作为初始值
+    df_heat = pd.DataFrame(list(NARRATIVE_THEMES_HEAT.items()), columns=["宏观主线/叙事", "热度(0-10)"])
     edited_heat_df = st.data_editor(
         df_heat, 
         num_rows="dynamic",
@@ -90,11 +65,8 @@ with st.sidebar:
         }
     )
     
-    if st.button("💾 保存叙事变动", use_container_width=True):
-        new_heat_dict = dict(zip(edited_heat_df["宏观主线/叙事"], edited_heat_df["热度(0-10)"]))
-        save_theme_heat(new_heat_dict)
-        st.success("✅ 叙事热度已更新！")
-        st.rerun()
+    # 架构师重构：废弃无用的本地保存按钮，直接将表格里的最新数据打包成字典
+    dynamic_theme_heat = dict(zip(edited_heat_df["宏观主线/叙事"], edited_heat_df["热度(0-10)"]))
 
     st.markdown("---")
     st.header("🛠️ 系统底层维护")
@@ -119,7 +91,7 @@ with st.spinner("⏳ 正在同步中央厨房数据与计算引擎..."):
     meta_data = get_stock_metadata(full_ticker_list)
 
 def get_company_profile(ticker):
-    # 彻底删除局部的 import 尝试，直接使用全局通过 API 获取的字典
+    """获取格式化的公司名片与深度逻辑"""
     group_info = ASSET_CN_DB.get(ticker, "")
     base_name = TIC_MAP.get(ticker, ticker)
     
@@ -130,20 +102,13 @@ def get_company_profile(ticker):
     
     return {"name": base_name, "summary": f"**{group_info}**\n\n{summary}"}
 
-    group_info = ASSET_CN_DB.get(ticker, "")
-    base_name = TIC_MAP.get(ticker, ticker)
-    
-    summary = DEEP_INSIGHTS.get(
-        ticker, 
-        "💡 **【主理人批注】** 暂未录入该标的深度逻辑。<br><br>建议结合系统给出的**宏观剧本属性**与右侧的 **量化雷达** 盲评其动能与性价比进行右侧交易。"
-    )
-    
-    return {"name": base_name, "summary": f"**{group_info}**\n\n{summary}"}
-
-
-
+# ==========================================
+# 核心渲染逻辑
+# ==========================================
 if not df_prices.empty:
-    df_all, spy_mom = fetch_funnel_scores(df_prices, full_ticker_list, meta_data, current_theme_heat)
+    # 极简调用：将公开行情、股票池、前台修改的热度参数发送给后厨，换回打分表
+    df_all, spy_mom = fetch_funnel_scores(df_prices, full_ticker_list, meta_data, dynamic_theme_heat)
+    
     if not df_all.empty:
         df_all["相对强度"] = df_all["相对强度"].astype(float)
         df_all["Z-Score"] = df_all["Z-Score"].astype(float)
