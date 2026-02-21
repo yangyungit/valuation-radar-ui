@@ -8,11 +8,17 @@ from datetime import datetime, timedelta
 # --- 架构师注释: 个股深度猎杀 v13.9 ---
 # 1. 同步接入 MACRO_TAGS_MAP 实现多重宏观分组穿透映射。
 
-try:
-    from my_stock_pool import TIC_MAP, ASSET_CN_DB, REGIME_MAP, USER_GROUPS_DEF, MACRO_TAGS_MAP
-except ImportError:
-    st.error("⚠️ 配置文件缺失，请检查项目结构。")
-    st.stop()
+from api_client import fetch_core_data, get_global_data
+
+# 动态向云端 API 请求核心机密数据
+core_data = fetch_core_data()
+
+TIC_MAP = core_data.get("TIC_MAP", {})
+ASSET_CN_DB = core_data.get("ASSET_CN_DB", {})
+REGIME_MAP = core_data.get("REGIME_MAP", {})
+USER_GROUPS_DEF = core_data.get("USER_GROUPS_DEF", {})
+MACRO_TAGS_MAP = core_data.get("MACRO_TAGS_MAP", {})
+SECTOR_MAP = core_data.get("SECTOR_MAP", {})
 
 st.set_page_config(page_title="个股深度猎杀", layout="wide", page_icon="🎯")
 

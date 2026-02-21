@@ -5,8 +5,15 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 from datetime import datetime, timedelta
-from my_stock_pool import TIC_MAP, REGIME_MAP, MACRO_TAGS_MAP, USER_GROUPS_DEF
-# 获取全集 Ticker 列表供 yfinance 引擎使用
+from api_client import fetch_core_data, get_global_data
+
+# 1. 动态向云端 API 请求核心机密字典
+core_data = fetch_core_data()
+TIC_MAP = core_data.get("TIC_MAP", {})
+REGIME_MAP = core_data.get("REGIME_MAP", {})
+MACRO_TAGS_MAP = core_data.get("MACRO_TAGS_MAP", {})
+USER_GROUPS_DEF = core_data.get("USER_GROUPS_DEF", {})
+
 ALL_TICKERS = list(TIC_MAP.keys())
 # --- 架构师注释: 宏观定调中心 v13.16 (终极对齐版) ---
 # 1. 完美保留您的所有定制化 UI 与实战推荐逻辑。
