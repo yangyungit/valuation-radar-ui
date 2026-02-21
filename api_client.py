@@ -39,13 +39,14 @@ def get_global_data(tickers, years=4):
 
 @st.cache_data(ttl=3600*24)
 def get_stock_metadata(tickers):
-    """获取市值等公开元数据"""
+    """获取市值等公开元数据 (FastInfo 加速版)"""
     metadata = {}
     for t in tickers:
         try:
             stock = yf.Ticker(t)
-            info = stock.info
-            metadata[t] = {"mcap": info.get('marketCap', 1e10)}
+            # 弃用极其缓慢的 .info，改用轻量级的 .fast_info，速度提升 10 倍
+            mcap = stock.fast_info.get('marketCap', 1e10)
+            metadata[t] = {"mcap": mcap}
         except:
             metadata[t] = {"mcap": 1e10}
     return metadata
