@@ -78,13 +78,15 @@ reasoning_logs = []
 if not df_scores.empty and normalized_regime_weights:
     meta_info = get_stock_metadata(all_pool_tickers)
     
-    # 【架构师微服务适配】：云端已处理好一切，只需做列名镜像映射与补齐市值
-    df_scores['Sector'] = df_scores['板块']       # 镜像云端的中文板块
-    df_scores['Regime'] = df_scores['宏观属性']   # 镜像云端的宏观属性，供下方老代码筛选
-    df_scores['MCAP'] = df_scores['代码'].map(lambda x: meta_info.get(x, {}).get('mcap', 1e9))
+    # 【架构师终极微服务适配】：镜像云端中文列名，防止下游老代码报错
+    df_scores['Sector'] = df_scores['板块']       
+    df_scores['Regime'] = df_scores['宏观属性']   
+    df_scores['Score']  = df_scores['Molt评分']   # 补全丢失的 Score
+    df_scores['Ticker'] = df_scores['代码']       # 补全丢失的 Ticker
+    df_scores['MCAP']   = df_scores['代码'].map(lambda x: meta_info.get(x, {}).get('mcap', 1e9))
     
-    # 过滤晋级标的，识别云端的中文 'Molt评分'
-    df_qualified = df_scores[df_scores['Molt评分'] >= 60] 
+    # 过滤晋级标的
+    df_qualified = df_scores[df_scores['Score'] >= 60] 
     
     for regime, r_weight in normalized_regime_weights.items():
         regime_cn = REGIME_CN_MAP.get(regime, regime)
