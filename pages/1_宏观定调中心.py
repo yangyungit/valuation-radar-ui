@@ -5,7 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 from datetime import datetime, timedelta
-from api_client import fetch_core_data, get_global_data
+from api_client import fetch_core_data, get_global_data, fetch_macro_scores
 
 # 1. 动态向云端 API 请求核心机密字典
 core_data = fetch_core_data()
@@ -54,9 +54,7 @@ CLOCK_ASSETS = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "SPY", "
 FACTOR_ASSETS = ["MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG"]
 TARGETS_A = ["XLK", "XLC", "SMH", "IGV", "AIQ", "ITB", "XRT", "KWEB"] 
 TARGETS_B = ["XLE", "XLI", "XOP", "OIH", "CPER", "URA", "PAVE", "PICK", "KRE", "USO"] 
-# 🔥 修复：剔除 XOM/MO/CCJ/NEM 等散兵，提拔 ITA(军工) 和 URA(铀矿) 为滞胀期大统帅
 TARGETS_C = ["GLD", "SLV", "DBA", "ITA", "URA"]
-# 🔥 修复1：将衰退组的散兵全部移除，只留下三大防御壁垒 ETF 统帅！
 TARGETS_D = ["XLV", "XLU", "XLP"]
 
 TOP_HOLDINGS = {
@@ -65,13 +63,13 @@ TOP_HOLDINGS = {
     "XLE": ["XOM", "CVX", "COP"], "XLI": ["GE", "CAT", "HON"],
     "XOP": ["EOG", "OXY", "PXD"], "OIH": ["SLB", "BKR", "HAL"],
     "GLD": ["NEM", "GOLD", "AEM"], "SLV": ["PAAS", "AG", "HL"],
-    "XLV": ["LLY", "UNH", "JNJ", "PFE"], # JNJ 和 PFE 归队医疗
+    "XLV": ["LLY", "UNH", "JNJ", "PFE"], 
     "XLU": ["NEE", "DUK", "SO"],
-    "XLP": ["WMT", "COST", "KO", "PEP", "MCD"], # WMT, KO 等全部归队必选消费
+    "XLP": ["WMT", "COST", "KO", "PEP", "MCD"], 
     "KRE": ["USB", "PNC", "TFC"],
-    "ITB": ["DHI", "LEN", "PHM"], "XRT": ["AMZN", "HD", "TGT"], # 把 WMT 从可选消费移走，换成 AMZN/HD
+    "ITB": ["DHI", "LEN", "PHM"], "XRT": ["AMZN", "HD", "TGT"], 
     "URA": ["CCJ", "NXE", "UUUU"], "PAVE": ["VMC", "MLM", "URI"],
-    "ITA": ["LMT", "NOC", "KTOS"], # 🔥 新增：将洛克希德等军工股收编入 ITA 麾下
+    "ITA": ["LMT", "NOC", "KTOS"], 
     "PICK": ["BHP", "VALE", "RIO"],
     "CPER": ["FCX", "SCCO", "TECK"], "DBA": ["ADM", "BG", "TSN"]
 }
@@ -101,19 +99,12 @@ ASSET_NAMES = {
     "FCX": "自由港", "SCCO": "南方铜业", "TECK": "泰克资源", "ADM": "阿彻丹尼尔斯", "BG": "邦吉", "TSN": "泰森食品"
 }
 
-# ==========================================
-# 🧱 块级强覆盖区 (Page 1)：废弃本地散装下载，强行挂载 SSOT 统一缓存
-# ==========================================
-from api_client import get_global_data
-
-# 架构师级缓存对齐：将所有资产合并并进行 A-Z 绝对排序，生成全域唯一的 Cache Key
 MACRO_ASSETS_ALL = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "XLI", "KRE", "GLD", "XLK"]
 UNIVERSAL_TICKERS = list(set(ALL_TICKERS + MACRO_ASSETS_ALL + list(TIC_MAP.keys()) + list(REGIME_MAP.keys())))
-UNIVERSAL_TICKERS.sort() # 这一步是消除数据打架的魔法
+UNIVERSAL_TICKERS.sort() 
 
 with st.spinner("⏳ 正在与中央厨房建立数据量子纠缠 (SSOT)..."):
-    df = get_global_data(UNIVERSAL_TICKERS)
-# ==========================================
+    df = get_global_data(UNIVERSAL_TICKERS, years=4)
 
 if not df.empty and len(df) > 750:
     
@@ -141,12 +132,6 @@ if not df.empty and len(df) > 750:
     df_z = df_z.dropna()
     curr_clock_g = float(df_z['Growth'].iloc[-1]) if len(df_z) > 0 else 0.0
     curr_clock_i = float(df_z['Inflation'].iloc[-1]) if len(df_z) > 0 else 0.0
-    
-    clock_regime = "未知"
-    if curr_clock_g > 0 and curr_clock_i > 0: clock_regime = "Overheat (过热/再通胀)"
-    elif curr_clock_g > 0 and curr_clock_i < 0: clock_regime = "Recovery (复苏/软着陆)"
-    elif curr_clock_g < 0 and curr_clock_i < 0: clock_regime = "Reflation (衰退/硬着陆)"
-    elif curr_clock_g < 0 and curr_clock_i > 0: clock_regime = "Stagflation (滞胀)"
 
     tlt_shy_diff = get_ret('TLT') - get_ret('SHY')
     hyg_ief_diff = get_ret('HYG') - get_ret('IEF')
@@ -189,7 +174,10 @@ if not df.empty and len(df) > 750:
     
     st.markdown("---")
     
-    st.markdown(f"### 🕰️ 宏观周期定位: <span style='color:#3498DB'>{clock_regime}</span>", unsafe_allow_html=True)
+    # 获取云端时钟状态以对齐显示
+    raw_probs, api_clock_regime = fetch_macro_scores(df)
+
+    st.markdown(f"### 🕰️ 宏观周期定位: <span style='color:#3498DB'>{api_clock_regime}</span>", unsafe_allow_html=True)
     
     col_clock, col_logic = st.columns([1.5, 1])
     
@@ -308,41 +296,45 @@ if not df.empty and len(df) > 750:
 
     st.header("3️⃣ 四大剧本推演 (The Four Horsemen)")
 
+    # 直接拿云端算好的权威数据，不再自己算！
+    prob_a = int(raw_probs.get("Soft", 0) * 100)
+    prob_b = int(raw_probs.get("Hot", 0) * 100)
+    prob_c = int(raw_probs.get("Stag", 0) * 100)
+    prob_d = int(raw_probs.get("Rec", 0) * 100)
+
+    # 架构师重构：白盒化展示，直接 return 拼装好的 HTML，不再需要计算任何分数 p
     def check(condition, desc_pass, desc_fail):
-        if condition: return f"<div class='ev-item'><span class='ev-pass'>✅</span> <span>{desc_pass}</span></div>", 1
-        else: return f"<div class='ev-item'><span class='ev-fail'>⚪</span> <span>{desc_fail}</span></div>", 0
+        if condition: return f"<div class='ev-item'><span class='ev-pass'>✅</span> <span>{desc_pass}</span></div>"
+        else: return f"<div class='ev-item'><span class='ev-fail'>⚪</span> <span>{desc_fail}</span></div>"
 
-    score_a = 0; items_a = []
-    r, p = check("Recovery" in clock_regime, "时钟指向复苏/软着陆", f"时钟不符 ({clock_regime})"); score_a+=p; items_a.append(r)
-    r, p = check("多头" in spy_status, "美股多头趋势 (SPY)", "美股趋势转弱"); score_a+=p; items_a.append(r)
-    r, p = check(get_ret('XLY') > get_ret('XLP'), "消费信心强 (XLY>XLP)", "消费防御占优"); score_a+=p; items_a.append(r)
-    r, p = check(get_ret('XLK') > 0, f"科技领涨 (+{get_ret('XLK'):.2f}%)", "科技走弱"); score_a+=p; items_a.append(r)
-    r, p = check(hyg_ief_diff > -0.5, "信用风险低 (HYG稳)", "信用利差走阔"); score_a+=p; items_a.append(r)
-    prob_a = int((score_a / 5) * 100)
-
-    score_b = 0; items_b = []
-    r, p = check("Overheat" in clock_regime, "时钟指向过热/再通胀", f"时钟不符 ({clock_regime})"); score_b+=p; items_b.append(r)
-    r, p = check(get_ret('CPER') > 0 or get_ret('USO') > 0, "大宗商品(铜/油)上涨", "大宗商品走弱"); score_b+=p; items_b.append(r)
-    r, p = check(get_ret('XLI') > get_ret('SPY'), "工业/制造跑赢大盘", "工业跑输大盘"); score_b+=p; items_b.append(r)
-    r, p = check(tip_ief_diff > 0, "通胀预期抬头 (TIP强)", "通胀预期平稳"); score_b+=p; items_b.append(r)
-    r, p = check(get_ret('KRE') > 0, "银行/金融活跃", "银行走弱"); score_b+=p; items_b.append(r)
-    prob_b = int((score_b / 5) * 100)
-
-    score_c = 0; items_c = []
-    r, p = check("Stagflation" in clock_regime, "时钟指向滞胀", f"时钟不符 ({clock_regime})"); score_c+=p; items_c.append(r)
-    r, p = check("熊平" in curve_shape, "曲线熊平 (加息抗通胀)", f"曲线形态不符 ({curve_shape})"); score_c+=p; items_c.append(r)
-    r, p = check(get_ret('GLD') > get_ret('SPY'), "黄金跑赢美股", "黄金未跑赢"); score_c+=p; items_c.append(r)
-    r, p = check(get_ret('VLUE') > get_ret('MTUM'), "价值跑赢成长", "成长跑赢价值"); score_c+=p; items_c.append(r)
-    r, p = check(get_ret('SPY') < 0, "股市下跌", "股市上涨"); score_c+=p; items_c.append(r)
-    prob_c = int((score_c / 5) * 100)
-
-    score_d = 0; items_d = []
-    r, p = check("Reflation" in clock_regime, "时钟指向衰退", f"时钟不符 ({clock_regime})"); score_d+=p; items_d.append(r)
-    r, p = check("牛陡" in curve_shape, "曲线牛陡 (衰退交易)", f"曲线形态不符 ({curve_shape})"); score_d+=p; items_d.append(r)
-    r, p = check(tlt_shy_diff > 1.5, "长债大涨 (避险)", "长债平淡"); score_d+=p; items_d.append(r)
-    r, p = check(get_ret('XLP') > get_ret('SPY'), "必选消费/公用抗跌", "防御板块未跑赢"); score_d+=p; items_d.append(r)
-    r, p = check(get_ret('HYG') < -1, "信用利差崩塌", "信用尚可"); score_d+=p; items_d.append(r)
-    prob_d = int((score_d / 5) * 100)
+    items_a = [
+        check("Recovery" in api_clock_regime, "时钟指向复苏/软着陆", f"时钟不符 ({api_clock_regime})"),
+        check("多头" in spy_status, f"美股多头趋势 (现价>MA20>MA60>MA120)", f"美股非多头 ({spy_status})"),
+        check(get_ret('XLY') > get_ret('XLP'), f"消费信心强 (XLY收益 > XLP)", f"消费防御占优 (XLY弱于XLP)"),
+        check(get_ret('XLK') > 0, f"科技领涨 (+{get_ret('XLK'):.1f}%)", f"科技走弱 ({get_ret('XLK'):.1f}%)"),
+        check(hyg_ief_diff > -0.5, f"信用风险低 (HYG-IEF利差: {hyg_ief_diff:.2f}%)", f"信用利差走阔 ({hyg_ief_diff:.2f}%)")
+    ]
+    items_b = [
+        check("Overheat" in api_clock_regime, "时钟指向过热/再通胀", f"时钟不符 ({api_clock_regime})"),
+        check(get_ret('CPER') > 0 or get_ret('USO') > 0, f"大宗商品上涨 (铜{get_ret('CPER'):.1f}%, 油{get_ret('USO'):.1f}%)", f"大宗走弱 (铜{get_ret('CPER'):.1f}%, 油{get_ret('USO'):.1f}%)"),
+        check(get_ret('XLI') > get_ret('SPY'), "工业/制造跑赢大盘 (XLI > SPY)", "工业跑输大盘"),
+        check(tip_ief_diff > 0, f"通胀预期抬头 (TIP-IEF: {tip_ief_diff:.2f}%)", f"通胀预期平稳 ({tip_ief_diff:.2f}%)"),
+        check(get_ret('KRE') > 0, f"银行/金融活跃 (+{get_ret('KRE'):.1f}%)", f"银行走弱 ({get_ret('KRE'):.1f}%)")
+    ]
+    items_c = [
+        check("Stagflation" in api_clock_regime, "时钟指向滞胀", f"时钟不符 ({api_clock_regime})"),
+        check("熊平" in curve_shape, f"曲线熊平 (短端利率上行抗通胀)", f"形态不符 ({curve_shape})"),
+        check(get_ret('GLD') > get_ret('SPY'), "黄金跑赢美股 (GLD > SPY)", "黄金未跑赢"),
+        check(get_ret('VLUE') > get_ret('MTUM'), "价值跑赢成长 (VLUE > MTUM)", "成长跑赢价值"),
+        check(get_ret('SPY') < 0, f"股市下跌 ({get_ret('SPY'):.1f}%)", f"股市坚挺 (+{get_ret('SPY'):.1f}%)")
+    ]
+    items_d = [
+        check("Reflation" in api_clock_regime, "时钟指向衰退", f"时钟不符 ({api_clock_regime})"),
+        check("牛陡" in curve_shape, f"曲线牛陡 (长债买盘汹涌/衰退交易)", f"形态不符 ({curve_shape})"),
+        check(tlt_shy_diff > 1.5, f"长债大涨避险 (TLT-SHY: {tlt_shy_diff:.2f}%)", f"长债平淡 ({tlt_shy_diff:.2f}%)"),
+        check(get_ret('XLP') > get_ret('SPY'), "必选消费/公用抗跌 (XLP > SPY)", "防御板块未跑赢"),
+        check(get_ret('HYG') < -1, f"信用利差崩塌 ({get_ret('HYG'):.1f}%)", f"信用尚可 ({get_ret('HYG'):.1f}%)")
+    ]
 
     c1, c2, c3, c4 = st.columns(4)
     with c1: st.markdown(f"<div class='scenario-card'><b>🌤️ 软着陆 ({prob_a}%)</b><div class='evidence-list'>{''.join(items_a)}</div></div>", unsafe_allow_html=True)
@@ -354,7 +346,6 @@ if not df.empty and len(df) > 750:
 
     st.header("4️⃣ 分场景实战推荐 (Sector & Stock Picks)")
     st.caption("穿透板块表面：当板块强势时，自动为您展开其底层三大权重龙头股进行精确制导。")
-    # 🔥 新增：白盒化除名声明 (The Excluded Mediocrity)
     with st.expander("🛡️ 白盒化声明：为什么 XLF, XLB, XLRE, XLY 等常见大宽基被系统剔除？"):
         st.markdown("""
         根据 **《Moltbot 白盒化设计第一基本法》**，本系统拒绝黑盒逻辑。以下传统宽基 ETF 因宏观特征不纯、弹性不足或逻辑冲突，已被剥夺“战术统帅”资格，由更锋利的特种部队替代：
@@ -384,13 +375,11 @@ if not df.empty and len(df) > 750:
                 is_active = ma20 > ma60
                 display_name = ASSET_NAMES.get(t, t)
                 
-                # 无论大类 ETF 是否强势，都先把它显示出来
                 if is_active: 
                     col.markdown(f"✅ **{t} ({display_name})**<br><span style='font-size:12px;color:#aaa'>Z: {z_score:.2f} | 强势</span>", unsafe_allow_html=True)
                 else: 
                     col.markdown(f"<span style='color:#555'>🔒 {t} ({display_name})</span><br><span style='font-size:12px;color:#444'>Z: {z_score:.2f} | 观察 (板块休整)</span>", unsafe_allow_html=True)
                 
-                # 【架构师更新】：强制向下穿透！就算 ETF 弱势，也必须把底下的个股亮出来，供主理人核对名单！
                 if t in TOP_HOLDINGS:
                     for sub_t in TOP_HOLDINGS[t]:
                         if sub_t in df.columns:
@@ -405,7 +394,6 @@ if not df.empty and len(df) > 750:
                             sub_m60 = float(sub_ts.rolling(60).mean().iloc[-1])
                             sub_icon = "🔥" if sub_m20 > sub_m60 else "⏱️"
                             
-                            # UI 细节：如果大板块弱势，底下的个股用半透明显示 (opacity: 0.4)，划清主次，但绝对不隐藏！
                             opacity_style = "opacity: 1.0;" if is_active else "opacity: 0.4;"
                             col.markdown(f"<div class='sub-ticker' style='{opacity_style}'>{sub_icon} <b>{sub_t}</b> ({ASSET_NAMES.get(sub_t, sub_t)}) | Z: {sub_z:.1f}</div>", unsafe_allow_html=True)
             except: continue
