@@ -37,27 +37,29 @@ st.title("🏦 首席投资官中枢 (CIO Dashboard)")
 st.caption("基于全局数据的全自动化配置组合：宏观概率分配 ➡️ 板块动量优选 ➡️ 龙头市值加权 ➡️ 净值回测")
 
 # ==========================================
-# 🧱 块级强覆盖区：修复参数丢失与数据源绝对对齐
+# 🧱 块级强覆盖区 (Page 6)：构建与 Page 1 绝对对齐的数据缓存键
 # ==========================================
-# 1. 扩充资产请求包：强行囊括 Page 1 中的所有时钟因子，确保底层 DataFrame 裁切(dropna)的日期与 Page 1 绝对一致！
 MACRO_ASSETS = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "XLI", "KRE", "GLD", "XLK"]
 all_pool_tickers = list(REGIME_MAP.keys())
-FULL_TICKERS = list(set(MACRO_ASSETS + all_pool_tickers))
 
-with st.spinner("⏳ 正在调用中央引擎进行全系推演..."):
-    df = get_global_data(FULL_TICKERS)
-    # 提前拉取元数据
+# 架构师级缓存对齐：生成和 Page 1 绝对相同的 A-Z 排序数组，强行命中同一个内存地址
+UNIVERSAL_TICKERS = list(set(MACRO_ASSETS + all_pool_tickers + list(TIC_MAP.keys())))
+UNIVERSAL_TICKERS.sort() 
+
+with st.spinner("⏳ 正在调用中央引擎进行全系推演 (SSOT)..."):
+    df = get_global_data(UNIVERSAL_TICKERS)
     meta_info = get_stock_metadata(all_pool_tickers)
 
 if df.empty or len(df) < 750:
     st.warning("⚠️ 数据拉取失败或数据长度不足，无法启动配置引擎。")
     st.stop()
 
-# 【架构师核心修复】：向后厨请求漏斗数据时，必须传入元数据和宏观叙事热度！否则股票缺少 10 分加成，将全军覆没导致 0 仓位。
+# 向后厨请求漏斗数据时，传入宏观叙事热度，恢复被抹除的 10 分加成！
 NARRATIVE_THEMES_HEAT = core_data.get("NARRATIVE_THEMES_HEAT", {})
 
 raw_probs, clock_regime = fetch_macro_scores(df)
 df_scores, _ = fetch_funnel_scores(df, all_pool_tickers, meta_info, NARRATIVE_THEMES_HEAT)
+# ==========================================
 
 REGIME_CN_MAP = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
 SECTOR_CN_MAP = {

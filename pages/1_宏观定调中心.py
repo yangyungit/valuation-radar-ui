@@ -101,27 +101,19 @@ ASSET_NAMES = {
     "FCX": "自由港", "SCCO": "南方铜业", "TECK": "泰克资源", "ADM": "阿彻丹尼尔斯", "BG": "邦吉", "TSN": "泰森食品"
 }
 
-@st.cache_data(ttl=3600*4)
-def get_strategy_data():
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=365*4)
-    try:
-        # 强制加入 SPY 进行对齐
-        download_list = list(set(ALL_TICKERS + ['SPY']))
-        data = yf.download(download_list, start=start_date, end=end_date, progress=False)['Close']
-        
-        # 【架构师终极纠偏】以 SPY 作为全系统的时间卡尺，强行剥离多余日期
-        if 'SPY' in data.columns:
-            spy_idx = data['SPY'].dropna().index
-            data = data.reindex(spy_idx)
-            
-        data = data.ffill()
-        return data
-    except Exception as e:
-        st.error(f"数据下载失败: {e}")
-        return pd.DataFrame()
+# ==========================================
+# 🧱 块级强覆盖区 (Page 1)：废弃本地散装下载，强行挂载 SSOT 统一缓存
+# ==========================================
+from api_client import get_global_data
 
-df = get_strategy_data()
+# 架构师级缓存对齐：将所有资产合并并进行 A-Z 绝对排序，生成全域唯一的 Cache Key
+MACRO_ASSETS_ALL = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "XLI", "KRE", "GLD", "XLK"]
+UNIVERSAL_TICKERS = list(set(ALL_TICKERS + MACRO_ASSETS_ALL + list(TIC_MAP.keys()) + list(REGIME_MAP.keys())))
+UNIVERSAL_TICKERS.sort() # 这一步是消除数据打架的魔法
+
+with st.spinner("⏳ 正在与中央厨房建立数据量子纠缠 (SSOT)..."):
+    df = get_global_data(UNIVERSAL_TICKERS)
+# ==========================================
 
 if not df.empty and len(df) > 750:
     
