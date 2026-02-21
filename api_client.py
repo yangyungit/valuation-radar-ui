@@ -9,7 +9,7 @@ import io
 # ==========================================
 # 1. 核心机密数据获取 (通过 API 向后厨请求)
 # ==========================================
-API_BASE_URL = "http://127.0.0.1:8000"
+API_BASE_URL = "https://valuation-radar.onrender.com"
 
 @st.cache_data(ttl=3600)
 def fetch_core_data():
