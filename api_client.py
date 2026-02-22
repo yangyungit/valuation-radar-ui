@@ -9,7 +9,15 @@ import io
 # ==========================================
 # 1. 核心机密数据获取 (通过 API 向后厨请求)
 # ==========================================
-API_BASE_URL = "https://valuation-radar.onrender.com"
+import os
+import platform
+
+# 自动判断当前是否为本地开发环境 (Mac系统自动判定为本地)
+# 这样当你推送到云端(Linux环境)时，会自动切回生产 API，不需要手动来回改代码了！
+if platform.system() == "Darwin" or os.environ.get("USE_LOCAL_API") == "true":
+    API_BASE_URL = "http://localhost:8000" 
+else:
+    API_BASE_URL = "https://valuation-radar.onrender.com"
 
 @st.cache_data(ttl=3600)
 def fetch_core_data():
@@ -33,7 +41,25 @@ def get_global_data(tickers, years=4):
     end_date = datetime.now()
     start_date = end_date - timedelta(days=365*years)
     try:
+        # 初次下载
         data = yf.download(tickers, start=start_date, end=end_date, progress=False)['Close']
+        
+        # 雅虎财经 API 经常对某些随机的 ticker 返回 None 导致报错，进行二次重试
+        if isinstance(data, pd.DataFrame):
+            missing_tickers = [t for t in tickers if t not in data.columns or data[t].isnull().all()]
+            if missing_tickers:
+                import time
+                time.sleep(1) # 停顿一下避免触发频控
+                retry_data = yf.download(missing_tickers, start=start_date, end=end_date, progress=False)
+                if 'Close' in retry_data:
+                    retry_close = retry_data['Close']
+                    if isinstance(retry_close, pd.Series) and len(missing_tickers) == 1:
+                        data[missing_tickers[0]] = retry_close
+                    elif isinstance(retry_close, pd.DataFrame):
+                        for t in missing_tickers:
+                            if t in retry_close.columns and not retry_close[t].isnull().all():
+                                data[t] = retry_close[t]
+
         data = data[data.index.dayofweek < 5] # 过滤周末
         return data.ffill().dropna(how='all')
     except Exception as e:
