@@ -61,7 +61,7 @@ TOP_HOLDINGS = {
     "XLK": ["AAPL", "MSFT", "NVDA"], "XLC": ["META", "GOOGL", "NFLX"],
     "SMH": ["TSM", "AVGO", "AMD"], "IGV": ["CRM", "ADBE", "INTU"],
     "XLE": ["XOM", "CVX", "COP"], "XLI": ["GE", "CAT", "HON"],
-    "XOP": ["EOG", "OXY", "PXD"], "OIH": ["SLB", "BKR", "HAL"],
+    "XOP": ["EOG", "OXY", "COP"], "OIH": ["SLB", "BKR", "HAL"],
     "GLD": ["NEM", "GOLD", "AEM"], "SLV": ["PAAS", "AG", "HL"],
     "XLV": ["LLY", "UNH", "JNJ", "PFE"], 
     "XLU": ["NEE", "DUK", "SO"],
@@ -90,7 +90,7 @@ ASSET_NAMES = {
     "AAPL": "苹果", "META": "Meta", "GOOGL": "谷歌", "NFLX": "奈飞", "TSM": "台积电", 
     "AVGO": "博通", "AMD": "超威", "CRM": "赛富时", "ADBE": "Adobe", "INTU": "直觉软件",
     "CVX": "雪佛龙", "COP": "康菲石油", "GE": "通用电气", "CAT": "卡特彼勒", "HON": "霍尼韦尔",
-    "EOG": "EOG能源", "OXY": "西方石油", "PXD": "先锋自然", "SLB": "斯伦贝谢", "BKR": "贝克休斯", "HAL": "哈里伯顿",
+    "EOG": "EOG能源", "OXY": "西方石油", "SLB": "斯伦贝谢", "BKR": "贝克休斯", "HAL": "哈里伯顿",
     "GOLD": "巴里克黄金", "AEM": "伊格尔矿业", "PAAS": "泛美白银", "AG": "First Majestic", "HL": "赫克拉",
     "LLY": "礼来", "UNH": "联合健康", "NEE": "新纪元能源", "DUK": "杜克能源", "SO": "南方公司",
     "PG": "宝洁", "USB": "美国合众银行", "PNC": "PNC金融", "TFC": "Truist",
@@ -116,8 +116,8 @@ if not df.empty and len(df) > 750:
         return 0.0
 
     df_calc = pd.DataFrame(index=df.index)
-    df_calc['Growth_Raw'] = df['XLY'] / df['XLP']
-    df_calc['Inflation_Raw'] = df['TIP'] / df['IEF']
+    df_calc['Growth_Raw'] = df.get('XLY', pd.Series(dtype=float)) / df.get('XLP', pd.Series(dtype=float))
+    df_calc['Inflation_Raw'] = df.get('TIP', pd.Series(dtype=float)) / df.get('IEF', pd.Series(dtype=float))
     
     df_calc['Growth_Smooth'] = df_calc['Growth_Raw'].rolling(window=20).mean()
     df_calc['Inflation_Smooth'] = df_calc['Inflation_Raw'].rolling(window=20).mean()
@@ -130,8 +130,8 @@ if not df.empty and len(df) > 750:
         df_z[col] = (df_calc[raw] - roll_mean) / roll_std
     
     df_z = df_z.dropna()
-    curr_clock_g = float(df_z['Growth'].iloc[-1]) if len(df_z) > 0 else 0.0
-    curr_clock_i = float(df_z['Inflation'].iloc[-1]) if len(df_z) > 0 else 0.0
+    curr_clock_g = float(df_z['Growth'].dropna().iloc[-1]) if len(df_z['Growth'].dropna()) > 0 else 0.0
+    curr_clock_i = float(df_z['Inflation'].dropna().iloc[-1]) if len(df_z['Inflation'].dropna()) > 0 else 0.0
 
     tlt_shy_diff = get_ret('TLT') - get_ret('SHY')
     hyg_ief_diff = get_ret('HYG') - get_ret('IEF')

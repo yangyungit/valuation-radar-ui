@@ -26,8 +26,21 @@ def fetch_core_data():
         response = requests.get(f"{API_BASE_URL}/api/v1/stock_pool_data", timeout=10)
         response.raise_for_status()
         return response.json()
+    except requests.exceptions.RequestException as e:
+        # 添加重试机制给 UI 更友好的体验
+        st.warning("⚠️ 正在尝试重新连接核心计算引擎...")
+        import time
+        time.sleep(2)
+        try:
+            response = requests.get(f"{API_BASE_URL}/api/v1/stock_pool_data", timeout=15)
+            response.raise_for_status()
+            return response.json()
+        except Exception as retry_e:
+            st.error(f"🚨 核心引擎彻底失联 (连接 {API_BASE_URL} 失败): {retry_e}")
+            st.info("💡 请确保您已经在另一个终端中执行了： `cd valuation-radar && source ../system/venv/bin/activate && python api_server.py`")
+            st.stop()
     except Exception as e:
-        st.error(f"🚨 核心引擎失联，API 请求失败: {e}")
+        st.error(f"🚨 发生未知错误: {e}")
         st.stop()
 
 # ==========================================
@@ -37,19 +50,38 @@ def fetch_core_data():
 # 为了减轻 API 服务器压力，公开数据的拉取可以直接在前端执行。
 @st.cache_data(ttl=3600*4)
 def get_global_data(tickers, years=4):
+    # #region agent log
+    import json
+    import time
+    def _write_debug_log(hypothesis_id, message, data):
+        log_path = "/Users/zhanghao/yangyun/Code_Projects/valuation-radar-ui/.cursor/debug.log"
+        log_entry = {
+            "id": f"log_{int(time.time()*1000)}_{hypothesis_id}",
+            "timestamp": int(time.time()*1000),
+            "location": "api_client.py:get_global_data",
+            "message": message,
+            "data": data,
+            "runId": "run2",
+            "hypothesisId": hypothesis_id
+        }
+        try:
+            with open(log_path, "a") as f:
+                f.write(json.dumps(log_entry) + "\n")
+        except Exception:
+            pass
+    t0 = time.time()
+    _write_debug_log("H1_slow", "Starting get_global_data", {"num_tickers": len(tickers) if tickers else 0})
+    # #endregion
     if not tickers: return pd.DataFrame()
     end_date = datetime.now()
     start_date = end_date - timedelta(days=365*years)
     try:
-        # 初次下载
         data = yf.download(tickers, start=start_date, end=end_date, progress=False)['Close']
-        
-        # 雅虎财经 API 经常对某些随机的 ticker 返回 None 导致报错，进行二次重试
         if isinstance(data, pd.DataFrame):
             missing_tickers = [t for t in tickers if t not in data.columns or data[t].isnull().all()]
             if missing_tickers:
-                import time
-                time.sleep(1) # 停顿一下避免触发频控
+                import time as mod_time
+                mod_time.sleep(1)
                 retry_data = yf.download(missing_tickers, start=start_date, end=end_date, progress=False)
                 if 'Close' in retry_data:
                     retry_close = retry_data['Close']
@@ -60,23 +92,55 @@ def get_global_data(tickers, years=4):
                             if t in retry_close.columns and not retry_close[t].isnull().all():
                                 data[t] = retry_close[t]
 
-        data = data[data.index.dayofweek < 5] # 过滤周末
-        return data.ffill().dropna(how='all')
+        data = data[data.index.dayofweek < 5]
+        data = data.reindex(columns=tickers)
+        res = data.ffill().dropna(how='all')
+        # #region agent log
+        _write_debug_log("H1_slow", "Finished get_global_data", {"duration_sec": time.time() - t0, "rows": len(res)})
+        # #endregion
+        return res
     except Exception as e:
+        # #region agent log
+        _write_debug_log("H1_slow", "Failed get_global_data", {"duration_sec": time.time() - t0, "error": str(e)})
+        # #endregion
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600*24)
 def get_stock_metadata(tickers):
     """获取市值等公开元数据 (FastInfo 加速版)"""
+    # #region agent log
+    import json
+    import time
+    def _write_debug_log(hypothesis_id, message, data):
+        log_path = "/Users/zhanghao/yangyun/Code_Projects/valuation-radar-ui/.cursor/debug.log"
+        log_entry = {
+            "id": f"log_{int(time.time()*1000)}_{hypothesis_id}",
+            "timestamp": int(time.time()*1000),
+            "location": "api_client.py:get_stock_metadata",
+            "message": message,
+            "data": data,
+            "runId": "run2",
+            "hypothesisId": hypothesis_id
+        }
+        try:
+            with open(log_path, "a") as f:
+                f.write(json.dumps(log_entry) + "\n")
+        except Exception:
+            pass
+    t0 = time.time()
+    _write_debug_log("H2_slow", "Starting get_stock_metadata", {"num_tickers": len(tickers)})
+    # #endregion
     metadata = {}
     for t in tickers:
         try:
             stock = yf.Ticker(t)
-            # 弃用极其缓慢的 .info，改用轻量级的 .fast_info，速度提升 10 倍
             mcap = stock.fast_info.get('marketCap', 1e10)
             metadata[t] = {"mcap": mcap}
         except:
             metadata[t] = {"mcap": 1e10}
+    # #region agent log
+    _write_debug_log("H2_slow", "Finished get_stock_metadata", {"duration_sec": time.time() - t0})
+    # #endregion
     return metadata
 
 
@@ -96,7 +160,7 @@ def fetch_macro_scores(df):
 
 
 
-def fetch_funnel_scores(df, tickers, meta_data, theme_heat_dict):
+def fetch_funnel_scores(df, tickers, meta_data, theme_heat_dict, macro_scores=None):
     """将沉重的公开数据和参数打包发给云端，换取打分结果"""
     try:
         payload = {
@@ -105,6 +169,8 @@ def fetch_funnel_scores(df, tickers, meta_data, theme_heat_dict):
             "meta_data": meta_data,
             "theme_heat_dict": theme_heat_dict
         }
+        if macro_scores is not None:
+            payload["macro_scores"] = macro_scores
         response = requests.post(f"{API_BASE_URL}/api/v1/calculate_funnel", json=payload, timeout=45)
         response.raise_for_status()
         data = response.json()

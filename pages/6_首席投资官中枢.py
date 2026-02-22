@@ -9,7 +9,6 @@ core_data = fetch_core_data()
 
 # 解包页面需要的字典
 TIC_MAP = core_data.get("TIC_MAP", {})
-REGIME_MAP = core_data.get("REGIME_MAP", {})
 
 st.set_page_config(page_title="Moltbot 首席投资官中枢", layout="wide", page_icon="🏦")
 
@@ -49,7 +48,6 @@ MACRO_ASSETS = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "
 # 架构师级修复1：把主理人所有的自选股（A-E组）和宏观池全部加进来！否则漏斗无股可选！
 all_pool_tickers = []
 for lst in USER_GROUPS_DEF.values(): all_pool_tickers.extend(lst)
-for t in REGIME_MAP.keys(): all_pool_tickers.append(t)
 all_pool_tickers = list(set([t.strip().upper() for t in all_pool_tickers]))
 
 UNIVERSAL_TICKERS = list(set(MACRO_ASSETS + all_pool_tickers + list(TIC_MAP.keys())))
@@ -65,7 +63,7 @@ if df.empty or len(df) < 750:
     st.stop()
 
 raw_probs, clock_regime = fetch_macro_scores(df)
-df_scores, _ = fetch_funnel_scores(df, all_pool_tickers, meta_info, NARRATIVE_THEMES_HEAT)
+df_scores, _ = fetch_funnel_scores(df, all_pool_tickers, meta_info, NARRATIVE_THEMES_HEAT, macro_scores=raw_probs)
 
 REGIME_CN_MAP = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
 
@@ -93,75 +91,68 @@ if not df_scores.empty and normalized_regime_weights:
     df_scores['Ticker'] = df_scores['代码']       
     df_scores['MCAP']   = df_scores['代码'].map(lambda x: meta_info.get(x, {}).get('mcap', 1e9))
     
-    df_qualified = df_scores[df_scores['Score'] >= 60] 
+    # V14：淘汰死因包含特定关键词的标的被剔除
+    df_qualified = df_scores[~df_scores['状态'].str.contains("🌋|❄️|⚠️")].copy() if '状态' in df_scores.columns else df_scores.copy()
 # ==========================================
-# 🧱 覆盖区结束
+# 🧱 V14 宏观降维打击与分级精排
 # ==========================================
+    dom_regime = max(raw_probs, key=raw_probs.get) if raw_probs else "Soft"
+    dom_regime_cn = REGIME_CN_MAP.get(dom_regime, dom_regime)
+
+    ALLOCATION_MAP = {
+        "Soft": {"A": 0.10, "B": 0.20, "C": 0.50, "D": 0.20}, # 复苏期(软着陆)：C占主导，进攻
+        "Hot":  {"A": 0.05, "B": 0.25, "C": 0.40, "D": 0.30}, # 再通胀：C和D主导，极度进攻
+        "Stag": {"A": 0.40, "B": 0.40, "C": 0.15, "D": 0.05}, # 滞胀：A和B主导，防御+抗通胀
+        "Rec":  {"A": 0.70, "B": 0.20, "C": 0.10, "D": 0.00}  # 衰退：A占绝对主导，极度防守
+    }
     
-    for regime, r_weight in normalized_regime_weights.items():
-        regime_cn = REGIME_CN_MAP.get(regime, regime)
-        step1_logs.append({"入选剧本": regime_cn, "原始胜率": f"{raw_probs[regime]*100:.0f}%", "分配底仓权重": r_weight * 100})
+    tier_weights = ALLOCATION_MAP.get(dom_regime, {"A": 0.25, "B": 0.25, "C": 0.25, "D": 0.25})
+    
+    step1_logs.append({
+        "当前主导宏观剧本": dom_regime_cn, 
+        "剧本确信度": f"{raw_probs.get(dom_regime, 0)*100:.0f}%", 
+        "资金天平 (A:B:C:D)": f"{tier_weights['A']*100:.0f}% : {tier_weights['B']*100:.0f}% : {tier_weights['C']*100:.0f}% : {tier_weights['D']*100:.0f}%"
+    })
+    
+    for tier, weight in tier_weights.items():
+        if weight <= 0: continue
         
-        regime_stocks = df_qualified[df_qualified['Regime'] == regime].copy()
+        tier_stocks = df_qualified[df_qualified['Tier'] == tier].copy() if 'Tier' in df_qualified.columns else pd.DataFrame()
         
-        if regime_stocks.empty: 
-            step2_logs.append({"归属剧本": regime_cn, "突围板块": "🛡️ 现金防守", "板块最高动量(Molt)": 0.0})
-            alloc_pct = r_weight * 100
+        if tier_stocks.empty: 
+            step2_logs.append({"归属剧本": dom_regime_cn, "突围板块": f"{tier}级防守", "板块最高动量(Molt)": 0.0})
+            alloc_pct = weight * 100
             portfolio.append({
-                "宏观剧本": regime_cn, "所属板块": "现金/短债", "标的代码": "CASH",
-                "名称": "避险现金", "市值规模": 1e12, 
+                "宏观剧本": dom_regime_cn, "所属板块": "现金/短债", "标的代码": "CASH",
+                "名称": f"{tier}级避险现金", "市值规模": 1e12, 
                 "Molt评分": 0.0, "配置仓位": alloc_pct 
             })
-            narrative = f"🛑 <b>风控归因 [CASH 避险现金]：</b> 系统虽以 {raw_probs[regime]*100:.0f}% 的确信度确认了<b>【{regime_cn}】</b>风险，但在执行底层漏斗扫描时，发现该剧本下的候选资产均已触发【🌋估值熔断】或动量破位。基于严格的资管风控法则，系统拒绝高位接盘，强制将这笔 <b>{alloc_pct:.1f}%</b> 的仓位截留为现金防守。<b>战略意义：</b>保留子弹，规避高位泡沫破裂带来的回撤，等待均值回归后捡拾带血筹码。"
+            narrative = f"🛑 <b>风控归因 [{tier}级空仓现金]：</b> 当前【{dom_regime_cn}】剧本为 {tier} 级资产分配了 {alloc_pct:.0f}% 仓位，但在执行底层漏斗扫描时，发现该级别的所有候选资产均已触发估值熔断或动量破位。系统拒绝高位接盘，强制截留为现金防守。"
             reasoning_logs.append(narrative)
             continue
             
-        sector_scores = regime_stocks.groupby('Sector')['Score'].max().sort_values(ascending=False)
-        top_2_sectors = sector_scores.head(2).index.tolist()
+        # V14：直接取该 Tier 得分最高的前两名
+        top_stocks = tier_stocks.sort_values('Score', ascending=False).head(2)
+        top_names = [f"{row['Ticker']}({row['Score']:.1f})" for _, row in top_stocks.iterrows()]
+        step2_logs.append({"归属剧本": dom_regime_cn, "突围板块": f"{tier} 级精选", "板块最高动量(Molt)": round(top_stocks['Score'].max(), 1)})
         
-        for sector in top_2_sectors:
-            step2_logs.append({"归属剧本": regime_cn, "突围板块": sector, "板块最高动量(Molt)": round(sector_scores[sector], 1)})
+        total_mcap = top_stocks['MCAP'].sum()
+        
+        for _, row in top_stocks.iterrows():
+            stock_weight = weight * (row['MCAP'] / total_mcap) if total_mcap > 0 else weight / len(top_stocks)
+            ticker = row['Ticker']
+            cn_name = TIC_MAP.get(ticker, ticker)
+            molt = round(row['Score'], 1)
+            alloc_pct = stock_weight * 100
             
-            sector_weight = r_weight / len(top_2_sectors)
-            sector_stocks = regime_stocks[regime_stocks['Sector'] == sector].sort_values('Score', ascending=False).head(2)
-            total_mcap = sector_stocks['MCAP'].sum()
+            portfolio.append({
+                "宏观剧本": dom_regime_cn, "所属板块": row['Sector'], "标的代码": ticker,
+                "名称": cn_name, "市值规模": row['MCAP'], 
+                "Molt评分": molt, "配置仓位": alloc_pct 
+            })
             
-            all_comp_df = df_scores[(df_scores['Regime'] == regime) & (df_scores['Sector'] == sector)].sort_values('Score', ascending=False)
-            comp_list = all_comp_df['Ticker'].tolist()
-            
-            for _, row in sector_stocks.iterrows():
-                stock_weight = sector_weight * (row['MCAP'] / total_mcap) if total_mcap > 0 else sector_weight / len(sector_stocks)
-                ticker = row['Ticker']
-                cn_name = TIC_MAP.get(ticker, ticker)
-                molt = round(row['Score'], 1)
-                alloc_pct = stock_weight * 100
-                
-                portfolio.append({
-                    "宏观剧本": regime_cn, "所属板块": sector, "标的代码": ticker,
-                    "名称": cn_name, "市值规模": row['MCAP'], 
-                    "Molt评分": molt, "配置仓位": alloc_pct 
-                })
-                
-                try:
-                    my_idx = comp_list.index(ticker)
-                    defeated_list = comp_list[my_idx+1:]
-                except:
-                    defeated_list = []
-                    my_idx = 0
-                    
-                if defeated_list:
-                    d_names = [f"{p} {TIC_MAP.get(p, p)}" for p in defeated_list[:2]]
-                    d_str = "、".join(d_names)
-                    if len(defeated_list) > 2: d_str += " 等"
-                    defeat_text = f"击败了同生态位的 <span style='color:#95A5A6'><b>[{d_str}]</b></span> 竞争者"
-                elif my_idx > 0:
-                    boss = comp_list[0]
-                    defeat_text = f"紧随龙头 <span style='color:#F1C40F'><b>[{boss} {TIC_MAP.get(boss, boss)}]</b></span> 携手突围"
-                else:
-                    defeat_text = "作为该生态位下唯一达标的稀缺标的，一枝独秀"
-                
-                narrative = f"🎯 <b>选股归因 [{ticker} {cn_name}]：</b> 系统以 {raw_probs[regime]*100:.0f}% 的高确信度确认了<b>【{regime_cn}】</b>风险，并在华尔街数据库中锁定该环境下动能最强的<b>【{sector}】</b>板块。在内部量化赛马中，该标的凭借 <b>{molt} 分</b> 的强悍多头均线与极佳的抗跌索提诺比率脱颖而出，{defeat_text}，成功斩获 <b>{alloc_pct:.1f}%</b> 的实战仓位。<b>战略意义：</b>{REGIME_NARRATIVE.get(regime_cn, '增强组合护城河')}。"
-                reasoning_logs.append(narrative)
+            narrative = f"🎯 <b>选股归因 [{ticker} {cn_name}] ({tier}级)：</b> 系统在【{dom_regime_cn}】宏观水温下，为 {tier} 级生态位注入资金。该标的凭借 <b>{molt} 分</b> 的同级最高评分脱颖而出，成功斩获 <b>{alloc_pct:.1f}%</b> 的实战仓位。"
+            reasoning_logs.append(narrative)
 
 df_portfolio = pd.DataFrame(portfolio)
 if not df_portfolio.empty:
@@ -292,7 +283,7 @@ if not df_portfolio.empty:
             """, unsafe_allow_html=True)
 
         with c_hedge:
-            regimes_str = " + ".join(list(set(item['入选剧本'] for item in step1_logs)))
+            regimes_str = " + ".join(list(set(item['当前主导宏观剧本'] for item in step1_logs)))
             st.markdown(f"""
             <div class='hedge-box'>
             <h4 style='color:#2ECC71; margin-top:0px;'>🛡️ 对冲保护归因 (Hedge Protection)</h4>
