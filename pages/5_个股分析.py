@@ -2,23 +2,12 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
-import numpy as np
-from datetime import datetime, timedelta
-
-# --- 架构师注释: 个股深度猎杀 v13.9 ---
-# 1. 同步接入 MACRO_TAGS_MAP 实现多重宏观分组穿透映射。
-
 from api_client import fetch_core_data
 
-# 动态向云端 API 请求核心机密数据
 core_data = fetch_core_data()
 
 TIC_MAP = core_data.get("TIC_MAP", {})
 ASSET_CN_DB = core_data.get("ASSET_CN_DB", {})
-REGIME_MAP = core_data.get("REGIME_MAP", {})
-USER_GROUPS_DEF = core_data.get("USER_GROUPS_DEF", {})
-MACRO_TAGS_MAP = core_data.get("MACRO_TAGS_MAP", {})
-SECTOR_MAP = core_data.get("SECTOR_MAP", {})
 
 st.set_page_config(page_title="个股深度猎杀", layout="wide", page_icon="🎯")
 
@@ -38,147 +27,51 @@ st.markdown("""
 st.title("🎯 Layer 5: 个股深度猎杀 (Deep Dive)")
 st.caption("核心逻辑：接收 Page 4 竞技场赛道冠军 ➡️ 筹码结构(POC)精准打击 ➡️ 寻找绝佳盈亏比入场点")
 
-@st.cache_data(ttl=3600*4)
-def get_current_macro_regime():
-    try:
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=365*4)
-        df_clock = yf.download(['XLY', 'XLP', 'TIP', 'IEF'], start=start_date, end=end_date, progress=False)['Close'].ffill()
-        df_calc = pd.DataFrame(index=df_clock.index)
-        df_calc['Growth_Raw'] = df_clock['XLY'] / df_clock['XLP']
-        df_calc['Inflation_Raw'] = df_clock['TIP'] / df_clock['IEF']
-        df_calc['Growth_Smooth'] = df_calc['Growth_Raw'].rolling(20).mean()
-        df_calc['Inflation_Smooth'] = df_calc['Inflation_Raw'].rolling(20).mean()
-        df_z = pd.DataFrame(index=df_calc.index)
-        for col, raw in [('Growth', 'Growth_Smooth'), ('Inflation', 'Inflation_Smooth')]:
-            roll_mean = df_calc[raw].rolling(window=750).mean()
-            roll_std = df_calc[raw].rolling(window=750).std()
-            df_z[col] = (df_calc[raw] - roll_mean) / roll_std
-        df_z = df_z.dropna()
-        if len(df_z) == 0: return "Soft"
-        g, i = float(df_z['Growth'].iloc[-1]), float(df_z['Inflation'].iloc[-1])
-        if g > 0 and i > 0: return "Hot"
-        elif g > 0 and i < 0: return "Soft"
-        elif g < 0 and i < 0: return "Rec"
-        elif g < 0 and i > 0: return "Stag"
-        return "Soft"
-    except: return "Soft"
-
-# [核心修复] 使用多标签映射池
-MACRO_GROUPS_DEF = {
-    "E: 宏观软着陆 (Soft)": MACRO_TAGS_MAP.get("Soft", []),
-    "F: 宏观滞胀 (Stag)": MACRO_TAGS_MAP.get("Stag", []),
-    "G: 宏观衰退 (Rec)": MACRO_TAGS_MAP.get("Rec", []),
-    "H: 宏观再通胀 (Hot)": MACRO_TAGS_MAP.get("Hot", [])
-}
-ALL_GROUPS = {**USER_GROUPS_DEF, **MACRO_GROUPS_DEF}
-
-current_regime_code = get_current_macro_regime()
-regime_mapping = {"Soft": "E: 宏观软着陆 (Soft)", "Stag": "F: 宏观滞胀 (Stag)", "Rec": "G: 宏观衰退 (Rec)", "Hot": "H: 宏观再通胀 (Hot)"}
-default_macro_group = regime_mapping.get(current_regime_code, "E: 宏观软着陆 (Soft)")
-
-all_default_tickers = []
-for lst in USER_GROUPS_DEF.values(): all_default_tickers.extend(lst)
-for t in REGIME_MAP.keys(): all_default_tickers.append(t)
-full_ticker_list = list(set([t.strip().upper() for t in all_default_tickers]))
-
-@st.cache_data(ttl=3600*4)
-def _get_p5_data(tickers):
-    if not tickers: return pd.DataFrame()
-    try:
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=400)
-        data = yf.download(tickers, start=start_date, end=end_date, progress=False)['Close']
-        data = data[data.index.dayofweek < 5]
-        return data.ffill()
-    except: return pd.DataFrame()
-
-def run_funnel_scan(df_prices):
-    qualified = []
-    for t in df_prices.columns:
-        try:
-            s = df_prices[t].dropna()
-            if len(s) < 200: continue
-            
-            curr = float(s.iloc[-1])
-            ma20 = float(s.rolling(20).mean().iloc[-1])
-            ma60 = float(s.rolling(60).mean().iloc[-1])
-            ma200 = float(s.rolling(200).mean().iloc[-1])
-            
-            status = "震荡"
-            if curr > ma20 > ma60 > ma200: status = "🔥 主升浪"
-            elif curr < ma60: status = "❄️ 弱势/破位"
-            elif curr > ma200: status = "📈 多头趋势"
-            
-            if curr <= ma60: continue 
-
-            daily_ret = s.pct_change().dropna()
-            down_ret = daily_ret[daily_ret < 0]
-            if len(down_ret) > 0 and down_ret.std() != 0:
-                down_std = down_ret.std() * np.sqrt(252)
-                sortino = (daily_ret.mean() * 252) / down_std
-            else: sortino = 0.0
-            if pd.isna(sortino) or np.isinf(sortino): sortino = 0.0
-            
-            high_120 = float(s.rolling(120).max().iloc[-1])
-            risk = curr - ma60
-            reward = high_120 - curr
-            rr = reward / risk if risk > 0 else 0.0
-            if pd.isna(rr) or np.isinf(rr): rr = 0.0
-            
-            score = 0
-            if "主升" in status: score += 40
-            elif "多头" in status: score += 20
-            score += min(max(sortino, 0), 3) * 13.3 
-            score += min(max(rr, 0), 3) * 6.6       
-            
-            if score >= 60:
-                cn_name = TIC_MAP.get(t, t)
-                qualified.append({
-                    "label": f"{t} ({cn_name}) | 分数: {score:.1f}", 
-                    "ticker": t, "score": score
-                })
-        except: continue
-    qualified.sort(key=lambda x: x['score'], reverse=True)
-    return qualified
 
 with st.sidebar:
     st.header("🎯 猎杀目标选择")
-    selected_groups_list = st.multiselect(
-        "📂 锁定战术分组 (与 Page 2 同步):", 
-        list(ALL_GROUPS.keys()), default=[default_macro_group]
-    )
-    
-    target_tickers_subset = []
-    for g in selected_groups_list: target_tickers_subset.extend(ALL_GROUPS.get(g, []))
-    target_tickers_subset = list(set(target_tickers_subset))
-    
-    with st.spinner("同步全局资产与多重标签过滤..."):
-        raw_data = _get_p5_data(full_ticker_list)
-        if not raw_data.empty and target_tickers_subset:
-            valid_tickers = [t for t in target_tickers_subset if t in raw_data.columns]
-            df_subset = raw_data[valid_tickers]
-            candidates = run_funnel_scan(df_subset)
-        else: candidates = []
 
-    if candidates:
-        selected_label = st.selectbox("🏆 当前分组候选池:", [c['label'] for c in candidates])
-        auto_ticker = selected_label.split(" ")[0]
+    p4_arena_leaders = st.session_state.get("p4_arena_leaders", {})
+    p4_routed = st.session_state.get("p4_champion_ticker", "")
+
+    auto_ticker = ""
+    if p4_arena_leaders:
+        all_candidates = []
+        rank_labels = ["🥇", "🥈", "🥉"]
+        for c in ["A", "B", "C", "D"]:
+            entries = p4_arena_leaders.get(c, [])
+            for rank, entry in enumerate(entries):
+                medal = rank_labels[rank] if rank < 3 else ""
+                all_candidates.append({
+                    "label": f"{medal} {entry['ticker']} ({entry['name']}) | {c}级#{rank+1} {entry['score']:.0f}分",
+                    "ticker": entry["ticker"],
+                })
+
+        default_idx = 0
+        if p4_routed:
+            for i, cand in enumerate(all_candidates):
+                if cand["ticker"] == p4_routed:
+                    default_idx = i
+                    break
+
+        st.caption("📡 数据来源：Page 4 竞技场 Top 3 × 4 赛道")
+        selected_label = st.selectbox("🏆 赛道精英候选池:", [c["label"] for c in all_candidates], index=default_idx)
+        auto_ticker = selected_label.split(" ")[1]  # skip medal emoji, ticker is second token
+
+        if p4_routed:
+            st.info(f"🏆 竞技场直通：**{p4_routed}**")
+            if st.button("✖ 清除路由", key="clear_p4_route"):
+                del st.session_state["p4_champion_ticker"]
+                st.rerun()
     else:
-        auto_ticker = ""
-        if len(selected_groups_list) == 0: st.warning("请在上方选择战术分组！")
-        else: st.warning("该分组下当前无 Molt 分数 ≥ 60 的强多头标的。")
+        st.warning(
+            "尚未获取到竞技场冠军数据。\n\n"
+            "请先访问 **4 资产强筛** 页面，待各赛道评分完成后再返回此页。"
+        )
 
     st.markdown("---")
-    # ── Page 4 竞技场冠军直通路由 ────────────────────────────────
-    p4_routed = st.session_state.get("p4_champion_ticker", "")
-    if p4_routed:
-        st.info(f"🏆 竞技场直通：**{p4_routed}** (来自 Page 4 赛道冠军)")
-        if st.button("✖ 清除路由", key="clear_p4_route"):
-            del st.session_state["p4_champion_ticker"]
-            st.rerun()
     st.caption("手动越权查询 / 覆盖路由:")
-    manual_ticker = st.text_input("🔍 输入自定义代码:", value=p4_routed).upper()
+    manual_ticker = st.text_input("🔍 输入自定义代码:", value=p4_routed if p4_routed else "").upper()
     target_ticker = manual_ticker if manual_ticker else auto_ticker
     
     st.markdown("""

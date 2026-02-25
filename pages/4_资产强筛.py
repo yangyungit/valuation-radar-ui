@@ -483,6 +483,19 @@ def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
     top_score  = df_scored["竞技得分"].iloc[0] if n_total > 0 else 0.0
     avg_score  = df_scored["竞技得分"].mean()
 
+    if n_total > 0:
+        leaders = st.session_state.get("p4_arena_leaders", {})
+        leaders[cls] = [
+            {
+                "ticker": row["Ticker"],
+                "name":   row["名称"],
+                "score":  float(row["竞技得分"]),
+                "cls":    cls,
+            }
+            for _, row in df_scored.head(3).iterrows()
+        ]
+        st.session_state["p4_arena_leaders"] = leaders
+
     kpi_cols = st.columns(4)
     kpi_data = [
         ("参赛资产", f"{n_total}", "只"),
