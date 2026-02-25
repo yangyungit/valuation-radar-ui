@@ -32,10 +32,10 @@ CLASS_META = {
         "icon": "⚓",
         "color": "#3498DB",
         "update_freq": "月/季",
-        "criteria": "股息率(TTM) ≥ 3%  |  近1年最大回撤 < 15%  |  与 SPY 相关性 < 0.65",
+        "criteria": "（股息率 ≥ 1% 或 趋势健康）  |  近1年最大回撤 < 15%  |  与 SPY 相关性 < 0.65",
         "logic": (
-            "最严格的三重关卡，全部通过方可入列。高分红保障现金回报，"
-            "极低回撤控制尾部风险，低 SPY 相关性提供组合对冲价值。月/季度评估。"
+            "三重关卡，全部通过方可入列。收益来源灵活：有股息(≥1%)或均线趋势健康均认可，"
+            "回撤 < 20% 控制尾部风险，低 SPY 相关性提供组合对冲价值。月/季度评估。"
         ),
     },
     "B": {
@@ -186,17 +186,20 @@ def classify_asset(m: dict, div_yield: float, mcap: float) -> tuple:
         return "?", "数据不足，无法完成分拣", {}
 
     # ── A 级 ──────────────────────────────────────────────────────
-    a_div  = div_yield >= 3.0
-    a_dd   = m["max_dd"] < 15.0
-    a_corr = m["spy_corr"] < 0.65
+    # 收益入口灵活：有股息(≥1%)或均线趋势健康二选一
+    # 回撤与相关性保持严格：压舱石的核心护城河
+    a_income = div_yield >= 1.0 or m["is_bullish"]
+    a_dd     = m["max_dd"] < 15.0
+    a_corr   = m["spy_corr"] < 0.65
+    div_tag  = f"股息 {div_yield:.1f}%" if div_yield >= 1.0 else "趋势健康(无股息)"
     detail_a = {
-        "股息率(TTM)": (a_div,  f"{div_yield:.1f}%（需≥3%）"),
-        "1年最大回撤": (a_dd,   f"{m['max_dd']:.1f}%（需<15%）"),
-        "SPY相关性":  (a_corr, f"{m['spy_corr']:.2f}（需<0.65）"),
+        "收益来源(股息/趋势)": (a_income, f"{div_tag}（需股息≥1% 或 MA20>MA60）"),
+        "1年最大回撤":        (a_dd,     f"{m['max_dd']:.1f}%（需<15%）"),
+        "SPY相关性":          (a_corr,   f"{m['spy_corr']:.2f}（需<0.65）"),
     }
-    if a_div and a_dd and a_corr:
+    if a_income and a_dd and a_corr:
         reason = (
-            f"通过A级三重关卡：股息率 {div_yield:.1f}% ≥ 3%，"
+            f"通过A级三重关卡：{div_tag}，"
             f"1年最大回撤 {m['max_dd']:.1f}% < 15%，"
             f"SPY相关性 {m['spy_corr']:.2f} < 0.65（低相关，对冲价值高）"
         )
@@ -249,7 +252,7 @@ def classify_asset(m: dict, div_yield: float, mcap: float) -> tuple:
 
     # ── 未通过任何关卡 ─────────────────────────────────────────────
     fail_parts = []
-    if not a_div:  fail_parts.append(f"股息率仅{div_yield:.1f}%")
+    if not a_income:  fail_parts.append(f"股息率{div_yield:.1f}%且趋势走弱")
     if not a_dd:   fail_parts.append(f"回撤{m['max_dd']:.1f}%过大")
     if not b_mcap: fail_parts.append(f"市值${mcap/1e9:.0f}B不足")
     if not c_rs:   fail_parts.append(f"RS排名{m['rs_rank_pct']*100:.0f}%靠后")

@@ -32,28 +32,28 @@ st.markdown("""
 # ─────────────────────────────────────────────────────────────────
 CLASS_META: dict = {
     "A": {
-        "label": "A类：核心底仓",
-        "icon": "🌤️",
+        "label": "A级：压舱石",
+        "icon": "⚓",
         "color": "#2ECC71",
         "bg": "#0d2b1a",
     },
     "B": {
-        "label": "B类：主线动量",
-        "icon": "🔥",
+        "label": "B级：大猩猩",
+        "icon": "🦍",
         "color": "#F39C12",
         "bg": "#2b1e09",
     },
     "C": {
-        "label": "C类：周期拐点",
-        "icon": "🌧️",
+        "label": "C级：时代之王",
+        "icon": "👑",
         "color": "#E74C3C",
         "bg": "#2b0d0d",
     },
     "D": {
-        "label": "D类：防御收缩",
-        "icon": "❄️",
-        "color": "#3498DB",
-        "bg": "#0d1a2b",
+        "label": "D级：预备队",
+        "icon": "🚀",
+        "color": "#9B59B6",
+        "bg": "#1a0d2b",
     },
 }
 
@@ -63,69 +63,71 @@ CLASS_META: dict = {
 # ─────────────────────────────────────────────────────────────────
 ARENA_CONFIG: dict = {
     "A": {
-        "score_name": "护城河指数",
-        "weights": {"z_score": 0.35, "mom20": 0.35, "bullish": 0.30},
+        "score_name": "压舱石稳定指数",
+        "weights": {"bullish": 0.40, "z_score": 0.30, "mom20": 0.30},
         "invert_z": False,
         "factor_labels": {
-            "z_score": "估值溢价接受度 (Z↑)",
-            "mom20":   "成长动能 (Mom↑)",
-            "bullish": "趋势健康度 (MA20>MA60)",
+            "bullish": "低回撤防线 (MA结构坚实)",
+            "z_score": "派息可持续性 (估值稳健)",
+            "mom20":   "长周期索提诺 (平稳正向动能)",
         },
         "logic": (
-            "核心底仓的竞技逻辑：三维共振才是真护城河。"
-            "① 市场愿意持续支付估值溢价（Z-Score 正向，权重 35%）"
-            "② 成长动能持续兑现（20日动量强劲，权重 35%）"
-            "③ 均线结构健康（MA20 > MA60，权重 30%）。"
-            "三维共振的品种方为长期核心仓位的最优标的。"
+            "压舱石的竞技逻辑：稳定性远大于弹性，任何一项结构性恶化直接踢出。"
+            "① 低回撤防线（均线结构坚实 MA20 > MA60，代理最大回撤控制能力，权重 40%）"
+            "② 派息可持续性（估值稳健不过热，市场对现金流的长期定价，权重 30%）"
+            "③ 长周期索提诺（平稳正向动能，非爆发性脉冲，权重 30%）。"
+            "三维同时达标方为真正压舱石，任一维度结构性恶化即触发降级熔断。"
         ),
     },
     "B": {
-        "score_name": "动量强度指数",
-        "weights": {"z_score": 0.20, "mom20": 0.60, "bullish": 0.20},
+        "score_name": "大猩猩质量指数",
+        "weights": {"z_score": 0.35, "mom20": 0.35, "bullish": 0.30},
         "invert_z": False,
         "factor_labels": {
-            "z_score": "溢价基础 (Z↑)",
-            "mom20":   "资金流速 (Mom↑↑)",
-            "bullish": "趋势持续性",
+            "z_score": "护城河溢价 (市值/网络效应)",
+            "mom20":   "FCF 质量 (自由现金流动能)",
+            "bullish": "ROIC 持续性 (均线趋势代理)",
         },
         "logic": (
-            "主线动量的竞技逻辑：资金流速决定胜负。"
-            "再通胀/周期行情中，谁的资金吸附速度最快，谁就是主线。"
-            "20日动量拿下 60% 权重——在 B 类竞技场中，弱动量无优势可言。"
-            "估值基础（20%）与趋势延续性（20%）作为辅助筛选因子。"
+            "大猩猩的竞技逻辑：护城河宽度 × FCF 质量 × ROIC 持续性 = 真正的质量因子。"
+            "① 护城河溢价（市场愿意持续支付估值溢价，代理网络效应/定价权，权重 35%）"
+            "② FCF 质量（自由现金流持续流入反映在动量上，权重 35%）"
+            "③ ROIC 持续性（均线趋势健康代理长期资本回报率稳定性，权重 30%）。"
+            "估值合理性作为筛选门槛：Z-Score 极端异常时触发质量降级预警。"
         ),
     },
     "C": {
-        "score_name": "拐点爆发指数",
-        "weights": {"z_score_inv": 0.40, "mom20": 0.40, "bullish": 0.20},
-        "invert_z": True,
+        "score_name": "时代之王动量指数",
+        "weights": {"mom20": 0.50, "z_score": 0.25, "bullish": 0.25},
+        "invert_z": False,
         "factor_labels": {
-            "z_score_inv": "低估潜力 (-Z↓，剩余空间)",
-            "mom20":       "动能觉醒 (Mom↑)",
-            "bullish":     "趋势启动信号",
+            "mom20":   "RS 强度 (相对动量核心)",
+            "z_score": "叙事强度 (宏观剧本契合度)",
+            "bullish": "资金面确认 (主升浪信号)",
         },
         "logic": (
-            "周期拐点的竞技逻辑：最被低估 × 动能觉醒 = 最大爆发潜力。"
-            "① 低估潜力（Z-Score 反转取负值，Z 越低→剩余空间越大，权重 40%）"
-            "② 动能觉醒（20日动量开始转正，权重 40%）"
-            "③ 趋势启动信号（均线多头排列开始形成，权重 20%）。"
-            "【注意】该赛道估值因子为反向计分，Z 越低得分越高。"
+            "时代之王的竞技逻辑：宏观叙事 × 动量共振 × 资金确认 = 当前周期的主角。"
+            "① RS 强度（相对动量是时代之王的核心，20日动量领跑全场，权重 50%）"
+            "② 叙事强度（估值溢价代理市场对当前宏观剧本的定价共识，权重 25%）"
+            "③ 资金面确认（主升浪均线结构信号，MA20 > MA60 确认机构持续流入，权重 25%）。"
+            "【核心筛选】必须符合当前得分最高的宏观剧本，衰退期的强周期股不能入围。"
         ),
     },
     "D": {
-        "score_name": "防御稳定指数",
-        "weights": {"z_score": 0.25, "mom20": 0.30, "bullish": 0.45},
-        "invert_z": False,
+        "score_name": "预备队爆发指数",
+        "weights": {"mom20": 0.50, "z_score_inv": 0.30, "bullish": 0.20},
+        "invert_z": True,
         "factor_labels": {
-            "z_score": "估值合理度 (Z↑)",
-            "mom20":   "稳步上行动能",
-            "bullish": "趋势坚韧度 (MA结构)",
+            "mom20":       "右侧放量突破 (催化剂强度)",
+            "z_score_inv": "盈亏比 R:R (低估=更大上行空间)",
+            "bullish":     "右侧突破确认 (趋势启动信号)",
         },
         "logic": (
-            "防御收缩的竞技逻辑：稳定性优先于弹性，趋势坚韧是压舱石的核心属性。"
-            "均线趋势健康度拿下 45% 最高权重——衰退中仍保持 MA20 > MA60 的资产，"
-            "正是机构系统性避险再配置的核心标的。"
-            "稳步上行动能（30%）与估值合理度（25%）辅助筛选高性价比防御品种。"
+            "预备队的竞技逻辑：催化剂清晰度 × 右侧放量突破，规则大于判断，严守止损位。"
+            "① 右侧放量突破（近 20 天动量爆发是催化剂兑现的直接信号，权重 50%）"
+            "② 盈亏比 R:R（Z-Score 越低代表越大的上行空间，估值因子反向计分，权重 30%）"
+            "③ 右侧突破确认（均线开始金叉，主升浪启动信号，权重 20%）。"
+            "【注意】R:R 因子为反向计分，Z 越低得分越高，代表更佳的风险收益比。"
         ),
     },
 }
@@ -134,29 +136,28 @@ ARENA_CONFIG: dict = {
 #  演示模式 Mock 数据（当上游 Page 2 尚未运行时使用）
 # ─────────────────────────────────────────────────────────────────
 _MOCK_ASSETS: dict = {
-    # A类：核心底仓（软着陆/成长）
-    "AAPL":  {"cls": "A", "cn_name": "苹果",     "z_score":  1.2, "mom20":  8.5, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "MSFT":  {"cls": "A", "cn_name": "微软",     "z_score":  1.8, "mom20":  6.2, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "NVDA":  {"cls": "A", "cn_name": "英伟达",   "z_score":  2.4, "mom20": 18.3, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "GOOGL": {"cls": "A", "cn_name": "谷歌",     "z_score":  0.9, "mom20":  4.8, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "META":  {"cls": "A", "cn_name": "Meta",     "z_score":  1.5, "mom20": 11.2, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "AMZN":  {"cls": "A", "cn_name": "亚马逊",   "z_score":  0.7, "mom20":  3.1, "is_bullish": False, "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    # B类：主线动量（再通胀/周期）
-    "XLE":   {"cls": "B", "cn_name": "能源 ETF", "z_score":  0.4, "mom20":  7.3, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "XLI":   {"cls": "B", "cn_name": "工业 ETF", "z_score":  0.6, "mom20":  5.1, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "FCX":   {"cls": "B", "cn_name": "自由港",   "z_score": -0.2, "mom20":  9.8, "is_bullish": False, "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "GS":    {"cls": "B", "cn_name": "高盛",     "z_score":  0.8, "mom20":  3.5, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "CVX":   {"cls": "B", "cn_name": "雪佛龙",   "z_score":  0.2, "mom20": 12.4, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    # C类：周期拐点（滞胀/实物）
-    "GLD":   {"cls": "C", "cn_name": "黄金 ETF", "z_score":  0.3, "mom20":  2.1, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "SLV":   {"cls": "C", "cn_name": "白银 ETF", "z_score": -0.5, "mom20":  3.8, "is_bullish": False, "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "URA":   {"cls": "C", "cn_name": "铀矿 ETF", "z_score": -1.2, "mom20":  5.5, "is_bullish": False, "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "DBA":   {"cls": "C", "cn_name": "农产品 ETF","z_score": -0.8, "mom20":  1.3, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    # D类：防御收缩（衰退/防御）
-    "XLU":   {"cls": "D", "cn_name": "公用事业 ETF", "z_score":  0.1, "mom20":  1.5, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "XLP":   {"cls": "D", "cn_name": "必选消费 ETF", "z_score":  0.3, "mom20":  0.8, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "XLV":   {"cls": "D", "cn_name": "医疗健康 ETF", "z_score": -0.2, "mom20":  2.3, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "TLT":   {"cls": "D", "cn_name": "长期国债 ETF", "z_score": -0.8, "mom20":  3.1, "is_bullish": False, "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    # A级：压舱石（高股息/低回撤/抗跌）
+    "JNJ":   {"cls": "A", "cn_name": "强生",         "z_score":  0.4, "mom20":  2.1, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "KO":    {"cls": "A", "cn_name": "可口可乐",     "z_score":  0.6, "mom20":  1.8, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "PG":    {"cls": "A", "cn_name": "宝洁",         "z_score":  0.8, "mom20":  3.2, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "VZ":    {"cls": "A", "cn_name": "威瑞森",       "z_score": -0.3, "mom20":  0.9, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "XLU":   {"cls": "A", "cn_name": "公用事业 ETF", "z_score":  0.2, "mom20":  1.5, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    # B级：大猩猩（宽护城河/高FCF/ROIC优秀）
+    "AAPL":  {"cls": "B", "cn_name": "苹果",   "z_score":  1.2, "mom20":  8.5, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "MSFT":  {"cls": "B", "cn_name": "微软",   "z_score":  1.8, "mom20":  6.2, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "GOOGL": {"cls": "B", "cn_name": "谷歌",   "z_score":  0.9, "mom20":  4.8, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "META":  {"cls": "B", "cn_name": "Meta",   "z_score":  1.5, "mom20": 11.2, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "V":     {"cls": "B", "cn_name": "Visa",   "z_score":  1.1, "mom20":  5.5, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    # C级：时代之王（高动量/宏观剧本契合/主升浪）
+    "NVDA":  {"cls": "C", "cn_name": "英伟达",   "z_score":  2.4, "mom20": 18.3, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "AMZN":  {"cls": "C", "cn_name": "亚马逊",   "z_score":  0.7, "mom20": 12.1, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "GLD":   {"cls": "C", "cn_name": "黄金 ETF", "z_score":  0.3, "mom20":  9.2, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "XLE":   {"cls": "C", "cn_name": "能源 ETF", "z_score":  0.4, "mom20":  7.3, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    # D级：预备队（催化剂清晰/右侧放量突破/严格止损）
+    "FCX":   {"cls": "D", "cn_name": "自由港",   "z_score": -0.2, "mom20": 22.4, "is_bullish": False, "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "URA":   {"cls": "D", "cn_name": "铀矿 ETF", "z_score": -1.2, "mom20": 15.5, "is_bullish": False, "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "SLV":   {"cls": "D", "cn_name": "白银 ETF", "z_score": -0.5, "mom20": 18.8, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "CVX":   {"cls": "D", "cn_name": "雪佛龙",   "z_score":  0.2, "mom20": 12.4, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
 }
 
 # ─────────────────────────────────────────────────────────────────
@@ -172,9 +173,12 @@ def _minmax_norm(series: pd.Series) -> pd.Series:
 
 def compute_arena_scores(df: pd.DataFrame, cls: str) -> pd.DataFrame:
     """
-    在同类资产内部计算相对竞技得分。
-    - A/B/D：Z-Score 正向计分（高 Z = 市场认可）
-    - C：Z-Score 反向计分（低 Z = 剩余空间大 = 拐点爆发潜力高）
+    在同类资产内部计算相对竞技得分，完全由 ARENA_CONFIG 驱动。
+    factor_labels 的 key 决定计分源：
+      z_score     -> Z-Score 正向归一化
+      z_score_inv -> Z-Score 反向归一化（低Z=高分，适用 D 级 R:R 因子）
+      mom20       -> 20日动量正向归一化
+      bullish     -> 趋势健康 (True=100, False=0)
     返回按竞技得分降序排列的 DataFrame，含因子分解列。
     """
     if df.empty:
@@ -184,31 +188,30 @@ def compute_arena_scores(df: pd.DataFrame, cls: str) -> pd.DataFrame:
     w = cfg["weights"]
     result = df.copy()
 
-    z_norm = _minmax_norm(result["Z-Score"].astype(float))
-    m_norm = _minmax_norm(result["20日动量"].astype(float))
-    b_norm = result["趋势健康"].astype(float) * 100.0  # True=100, False=0
+    z_norm     = _minmax_norm(result["Z-Score"].astype(float))
+    z_inv_norm = _minmax_norm(-result["Z-Score"].astype(float))
+    m_norm     = _minmax_norm(result["20日动量"].astype(float))
+    b_norm     = result["趋势健康"].astype(float) * 100.0
 
-    f1_label = list(cfg["factor_labels"].keys())[0]
+    _source_map = {
+        "z_score":     z_norm,
+        "z_score_inv": z_inv_norm,
+        "mom20":       m_norm,
+        "bullish":     b_norm,
+    }
 
-    if cfg["invert_z"]:
-        # C 类：低 Z = 更大潜力，故取负值做归一化
-        z_inv_norm = _minmax_norm(-result["Z-Score"].astype(float))
-        w1 = w.get("z_score_inv", 0.40)
-        result["_f1"] = w1 * z_inv_norm
-    else:
-        w1 = w.get("z_score", 0.35)
-        result["_f1"] = w1 * z_norm
+    factor_keys = list(cfg["factor_labels"].keys())
+    total_score = pd.Series(0.0, index=result.index)
+    for fi, fkey in enumerate(factor_keys, start=1):
+        weight = w.get(fkey, 0.0)
+        contrib = weight * _source_map[fkey]
+        result[f"_f{fi}"] = contrib
+        total_score += contrib
 
-    w2 = w.get("mom20", 0.35)
-    w3 = w.get("bullish", 0.30)
-    result["_f2"] = w2 * m_norm
-    result["_f3"] = w3 * b_norm
-
-    result["竞技得分"] = (result["_f1"] + result["_f2"] + result["_f3"]).round(1)
-    result["因子1_分"] = result["_f1"].round(1)
-    result["因子2_分"] = result["_f2"].round(1)
-    result["因子3_分"] = result["_f3"].round(1)
-    result.drop(columns=["_f1", "_f2", "_f3"], inplace=True)
+    result["竞技得分"] = total_score.round(1)
+    for fi in range(1, len(factor_keys) + 1):
+        result[f"因子{fi}_分"] = result[f"_f{fi}"].round(1)
+        result.drop(columns=[f"_f{fi}"], inplace=True)
 
     result = result.sort_values("竞技得分", ascending=False).reset_index(drop=True)
     result["排名"] = range(1, len(result) + 1)
@@ -623,10 +626,10 @@ st.markdown("<br>", unsafe_allow_html=True)
 #  四大竞技场 Tabs
 # ─────────────────────────────────────────────────────────────────
 tab_a, tab_b, tab_c, tab_d = st.tabs([
-    "🌤️ A类：核心底仓",
-    "🔥 B类：主线动量",
-    "🌧️ C类：周期拐点",
-    "❄️ D类：防御收缩",
+    "⚓ A级：压舱石",
+    "🦍 B级：大猩猩",
+    "👑 C级：时代之王",
+    "🚀 D级：预备队",
 ])
 
 with tab_a:
