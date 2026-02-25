@@ -50,28 +50,6 @@ def fetch_core_data():
 # 为了减轻 API 服务器压力，公开数据的拉取可以直接在前端执行。
 @st.cache_data(ttl=3600*4)
 def get_global_data(tickers, years=4):
-    # #region agent log
-    import json
-    import time
-    def _write_debug_log(hypothesis_id, message, data):
-        log_path = "/Users/zhanghao/yangyun/Code_Projects/valuation-radar-ui/.cursor/debug.log"
-        log_entry = {
-            "id": f"log_{int(time.time()*1000)}_{hypothesis_id}",
-            "timestamp": int(time.time()*1000),
-            "location": "api_client.py:get_global_data",
-            "message": message,
-            "data": data,
-            "runId": "run2",
-            "hypothesisId": hypothesis_id
-        }
-        try:
-            with open(log_path, "a") as f:
-                f.write(json.dumps(log_entry) + "\n")
-        except Exception:
-            pass
-    t0 = time.time()
-    _write_debug_log("H1_slow", "Starting get_global_data", {"num_tickers": len(tickers) if tickers else 0})
-    # #endregion
     if not tickers: return pd.DataFrame()
     end_date = datetime.now()
     start_date = end_date - timedelta(days=365*years)
@@ -94,57 +72,39 @@ def get_global_data(tickers, years=4):
 
         data = data[data.index.dayofweek < 5]
         data = data.reindex(columns=tickers)
-        res = data.ffill().dropna(how='all')
-        # #region agent log
-        _write_debug_log("H1_slow", "Finished get_global_data", {"duration_sec": time.time() - t0, "rows": len(res)})
-        # #endregion
-        return res
+        return data.ffill().dropna(how='all')
     except Exception as e:
-        # #region agent log
-        _write_debug_log("H1_slow", "Failed get_global_data", {"duration_sec": time.time() - t0, "error": str(e)})
-        # #endregion
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600*24)
 def get_stock_metadata(tickers):
-    """获取市值等公开元数据 (FastInfo 加速版)"""
-    # #region agent log
-    import json
-    import time
-    def _write_debug_log(hypothesis_id, message, data):
-        log_path = "/Users/zhanghao/yangyun/Code_Projects/valuation-radar-ui/.cursor/debug.log"
-        log_entry = {
-            "id": f"log_{int(time.time()*1000)}_{hypothesis_id}",
-            "timestamp": int(time.time()*1000),
-            "location": "api_client.py:get_stock_metadata",
-            "message": message,
-            "data": data,
-            "runId": "run2",
-            "hypothesisId": hypothesis_id
-        }
+    """获取市值和近似股息率等公开元数据 (10线程并发 FastInfo 版)
+
+    div_yield 使用 lastDividendValue * 4 / price 近似年化；
+    月度付息资产会低估，已在 DEV_LOG 记录。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _fetch_one(t):
         try:
-            with open(log_path, "a") as f:
-                f.write(json.dumps(log_entry) + "\n")
+            fi = yf.Ticker(t).fast_info
+            mcap = fi.get('marketCap', 0) or 0
+            last_div = fi.get('lastDividendValue', 0) or 0
+            price = fi.get('regularMarketPrice', 0) or fi.get('previousClose', 1) or 1
+            div_yield = round(last_div * 4 / price * 100, 2) if (last_div > 0 and price > 0) else 0.0
+            return t, {"mcap": mcap, "div_yield": div_yield}
         except Exception:
-            pass
-    t0 = time.time()
-    _write_debug_log("H2_slow", "Starting get_stock_metadata", {"num_tickers": len(tickers)})
-    # #endregion
+            return t, {"mcap": 0, "div_yield": 0.0}
+
     metadata = {}
-    for t in tickers:
-        try:
-            stock = yf.Ticker(t)
-            mcap = stock.fast_info.get('marketCap', 1e10)
-            metadata[t] = {"mcap": mcap}
-        except:
-            metadata[t] = {"mcap": 1e10}
-    # #region agent log
-    _write_debug_log("H2_slow", "Finished get_stock_metadata", {"duration_sec": time.time() - t0})
-    # #endregion
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        for t, data in executor.map(_fetch_one, tickers):
+            metadata[t] = data
     return metadata
 
 
 
+@st.cache_data(ttl=3600)
 def fetch_macro_scores(df):
     """将公开 DataFrame 发送到云端，换取机密打分结果"""
     try:
@@ -160,6 +120,7 @@ def fetch_macro_scores(df):
 
 
 
+@st.cache_data(ttl=3600)
 def fetch_funnel_scores(df, tickers, meta_data, theme_heat_dict, macro_scores=None):
     """将沉重的公开数据和参数打包发给云端，换取打分结果"""
     try:

@@ -133,7 +133,6 @@ if not df_scores.empty and normalized_regime_weights:
             
         # V14：直接取该 Tier 得分最高的前两名
         top_stocks = tier_stocks.sort_values('Score', ascending=False).head(2)
-        top_names = [f"{row['Ticker']}({row['Score']:.1f})" for _, row in top_stocks.iterrows()]
         step2_logs.append({"归属剧本": dom_regime_cn, "突围板块": f"{tier} 级精选", "板块最高动量(Molt)": round(top_stocks['Score'].max(), 1)})
         
         total_mcap = top_stocks['MCAP'].sum()

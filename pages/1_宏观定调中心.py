@@ -3,8 +3,10 @@ import pandas as pd
 import yfinance as yf
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import numpy as np
 from datetime import datetime, timedelta
+import pandas_datareader.data as web
 from api_client import fetch_core_data, get_global_data, fetch_macro_scores
 
 # 1. 动态向云端 API 请求核心机密字典
@@ -99,9 +101,42 @@ ASSET_NAMES = {
     "FCX": "自由港", "SCCO": "南方铜业", "TECK": "泰克资源", "ADM": "阿彻丹尼尔斯", "BG": "邦吉", "TSN": "泰森食品"
 }
 
-MACRO_ASSETS_ALL = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "XLI", "KRE", "GLD", "XLK"]
+MACRO_ASSETS_ALL = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "XLI", "KRE", "GLD", "XLK", "RSP", "XLF", "XLB", "XLRE"]
 UNIVERSAL_TICKERS = list(set(ALL_TICKERS + MACRO_ASSETS_ALL + list(TIC_MAP.keys()) + list(REGIME_MAP.keys())))
 UNIVERSAL_TICKERS.sort() 
+
+@st.cache_data(ttl=3600*4)
+def get_liquidity_data():
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=3650)
+    try:
+        macro_codes = ['WALCL', 'WTREGEN', 'RRPONTSYD', 'BOGMBASE', 'M1SL', 'M2SL', 'CURRCIR', 'GFDEBTN']
+        df_macro = web.DataReader(macro_codes, 'fred', start_date, end_date)
+        df_macro = df_macro.resample('D').ffill()
+    except:
+        df_macro = pd.DataFrame()
+    try:
+        df_assets = yf.download(["SPY", "TLT", "GLD", "BTC-USD", "USO"], start=start_date, end=end_date, progress=False)['Close']
+        df_assets = df_assets.resample('D').ffill()
+    except:
+        df_assets = pd.DataFrame()
+    if not df_macro.empty and df_macro.index.tz is not None: df_macro.index = df_macro.index.tz_localize(None)
+    if not df_assets.empty and df_assets.index.tz is not None: df_assets.index = df_assets.index.tz_localize(None)
+    df_liq = pd.concat([df_macro, df_assets], axis=1).sort_index().ffill().dropna(how='all')
+    if not df_liq.empty:
+        if 'WALCL' in df_liq.columns: df_liq['Fed_Assets'] = df_liq['WALCL'] / 1000
+        if 'WTREGEN' in df_liq.columns: df_liq['TGA'] = df_liq['WTREGEN'] / 1000
+        if 'RRPONTSYD' in df_liq.columns: df_liq['RRP'] = df_liq['RRPONTSYD']
+        if 'M2SL' in df_liq.columns: df_liq['M2'] = df_liq['M2SL']
+        if 'M1SL' in df_liq.columns: df_liq['M1'] = df_liq['M1SL']
+        if 'BOGMBASE' in df_liq.columns: df_liq['M0'] = df_liq['BOGMBASE'] / 1000
+        if 'CURRCIR' in df_liq.columns: df_liq['Currency'] = df_liq['CURRCIR'] / 1000
+        if 'GFDEBTN' in df_liq.columns:
+            df_liq['Total_Debt'] = (df_liq['GFDEBTN'] / 1000).interpolate(method='linear')
+            df_liq['Fiscal_Injection'] = df_liq['Total_Debt'].diff(365)
+        if all(c in df_liq.columns for c in ['Fed_Assets', 'TGA', 'RRP']):
+            df_liq['Net_Liquidity'] = df_liq['Fed_Assets'] - df_liq['TGA'] - df_liq['RRP']
+    return df_liq
 
 with st.spinner("⏳ 正在与中央厨房建立数据量子纠缠 (SSOT)..."):
     df = get_global_data(UNIVERSAL_TICKERS, years=4)
@@ -430,6 +465,145 @@ if not df.empty and len(df) > 750:
     with col_pd:
         st.subheader("🔴 买入：衰退")
         render_picks_with_stocks(TARGETS_D, col_pd)
+
+    st.markdown("---")
+    st.header("5️⃣ 市场分化证据链 (Market Differentiation)")
+    st.caption("共振 (大家都一样) vs 分化 (只有少数人赢) — 结构性机会的早期预警")
+
+    sector_disp_cols = [t for t in ['XLK', 'XLF', 'XLV', 'XLY', 'XLP', 'XLE', 'XLI', 'XLB', 'XLU', 'XLRE', 'XLC'] if t in df.columns]
+    if 'RSP' in df.columns and len(sector_disp_cols) >= 5:
+        df_disp = df[['SPY', 'RSP'] + sector_disp_cols].dropna(how='all').copy()
+        spy_base = df_disp['SPY'].dropna().iloc[0]
+        rsp_base = df_disp['RSP'].dropna().iloc[0]
+        df_disp['SPY_Norm'] = (df_disp['SPY'] / spy_base - 1) * 100
+        df_disp['RSP_Norm'] = (df_disp['RSP'] / rsp_base - 1) * 100
+        df_disp['Dispersion'] = df_disp[sector_disp_cols].pct_change().std(axis=1) * 100
+        df_disp['Dispersion_MA20'] = df_disp['Dispersion'].rolling(20).mean()
+
+        c_d1, c_d2 = st.columns(2)
+        with c_d1:
+            st.markdown("**🛠️ 抱团指数：市值加权(红) vs 等权(蓝)**")
+            fig_d1 = go.Figure()
+            fig_d1.add_trace(go.Scatter(x=df_disp.index, y=df_disp['SPY_Norm'], name="SPY (市值) %", line=dict(color='#E74C3C', width=2)))
+            fig_d1.add_trace(go.Scatter(x=df_disp.index, y=df_disp['RSP_Norm'], name="RSP (等权) %", line=dict(color='#3498DB', width=2), fill='tonexty'))
+            fig_d1.update_layout(height=350, hovermode="x unified", legend=dict(orientation="h", y=1.1), plot_bgcolor='#111111', paper_bgcolor='#111111', font=dict(color='#ddd'))
+            st.plotly_chart(fig_d1, use_container_width=True)
+        with c_d2:
+            st.markdown("**🌊 板块离散度 (Dispersion)**")
+            fig_d2 = go.Figure()
+            fig_d2.add_trace(go.Scatter(x=df_disp.index, y=df_disp['Dispersion_MA20'], name="离散度 (MA20)", line=dict(color='#8E44AD', width=2), fill='tozeroy'))
+            fig_d2.add_hline(y=1.5, line_dash="dot", line_color="red", annotation_text="混乱")
+            fig_d2.add_hline(y=0.5, line_dash="dot", line_color="green", annotation_text="一致")
+            fig_d2.update_layout(height=350, hovermode="x unified", legend=dict(orientation="h", y=1.1), plot_bgcolor='#111111', paper_bgcolor='#111111', font=dict(color='#ddd'))
+            st.plotly_chart(fig_d2, use_container_width=True)
+
+    st.markdown("---")
+    st.header("6️⃣ 全球流动性大项 (Liquidity Machine)")
+    st.caption("数据来自美联储 FRED，首次加载约需 10-30 秒，加载后缓存 4 小时。")
+    if st.button("📡 加载流动性数据 (FRED)", key="load_liquidity"):
+        st.session_state["liquidity_loaded"] = True
+    if st.session_state.get("liquidity_loaded"):
+        df_liq = get_liquidity_data()
+        if not df_liq.empty and 'Net_Liquidity' in df_liq.columns:
+            tab_treemap, tab_waterfall, tab_corr = st.tabs(["🏰 市值时光机", "🏭 货币流水线", "📈 趋势叠加 (对决模式)"])
+
+            df_weekly = df_liq.resample('W-FRI').last().iloc[-52:]
+            latest_row_liq = df_liq.iloc[-1]
+
+            with tab_treemap:
+                ids = ["root","cat_source","cat_valve","cat_asset","m0","fed","m2","m1","m2_other","tga","rrp","spy","tlt","gld","btc","uso"]
+                parents = ["","root","root","root","cat_source","cat_source","cat_source","m2","m2","cat_valve","cat_valve","cat_asset","cat_asset","cat_asset","cat_asset","cat_asset"]
+                labels = ["全球资金池","Source","Valve","Asset","🌱 M0","🖨️ Fed","💰 M2","💧 M1","🏦 定存","👜 TGA","♻️ RRP","🇺🇸 SPY","📜 TLT","🥇 GLD","₿ BTC","🛢️ USO"]
+                colors = ["#333","#2E86C1","#8E44AD","#D35400","#1ABC9C","#5DADE2","#2980B9","#3498DB","#AED6F1","#AF7AC5","#AF7AC5","#E59866","#E59866","#E59866","#E59866","#E59866"]
+                LATEST_CAPS = {"M2": 22300, "SPY": 55000, "TLT": 52000, "GLD": 14000, "BTC-USD": 2500, "USO": 2000}
+                frames = []
+                steps = []
+                for date in df_weekly.index:
+                    date_str = date.strftime('%Y-%m-%d')
+                    row = df_weekly.loc[date]
+                    def get_val(col): return float(row.get(col, 0)) if not pd.isna(row.get(col)) else 0.0
+                    def get_asset_size(col):
+                        curr = get_val(col)
+                        last = float(latest_row_liq.get(col, 1))
+                        base = LATEST_CAPS.get(col, 100)
+                        return base * (curr / last) if last != 0 else base
+                    vals = {}
+                    vals['m0'] = get_val('M0'); vals['m1'] = get_val('M1'); vals['m2'] = get_val('M2'); vals['fed'] = get_val('Fed_Assets')
+                    vals['m2_other'] = max(0, vals['m2'] - vals['m1']); vals['m2'] = vals['m1'] + vals['m2_other']
+                    vals['tga'] = abs(get_val('TGA')); vals['rrp'] = abs(get_val('RRP'))
+                    vals['spy'] = get_asset_size('SPY'); vals['tlt'] = get_asset_size('TLT'); vals['gld'] = get_asset_size('GLD')
+                    vals['btc'] = get_asset_size('BTC-USD'); vals['uso'] = get_asset_size('USO')
+                    vals['cat_source'] = vals['m0'] + vals['fed'] + vals['m2']
+                    vals['cat_valve'] = vals['tga'] + vals['rrp']
+                    vals['cat_asset'] = vals['spy'] + vals['tlt'] + vals['gld'] + vals['btc'] + vals['uso']
+                    vals['root'] = vals['cat_source'] + vals['cat_valve'] + vals['cat_asset']
+                    final_values = [vals['root'],vals['cat_source'],vals['cat_valve'],vals['cat_asset'],vals['m0'],vals['fed'],vals['m2'],vals['m1'],vals['m2_other'],vals['tga'],vals['rrp'],vals['spy'],vals['tlt'],vals['gld'],vals['btc'],vals['uso']]
+                    text_list = [f"${v/1000:.1f}T" if v > 1000 else f"${v:,.0f}B" for v in final_values]
+                    frames.append(go.Frame(name=date_str, data=[go.Treemap(ids=ids, parents=parents, values=final_values, labels=labels, text=text_list, branchvalues="total")]))
+                    steps.append(dict(method="animate", args=[[date_str], dict(mode="immediate", frame=dict(duration=300, redraw=True), transition=dict(duration=300))], label=date_str))
+                if frames:
+                    fig_tree = go.Figure(
+                        data=[go.Treemap(ids=ids, parents=parents, labels=labels, values=frames[-1].data[0].values, text=frames[-1].data[0].text, textinfo="label+text", branchvalues="total", marker=dict(colors=colors), hovertemplate="<b>%{label}</b><br>%{text}<extra></extra>", pathbar=dict(visible=False))],
+                        frames=frames
+                    )
+                    fig_tree.update_layout(height=600, margin=dict(t=0,l=0,r=0,b=0), sliders=[dict(active=len(steps)-1, currentvalue={"prefix":"📅 历史: "}, pad={"t":50}, steps=steps)], updatemenus=[dict(type="buttons", showactive=False, visible=False)])
+                    st.plotly_chart(fig_tree, use_container_width=True)
+
+            with tab_waterfall:
+                available_dates = df_weekly.index.strftime('%Y-%m-%d').tolist()
+                sankey_date_str = st.select_slider("选择时间点：", options=available_dates, value=available_dates[-1], key="sankey_slider_p1")
+                curr_date = pd.to_datetime(sankey_date_str)
+                idx = df_liq.index.get_indexer([curr_date], method='pad')[0]
+                row = df_liq.iloc[idx]
+                fed_assets = float(row.get('Fed_Assets', 0)); tga = float(row.get('TGA', 0)); rrp = float(row.get('RRP', 0))
+                m0 = float(row.get('M0', 0)); currency = float(row.get('Currency', 0)); reserves = m0 - currency
+                m1 = float(row.get('M1', 0)); m2 = float(row.get('M2', 0))
+                fiscal_injection = float(row.get('Fiscal_Injection', 0)); bank_credit = m2 - currency - max(0, fiscal_injection)
+                spy_price = float(row.get('SPY', 0)); latest_spy_liq = float(latest_row_liq.get('SPY', 1))
+                asset_pool_base = 100000; asset_pool_curr = asset_pool_base * (spy_price / latest_spy_liq) if latest_spy_liq else asset_pool_base
+                valuation_leverage = asset_pool_curr - m2 * 0.5
+                label_list = [f"🏛️ 央行 (Fed)<br>${fed_assets/1000:.1f}T", f"🦅 财政部 (Fiscal)<br>赤字注入 ${fiscal_injection/1000:.1f}T/yr", f"🔒 损耗 (TGA/RRP)<br>${(tga+rrp)/1000:.1f}T", f"🌱 基础货币 (M0)<br>${m0/1000:.1f}T", f"💵 现金<br>${currency/1000:.1f}T", f"🏦 准备金<br>${reserves/1000:.1f}T", f"⚡ 银行信贷创造<br>+${bank_credit/1000:.1f}T", f"🌊 广义货币 (M2)<br>${m2/1000:.1f}T", f"📈 市场情绪溢价<br>+${valuation_leverage/1000:.1f}T", f"🏙️ 资产终局<br>${asset_pool_curr/1000:.1f}T"]
+                node_x = [0.001, 0.4, 0.2, 0.2, 0.4, 0.4, 0.4, 0.7, 0.7, 0.999]
+                node_y = [0.5, 0.1, 0.9, 0.4, 0.3, 0.6, 0.9, 0.5, 0.1, 0.5]
+                color_list = ["#F1C40F","#E74C3C","#8E44AD","#2ECC71","#1ABC9C","#95A5A6","#BDC3C7","#2E86C1","#BDC3C7","#E74C3C"]
+                fig_sankey = go.Figure(data=[go.Sankey(
+                    arrangement="snap",
+                    node=dict(pad=10, thickness=20, line=dict(color="black", width=0.5), label=label_list, color=color_list, x=node_x, y=node_y),
+                    link=dict(source=[0,0,3,3,4,6,1,7,7,8], target=[2,3,4,5,7,7,7,9,9,9], value=[tga+rrp, m0, currency, reserves, currency, bank_credit, max(0, fiscal_injection), m2*0.5, m2*0.5, valuation_leverage], label=["损耗","M0","现金","准备金","现金","信贷扩张","赤字支出","实体经济","金融分流","估值放大"], color=["#D7BDE2","#ABEBC6","#A2D9CE","#D5DBDB","#A2D9CE","#D5DBDB","#F5B7B1","#AED6F1","#AED6F1","#E6B0AA"])
+                )])
+                fig_sankey.update_layout(height=650, font=dict(size=14))
+                st.plotly_chart(fig_sankey, use_container_width=True)
+
+            with tab_corr:
+                st.markdown('##### 📈 寻找"鳄鱼嘴"：资金与资产的背离')
+                col_ctrl1, col_ctrl2 = st.columns([1, 3])
+                with col_ctrl1:
+                    lookback_days = st.selectbox("📅 观测周期", [365, 730, 1095, 1825, 3650], index=3, format_func=lambda x: f"过去 {x//365} 年", key="liq_lookback")
+                    chart_mode = st.radio("👀 观测模式", ["双轴叠加 (看背离)", "央行 vs 财政 (看对决)", "归一化跑分 (看强弱)"], index=1, key="liq_mode")
+                df_chart = df_liq.iloc[-lookback_days:].copy()
+                fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
+                if chart_mode == "双轴叠加 (看背离)":
+                    fig_trend.add_trace(go.Scatter(x=df_chart.index, y=df_chart['Net_Liquidity'], name="💧 净流动性 (左轴)", fill='tozeroy', line=dict(color='rgba(46, 204, 113, 0.5)', width=0)), secondary_y=False)
+                    fig_trend.add_trace(go.Scatter(x=df_chart.index, y=df_chart['SPY'], name="🇺🇸 美股 SPY (右轴)", line=dict(color='#E74C3C', width=2)), secondary_y=True)
+                    fig_trend.update_yaxes(title_text="净流动性 ($B)", secondary_y=False)
+                elif chart_mode == "央行 vs 财政 (看对决)":
+                    fig_trend.add_trace(go.Scatter(x=df_chart.index, y=df_chart['Fed_Assets'], name="🏛️ 美联储资产 (央行)", line=dict(color='#F1C40F', width=3)), secondary_y=False)
+                    fig_trend.add_trace(go.Scatter(x=df_chart.index, y=df_chart['Total_Debt'], name="🦅 美国国债总额 (财政)", line=dict(color='#E74C3C', width=3, dash='dash')), secondary_y=True)
+                    fig_trend.update_yaxes(title_text="美联储资产 (缩表) 📉", secondary_y=False)
+                    fig_trend.update_yaxes(title_text="美国国债总额 (扩表) 📈", secondary_y=True)
+                else:
+                    def normalize(series): return (series / series.dropna().iloc[0] - 1) * 100
+                    fig_trend.add_trace(go.Scatter(x=df_chart.index, y=normalize(df_chart['Net_Liquidity']), name="💧 净流动性 %", line=dict(color='#2ECC71', width=3)))
+                    fig_trend.add_trace(go.Scatter(x=df_chart.index, y=normalize(df_chart['Total_Debt']), name="🦅 国债总额 %", line=dict(color='#E74C3C', width=3, dash='dash')))
+                    fig_trend.add_trace(go.Scatter(x=df_chart.index, y=normalize(df_chart['SPY']), name="🇺🇸 美股 %", line=dict(color='#3498DB', width=2)))
+                    fig_trend.update_yaxes(title_text="累计涨跌幅 (%)")
+                fig_trend.update_layout(height=500, hovermode="x unified", legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"), margin=dict(t=0,l=10,r=10,b=10))
+                st.plotly_chart(fig_trend, use_container_width=True)
+                with col_ctrl2:
+                    if chart_mode == "央行 vs 财政 (看对决)":
+                        st.error("**🔥 宏观核心视角：** 红色线斜率 > 黄色线斜率 = 财政部的放水速度超过了美联储的抽水速度，这解释了为什么市场不缺钱。")
+        else:
+            st.info("⏳ 正在拉取美联储 FRED 流动性数据，首次加载约需 10-20 秒...")
 
 else:
     st.info("⏳ 正在计算宏观时钟与全证据链数据 (Fetching Data)...")

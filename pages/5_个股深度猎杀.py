@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 # --- 架构师注释: 个股深度猎杀 v13.9 ---
 # 1. 同步接入 MACRO_TAGS_MAP 实现多重宏观分组穿透映射。
 
-from api_client import fetch_core_data, get_global_data
+from api_client import fetch_core_data
 
 # 动态向云端 API 请求核心机密数据
 core_data = fetch_core_data()
@@ -35,8 +35,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Layer 3: 个股深度猎杀 (Deep Dive)")
-st.caption("核心逻辑：接收 Page 2 晋级标的 ➡️ 筹码结构(POC)精准打击 ➡️ 寻找绝佳盈亏比入场点")
+st.title("🎯 Layer 5: 个股深度猎杀 (Deep Dive)")
+st.caption("核心逻辑：接收 Page 4 竞技场赛道冠军 ➡️ 筹码结构(POC)精准打击 ➡️ 寻找绝佳盈亏比入场点")
 
 @st.cache_data(ttl=3600*4)
 def get_current_macro_regime():
@@ -83,7 +83,7 @@ for t in REGIME_MAP.keys(): all_default_tickers.append(t)
 full_ticker_list = list(set([t.strip().upper() for t in all_default_tickers]))
 
 @st.cache_data(ttl=3600*4)
-def get_global_data(tickers):
+def _get_p5_data(tickers):
     if not tickers: return pd.DataFrame()
     try:
         end_date = datetime.now()
@@ -154,7 +154,7 @@ with st.sidebar:
     target_tickers_subset = list(set(target_tickers_subset))
     
     with st.spinner("同步全局资产与多重标签过滤..."):
-        raw_data = get_global_data(full_ticker_list)
+        raw_data = _get_p5_data(full_ticker_list)
         if not raw_data.empty and target_tickers_subset:
             valid_tickers = [t for t in target_tickers_subset if t in raw_data.columns]
             df_subset = raw_data[valid_tickers]
@@ -162,7 +162,7 @@ with st.sidebar:
         else: candidates = []
 
     if candidates:
-        selected_label = st.selectbox("🏆 Page 2 晋级池映射:", [c['label'] for c in candidates])
+        selected_label = st.selectbox("🏆 当前分组候选池:", [c['label'] for c in candidates])
         auto_ticker = selected_label.split(" ")[0]
     else:
         auto_ticker = ""
@@ -170,14 +170,21 @@ with st.sidebar:
         else: st.warning("该分组下当前无 Molt 分数 ≥ 60 的强多头标的。")
 
     st.markdown("---")
-    st.caption("手动越权查询:")
-    manual_ticker = st.text_input("🔍 输入自定义代码:", "").upper()
+    # ── Page 4 竞技场冠军直通路由 ────────────────────────────────
+    p4_routed = st.session_state.get("p4_champion_ticker", "")
+    if p4_routed:
+        st.info(f"🏆 竞技场直通：**{p4_routed}** (来自 Page 4 赛道冠军)")
+        if st.button("✖ 清除路由", key="clear_p4_route"):
+            del st.session_state["p4_champion_ticker"]
+            st.rerun()
+    st.caption("手动越权查询 / 覆盖路由:")
+    manual_ticker = st.text_input("🔍 输入自定义代码:", value=p4_routed).upper()
     target_ticker = manual_ticker if manual_ticker else auto_ticker
     
     st.markdown("""
     <div class='formula-box'>
     <b>⚙️ 算法对齐说明:</b><br>
-    此系统已物理隔离周末时间轴，完美复刻 Page 2 的 252日均线法则。分数与排名将做到 100% 同步。
+    此系统已物理隔离周末时间轴，完美复刻 Page 3 的 252日均线法则。分数与排名将做到 100% 同步。
     </div>
     """, unsafe_allow_html=True)
 
