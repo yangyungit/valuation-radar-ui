@@ -210,7 +210,7 @@ def generate_deep_insight(df_group, group_name):
     return f"""
 <div class='insight-box'>
 <div class='insight-title'>🧠 深度归因 (Deep Insight): {group_name.split(':')[0]}</div>
-<div style='display:flex; justify-content:space-between; margin-bottom:10px'>
+<div style='display:flex; gap:24px; align-items:center; margin-bottom:10px; flex-wrap:wrap'>
 <div>🚀 领涨: {leader_html}</div>
 <div>🥀 领跌: {laggard_html}</div>
 </div>

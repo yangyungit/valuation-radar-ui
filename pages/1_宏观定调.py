@@ -52,7 +52,7 @@ st.markdown("""
 st.title("🧭 宏观定调中心 (Macro Regime Center)")
 st.caption("逻辑链：宏观底色/时钟 ➡️ **债市/因子 (可视化验证)** ➡️ **全证据链推演 (四象限裁决)**")
 
-CLOCK_ASSETS = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "SPY", "LQD"]
+CLOCK_ASSETS = ["XLY", "XLP", "XLI", "XLU", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "SPY", "LQD", "DBC"]
 FACTOR_ASSETS = ["MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG"]
 TARGETS_A = ["XLK", "XLC", "SMH", "IGV", "AIQ", "ITB", "XRT", "KWEB"] 
 TARGETS_B = ["XLE", "XLI", "XOP", "OIH", "CPER", "URA", "PAVE", "PICK", "KRE", "USO"] 
@@ -101,7 +101,7 @@ ASSET_NAMES = {
     "FCX": "自由港", "SCCO": "南方铜业", "TECK": "泰克资源", "ADM": "阿彻丹尼尔斯", "BG": "邦吉", "TSN": "泰森食品"
 }
 
-MACRO_ASSETS_ALL = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "XLI", "KRE", "GLD", "XLK", "RSP", "XLF", "XLB", "XLRE"]
+MACRO_ASSETS_ALL = ["XLY", "XLP", "XLI", "XLU", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "DBC", "KRE", "GLD", "XLK", "RSP", "XLF", "XLB", "XLRE"]
 UNIVERSAL_TICKERS = list(set(ALL_TICKERS + MACRO_ASSETS_ALL + list(TIC_MAP.keys()) + list(REGIME_MAP.keys())))
 UNIVERSAL_TICKERS.sort() 
 
@@ -138,8 +138,36 @@ def get_liquidity_data():
             df_liq['Net_Liquidity'] = df_liq['Fed_Assets'] - df_liq['TGA'] - df_liq['RRP']
     return df_liq
 
+@st.cache_data(ttl=3600*4)
+def get_clock_fred_data():
+    """Phase 1: 拉取 FRED 宏观官方数据，构建混合数据管道的官方侧。
+    - CPILFESL: 核心 CPI (月度)，计算 pct_change(12) 得到 YoY 同比增速
+    - BAMLH0A0HYM2: 高收益债信用利差 (日度，单位 %)
+    """
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=3650 + 400)  # 多拉 400 天，保证 pct_change(12) 有足够历史
+    try:
+        df_fred = web.DataReader(['CPILFESL', 'BAMLH0A0HYM2'], 'fred', start_date, end_date)
+        if df_fred.index.tz is not None:
+            df_fred.index = df_fred.index.tz_localize(None)
+        result = pd.DataFrame(index=df_fred.index)
+        if 'CPILFESL' in df_fred.columns:
+            result['Core_CPI_YoY'] = df_fred['CPILFESL'].pct_change(12) * 100
+        if 'BAMLH0A0HYM2' in df_fred.columns:
+            result['HY_Spread'] = df_fred['BAMLH0A0HYM2']
+        result = result.dropna(how='all').resample('D').ffill()
+        return result
+    except Exception:
+        return pd.DataFrame(columns=['Core_CPI_YoY', 'HY_Spread'])
+
 with st.spinner("⏳ 正在与中央厨房建立数据量子纠缠 (SSOT)..."):
     df = get_global_data(UNIVERSAL_TICKERS, years=4)
+
+with st.spinner("📡 正在接入 FRED 官方宏观数据管道 (Core CPI + HY Spread)..."):
+    df_fred_clock = get_clock_fred_data()
+    _fred_ok = not df_fred_clock.empty
+    if not _fred_ok:
+        st.warning("⚠️ FRED 数据暂时不可用，信用利差与核心CPI将降级为 ETF 代理指标。")
 
 if not df.empty and len(df) > 750:
     
@@ -150,23 +178,81 @@ if not df.empty and len(df) > 750:
                 return float((s.iloc[-1] / s.iloc[-1-days] - 1) * 100)
         return 0.0
 
-    df_calc = pd.DataFrame(index=df.index)
-    df_calc['Growth_Raw'] = df.get('XLY', pd.Series(dtype=float)) / df.get('XLP', pd.Series(dtype=float))
-    df_calc['Inflation_Raw'] = df.get('TIP', pd.Series(dtype=float)) / df.get('IEF', pd.Series(dtype=float))
-    
-    df_calc['Growth_Smooth'] = df_calc['Growth_Raw'].rolling(window=20).mean()
-    df_calc['Inflation_Smooth'] = df_calc['Inflation_Raw'].rolling(window=20).mean()
-    
     z_window = 750
-    df_z = pd.DataFrame(index=df_calc.index)
-    for col, raw in [('Growth', 'Growth_Smooth'), ('Inflation', 'Inflation_Smooth')]:
-        roll_mean = df_calc[raw].rolling(window=z_window).mean()
-        roll_std = df_calc[raw].rolling(window=z_window).std()
-        df_z[col] = (df_calc[raw] - roll_mean) / roll_std
-    
-    df_z = df_z.dropna()
-    curr_clock_g = float(df_z['Growth'].dropna().iloc[-1]) if len(df_z['Growth'].dropna()) > 0 else 0.0
-    curr_clock_i = float(df_z['Inflation'].dropna().iloc[-1]) if len(df_z['Inflation'].dropna()) > 0 else 0.0
+
+    def _zscore(series, window=z_window):
+        """750日滚动 Z-Score，防零除，保持原始 index。"""
+        mu = series.rolling(window=window).mean()
+        sigma = series.rolling(window=window).std()
+        return (series - mu) / sigma.where(sigma > 0)
+
+    # ── 横轴：经济增长复合 Z-Score (三引擎等权合成) ──────────────────
+    # 引擎1: 消费折现 XLY/XLP
+    z_consumer = _zscore(
+        (df['XLY'] / df['XLP'].replace(0, np.nan)).rolling(20).mean()
+    )
+    # 引擎2: 工业实体 XLI/XLU
+    z_industrial = _zscore(
+        (df['XLI'] / df['XLU'].replace(0, np.nan)).rolling(20).mean()
+    )
+    # 引擎3: 信用扩张 — FRED HY Spread 反转（利差↓=经济↑），降级则用 HYG/IEF
+    if _fred_ok and 'HY_Spread' in df_fred_clock.columns:
+        _hy_raw = df_fred_clock['HY_Spread'].reindex(df.index).ffill().rolling(20).mean()
+        z_credit = _zscore(_hy_raw) * -1
+        _credit_label = "FRED BAMLH0A0HYM2 利差 (反转)"
+    else:
+        _hy_raw = (df['HYG'] / df['IEF'].replace(0, np.nan)).rolling(20).mean()
+        z_credit = _zscore(_hy_raw)
+        _credit_label = "ETF代理 HYG/IEF (FRED降级)"
+
+    growth_z = pd.DataFrame({
+        'Z_consumer': z_consumer,
+        'Z_industrial': z_industrial,
+        'Z_credit': z_credit,
+    }).mean(axis=1)
+
+    # ── 纵轴：通胀复合 Z-Score (三引擎等权合成) ──────────────────────
+    # 引擎1: 聪明钱定价 TIP/IEF
+    z_tips = _zscore(
+        (df['TIP'] / df['IEF'].replace(0, np.nan)).rolling(20).mean()
+    )
+    # 引擎2: 大宗商品 DBC/IEF
+    z_commodity = _zscore(
+        (df['DBC'] / df['IEF'].replace(0, np.nan)).rolling(20).mean()
+    )
+    # 引擎3: 官方核心通胀 FRED CPILFESL YoY
+    _infl_components = {'Z_tips': z_tips, 'Z_commodity': z_commodity}
+    if _fred_ok and 'Core_CPI_YoY' in df_fred_clock.columns:
+        _cpi_raw = df_fred_clock['Core_CPI_YoY'].reindex(df.index).ffill()
+        z_cpi = _zscore(_cpi_raw)
+        _infl_components['Z_cpi'] = z_cpi
+        _cpi_label = "FRED CPILFESL 核心CPI YoY"
+    else:
+        _cpi_label = "N/A (FRED不可用，双引擎降级)"
+
+    inflation_z = pd.DataFrame(_infl_components).mean(axis=1)
+
+    # ── 合成时钟坐标序列 ─────────────────────────────────────────────
+    df_z = pd.DataFrame({'Growth': growth_z, 'Inflation': inflation_z}).dropna()
+    curr_clock_g = float(df_z['Growth'].iloc[-1]) if not df_z.empty else 0.0
+    curr_clock_i = float(df_z['Inflation'].iloc[-1]) if not df_z.empty else 0.0
+
+    # Phase 3: 象限裁决 — 优先判断"软着陆"中心区（双轴 Z 均在 ±0.5 以内）
+    if abs(curr_clock_g) < 0.5 and abs(curr_clock_i) < 0.5:
+        _quadrant_name = "🌤️ 软着陆 (Soft Landing)"
+        _quadrant_color = "#27AE60"
+    elif curr_clock_g > 0 and curr_clock_i > 0:
+        _quadrant_name = "🔥 过热 (Overheat)"
+        _quadrant_color = "#E74C3C"
+    elif curr_clock_g > 0 and curr_clock_i <= 0:
+        _quadrant_name = "🟢 复苏 (Recovery)"
+        _quadrant_color = "#2ECC71"
+    elif curr_clock_g <= 0 and curr_clock_i > 0:
+        _quadrant_name = "🌧️ 滞胀 (Stagflation)"
+        _quadrant_color = "#F1C40F"
+    else:
+        _quadrant_name = "❄️ 衰退/再通胀 (Reflation)"
+        _quadrant_color = "#3498DB"
 
     tlt_shy_diff = get_ret('TLT') - get_ret('SHY')
     hyg_ief_diff = get_ret('HYG') - get_ret('IEF')
@@ -231,7 +317,19 @@ if not df.empty and len(df) > 750:
     raw_probs, api_clock_regime = fetch_macro_scores(df)
 
     st.markdown(f"### 🕰️ 宏观周期定位: <span style='color:#3498DB'>{api_clock_regime}</span>", unsafe_allow_html=True)
-    
+
+    # Phase 3: 当前坐标与象限裁决横幅
+    st.markdown(f"""
+    <div style='background-color:#1a1a1a; border-left:4px solid {_quadrant_color}; border-radius:6px; padding:12px 18px; margin-bottom:12px; display:flex; align-items:center; gap:32px;'>
+        <div style='font-size:20px; font-weight:bold; color:{_quadrant_color};'>{_quadrant_name}</div>
+        <div style='font-size:13px; color:#ccc;'>
+            <b style='color:#3498DB;'>Growth Z</b> = <b>{curr_clock_g:+.2f}</b> &nbsp;|&nbsp;
+            <b style='color:#E67E22;'>Inflation Z</b> = <b>{curr_clock_i:+.2f}</b>
+        </div>
+        <div style='font-size:11px; color:#888; margin-left:auto;'>复合 Z-Score 窗口: 750日 (≈3年)</div>
+    </div>
+    """, unsafe_allow_html=True)
+
     col_clock, col_logic = st.columns([1.5, 1])
     
     with col_clock:
@@ -255,23 +353,27 @@ if not df.empty and len(df) > 750:
         st.plotly_chart(fig_clock, use_container_width=True)
 
     with col_logic:
-        st.markdown("#### 📐 模型逻辑 (Qualitative Logic)")
-        st.info(f"**当前坐标:** X(增长)={curr_clock_g:.2f} | Y(通胀)={curr_clock_i:.2f}")
-        
-        st.markdown("""
+        st.markdown("#### 🔬 多维复合引擎拆解 (White-Box)")
+        st.markdown(f"""
         <div class="formula-box">
-        <b>1. 📈 增长轴 (X轴) - 消费折现:</b><br>
-        通过对比 <code>可选消费(XLY)</code> 与 <code>必选消费(XLP)</code> 的相对强弱。<br>
-        <span style='color:#aaa; font-size:12px;'><i>逻辑：当经济向好时，居民更愿意借贷购买汽车等非刚需品；反之则退守牙膏可乐等必需品。数值向右代表经济动能扩张。</i></span>
+        <b style='color:#3498DB;'>📈 增长轴 (Growth Z = {curr_clock_g:+.2f})</b><br>
+        <span style='color:#aaa; font-size:12px;'>三引擎等权合成 → <code>( Z₁ + Z₂ + Z₃ ) / 3</code></span><br><br>
+        <b>① 消费折现引擎</b> <code>XLY / XLP</code><br>
+        <span style='color:#aaa;font-size:11px;'>可选消费 vs 必选消费。经济扩张时居民追逐非刚需，该比率上行。</span><br><br>
+        <b>② 工业实体引擎</b> <code>XLI / XLU</code><br>
+        <span style='color:#aaa;font-size:11px;'>工业生产 vs 防御公用事业。实体经济景气时制造业跑赢公用事业。</span><br><br>
+        <b>③ 信用扩张引擎</b> <code>{_credit_label}</code><br>
+        <span style='color:#aaa;font-size:11px;'>信用利差越窄 = 市场信心越足。FRED 利差已做方向反转（×−1）。</span>
         </div>
-        <div class="formula-box">
-        <b>2. 🎈 通胀轴 (Y轴) - 聪明钱定价:</b><br>
-        通过对比 <code>抗通胀债(TIP)</code> 与 <code>中期国债(IEF)</code> 的相对强弱。<br>
-        <span style='color:#aaa; font-size:12px;'><i>逻辑：当大资金预期物价飞涨时，会疯狂抢筹带有通胀保护条款的 TIP 避险。数值向上代表市场正在定价恶性通胀（当 Z-Score=0 时，代表预期已完美均值回归）。</i></span>
-        </div>
-        <div class="formula-box">
-        <b>3. 🎯 极值定位 (Z-Score):</b><br>
-        <span style='color:#aaa; font-size:12px;'><i>不看短期绝对涨跌，而是将当前斜率与<b>过去 3 年 (750日)</b> 的历史平均水位进行对比，过滤日常噪音，定位宏观极值点。</i></span>
+        <div class="formula-box" style="margin-top:8px;">
+        <b style='color:#E67E22;'>🎈 通胀轴 (Inflation Z = {curr_clock_i:+.2f})</b><br>
+        <span style='color:#aaa; font-size:12px;'>三引擎等权合成 → <code>( Z₁ + Z₂ + Z₃ ) / 3</code></span><br><br>
+        <b>① 聪明钱定价引擎</b> <code>TIP / IEF</code><br>
+        <span style='color:#aaa;font-size:11px;'>抗通胀债 vs 中期国债。大资金抢购 TIP 代表通胀预期抬头。</span><br><br>
+        <b>② 大宗商品引擎</b> <code>DBC / IEF</code><br>
+        <span style='color:#aaa;font-size:11px;'>广义实物资产 vs 法币债券。大宗溢价即通胀压力的实物证据。</span><br><br>
+        <b>③ 官方核心通胀引擎</b> <code>{_cpi_label}</code><br>
+        <span style='color:#aaa;font-size:11px;'>FRED 核心 CPI YoY（月度官方滞后数据，ffill 对齐市场时间轴）。</span>
         </div>
         """, unsafe_allow_html=True)
 
