@@ -2,6 +2,34 @@
 
 ---
 
+## 2026-02-26 | P3: Page 2 & Page 4 ABCD 色块可点击切换分组
+
+### 背景
+Page 2（资产粗筛）与 Page 4（同类资产竞技场）顶部的 ABCD 大色块视觉面积大、信息密度高，却不可交互；用户须点击色块下方另起一行的 `st.tabs` 小字 Tab 才能切换分组，造成明显的操作冗余与视觉割裂。
+
+### 改动
+
+**`pages/2_资产粗筛.py` / `pages/4_资产强筛.py`（两页同步）**
+
+- **交互层**：新增 `st.session_state["page2_selected_group"]` / `["page4_selected_group"]`（默认 `"A"`）维护当前选中组；每个色块下叠放一个空 label 的 `st.button(use_container_width=True)`，点击后更新 session_state 并 `st.rerun()`。
+- **视觉层**：色块恢复为原有 HTML 大卡片（图标 / 计数 / 标签 / 更新频率）；选中态加深背景色 + 2px 实线边框 + `box-shadow` 发光，未选中态降调，Python 逐帧动态生成。
+- **隐形覆盖技术**：注入 CSS 将 `div[data-testid='stButton']` 包装层高度压缩为 `height:0; position:relative`，内部 `button` 改为 `position:absolute; top:-Npx`，精准飞回上方色块，使整个卡片面积均可响应点击，视觉上无任何按钮痕迹。
+- **悬停反馈**：CSS `:has(button:hover)` 在鼠标悬浮时对目标列的 stMarkdownContainer 施加 `brightness(1.18) + translateY(-3px)`，呈现轻浮起效果。
+- **移除 `st.tabs`**：删除 `tab_labels` / `tabs = st.tabs(...)` 行；Page 2 的 `render_class_tab` 去掉 `with tab:` 上下文直接渲染；Page 4 的 `with tab_x:` 四块改为 `if _sel4 == "X":` 分支。
+
+### Debug 过程记录（关键坑）
+
+CSS 调试共经历三轮定位：
+
+1. **`div[data-testid='stMain']` 选不到任何元素**：经 `components.html` DOM 探针确认，当前 Streamlit 版本的主内容容器为 `section[data-testid='stMain']`（非 `div`），`div` 前缀导致选择器从第一个词就失效。
+2. **`:first-of-type` 选中错误元素**：页面上有 20+ 个 `stHorizontalBlock`，含侧边栏导航等非主内容元素，`:first-of-type` 命中的是一个 4 列纯 Markdown 块，ABCD 块实为 `blockIdx:1`。
+3. **最终选择器**：改用 `[data-testid='stMainBlockContainer']`（确认为 `div`）作为祖先限定，配合 `:has(> div:nth-child(N)):not(:has(> div:nth-child(N+1)))` 以列数唯一锁定目标块（Page 2 = 5 列，Page 4 = 4 列且含 stButton）。
+
+### 遗留与未来优化方向
+- [ ] CSS 选择器依赖 Streamlit 内部 DOM 结构（testid 命名），Streamlit 大版本升级时需重新验证选择器有效性。
+
+---
+
 ## 2026-02-26 | Page 4: 同类资产竞技场差异化打分因子 (P3)
 
 ### 背景

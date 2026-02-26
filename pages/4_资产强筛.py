@@ -670,35 +670,79 @@ if not rows:
 df_all = pd.DataFrame(rows).astype({"Z-Score": float, "20日动量": float})
 
 # ─────────────────────────────────────────────────────────────────
-#  全局概览横幅
+#  全局概览横幅（可点击切换竞技场）
 # ─────────────────────────────────────────────────────────────────
+if "page4_selected_group" not in st.session_state:
+    st.session_state["page4_selected_group"] = "A"
+
+_sel4 = st.session_state["page4_selected_group"]
+
+# CSS：隐形 button 叠在 HTML 大色块上方，捕获点击；:has() 实现悬停增亮
+_card4_h = 120
+_ABCD4 = ("[data-testid='stMainBlockContainer'] "
+          "div[data-testid='stHorizontalBlock']"
+          ":has(> div:nth-child(4)):not(:has(> div:nth-child(5)))"
+          ":has(div[data-testid='stButton'])")
+
+_hover4_css = []
+for _i4h in range(1, 5):
+    _hover4_css.append(
+        f"{_ABCD4} > div:nth-child({_i4h}):has(button:hover)"
+        f" div[data-testid='stMarkdownContainer'] > div {{"
+        f" filter:brightness(1.18)!important; transform:translateY(-3px)!important; }}"
+    )
+
+st.markdown(f"""
+<style>
+{_ABCD4} div[data-testid='stButton'] {{
+    height:0!important; position:relative!important; z-index:100!important;
+}}
+{_ABCD4} div[data-testid='stButton'] button {{
+    position:absolute!important; top:-{_card4_h}px!important;
+    left:0!important; right:0!important; height:{_card4_h}px!important;
+    opacity:0!important; cursor:pointer!important;
+    border:none!important; background:transparent!important;
+}}
+{_ABCD4} div[data-testid='stMarkdownContainer'] > div {{
+    transition: filter 0.15s ease, transform 0.15s ease;
+}}
+{chr(10).join(_hover4_css)}
+</style>
+""", unsafe_allow_html=True)
+
 overview_cols = st.columns(4)
 for i, cls in enumerate(["A", "B", "C", "D"]):
-    meta = CLASS_META[cls]
-    n = len(df_all[df_all["类别"] == cls])
+    meta     = CLASS_META[cls]
+    n        = len(df_all[df_all["类别"] == cls])
+    selected = (cls == _sel4)
+    color    = meta["color"]
+    bg       = f"{color}30" if selected else meta["bg"]
+    bdr      = f"2px solid {color}" if selected else f"1px solid {color}44"
+    glow     = f"0 0 14px {color}55" if selected else "none"
     with overview_cols[i]:
         st.markdown(f"""
-        <div style='background:{meta["bg"]}; border:1px solid {meta["color"]}44;
-                    border-radius:8px; padding:12px; text-align:center;'>
-            <div style='font-size:22px;'>{meta["icon"]}</div>
-            <div style='font-size:24px; font-weight:bold; color:{meta["color"]};'>{n}</div>
-            <div style='font-size:10px; color:#888;'>{meta["label"]}</div>
+        <div style='background:{bg}; border:{bdr}; box-shadow:{glow};
+                    border-radius:8px; padding:12px; text-align:center;
+                    height:{_card4_h}px; display:flex; flex-direction:column;
+                    justify-content:center; align-items:center; gap:4px;'>
+            <div style='font-size:24px;'>{meta["icon"]}</div>
+            <div style='font-size:26px; font-weight:bold; color:{color}; line-height:1.1;'>{n}</div>
+            <div style='font-size:11px; color:#bbb;'>{meta["label"]}</div>
         </div>
         """, unsafe_allow_html=True)
+        if st.button("", key=f"arena_btn_{cls}", use_container_width=True):
+            st.session_state["page4_selected_group"] = cls
+            st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
-#  四大竞技场 Tabs
+#  四大竞技场（由顶部色块控制，无 Tabs）
 # ─────────────────────────────────────────────────────────────────
-tab_a, tab_b, tab_c, tab_d = st.tabs([
-    "⚓ A级：压舱石",
-    "🦍 B级：大猩猩",
-    "👑 C级：时代之王",
-    "🚀 D级：预备队",
-])
 
-with tab_a:
+_sel4 = st.session_state["page4_selected_group"]
+
+if _sel4 == "A":
     df_a = df_all[df_all["类别"] == "A"].copy()
     if not df_a.empty:
         with st.spinner("正在拉取 A 组股息率数据…"):
@@ -708,10 +752,10 @@ with tab_a:
         df_a["股息率"] = 0.0
     _render_arena_tab(df_a, "A")
 
-with tab_b:
+elif _sel4 == "B":
     _render_arena_tab(df_all[df_all["类别"] == "B"].copy(), "B")
 
-with tab_c:
+elif _sel4 == "C":
     df_c = df_all[df_all["类别"] == "C"].copy()
     meta = CLASS_META["C"]
     cfg_c = ARENA_CONFIG["C"]
@@ -834,5 +878,5 @@ with tab_c:
                     st.session_state["p4_champion_ticker"] = champ_ticker_c
                     st.success(f"已锁定 {champ_ticker_c}！请切换至 **5 个股深度猎杀** 页面。")
 
-with tab_d:
+elif _sel4 == "D":
     _render_arena_tab(df_all[df_all["类别"] == "D"].copy(), "D")

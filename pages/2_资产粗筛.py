@@ -354,6 +354,10 @@ for ticker in SCREEN_TICKERS:
 # 写入 session_state，供下游 Page 3 消费
 st.session_state["abcd_classified_assets"] = all_assets
 
+# 初始化分组选择状态
+if "page2_selected_group" not in st.session_state:
+    st.session_state["page2_selected_group"] = "A"
+
 # 按类分组，组内按 Z-Score 降序
 class_groups: dict = {"A": [], "B": [], "C": [], "D": [], "?": []}
 for ticker, info in all_assets.items():
@@ -365,47 +369,86 @@ for grp in class_groups:
         key=lambda x: (not x[1].get("has_data", False), -x[1].get("z_score", -99))
     )
 
-# ── Section 2：分拣结果概览 ────────────────────────────────────
+# ── Section 2：分拣结果概览（可点击切换分组）─────────────────
 st.header("1️⃣ 分拣结果总览 (Screener Summary)")
+
+_sel = st.session_state["page2_selected_group"]
+
+# CSS：隐形 button 叠在 HTML 大色块上方，捕获点击；:has() 实现悬停增亮
+_card_h = 136
+_ABCD5 = ("[data-testid='stMainBlockContainer'] "
+          "div[data-testid='stHorizontalBlock']"
+          ":has(> div:nth-child(5)):not(:has(> div:nth-child(6)))")
+
+_hover_css = []
+for _i2 in range(1, 6):
+    _hover_css.append(
+        f"{_ABCD5} > div:nth-child({_i2}):has(button:hover)"
+        f" div[data-testid='stMarkdownContainer'] > div {{"
+        f" filter:brightness(1.18)!important; transform:translateY(-3px)!important; }}"
+    )
+
+st.markdown(f"""
+<style>
+{_ABCD5} div[data-testid='stButton'] {{
+    height:0!important; position:relative!important; z-index:100!important;
+}}
+{_ABCD5} div[data-testid='stButton'] button {{
+    position:absolute!important; top:-{_card_h}px!important;
+    left:0!important; right:0!important; height:{_card_h}px!important;
+    opacity:0!important; cursor:pointer!important;
+    border:none!important; background:transparent!important;
+}}
+{_ABCD5} div[data-testid='stMarkdownContainer'] > div {{
+    transition: filter 0.15s ease, transform 0.15s ease;
+}}
+{chr(10).join(_hover_css)}
+</style>
+""", unsafe_allow_html=True)
 
 sum_cols = st.columns(5)
 for i, cls in enumerate(["A", "B", "C", "D", "?"]):
     with sum_cols[i]:
-        count = len(class_groups[cls])
+        count    = len(class_groups[cls])
+        selected = (cls == _sel)
         if cls in CLASS_META:
-            meta = CLASS_META[cls]
+            meta  = CLASS_META[cls]
+            color = meta["color"]
+            bg    = f"{color}30" if selected else f"{color}18"
+            bdr   = f"2px solid {color}" if selected else f"1px solid {color}66"
+            glow  = f"0 0 14px {color}55" if selected else "none"
             st.markdown(f"""
-            <div style='background:{meta["color"]}1A; border:1px solid {meta["color"]};
-                        border-radius:8px; padding:12px; text-align:center;'>
-                <div style='font-size:24px;'>{meta["icon"]}</div>
-                <div style='font-size:28px; font-weight:bold; color:{meta["color"]};'>{count}</div>
-                <div style='font-size:14px; color:#aaa;'>{meta["label"]}</div>
-                <div style='font-size:12px; color:#888; margin-top:4px;'>更新：{meta["update_freq"]}</div>
+            <div style='background:{bg}; border:{bdr}; box-shadow:{glow};
+                        border-radius:8px; padding:12px; text-align:center;
+                        height:{_card_h}px; display:flex; flex-direction:column;
+                        justify-content:center; align-items:center; gap:4px;'>
+                <div style='font-size:26px;'>{meta["icon"]}</div>
+                <div style='font-size:30px; font-weight:bold; color:{color}; line-height:1.1;'>{count}</div>
+                <div style='font-size:14px; color:#ddd;'>{meta["label"]}</div>
+                <div style='font-size:11px; color:#888; margin-top:2px;'>更新：{meta["update_freq"]}</div>
             </div>
             """, unsafe_allow_html=True)
         else:
+            bg  = "#2e2e2e" if selected else "#1e1e1e"
+            bdr = "2px solid #888" if selected else "1px solid #444"
             st.markdown(f"""
-            <div style='background:#2a2a2a; border:1px solid #555;
-                        border-radius:8px; padding:12px; text-align:center;'>
-                <div style='font-size:24px;'>❓</div>
-                <div style='font-size:28px; font-weight:bold; color:#888;'>{count}</div>
+            <div style='background:{bg}; border:{bdr};
+                        border-radius:8px; padding:12px; text-align:center;
+                        height:{_card_h}px; display:flex; flex-direction:column;
+                        justify-content:center; align-items:center; gap:4px;'>
+                <div style='font-size:26px;'>❓</div>
+                <div style='font-size:30px; font-weight:bold; color:#888; line-height:1.1;'>{count}</div>
                 <div style='font-size:14px; color:#aaa;'>待人工审核</div>
             </div>
             """, unsafe_allow_html=True)
+        if st.button("", key=f"grp_btn_{cls}", use_container_width=True):
+            st.session_state["page2_selected_group"] = cls
+            st.rerun()
 
 st.markdown("---")
 
-# ── Section 3：各级别详情 Tab ──────────────────────────────────
+# ── Section 3：各级别详情（由顶部色块控制）─────────────────────
 st.header("2️⃣ 详细分拣清单 (Classified Asset Roster)")
-
-tab_labels = [
-    f"⚓ A级 ({len(class_groups['A'])})",
-    f"🦍 B级 ({len(class_groups['B'])})",
-    f"👑 C级 ({len(class_groups['C'])})",
-    f"🔭 D级 ({len(class_groups['D'])})",
-    f"❓ 待分类 ({len(class_groups['?'])})",
-]
-tabs = st.tabs(tab_labels)
 
 
 def _badges_html(criteria_detail: dict) -> str:
@@ -420,87 +463,86 @@ def _badges_html(criteria_detail: dict) -> str:
     return "".join(parts)
 
 
-def render_class_tab(tab, asset_list: list, cls: str):
-    with tab:
-        if not asset_list:
-            st.info("此级别暂无资产通过筛选。")
-            return
+def render_class_tab(asset_list: list, cls: str):
+    if not asset_list:
+        st.info("此级别暂无资产通过筛选。")
+        return
 
-        if cls in CLASS_META:
-            meta = CLASS_META[cls]
-            st.markdown(f"""
-            <div class='rule-box' style='border-color:{meta["color"]}; margin-bottom:16px;'>
-                <b style='color:{meta["color"]}; font-size:16px;'>{meta["icon"]} {meta["label"]} — 入选关卡</b><br>
-                <span style='font-size:14px; color:#F1C40F;'>{meta["criteria"]}</span><br>
-                <span class='reason-text'>{meta["logic"]}</span>
-            </div>
-            """, unsafe_allow_html=True)
+    if cls in CLASS_META:
+        meta = CLASS_META[cls]
+        st.markdown(f"""
+        <div class='rule-box' style='border-color:{meta["color"]}; margin-bottom:16px;'>
+            <b style='color:{meta["color"]}; font-size:16px;'>{meta["icon"]} {meta["label"]} — 入选关卡</b><br>
+            <span style='font-size:14px; color:#F1C40F;'>{meta["criteria"]}</span><br>
+            <span class='reason-text'>{meta["logic"]}</span>
+        </div>
+        """, unsafe_allow_html=True)
 
-        h0, h1, h2, h3, h4, h5 = st.columns([0.7, 1.0, 3.2, 1.1, 0.8, 0.9])
-        h0.markdown("**Ticker**")
-        h1.markdown("**名称**")
-        h2.markdown("**分拣结论与关卡详情（白盒）**")
-        h3.markdown("**趋势状态**")
-        h4.markdown("**Z-Score**")
-        h5.markdown("**20日动量**")
-        st.markdown("<hr style='border-color:#333; margin:4px 0 8px 0;'>", unsafe_allow_html=True)
+    h0, h1, h2, h3, h4, h5 = st.columns([0.7, 1.0, 3.2, 1.1, 0.8, 0.9])
+    h0.markdown("**Ticker**")
+    h1.markdown("**名称**")
+    h2.markdown("**分拣结论与关卡详情（白盒）**")
+    h3.markdown("**趋势状态**")
+    h4.markdown("**Z-Score**")
+    h5.markdown("**20日动量**")
+    st.markdown("<hr style='border-color:#333; margin:4px 0 8px 0;'>", unsafe_allow_html=True)
 
-        for ticker, info in asset_list:
-            col_color = CLASS_META.get(cls, {}).get("color", "#888") if cls in CLASS_META else "#888"
-            r0, r1, r2, r3, r4, r5 = st.columns([0.7, 1.0, 3.2, 1.1, 0.8, 0.9])
+    for ticker, info in asset_list:
+        col_color = CLASS_META.get(cls, {}).get("color", "#888") if cls in CLASS_META else "#888"
+        r0, r1, r2, r3, r4, r5 = st.columns([0.7, 1.0, 3.2, 1.1, 0.8, 0.9])
 
-            r0.markdown(
-                f"<span style='color:{col_color}; font-weight:bold; font-size:16px;'>{ticker}</span>",
+        r0.markdown(
+            f"<span style='color:{col_color}; font-weight:bold; font-size:16px;'>{ticker}</span>",
+            unsafe_allow_html=True
+        )
+        r1.markdown(
+            f"<span style='font-size:14px; color:#ccc;'>{info.get('cn_name', '-')}</span>",
+            unsafe_allow_html=True
+        )
+
+        badges = _badges_html(info.get("criteria", {}))
+        r2.markdown(
+            f"<div style='font-size:14px; color:#bbb; margin-bottom:4px;'>{info.get('reason', '-')}</div>"
+            + (f"<div>{badges}</div>" if badges else ""),
+            unsafe_allow_html=True
+        )
+
+        if info.get("has_data"):
+            trend_color = "#2ECC71" if info.get("is_bullish") else "#E74C3C"
+            trend_icon  = "✅" if info.get("is_bullish") else "🔒"
+            r3.markdown(
+                f"<span style='color:{trend_color}; font-size:14px;'>"
+                f"{trend_icon} {info.get('trend_label', '-')}</span>",
                 unsafe_allow_html=True
             )
-            r1.markdown(
-                f"<span style='font-size:14px; color:#ccc;'>{info.get('cn_name', '-')}</span>",
+            z = info.get("z_score", 0.0)
+            z_color = "#2ECC71" if z > 0.5 else ("#E74C3C" if z < -0.5 else "#F1C40F")
+            r4.markdown(
+                f"<span style='color:{z_color}; font-size:15px;'>{z:+.2f}</span>",
                 unsafe_allow_html=True
             )
-
-            badges = _badges_html(info.get("criteria", {}))
-            r2.markdown(
-                f"<div style='font-size:14px; color:#bbb; margin-bottom:4px;'>{info.get('reason', '-')}</div>"
-                + (f"<div>{badges}</div>" if badges else ""),
+            m20 = info.get("mom20", 0.0)
+            m20_color = "#2ECC71" if m20 >= 0 else "#E74C3C"
+            r5.markdown(
+                f"<span style='color:{m20_color}; font-size:15px;'>{m20:+.1f}%</span>",
                 unsafe_allow_html=True
             )
+        else:
+            r3.markdown("<span style='color:#555; font-size:14px;'>数据不足</span>", unsafe_allow_html=True)
+            r4.markdown("<span style='color:#555; font-size:15px;'>—</span>", unsafe_allow_html=True)
+            r5.markdown("<span style='color:#555; font-size:15px;'>—</span>", unsafe_allow_html=True)
 
-            if info.get("has_data"):
-                trend_color = "#2ECC71" if info.get("is_bullish") else "#E74C3C"
-                trend_icon  = "✅" if info.get("is_bullish") else "🔒"
-                r3.markdown(
-                    f"<span style='color:{trend_color}; font-size:14px;'>"
-                    f"{trend_icon} {info.get('trend_label', '-')}</span>",
-                    unsafe_allow_html=True
-                )
-                z = info.get("z_score", 0.0)
-                z_color = "#2ECC71" if z > 0.5 else ("#E74C3C" if z < -0.5 else "#F1C40F")
-                r4.markdown(
-                    f"<span style='color:{z_color}; font-size:15px;'>{z:+.2f}</span>",
-                    unsafe_allow_html=True
-                )
-                m20 = info.get("mom20", 0.0)
-                m20_color = "#2ECC71" if m20 >= 0 else "#E74C3C"
-                r5.markdown(
-                    f"<span style='color:{m20_color}; font-size:15px;'>{m20:+.1f}%</span>",
-                    unsafe_allow_html=True
-                )
-            else:
-                r3.markdown("<span style='color:#555; font-size:14px;'>数据不足</span>", unsafe_allow_html=True)
-                r4.markdown("<span style='color:#555; font-size:15px;'>—</span>", unsafe_allow_html=True)
-                r5.markdown("<span style='color:#555; font-size:15px;'>—</span>", unsafe_allow_html=True)
-
-        bullish_n = sum(1 for _, i in asset_list if i.get("is_bullish"))
-        data_n    = sum(1 for _, i in asset_list if i.get("has_data"))
-        if data_n > 0:
-            st.markdown(
-                f"<div style='margin-top:12px; font-size:12px; color:#888;'>"
-                f"共 {len(asset_list)} 个资产 | "
-                f"趋势健康：{bullish_n}/{data_n}（{bullish_n/data_n*100:.0f}%）"
-                f"</div>",
-                unsafe_allow_html=True
-            )
+    bullish_n = sum(1 for _, i in asset_list if i.get("is_bullish"))
+    data_n    = sum(1 for _, i in asset_list if i.get("has_data"))
+    if data_n > 0:
+        st.markdown(
+            f"<div style='margin-top:12px; font-size:12px; color:#888;'>"
+            f"共 {len(asset_list)} 个资产 | "
+            f"趋势健康：{bullish_n}/{data_n}（{bullish_n/data_n*100:.0f}%）"
+            f"</div>",
+            unsafe_allow_html=True
+        )
 
 
-for i, cls in enumerate(["A", "B", "C", "D", "?"]):
-    render_class_tab(tabs[i], class_groups[cls], cls)
+_active_cls = st.session_state["page2_selected_group"]
+render_class_tab(class_groups[_active_cls], _active_cls)
