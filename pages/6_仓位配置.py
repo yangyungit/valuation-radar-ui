@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import numpy as np
+from datetime import datetime, timedelta
+import pandas_datareader.data as web
 
 from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_macro_scores, fetch_funnel_scores
 
@@ -9,6 +12,25 @@ core_data = fetch_core_data()
 
 # 解包页面需要的字典
 TIC_MAP = core_data.get("TIC_MAP", {})
+
+@st.cache_data(ttl=3600*4)
+def get_clock_fred_data():
+    """从 FRED 拉取宏观官方数据 (与 1_宏观定调.py 保持 SSOT 对齐)"""
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=3650 + 400)
+    try:
+        df_fred = web.DataReader(['CPILFESL', 'BAMLH0A0HYM2'], 'fred', start_date, end_date)
+        if df_fred.index.tz is not None:
+            df_fred.index = df_fred.index.tz_localize(None)
+        result = pd.DataFrame(index=df_fred.index)
+        if 'CPILFESL' in df_fred.columns:
+            result['Core_CPI_YoY'] = df_fred['CPILFESL'].pct_change(12) * 100
+        if 'BAMLH0A0HYM2' in df_fred.columns:
+            result['HY_Spread'] = df_fred['BAMLH0A0HYM2']
+        result = result.dropna(how='all').resample('D').ffill()
+        return result
+    except Exception:
+        return pd.DataFrame(columns=['Core_CPI_YoY', 'HY_Spread'])
 
 st.set_page_config(page_title="Moltbot 首席投资官中枢", layout="wide", page_icon="🏦")
 
@@ -43,7 +65,7 @@ USER_GROUPS_DEF = core_data.get("USER_GROUPS_DEF", {})
 SECTOR_MAP = core_data.get("SECTOR_MAP", {})
 NARRATIVE_THEMES_HEAT = core_data.get("NARRATIVE_THEMES_HEAT", {})
 
-MACRO_ASSETS = ["XLY", "XLP", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "XLI", "KRE", "GLD", "XLK"]
+MACRO_ASSETS = ["XLY", "XLP", "XLU", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "XLI", "KRE", "GLD", "XLK", "DBC"]
 
 # 架构师级修复1：把主理人所有的自选股（A-E组）和宏观池全部加进来！否则漏斗无股可选！
 all_pool_tickers = []
@@ -62,7 +84,45 @@ if df.empty or len(df) < 750:
     st.warning("⚠️ 数据拉取失败或数据长度不足，无法启动配置引擎。")
     st.stop()
 
-raw_probs, clock_regime = fetch_macro_scores(df)
+# ==========================================
+# 🧠 强制同步 1_宏观定调.py 的三引擎计算逻辑，避免概率偏差 (SSOT)
+# ==========================================
+df_fred_clock = get_clock_fred_data()
+_fred_ok = not df_fred_clock.empty
+z_window = 750
+
+def _zscore(series, window=z_window):
+    mu = series.rolling(window=window).mean()
+    sigma = series.rolling(window=window).std()
+    return (series - mu) / sigma.where(sigma > 0)
+
+z_consumer = _zscore((df['XLY'] / df['XLP'].replace(0, np.nan)).rolling(20).mean()) if 'XLY' in df and 'XLP' in df else pd.Series(0, index=df.index)
+z_industrial = _zscore((df['XLI'] / df['XLU'].replace(0, np.nan)).rolling(20).mean()) if 'XLI' in df and 'XLU' in df else pd.Series(0, index=df.index)
+
+if _fred_ok and 'HY_Spread' in df_fred_clock.columns:
+    _hy_raw = df_fred_clock['HY_Spread'].reindex(df.index).ffill().rolling(20).mean()
+    z_credit = _zscore(_hy_raw) * -1
+else:
+    _hy_raw = (df['HYG'] / df['IEF'].replace(0, np.nan)).rolling(20).mean() if 'HYG' in df and 'IEF' in df else pd.Series(0, index=df.index)
+    z_credit = _zscore(_hy_raw)
+
+growth_z = pd.DataFrame({'Z_consumer': z_consumer, 'Z_industrial': z_industrial, 'Z_credit': z_credit}).mean(axis=1)
+
+z_tips = _zscore((df['TIP'] / df['IEF'].replace(0, np.nan)).rolling(20).mean()) if 'TIP' in df and 'IEF' in df else pd.Series(0, index=df.index)
+z_commodity = _zscore((df['DBC'] / df['IEF'].replace(0, np.nan)).rolling(20).mean()) if 'DBC' in df and 'IEF' in df else pd.Series(0, index=df.index)
+
+_infl_components = {'Z_tips': z_tips, 'Z_commodity': z_commodity}
+if _fred_ok and 'Core_CPI_YoY' in df_fred_clock.columns:
+    _cpi_raw = df_fred_clock['Core_CPI_YoY'].reindex(df.index).ffill()
+    _infl_components['Z_cpi'] = _zscore(_cpi_raw)
+
+inflation_z = pd.DataFrame(_infl_components).mean(axis=1)
+
+df_z = pd.DataFrame({'Growth': growth_z, 'Inflation': inflation_z}).dropna()
+curr_clock_g = float(df_z['Growth'].iloc[-1]) if not df_z.empty else 0.0
+curr_clock_i = float(df_z['Inflation'].iloc[-1]) if not df_z.empty else 0.0
+
+raw_probs, clock_regime = fetch_macro_scores(df, curr_clock_g, curr_clock_i)
 df_scores, _ = fetch_funnel_scores(df, all_pool_tickers, meta_info, NARRATIVE_THEMES_HEAT, macro_scores=raw_probs)
 
 REGIME_CN_MAP = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
@@ -74,7 +134,7 @@ REGIME_NARRATIVE = {
     "衰退": "充当无视周期的盈利安全垫，抵御大盘系统性下行的毁灭性冲击。"
 }
 
-active_regimes = {k: v for k, v in raw_probs.items() if v >= 0.15}
+active_regimes = {k: v for k, v in raw_probs.items() if v >= 0.60}
 alloc_total = sum(active_regimes.values())
 normalized_regime_weights = {k: v/alloc_total for k, v in active_regimes.items()} if alloc_total > 0 else {}
 
@@ -93,7 +153,7 @@ for regime_en, regime_cn in REGIME_CN_MAP.items():
     step1_logs.append({
         "宏观剧本": regime_cn,
         "原始信号强度": f"{raw_w*100:.0f}%",
-        "激活状态": "✅ 纳入" if is_active else "❌ 剔除(<15%)",
+        "激活状态": "✅ 纳入" if is_active else "❌ 剔除(<60%)",
         "归一化资金池": f"{norm_w*100:.1f}%"
     })
 
@@ -155,20 +215,20 @@ c4.metric("🔴 衰退信号强度", f"{raw_probs['Rec']*100:.0f}%")
 dom_regime = max(raw_probs, key=raw_probs.get)
 active_cn = [REGIME_CN_MAP.get(k, k) for k in active_regimes]
 if active_cn:
-    st.success(f"**CIO 洞察:** 信号强度 ≥ 15% 的存活剧本：**{'、'.join(active_cn)}**。配置引擎已对其概率归一化，切分独立资金池并执行注水填仓。")
+    st.success(f"**CIO 洞察:** 信号强度 ≥ 60% 的存活剧本：**{'、'.join(active_cn)}**。配置引擎已对其概率归一化，切分独立资金池并执行注水填仓。")
 else:
-    st.warning("**CIO 洞察:** 当前宏观信号极度混乱，所有剧本胜率均不足 15%，建议保持现金观望。")
+    st.warning("**CIO 洞察:** 当前宏观信号极度混乱，所有剧本胜率均不足 60%，建议保持现金观望。")
 
 st.markdown("---")
 st.header("2️⃣ 智能仓位生成引擎 (Allocation Engine)")
 
 if not df_portfolio.empty:
     st.markdown("#### 🛠️ 步骤 1: 宏观剧本归一化 — 资金池切分 (Top-Down)")
-    st.caption("踢除原始信号强度 < 15% 的废弃剧本，对剩余高胜率剧本概率归一化，使其总和等于 100%，每个剧本获得对应的独立资金池容量。")
+    st.caption("踢除原始信号强度 < 60% 的废弃剧本，对剩余高胜率剧本概率归一化，使其总和等于 100%，每个剧本获得对应的独立资金池容量。")
     st.dataframe(pd.DataFrame(step1_logs), use_container_width=True, hide_index=True)
 
     st.markdown("#### 💧 步骤 2–3: 注水填仓算法 (Water-Pouring Allocation)")
-    st.caption("以 Molt 评分从高到低依次注水，每笔仓位严格受 ABCD 阵型顶格上限约束 (A≤15% / B≤10% / C≤8% / D≤3%)。单池标的耗尽后，剩余额度强制转仓 BIL 现金等价物。")
+    st.caption("以 Molt 评分从高到低依次注水，每笔仓位严格受 ABCD 阵型顶格上限约束 (A≤20% / B≤15% / C≤10% / D≤5%)。单池最多截取 Top 3 动量标的，剩余额度强制转仓 BIL 现金等价物。")
 
     col_chart, col_table = st.columns([1, 1.5])
     with col_chart:

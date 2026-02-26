@@ -2,6 +2,44 @@
 
 ---
 
+## 2026-02-26 | Page 4: 同类资产竞技场差异化打分因子 (P3)
+
+### 背景
+竞技场原有评分体系对所有 ABCD 四组采用同一套因子框架，无法体现各组的差异化投资逻辑：
+A 组（防守/稳健）缺少股息率维度，C 组（成长/动量）缺少 Forward EPS、量能异动等核心 Alpha 捕捉因子。
+
+### 改动
+
+**`api_client.py`**
+- 新增 `get_arena_c_factors(tickers: tuple)` — 10 线程并发拉取 C 组 ScorecardC 所需的两个特殊因子：
+  - `earningsGrowth`（华尔街一致预期 YoY EPS 增速，fallback `revenueGrowth`）
+  - 5 日成交量 Z-Score（相对 60 日基准，用于捕捉机构抢筹信号）
+
+**`pages/4_资产强筛.py`**
+- **A 组股息率因子（新增第 4 因子）：**
+  - `ARENA_CONFIG["A"]` 升级为 4 因子，权重重分配：均线结构 30% / 估值稳健 20% / 长周期动能 25% / 股息率 25%
+  - A tab 进入时自动调用 `get_stock_metadata()` 拉取实时股息率并注入 DataFrame
+  - `compute_arena_scores()` 新增 `div_yield` 源映射，自动 Min-Max 归一化
+- **C 组全新 ScorecardC 评分体系（满分 100 分）：**
+  - 新增 `compute_scorecard_c()` 函数，实现 5 因子公式：
+    `Score_C = (40×Z_ForwardEPS) + (15×log₁₀(MCap)) + (20×Z_Vol5d) + (15×Fit_Macro) + (10×Heat_Narrative)`
+  - F4 宏观顺风：比对侧边栏选定剧本与 `MACRO_TAGS_MAP` — 顺风满分，逆风 0 分
+  - F5 叙事热度：读取资产池内置 `STOCK_NARRATIVE_MAP` + `NARRATIVE_THEMES_HEAT`，Max-Norm 归一化
+  - C tab 独立渲染，跳过通用 `compute_arena_scores`
+  - 白盒公式面板：在竞技场结果卡上方渲染完整公式与各因子颜色说明，满足白盒化设计第一基本法
+  - 冠军深度解读文字展示宏观剧本匹配状态及叙事主题
+- **侧边栏新增「宏观剧本设定」选择器：** Soft / Hot / Stag / Rec，驱动 C 组 Macro Fit 打分
+- **渲染引擎通用升级：**
+  - `_render_podium` 和 `_render_leaderboard` 全面动态化，支持 2-5 个因子，引入 `_FACTOR_PALETTE` 调色板
+  - 冠军解读文字动态拼接所有因子名称与得分，不再硬编码 3 因子格式
+
+### 遗留与未来优化方向
+- [ ] 宏观剧本选择器目前为手动设定，理想状态是从 Page 1 的 `api_clock_regime` 自动读取并写入 session_state，消除手动操作
+- [ ] `earningsGrowth` 字段在 yfinance 中并非所有标的都有值（ETF 通常为 None），fallback 到 `revenueGrowth` 后精度有损失，DEV_LOG 留档待优化
+- [ ] C 组 ScorecardC 的 Vol_Z 目前基于 60 日滚动，与需求文档中"过去 5 个交易日 Z-Score + 价格相对 5 日均线偏离度"的完整定义相比还缺少价格偏离度分量，已阉割，待后续版本补齐
+
+---
+
 ## 2026-02-25 | 宏观定调中心 Phase 3 重构完成：多维复合时钟引擎与白盒化 UI
 
 ### 背景

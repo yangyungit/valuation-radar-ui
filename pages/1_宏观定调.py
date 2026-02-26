@@ -314,7 +314,7 @@ if not df.empty and len(df) > 750:
     st.markdown("---")
     
     # 获取云端时钟状态以对齐显示
-    raw_probs, api_clock_regime = fetch_macro_scores(df)
+    raw_probs, api_clock_regime = fetch_macro_scores(df, curr_clock_g, curr_clock_i)
 
     st.markdown(f"### 🕰️ 宏观周期定位: <span style='color:#3498DB'>{api_clock_regime}</span>", unsafe_allow_html=True)
 
@@ -464,7 +464,7 @@ if not df.empty and len(df) > 750:
     # 🧠 将全新的 5阶 SPY 状态深度融入白盒化推演中
     # =======================================================
     items_a = [
-        check("Recovery" in api_clock_regime, "时钟指向复苏/软着陆", f"时钟不符 ({api_clock_regime})"),
+        check("Recovery" in api_clock_regime or "Soft" in api_clock_regime, "时钟指向复苏/软着陆", f"时钟不符 ({api_clock_regime})"),
         check(is_bullish, f"美股维持上升通道 ({spy_status})", f"美股动能破坏 ({spy_status})"),
         check(get_ret('XLY') > get_ret('XLP'), f"消费信心强 (XLY收益 > XLP)", f"消费防御占优 (XLY弱于XLP)"),
         check(get_ret('XLK') > 0, f"科技领涨 (+{get_ret('XLK'):.1f}%)", f"科技走弱 ({get_ret('XLK'):.1f}%)"),

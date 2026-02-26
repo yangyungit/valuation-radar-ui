@@ -104,12 +104,54 @@ def get_stock_metadata(tickers):
 
 
 
+@st.cache_data(ttl=3600*4)
+def get_arena_c_factors(tickers: tuple) -> dict:
+    """获取 C 组 ScorecardC 所需特殊因子：Forward EPS 增速 + 5日成交量 Z-Score。
+    tickers 用 tuple 传入以保证 st.cache_data 可序列化。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    import numpy as np
+
+    def _fetch_one(t):
+        try:
+            stock = yf.Ticker(t)
+            info = {}
+            try:
+                info = stock.info or {}
+            except Exception:
+                pass
+            # earningsGrowth 为华尔街一致预期 YoY EPS 增速（小数形式）
+            earnings_growth = info.get("earningsGrowth") or info.get("revenueGrowth") or 0.0
+            # 5 日成交量 Z-Score（相对过去 60 个交易日均值）
+            hist = stock.history(period="60d")
+            if not hist.empty and len(hist) >= 10:
+                vol = hist["Volume"].dropna().astype(float)
+                mu = vol.mean()
+                sigma = vol.std()
+                recent = vol.tail(5).mean()
+                vol_z = float((recent - mu) / sigma) if sigma > 0 else 0.0
+            else:
+                vol_z = 0.0
+            return t, {"earnings_growth": float(earnings_growth), "vol_z": vol_z}
+        except Exception:
+            return t, {"earnings_growth": 0.0, "vol_z": 0.0}
+
+    result = {}
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        for t, data in executor.map(_fetch_one, tickers):
+            result[t] = data
+    return result
+
+
 @st.cache_data(ttl=3600)
-def fetch_macro_scores(df):
+def fetch_macro_scores(df, clock_g=None, clock_i=None):
     """将公开 DataFrame 发送到云端，换取机密打分结果"""
     try:
         # 将 DataFrame 压缩为 JSON 字符串
         payload = {"df_json": df.to_json(orient="split")}
+        if clock_g is not None and clock_i is not None:
+            payload["clock_g"] = float(clock_g)
+            payload["clock_i"] = float(clock_i)
         response = requests.post(f"{API_BASE_URL}/api/v1/calculate_macro", json=payload, timeout=15)
         response.raise_for_status()
         data = response.json()

@@ -2,6 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from api_client import fetch_core_data, get_stock_metadata, get_arena_c_factors
+
+_core_data = fetch_core_data()
+_MACRO_TAGS_MAP     = _core_data.get("MACRO_TAGS_MAP", {})
+_NARRATIVE_HEAT_MAP = _core_data.get("NARRATIVE_THEMES_HEAT", {})
+_STOCK_NARRATIVE    = _core_data.get("STOCK_NARRATIVE_MAP", {})
 
 st.set_page_config(page_title="同类资产竞技场", layout="wide", page_icon="🏆")
 
@@ -64,19 +70,21 @@ CLASS_META: dict = {
 ARENA_CONFIG: dict = {
     "A": {
         "score_name": "压舱石稳定指数",
-        "weights": {"bullish": 0.40, "z_score": 0.30, "mom20": 0.30},
+        "weights": {"bullish": 0.30, "z_score": 0.20, "mom20": 0.25, "div_yield": 0.25},
         "invert_z": False,
         "factor_labels": {
-            "bullish": "低回撤防线 (MA结构坚实)",
-            "z_score": "派息可持续性 (估值稳健)",
-            "mom20":   "长周期索提诺 (平稳正向动能)",
+            "bullish":   "低回撤防线 (MA结构坚实)",
+            "z_score":   "派息可持续性 (估值稳健)",
+            "mom20":     "长周期索提诺 (平稳正向动能)",
+            "div_yield": "股息率 (防守收益护城河)",
         },
         "logic": (
             "压舱石的竞技逻辑：稳定性远大于弹性，任何一项结构性恶化直接踢出。"
-            "① 低回撤防线（均线结构坚实 MA20 > MA60，代理最大回撤控制能力，权重 40%）"
-            "② 派息可持续性（估值稳健不过热，市场对现金流的长期定价，权重 30%）"
-            "③ 长周期索提诺（平稳正向动能，非爆发性脉冲，权重 30%）。"
-            "三维同时达标方为真正压舱石，任一维度结构性恶化即触发降级熔断。"
+            "① 低回撤防线（均线结构坚实 MA20 > MA60，代理最大回撤控制能力，权重 30%）"
+            "② 派息可持续性（估值稳健不过热，市场对现金流的长期定价，权重 20%）"
+            "③ 长周期索提诺（平稳正向动能，非爆发性脉冲，权重 25%）"
+            "④ 股息率（真实股息越高防守属性越强，直接体现现金流回报，权重 25%）。"
+            "四维同时达标方为真正压舱石，任一维度结构性恶化即触发降级熔断。"
         ),
     },
     "B": {
@@ -97,20 +105,24 @@ ARENA_CONFIG: dict = {
         ),
     },
     "C": {
-        "score_name": "时代之王动量指数",
-        "weights": {"mom20": 0.50, "z_score": 0.25, "bullish": 0.25},
+        "score_name": "Alpha 爆发力测试",
+        "weights": {},
         "invert_z": False,
         "factor_labels": {
-            "mom20":   "RS 强度 (相对动量核心)",
-            "z_score": "叙事强度 (宏观剧本契合度)",
-            "bullish": "资金面确认 (主升浪信号)",
+            "eps_growth":      "Forward EPS增速 Z-Score (基本面核动力)",
+            "log_mcap":        "log₁₀(市值) (流动性保障)",
+            "vol_z":           "5日量能 Z-Score (机构抢筹信号)",
+            "macro_alignment": "宏观剧本顺风匹配 (Macro Fit)",
+            "narrative_heat":  "叙事热度 (Narrative Heat)",
         },
         "logic": (
-            "时代之王的竞技逻辑：宏观叙事 × 动量共振 × 资金确认 = 当前周期的主角。"
-            "① RS 强度（相对动量是时代之王的核心，20日动量领跑全场，权重 50%）"
-            "② 叙事强度（估值溢价代理市场对当前宏观剧本的定价共识，权重 25%）"
-            "③ 资金面确认（主升浪均线结构信号，MA20 > MA60 确认机构持续流入，权重 25%）。"
-            "【核心筛选】必须符合当前得分最高的宏观剧本，衰退期的强周期股不能入围。"
+            "时代之王 ScorecardC — Alpha 爆发力测试（满分 100 分）："
+            "① Forward EPS 增速（华尔街一致预期 12 个月 EPS 增速截面 Z-Score，权重 40%）"
+            "② log₁₀(市值)（市值越大流动性越好，机构可大仓位介入，权重 15%）"
+            "③ 5日量能 Z-Score（过去 5 日成交量相对 60 日基准的异动强度，捕捉机构抢筹，权重 20%）"
+            "④ 宏观顺风（标的宏观标签与当前胜率最高剧本完全匹配得满分，错配得 0，权重 15%）"
+            "⑤ 叙事热度（读取资产池内置叙事热度打分，Max-Norm 归一化，权重 10%）。"
+            "所有因子均经 Min-Max 归一化至 [0, 100] 后加权求和。"
         ),
     },
     "D": {
@@ -192,12 +204,14 @@ def compute_arena_scores(df: pd.DataFrame, cls: str) -> pd.DataFrame:
     z_inv_norm = _minmax_norm(-result["Z-Score"].astype(float))
     m_norm     = _minmax_norm(result["20日动量"].astype(float))
     b_norm     = result["趋势健康"].astype(float) * 100.0
+    dy_norm    = _minmax_norm(result["股息率"].astype(float)) if "股息率" in result.columns else pd.Series(0.0, index=result.index)
 
     _source_map = {
         "z_score":     z_norm,
         "z_score_inv": z_inv_norm,
         "mom20":       m_norm,
         "bullish":     b_norm,
+        "div_yield":   dy_norm,
     }
 
     factor_keys = list(cfg["factor_labels"].keys())
@@ -218,6 +232,58 @@ def compute_arena_scores(df: pd.DataFrame, cls: str) -> pd.DataFrame:
     return result
 
 
+def compute_scorecard_c(df: pd.DataFrame, macro_regime: str) -> pd.DataFrame:
+    """
+    ScorecardC — C 组「Alpha 爆发力测试」评分体系 (满分 100 分)
+
+    Score_C = (40 × Z_ForwardEPS) + (15 × log10(MCap)) + (20 × Z_Vol)
+            + (15 × Fit_Macro) + (10 × Heat_Narrative)
+
+    各项均先 Min-Max 归一化至 [0, 1] 再乘权重，确保总分上限 100 分。
+    """
+    if df.empty:
+        return df
+
+    result = df.copy()
+
+    # ── 因子 1: Forward EPS Growth Z-Score (40%)
+    eps_raw = result.get("EPS增速", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f1_norm = _minmax_norm(eps_raw)
+
+    # ── 因子 2: log10(MarketCap) (15%)
+    mcap_log = result.get("市值对数", pd.Series(9.0, index=result.index)).astype(float).fillna(9.0)
+    f2_norm = _minmax_norm(mcap_log)
+
+    # ── 因子 3: 5日成交量 Z-Score (20%)
+    vol_z = result.get("量能Z", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f3_norm = _minmax_norm(vol_z)
+
+    # ── 因子 4: Macro Alignment — 标的宏观标签与当前胜率剧本匹配 (15%)
+    aligned_tickers = set(_MACRO_TAGS_MAP.get(macro_regime, []))
+    f4_norm = result["Ticker"].apply(lambda t: 100.0 if t in aligned_tickers else 0.0)
+
+    # ── 因子 5: Narrative Heat — 叙事热度（来自资产池配置）(10%)
+    max_heat = max(_NARRATIVE_HEAT_MAP.values()) if _NARRATIVE_HEAT_MAP else 10.0
+    f5_norm = result["Ticker"].apply(
+        lambda t: (_NARRATIVE_HEAT_MAP.get(_STOCK_NARRATIVE.get(t, ""), 0.0) / max_heat) * 100.0
+    )
+
+    result["因子1_分"] = (0.40 * f1_norm).round(1)
+    result["因子2_分"] = (0.15 * f2_norm).round(1)
+    result["因子3_分"] = (0.20 * f3_norm).round(1)
+    result["因子4_分"] = (0.15 * f4_norm).round(1)
+    result["因子5_分"] = (0.10 * f5_norm).round(1)
+
+    result["竞技得分"] = (
+        result["因子1_分"] + result["因子2_分"] + result["因子3_分"]
+        + result["因子4_分"] + result["因子5_分"]
+    ).round(1)
+
+    result = result.sort_values("竞技得分", ascending=False).reset_index(drop=True)
+    result["排名"] = range(1, len(result) + 1)
+    return result
+
+
 # ─────────────────────────────────────────────────────────────────
 #  UI：颁奖台（Top 3 高亮展示）
 # ─────────────────────────────────────────────────────────────────
@@ -226,6 +292,9 @@ _PODIUM_MEDALS = [
     ("🥈", "#C0C0C0", "podium-silver", "亚军"),
     ("🥉", "#CD7F32", "podium-bronze", "季军"),
 ]
+
+# 最多支持 5 个因子的调色板（F1 颜色由赛道 meta["color"] 动态注入）
+_FACTOR_PALETTE = ["", "#3498DB", "#9B59B6", "#F39C12", "#1ABC9C"]
 
 
 def _render_podium(top3: pd.DataFrame, cls: str) -> None:
@@ -254,10 +323,16 @@ def _render_podium(top3: pd.DataFrame, cls: str) -> None:
         z_color = "#2ECC71" if z_val > 0.5 else ("#E74C3C" if z_val < -0.5 else "#F1C40F")
         m_color = "#2ECC71" if m_val >= 0 else "#E74C3C"
 
-        # 三因子分解文字
-        f1_name = list(cfg["factor_labels"].values())[0]
-        f2_name = list(cfg["factor_labels"].values())[1]
-        f3_name = list(cfg["factor_labels"].values())[2]
+        n_factors = len(cfg["factor_labels"])
+        f_colors = [meta["color"]] + _FACTOR_PALETTE[1:n_factors]
+        factor_pills_html = ""
+        for fi in range(1, n_factors + 1):
+            fc = f_colors[fi - 1]
+            factor_pills_html += (
+                f"<span style='color:{fc}30; background:{fc}20; "
+                f"border-radius:3px; padding:1px 6px;'>"
+                f"F{fi} {row.get(f'因子{fi}_分', 0.0):.1f}</span> "
+            )
 
         with cols[i]:
             st.markdown(f"""
@@ -288,19 +363,8 @@ def _render_podium(top3: pd.DataFrame, cls: str) -> None:
                     <span style='color:#ccc; float:right;'>{trend_icon} {trend_txt}</span>
                 </div>
                 <hr style='border-color:#333; margin:8px 0;'>
-                <div style='font-size:10px; color:#777; text-align:left; line-height:1.8;'>
-                    <span style='color:{meta["color"]}30; background:{meta["color"]}20;
-                                 border-radius:3px; padding:1px 6px;'>
-                        F1 {row['因子1_分']:.1f}
-                    </span>
-                    <span style='color:#3498DB30; background:#3498DB20;
-                                 border-radius:3px; padding:1px 6px;'>
-                        F2 {row['因子2_分']:.1f}
-                    </span>
-                    <span style='color:#9B59B630; background:#9B59B620;
-                                 border-radius:3px; padding:1px 6px;'>
-                        F3 {row['因子3_分']:.1f}
-                    </span>
+                <div style='font-size:10px; color:#777; text-align:left; line-height:1.8; display:flex; flex-wrap:wrap; gap:4px;'>
+                    {factor_pills_html}
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -310,22 +374,38 @@ def _render_podium(top3: pd.DataFrame, cls: str) -> None:
 #  UI：完整排行榜（含得分条形图）
 # ─────────────────────────────────────────────────────────────────
 def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
-    """渲染完整赛道排行榜 + 因子分解横向条形图。"""
+    """渲染完整赛道排行榜 + 因子分解横向条形图（内联至列表）。"""
     meta = CLASS_META[cls]
     cfg = ARENA_CONFIG[cls]
 
     st.markdown(f"#### 完整排行榜（{meta['icon']} {len(df_scored)} 位参赛选手）")
+
+    if df_scored.empty:
+        return
+
+    factor_labels = list(cfg["factor_labels"].values())
+    n_factors = len(factor_labels)
+    f_colors = ([meta["color"]] + _FACTOR_PALETTE[1:n_factors])
+
+    # 因子图例
+    legend_html = "<div style='display:flex; gap:16px; font-size:11px; color:#888; margin-bottom:8px; align-items:center; flex-wrap:wrap;'>"
+    legend_html += "<span style='font-weight:bold;'>因子贡献分解：</span>"
+    for label, color in zip(factor_labels, f_colors):
+        legend_html += f"<span style='display:flex; align-items:center; gap:4px;'><div style='width:10px; height:10px; background:{color}; border-radius:2px;'></div>{label}</span>"
+    legend_html += "</div>"
+    st.markdown(legend_html, unsafe_allow_html=True)
 
     # ── 排行榜（div flexbox，规避 st.markdown 不渲染 table 标签的限制）──
     header_html = (
         "<div style='display:flex; align-items:center; border-bottom:2px solid #333;"
         " color:#888; font-size:11px; padding:6px 0; font-weight:bold;'>"
         "<div style='width:46px; text-align:center;'>排名</div>"
-        "<div style='flex:1;'>资产</div>"
+        "<div style='width:150px;'>资产</div>"
+        "<div style='flex:1; padding:0 20px;'>因子贡献分解 (堆叠)</div>"
         "<div style='width:72px; text-align:right;'>Z-Score</div>"
         "<div style='width:90px; text-align:right;'>20日动量</div>"
         "<div style='width:46px; text-align:center;'>趋势</div>"
-        f"<div style='width:190px;'>{cfg['score_name']}</div>"
+        f"<div style='width:160px; padding-left:12px;'>{cfg['score_name']}</div>"
         "</div>"
     )
 
@@ -350,17 +430,32 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
         else:
             rank_html = f"<span style='color:#555; font-size:13px;'>#{rank}</span>"
 
+        factor_bars_html = ""
+        for fi, (fl, fc) in enumerate(zip(factor_labels, f_colors), start=1):
+            fi_key = f"因子{fi}_分"
+            fi_val = row.get(fi_key, 0.0)
+            fi_pct = fi_val / max(max_score, 1.0) * 100
+            factor_bars_html += (
+                f"<div style='width:{fi_pct}%; background:{fc};' "
+                f"title='{fl}: {fi_val:.1f}'></div>"
+            )
+
         rows_html += (
             "<div style='display:flex; align-items:center; border-bottom:1px solid #1e1e1e; padding:8px 0;'>"
             f"<div style='width:46px; text-align:center;'>{rank_html}</div>"
-            "<div style='flex:1;'>"
+            "<div style='width:150px; display:flex; align-items:baseline; gap:8px;'>"
             f"<span style='font-size:14px; font-weight:bold; color:#eee;'>{row['Ticker']}</span>"
-            f"<span style='font-size:11px; color:#888; margin-left:8px;'>{row['名称']}</span>"
+            f"<span style='font-size:11px; color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>{row['名称']}</span>"
+            "</div>"
+            "<div style='flex:1; padding:0 20px;'>"
+            "<div style='display:flex; width:100%; height:10px; background:#1e1e1e; border-radius:4px; overflow:hidden;'>"
+            f"{factor_bars_html}"
+            "</div>"
             "</div>"
             f"<div style='width:72px; text-align:right; font-weight:bold; color:{z_color};'>{z_val:+.2f}</div>"
             f"<div style='width:90px; text-align:right; font-weight:bold; color:{m_color};'>{m_val:+.1f}%</div>"
             f"<div style='width:46px; text-align:center;'>{trend_icon}</div>"
-            "<div style='width:190px; padding-left:8px;'>"
+            "<div style='width:160px; padding-left:12px;'>"
             "<div style='display:flex; align-items:center; gap:8px;'>"
             "<div style='flex:1; background:#1e1e1e; border-radius:4px; height:8px;'>"
             f"<div style='width:{bar_pct:.0f}%; background:{meta['color']}; border-radius:4px; height:8px;'></div>"
@@ -376,60 +471,6 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── 因子分解横向堆叠条形图 ─────────────────────────────────
-    if len(df_scored) < 2:
-        return
-
-    factor_labels = list(cfg["factor_labels"].values())
-    f_colors = [meta["color"], "#3498DB", "#9B59B6"]
-
-    fig = go.Figure()
-
-    tickers = df_scored["Ticker"].tolist()
-
-    for fi, (col, label, color) in enumerate(zip(
-        ["因子1_分", "因子2_分", "因子3_分"],
-        factor_labels,
-        f_colors,
-    )):
-        fig.add_trace(go.Bar(
-            y=tickers,
-            x=df_scored[col].tolist(),
-            name=label,
-            orientation="h",
-            marker_color=color,
-            opacity=0.85,
-            hovertemplate=f"<b>%{{y}}</b><br>{label}: <b>%{{x:.1f}}</b><extra></extra>",
-        ))
-
-    fig.update_layout(
-        barmode="stack",
-        height=max(180, len(df_scored) * 38),
-        plot_bgcolor="#111111",
-        paper_bgcolor="#111111",
-        font=dict(color="#cccccc", size=11),
-        xaxis=dict(
-            title="因子得分分解",
-            gridcolor="#1e1e1e",
-            range=[0, 105],
-        ),
-        yaxis=dict(
-            categoryorder="array",
-            categoryarray=tickers[::-1],
-            gridcolor="#1a1a1a",
-        ),
-        legend=dict(
-            bgcolor="#1a1a1a", bordercolor="#333", borderwidth=1,
-            orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
-        ),
-        margin=dict(l=60, r=30, t=40, b=40),
-        title=dict(
-            text=f"因子贡献分解 — {meta['icon']} {cfg['score_name']}",
-            font=dict(size=13, color="#aaa"),
-        ),
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -450,14 +491,12 @@ def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
             评分权重 →
     """, unsafe_allow_html=True)
 
-    # 权重 pills
+    # 权重 pills（动态颜色，支持 2-5 个因子）
     pills_html = ""
-    f_colors = [meta["color"], "#3498DB", "#9B59B6"]
-    for (fname, flabel), fcolor in zip(cfg["factor_labels"].items(), f_colors):
-        w_key = fname if fname in cfg["weights"] else list(cfg["weights"].keys())[
-            list(cfg["factor_labels"].keys()).index(fname)
-        ]
-        wval = cfg["weights"].get(w_key, 0.0)
+    _n = len(cfg["factor_labels"])
+    _fc_list = [meta["color"]] + _FACTOR_PALETTE[1:_n]
+    for (fname, flabel), fcolor in zip(cfg["factor_labels"].items(), _fc_list):
+        wval = cfg["weights"].get(fname, 0.0)
         pills_html += (
             f"<span class='factor-pill' "
             f"style='background:{fcolor}22; color:{fcolor}; border:1px solid {fcolor}55;'>"
@@ -518,15 +557,18 @@ def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
     if n_total > 0:
         champ = df_scored.iloc[0]
         trend_txt = "趋势健康 (MA20 > MA60)" if champ["趋势健康"] else "趋势走弱 (MA20 < MA60)"
+        factor_names = list(cfg["factor_labels"].values())
+        factor_breakdown = "，".join(
+            f"F{fi}（{fname}）= {champ.get(f'因子{fi}_分', 0.0):.1f}"
+            for fi, fname in enumerate(factor_names, start=1)
+        )
         st.success(
             f"**{meta['icon']} 赛道冠军深度解读 — {champ['Ticker']} ({champ['名称']})**\n\n"
             f"在 {meta['label']} 的 {n_total} 位参赛标的中，{champ['Ticker']} "
             f"以 **{cfg['score_name']} {champ['竞技得分']:.0f} 分**夺冠。\n"
             f"Z-Score = **{champ['Z-Score']:+.2f}**，20日动量 = **{champ['20日动量']:+.1f}%**，"
             f"{trend_txt}。\n"
-            f"因子贡献：F1（{list(cfg['factor_labels'].values())[0]}）= {champ['因子1_分']:.1f}，"
-            f"F2（{list(cfg['factor_labels'].values())[1]}）= {champ['因子2_分']:.1f}，"
-            f"F3（{list(cfg['factor_labels'].values())[2]}）= {champ['因子3_分']:.1f}。"
+            f"因子贡献：{factor_breakdown}。"
         )
 
     st.markdown("---")
@@ -561,6 +603,17 @@ with st.sidebar:
     demo_mode = st.toggle("演示模式（使用 Mock 数据）", value=False)
     if demo_mode:
         st.info("当前使用内置 Mock 数据演示。关闭此开关后，将读取上游 Page 2 分拣结果。")
+    st.markdown("---")
+    st.subheader("🧭 宏观剧本设定")
+    st.caption("用于 C 组 ScorecardC 的宏观顺风因子（Macro Alignment）打分")
+    _regime_options = ["Soft", "Hot", "Stag", "Rec"]
+    _regime_labels  = {"Soft": "软着陆/复苏", "Hot": "过热/再通胀", "Stag": "滞胀", "Rec": "衰退"}
+    macro_regime = st.selectbox(
+        "当前胜率最高剧本",
+        options=_regime_options,
+        format_func=lambda x: f"{x} — {_regime_labels[x]}",
+        index=0,
+    )
     st.markdown("---")
     st.header("🛠️ 系统维护")
     if st.button("🔄 清理缓存并重刷"):
@@ -646,13 +699,140 @@ tab_a, tab_b, tab_c, tab_d = st.tabs([
 ])
 
 with tab_a:
-    _render_arena_tab(df_all[df_all["类别"] == "A"].copy(), "A")
+    df_a = df_all[df_all["类别"] == "A"].copy()
+    if not df_a.empty:
+        with st.spinner("正在拉取 A 组股息率数据…"):
+            _meta_a = get_stock_metadata(tuple(df_a["Ticker"].tolist()))
+        df_a["股息率"] = df_a["Ticker"].map(lambda t: float(_meta_a.get(t, {}).get("div_yield", 0.0)))
+    else:
+        df_a["股息率"] = 0.0
+    _render_arena_tab(df_a, "A")
 
 with tab_b:
     _render_arena_tab(df_all[df_all["类别"] == "B"].copy(), "B")
 
 with tab_c:
-    _render_arena_tab(df_all[df_all["类别"] == "C"].copy(), "C")
+    df_c = df_all[df_all["类别"] == "C"].copy()
+    meta = CLASS_META["C"]
+    cfg_c = ARENA_CONFIG["C"]
+
+    st.markdown(f"""
+    <div class='arena-header' style='background:{meta["bg"]}; border:1px solid {meta["color"]}44;'>
+        <div style='font-size:18px; font-weight:bold; color:{meta["color"]}; margin-bottom:8px;'>
+            {meta["icon"]} {meta["label"]} — {cfg_c["score_name"]}赛道
+        </div>
+        <div style='font-size:12px; color:#bbb; line-height:1.8;'>{cfg_c["logic"]}</div>
+        <div style='margin-top:10px; font-size:11px; color:#666;'>
+            评分权重 →
+            <span class='factor-pill' style='background:{meta["color"]}22; color:{meta["color"]}; border:1px solid {meta["color"]}55;'>Forward EPS Z-Score  40%</span>
+            <span class='factor-pill' style='background:#3498DB22; color:#3498DB; border:1px solid #3498DB55;'>log₁₀(MCap)  15%</span>
+            <span class='factor-pill' style='background:#9B59B622; color:#9B59B6; border:1px solid #9B59B655;'>量能 Z-Score  20%</span>
+            <span class='factor-pill' style='background:#F39C1222; color:#F39C12; border:1px solid #F39C1255;'>宏观顺风  15%</span>
+            <span class='factor-pill' style='background:#1ABC9C22; color:#1ABC9C; border:1px solid #1ABC9C55;'>叙事热度  10%</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── 白盒公式展示 ──────────────────────────────────────────────
+    st.markdown("""
+    <div class='formula-box' style='background:#1a1a1a; border-left:3px solid #E74C3C; padding:14px; margin-bottom:16px; font-size:13px; color:#ccc; border-radius:4px;'>
+    <b>⚙️ ScorecardC 白盒公式（满分 100 分）：</b><br><br>
+    <span style='color:#E74C3C; font-weight:bold;'>Score<sub>C</sub></span> =
+    <span style='color:#E74C3C;'>(40 × Z<sub>ForwardEPS</sub>)</span> +
+    <span style='color:#3498DB;'>(15 × log₁₀(MCap)<sub>norm</sub>)</span> +
+    <span style='color:#9B59B6;'>(20 × Z<sub>Vol5d</sub>)</span> +
+    <span style='color:#F39C12;'>(15 × Fit<sub>Macro</sub>)</span> +
+    <span style='color:#1ABC9C;'>(10 × Heat<sub>Narrative</sub>)</span><br><br>
+    <span style='color:#888; font-size:11px;'>
+    注：各项因子均经 Min-Max 归一化至 [0, 100] 区间后乘以权重系数求和。
+    当前宏观剧本（Macro Fit 判定基准）：<b style='color:#F39C12;'>{regime}</b>
+    </span>
+    </div>
+    """.format(regime=macro_regime), unsafe_allow_html=True)
+
+    if df_c.empty:
+        st.info(f"当前 C 级赛道暂无参赛资产。请先运行 **2 资产分拣** 或开启演示模式。")
+    else:
+        with st.spinner("正在拉取 C 组基本面因子数据（EPS增速、量能Z、市值）…"):
+            _meta_c    = get_stock_metadata(tuple(df_c["Ticker"].tolist()))
+            _factors_c = get_arena_c_factors(tuple(df_c["Ticker"].tolist()))
+
+        df_c["市值对数"] = df_c["Ticker"].map(
+            lambda t: float(np.log10(max(float(_meta_c.get(t, {}).get("mcap", 1e9)), 1e6)))
+        )
+        df_c["EPS增速"] = df_c["Ticker"].map(
+            lambda t: float(_factors_c.get(t, {}).get("earnings_growth", 0.0))
+        )
+        df_c["量能Z"] = df_c["Ticker"].map(
+            lambda t: float(_factors_c.get(t, {}).get("vol_z", 0.0))
+        )
+
+        df_scored_c = compute_scorecard_c(df_c, macro_regime)
+
+        # 保存至 session_state 供下游使用
+        n_c = len(df_scored_c)
+        if n_c > 0:
+            leaders = st.session_state.get("p4_arena_leaders", {})
+            leaders["C"] = [
+                {"ticker": row["Ticker"], "name": row["名称"], "score": float(row["竞技得分"]), "cls": "C"}
+                for _, row in df_scored_c.head(3).iterrows()
+            ]
+            st.session_state["p4_arena_leaders"] = leaders
+
+        n_bullish_c = int(df_scored_c["趋势健康"].sum())
+        top_score_c = df_scored_c["竞技得分"].iloc[0] if n_c > 0 else 0.0
+        avg_score_c = df_scored_c["竞技得分"].mean() if n_c > 0 else 0.0
+
+        kpi_cols_c = st.columns(4)
+        for col_obj, (label, val, suffix) in zip(kpi_cols_c, [
+            ("参赛资产", f"{n_c}", "只"),
+            ("趋势健康", f"{n_bullish_c}", f"/ {n_c}"),
+            ("赛道冠军分", f"{top_score_c:.0f}", "/ 100"),
+            ("赛道平均分", f"{avg_score_c:.0f}", "/ 100"),
+        ]):
+            with col_obj:
+                st.metric(label=label, value=val, delta=suffix)
+
+        st.markdown("---")
+        st.markdown("#### 🏆 赛道翘楚 — Top 3 高亮置顶")
+        _render_podium(df_scored_c.head(3), "C")
+
+        if n_c > 0:
+            champ_c = df_scored_c.iloc[0]
+            trend_txt_c = "趋势健康 (MA20 > MA60)" if champ_c["趋势健康"] else "趋势走弱 (MA20 < MA60)"
+            aligned_c = champ_c["Ticker"] in set(_MACRO_TAGS_MAP.get(macro_regime, []))
+            narrative_c = _STOCK_NARRATIVE.get(champ_c["Ticker"], "未映射")
+            heat_c = _NARRATIVE_HEAT_MAP.get(narrative_c, 0.0)
+            st.success(
+                f"**👑 赛道冠军深度解读 — {champ_c['Ticker']} ({champ_c['名称']})**\n\n"
+                f"在 C 级 {n_c} 位参赛标的中以 **Alpha 爆发力 {champ_c['竞技得分']:.0f} 分**夺冠。\n"
+                f"Forward EPS 增速贡献 = {champ_c['因子1_分']:.1f}，"
+                f"log₁₀(市值) 贡献 = {champ_c['因子2_分']:.1f}，"
+                f"量能 Z-Score 贡献 = {champ_c['因子3_分']:.1f}，"
+                f"宏观顺风 = {champ_c['因子4_分']:.1f}（{'✅ 顺风' if aligned_c else '❌ 逆风'}，剧本：{macro_regime}），"
+                f"叙事热度 = {champ_c['因子5_分']:.1f}（主题：{narrative_c}，热度 {heat_c}/10）。\n"
+                f"趋势状态：{trend_txt_c}。"
+            )
+
+        st.markdown("---")
+        _render_leaderboard(df_scored_c, "C")
+
+        if n_c > 0:
+            champ_ticker_c = df_scored_c.iloc[0]["Ticker"]
+            champ_name_c   = df_scored_c.iloc[0]["名称"]
+            col_hint_c, col_btn_c = st.columns([3, 1])
+            with col_hint_c:
+                st.markdown(
+                    f"<div style='font-size:12px; color:#888; margin-top:6px;'>"
+                    f"🏆 赛道冠军 <b style='color:#FFD700;'>{champ_ticker_c}</b>"
+                    f" ({champ_name_c}) 已就绪，可一键送入深度猎杀模块进行单体精析。"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            with col_btn_c:
+                if st.button("🎯 深度猎杀", key="hunt_C"):
+                    st.session_state["p4_champion_ticker"] = champ_ticker_c
+                    st.success(f"已锁定 {champ_ticker_c}！请切换至 **5 个股深度猎杀** 页面。")
 
 with tab_d:
     _render_arena_tab(df_all[df_all["类别"] == "D"].copy(), "D")

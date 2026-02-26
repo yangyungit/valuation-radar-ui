@@ -14,7 +14,7 @@ with st.sidebar:
 
 st.markdown("""
 <style>
-    .reason-text { font-size: 11px; color: #bbb; line-height: 1.6; }
+    .reason-text { font-size: 14px; color: #bbb; line-height: 1.6; }
     .rule-box { border-left: 3px solid; padding: 10px 14px; margin-bottom: 12px; border-radius: 0 6px 6px 0; }
 </style>
 """, unsafe_allow_html=True)
@@ -277,9 +277,9 @@ with st.expander("🛡️ 白盒声明：四级分拣关卡体系 — 点击展�
         with rule_cols[i]:
             st.markdown(f"""
             <div class='rule-box' style='border-color:{meta["color"]};'>
-                <b style='color:{meta["color"]};'>{meta["icon"]} {meta["label"]}</b>
-                <div style='font-size:10px; color:#888; margin:4px 0;'>更新频率：{meta["update_freq"]}</div>
-                <div style='font-size:10px; color:#F1C40F; margin-bottom:6px;'>{meta["criteria"]}</div>
+                <b style='color:{meta["color"]}; font-size:16px;'>{meta["icon"]} {meta["label"]}</b>
+                <div style='font-size:12px; color:#888; margin:4px 0;'>更新频率：{meta["update_freq"]}</div>
+                <div style='font-size:14px; color:#F1C40F; margin-bottom:6px;'>{meta["criteria"]}</div>
                 <span class='reason-text'>{meta["logic"]}</span>
             </div>
             """, unsafe_allow_html=True)
@@ -379,8 +379,8 @@ for i, cls in enumerate(["A", "B", "C", "D", "?"]):
                         border-radius:8px; padding:12px; text-align:center;'>
                 <div style='font-size:24px;'>{meta["icon"]}</div>
                 <div style='font-size:28px; font-weight:bold; color:{meta["color"]};'>{count}</div>
-                <div style='font-size:11px; color:#aaa;'>{meta["label"]}</div>
-                <div style='font-size:10px; color:#888; margin-top:4px;'>更新：{meta["update_freq"]}</div>
+                <div style='font-size:14px; color:#aaa;'>{meta["label"]}</div>
+                <div style='font-size:12px; color:#888; margin-top:4px;'>更新：{meta["update_freq"]}</div>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -389,7 +389,7 @@ for i, cls in enumerate(["A", "B", "C", "D", "?"]):
                         border-radius:8px; padding:12px; text-align:center;'>
                 <div style='font-size:24px;'>❓</div>
                 <div style='font-size:28px; font-weight:bold; color:#888;'>{count}</div>
-                <div style='font-size:11px; color:#aaa;'>待人工审核</div>
+                <div style='font-size:14px; color:#aaa;'>待人工审核</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -414,7 +414,7 @@ def _badges_html(criteria_detail: dict) -> str:
         color = "#2ECC71" if passed else "#E74C3C"
         icon  = "✅" if passed else "❌"
         parts.append(
-            f"<span style='color:{color}; font-size:10px; margin-right:10px;'>"
+            f"<span style='color:{color}; font-size:13px; margin-right:10px;'>"
             f"{icon} {name}：{val_str}</span>"
         )
     return "".join(parts)
@@ -430,8 +430,8 @@ def render_class_tab(tab, asset_list: list, cls: str):
             meta = CLASS_META[cls]
             st.markdown(f"""
             <div class='rule-box' style='border-color:{meta["color"]}; margin-bottom:16px;'>
-                <b style='color:{meta["color"]};'>{meta["icon"]} {meta["label"]} — 入选关卡</b><br>
-                <span style='font-size:10px; color:#F1C40F;'>{meta["criteria"]}</span><br>
+                <b style='color:{meta["color"]}; font-size:16px;'>{meta["icon"]} {meta["label"]} — 入选关卡</b><br>
+                <span style='font-size:14px; color:#F1C40F;'>{meta["criteria"]}</span><br>
                 <span class='reason-text'>{meta["logic"]}</span>
             </div>
             """, unsafe_allow_html=True)
@@ -450,17 +450,17 @@ def render_class_tab(tab, asset_list: list, cls: str):
             r0, r1, r2, r3, r4, r5 = st.columns([0.7, 1.0, 3.2, 1.1, 0.8, 0.9])
 
             r0.markdown(
-                f"<span style='color:{col_color}; font-weight:bold;'>{ticker}</span>",
+                f"<span style='color:{col_color}; font-weight:bold; font-size:16px;'>{ticker}</span>",
                 unsafe_allow_html=True
             )
             r1.markdown(
-                f"<span style='font-size:12px; color:#ccc;'>{info.get('cn_name', '-')}</span>",
+                f"<span style='font-size:14px; color:#ccc;'>{info.get('cn_name', '-')}</span>",
                 unsafe_allow_html=True
             )
 
             badges = _badges_html(info.get("criteria", {}))
             r2.markdown(
-                f"<div style='font-size:11px; color:#bbb; margin-bottom:3px;'>{info.get('reason', '-')}</div>"
+                f"<div style='font-size:14px; color:#bbb; margin-bottom:4px;'>{info.get('reason', '-')}</div>"
                 + (f"<div>{badges}</div>" if badges else ""),
                 unsafe_allow_html=True
             )
@@ -469,26 +469,26 @@ def render_class_tab(tab, asset_list: list, cls: str):
                 trend_color = "#2ECC71" if info.get("is_bullish") else "#E74C3C"
                 trend_icon  = "✅" if info.get("is_bullish") else "🔒"
                 r3.markdown(
-                    f"<span style='color:{trend_color}; font-size:11px;'>"
+                    f"<span style='color:{trend_color}; font-size:14px;'>"
                     f"{trend_icon} {info.get('trend_label', '-')}</span>",
                     unsafe_allow_html=True
                 )
                 z = info.get("z_score", 0.0)
                 z_color = "#2ECC71" if z > 0.5 else ("#E74C3C" if z < -0.5 else "#F1C40F")
                 r4.markdown(
-                    f"<span style='color:{z_color};'>{z:+.2f}</span>",
+                    f"<span style='color:{z_color}; font-size:15px;'>{z:+.2f}</span>",
                     unsafe_allow_html=True
                 )
                 m20 = info.get("mom20", 0.0)
                 m20_color = "#2ECC71" if m20 >= 0 else "#E74C3C"
                 r5.markdown(
-                    f"<span style='color:{m20_color};'>{m20:+.1f}%</span>",
+                    f"<span style='color:{m20_color}; font-size:15px;'>{m20:+.1f}%</span>",
                     unsafe_allow_html=True
                 )
             else:
-                r3.markdown("<span style='color:#555; font-size:11px;'>数据不足</span>", unsafe_allow_html=True)
-                r4.markdown("<span style='color:#555;'>—</span>", unsafe_allow_html=True)
-                r5.markdown("<span style='color:#555;'>—</span>", unsafe_allow_html=True)
+                r3.markdown("<span style='color:#555; font-size:14px;'>数据不足</span>", unsafe_allow_html=True)
+                r4.markdown("<span style='color:#555; font-size:15px;'>—</span>", unsafe_allow_html=True)
+                r5.markdown("<span style='color:#555; font-size:15px;'>—</span>", unsafe_allow_html=True)
 
         bullish_n = sum(1 for _, i in asset_list if i.get("is_bullish"))
         data_n    = sum(1 for _, i in asset_list if i.get("has_data"))
