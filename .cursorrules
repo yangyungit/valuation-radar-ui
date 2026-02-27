@@ -17,3 +17,13 @@
 * **UI 渲染安全：** 严禁列表推导式直接生成 Streamlit 组件，必须用显式 `for` 循环。
 * **全局缓存控制：** 每个页面侧边栏必须保留 `st.cache_data.clear()` 一键强刷按钮。
 * **绘图安全：** 数据送入 Plotly 前必须 `.astype(float)` + `.dropna()`。
+
+## 🔤 UI 字号规范 (Font Size Standard)
+所有自定义 HTML/CSS 块（旁白卡片、白盒展开区、formula-box、conclusion-box 等）必须遵守以下最小字号约束：
+* **正文 / 描述文字：** 最小 **13px**（禁止使用 11px、12px）。
+* **标题 / 区块 header：** 最小 **15px**。
+* **脚注 / 低优先级标注：** 最小 **13px**（原来常见的 `font-size:11px` 全面禁用）。
+* **CSS 类 `.ev-item`（证据列表）：** 14px。
+* **CSS 类 `.formula-box` / `.conclusion-box`：** 14px。
+* **CSS 类 `.sub-ticker`（龙头穿透行）：** 13px。
+* 新增任何 inline `style='font-size:...'` 时，必须先对照上述规范检查，不得低于对应层级最小值。
