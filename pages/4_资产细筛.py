@@ -2,30 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-
-# #region agent log
-import json as _json, time as _time, pathlib as _pl, traceback as _tb
-def _dbg(msg, data=None, hyp="H?"):
-    try:
-        entry = _json.dumps({"sessionId":"926536","timestamp":int(_time.time()*1000),"location":"4_资产细筛.py","message":msg,"data":data or {},"hypothesisId":hyp})
-        _pl.Path("/Users/zhanghao/yangyun/Code_Projects/valuation-radar-ui/.cursor/debug-926536.log").open("a").write(entry+"\n")
-    except Exception: pass
-# #endregion
-
-# #region agent log
-_dbg("page module loading started", {}, "H1")
-try:
-    import api_client as _ac_mod
-    _dbg("api_client module loaded OK", {"attrs": [a for a in dir(_ac_mod) if not a.startswith("_")]}, "H1")
-    from api_client import fetch_core_data, get_stock_metadata, get_arena_c_factors, get_arena_d_factors
-    _dbg("all 4 functions imported OK", {}, "H2")
-except Exception as _ie:
-    _full_tb = _tb.format_exc()
-    _dbg("IMPORT FAILED", {"error": str(_ie), "type": type(_ie).__name__, "traceback": _full_tb}, "H1")
-    st.error(f"🚨 [DEBUG] 导入错误 ({type(_ie).__name__}): {_ie}")
-    st.code(_full_tb, language="python")
-    st.stop()
-# #endregion
+from api_client import fetch_core_data, get_stock_metadata, get_arena_c_factors, get_arena_d_factors
 
 _core_data = fetch_core_data()
 _MACRO_TAGS_MAP     = _core_data.get("MACRO_TAGS_MAP", {})
