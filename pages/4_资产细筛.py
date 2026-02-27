@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from api_client import fetch_core_data, get_stock_metadata, get_arena_c_factors
+from api_client import fetch_core_data, get_stock_metadata, get_arena_c_factors, get_arena_d_factors
 
 _core_data = fetch_core_data()
 _MACRO_TAGS_MAP     = _core_data.get("MACRO_TAGS_MAP", {})
@@ -126,20 +126,19 @@ ARENA_CONFIG: dict = {
         ),
     },
     "D": {
-        "score_name": "预备队爆发指数",
-        "weights": {"mom20": 0.50, "z_score_inv": 0.30, "bullish": 0.20},
-        "invert_z": True,
+        "score_name": "爆点扫描指数",
+        "weights": {"vol_z": 0.45, "rs_20d": 0.35, "ma60_breakout": 0.20},
         "factor_labels": {
-            "mom20":       "右侧放量突破 (催化剂强度)",
-            "z_score_inv": "盈亏比 R:R (低估=更大上行空间)",
-            "bullish":     "右侧突破确认 (趋势启动信号)",
+            "vol_z":        "量价共振烈度 Vol-Price Ignition (机构巨量抢筹)",
+            "rs_20d":       "相对强度 Alpha RS₂₀ (超越大盘超额收益)",
+            "ma60_breakout": "均线起飞姿态 Base Breakout (季线突破健康度)",
         },
         "logic": (
-            "预备队的竞技逻辑：催化剂清晰度 × 右侧放量突破，规则大于判断，严守止损位。"
-            "① 右侧放量突破（近 20 天动量爆发是催化剂兑现的直接信号，权重 50%）"
-            "② 盈亏比 R:R（Z-Score 越低代表越大的上行空间，估值因子反向计分，权重 30%）"
-            "③ 右侧突破确认（均线开始金叉，主升浪启动信号，权重 20%）。"
-            "【注意】R:R 因子为反向计分，Z 越低得分越高，代表更佳的风险收益比。"
+            "🚀 D 组「爆点扫描仪」使命：全市场无差别扫描，只抓【底部放巨量突破】且【走势远强于大盘】的早期异动股。"
+            "① 量价共振烈度（5日均量 Z-Score 相对 60日基准，机构入场信号，权重 45%）"
+            "② 相对强度 Alpha（近 20 日超越 SPY 超额收益率，时代之王预备特征，权重 35%）"
+            "③ 均线起飞姿态（价格与季线 MA60 位置关系，最佳为刚突破 0-20%，乖离过大扣分，权重 20%）。"
+            "D 组不区分行业，只看爆发质量：高分即送入 C 组候选，低分说明是骗炮。"
         ),
     },
 }
@@ -277,6 +276,64 @@ def compute_scorecard_c(df: pd.DataFrame, macro_regime: str) -> pd.DataFrame:
     result["竞技得分"] = (
         result["因子1_分"] + result["因子2_分"] + result["因子3_分"]
         + result["因子4_分"] + result["因子5_分"]
+    ).round(1)
+
+    result = result.sort_values("竞技得分", ascending=False).reset_index(drop=True)
+    result["排名"] = range(1, len(result) + 1)
+    return result
+
+
+def _score_ma60_breakout(dist: float) -> float:
+    """
+    将 MA60 偏离率 (%) 转换为 0-100 分的「起飞姿态」得分。
+    最佳区间：价格在 MA60 上方 0-20%（刚刚突破，旱地拔葱）→ 100 分
+    超出 50%：强弩之末 → 0 分
+    深埋 MA60 下方 > 20%：基础太弱 → 0 分
+    """
+    if -10.0 <= dist <= 20.0:
+        return 100.0
+    elif 20.0 < dist <= 50.0:
+        return max(0.0, 100.0 - (dist - 20.0) / 30.0 * 100.0)
+    elif dist > 50.0:
+        return 0.0
+    elif -20.0 <= dist < -10.0:
+        return max(0.0, 100.0 - (abs(dist) - 10.0) / 10.0 * 50.0)
+    else:
+        return max(0.0, 50.0 - (abs(dist) - 20.0) / 20.0 * 50.0)
+
+
+def compute_scorecard_d(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    ScorecardD — D 组「爆点扫描仪」评分体系（满分 100 分）
+
+    Score_D = (45 × Z_Vol5d) + (35 × RS_20d_vs_SPY) + (20 × MA60_Breakout)
+
+    各项均先归一化至 [0, 100] 后乘权重，确保总分上限 100 分。
+    需要 df 已含 "Vol_Z", "RS_20d", "MA60偏离" 三列。
+    """
+    if df.empty:
+        return df
+
+    result = df.copy()
+
+    # ── 因子 1: 5日量能 Z-Score → 正向 MinMax (45%)
+    vol_z_raw = result.get("Vol_Z", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f1_norm = _minmax_norm(vol_z_raw)
+
+    # ── 因子 2: 20日相对 SPY 超额收益率 → 正向 MinMax (35%)
+    rs_raw = result.get("RS_20d", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f2_norm = _minmax_norm(rs_raw)
+
+    # ── 因子 3: MA60 起飞姿态分 → 分段打分 (20%)
+    ma60_raw = result.get("MA60偏离", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f3_norm = ma60_raw.apply(_score_ma60_breakout)
+
+    result["因子1_分"] = (0.45 * f1_norm).round(1)
+    result["因子2_分"] = (0.35 * f2_norm).round(1)
+    result["因子3_分"] = (0.20 * f3_norm).round(1)
+
+    result["竞技得分"] = (
+        result["因子1_分"] + result["因子2_分"] + result["因子3_分"]
     ).round(1)
 
     result = result.sort_values("竞技得分", ascending=False).reset_index(drop=True)
@@ -471,6 +528,197 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+
+
+# ─────────────────────────────────────────────────────────────────
+#  UI：D 组专属颁奖台（展示量价/RS/MA60 三维指标）
+# ─────────────────────────────────────────────────────────────────
+_D_FACTOR_COLORS = ["#9B59B6", "#3498DB", "#F39C12"]   # Vol_Z / RS / MA60
+
+
+def _render_podium_d(top3: pd.DataFrame) -> None:
+    """D 组爆点扫描仪专属 Top 3 颁奖台。"""
+    meta = CLASS_META["D"]
+    cols = st.columns(3)
+    for i, (medal, medal_color, css_class, title) in enumerate(_PODIUM_MEDALS):
+        if i >= len(top3):
+            with cols[i]:
+                st.markdown(
+                    "<div style='border:1px dashed #333; border-radius:12px; "
+                    "padding:20px; text-align:center; color:#555; font-size:13px;'>"
+                    "暂无数据</div>",
+                    unsafe_allow_html=True,
+                )
+            continue
+
+        row   = top3.iloc[i]
+        score = row["竞技得分"]
+        vol_z = row.get("Vol_Z", 0.0)
+        rs    = row.get("RS_20d", 0.0)
+        ma60  = row.get("MA60偏离", 0.0)
+
+        # Vol_Z 颜色：> 1 绿，< 0 红，其余黄
+        vz_color = "#2ECC71" if vol_z > 1.0 else ("#E74C3C" if vol_z < 0 else "#F1C40F")
+        rs_color = "#2ECC71" if rs > 0 else "#E74C3C"
+
+        # MA60 姿态标注
+        if -10 <= ma60 <= 20:
+            ma60_tag  = "⚡ 黄金突破区"
+            ma60_color = "#2ECC71"
+        elif 20 < ma60 <= 50:
+            ma60_tag  = "⚠️ 偏高注意"
+            ma60_color = "#F39C12"
+        elif ma60 > 50:
+            ma60_tag  = "🔴 强弩之末"
+            ma60_color = "#E74C3C"
+        else:
+            ma60_tag  = "🔵 基础蓄力"
+            ma60_color = "#3498DB"
+
+        factor_pills_html = (
+            f"<span style='color:{_D_FACTOR_COLORS[0]}30; background:{_D_FACTOR_COLORS[0]}20; "
+            f"border-radius:3px; padding:1px 6px;'>F1 {row.get('因子1_分',0.0):.1f}</span> "
+            f"<span style='color:{_D_FACTOR_COLORS[1]}30; background:{_D_FACTOR_COLORS[1]}20; "
+            f"border-radius:3px; padding:1px 6px;'>F2 {row.get('因子2_分',0.0):.1f}</span> "
+            f"<span style='color:{_D_FACTOR_COLORS[2]}30; background:{_D_FACTOR_COLORS[2]}20; "
+            f"border-radius:3px; padding:1px 6px;'>F3 {row.get('因子3_分',0.0):.1f}</span>"
+        )
+
+        with cols[i]:
+            st.markdown(f"""
+            <div class='{css_class}'>
+                <div style='font-size:32px; margin-bottom:4px;'>{medal}</div>
+                <div style='font-size:11px; color:{medal_color}; font-weight:bold;
+                            letter-spacing:1px; margin-bottom:10px;'>{title}</div>
+                <div style='font-size:26px; font-weight:bold; color:#eee;'>{row['Ticker']}</div>
+                <div style='font-size:11px; color:#aaa; margin-bottom:10px;'>{row['名称']}</div>
+                <div style='font-size:34px; font-weight:bold; color:{medal_color}; margin-bottom:4px;'>
+                    {score:.0f}
+                </div>
+                <div style='font-size:10px; color:#888; margin-bottom:14px;'>爆点扫描指数 / 100</div>
+                <hr style='border-color:#333; margin:8px 0;'>
+                <div style='font-size:11px; text-align:left; line-height:2;'>
+                    <span style='color:#888;'>量能 Z-Score</span>
+                    <span style='color:{vz_color}; font-weight:bold; float:right;'>{vol_z:+.2f}</span><br>
+                    <span style='color:#888;'>RS vs SPY (20d)</span>
+                    <span style='color:{rs_color}; font-weight:bold; float:right;'>{rs:+.1f}%</span><br>
+                    <span style='color:#888;'>MA60 偏离</span>
+                    <span style='color:{ma60_color}; float:right;'>{ma60:+.1f}% {ma60_tag}</span>
+                </div>
+                <hr style='border-color:#333; margin:8px 0;'>
+                <div style='font-size:10px; color:#777; text-align:left; line-height:1.8; display:flex; flex-wrap:wrap; gap:4px;'>
+                    {factor_pills_html}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+def _render_leaderboard_d(df_scored: pd.DataFrame) -> None:
+    """D 组爆点扫描仪专属排行榜（Vol_Z / RS / MA60 三维列）。"""
+    meta = CLASS_META["D"]
+    n    = len(df_scored)
+    st.markdown(f"#### 完整排行榜（{meta['icon']} {n} 位参赛选手）")
+    if df_scored.empty:
+        return
+
+    d_factor_labels = [
+        "量价共振烈度 Vol-Price Ignition",
+        "相对强度 Alpha RS₂₀",
+        "均线起飞姿态 Base Breakout",
+    ]
+    legend_html = (
+        "<div style='display:flex; gap:16px; font-size:11px; color:#888; margin-bottom:8px; "
+        "align-items:center; flex-wrap:wrap;'>"
+        "<span style='font-weight:bold;'>因子贡献分解：</span>"
+    )
+    for label, color in zip(d_factor_labels, _D_FACTOR_COLORS):
+        legend_html += (
+            f"<span style='display:flex; align-items:center; gap:4px;'>"
+            f"<div style='width:10px; height:10px; background:{color}; border-radius:2px;'></div>"
+            f"{label}</span>"
+        )
+    legend_html += "</div>"
+    st.markdown(legend_html, unsafe_allow_html=True)
+
+    header_html = (
+        "<div style='display:flex; align-items:center; border-bottom:2px solid #333;"
+        " color:#888; font-size:11px; padding:6px 0; font-weight:bold;'>"
+        "<div style='width:46px; text-align:center;'>排名</div>"
+        "<div style='width:150px;'>资产</div>"
+        "<div style='flex:1; padding:0 20px;'>因子贡献分解 (堆叠)</div>"
+        "<div style='width:82px; text-align:right;'>量能 Z</div>"
+        "<div style='width:100px; text-align:right;'>RS vs SPY</div>"
+        "<div style='width:90px; text-align:right;'>MA60 偏离</div>"
+        "<div style='width:160px; padding-left:12px;'>爆点扫描指数</div>"
+        "</div>"
+    )
+
+    max_score  = df_scored["竞技得分"].max() if not df_scored.empty else 100.0
+    rows_html  = ""
+    for _, row in df_scored.iterrows():
+        rank   = int(row["排名"])
+        score  = row["竞技得分"]
+        bar_pct = score / max(max_score, 1.0) * 100
+        vol_z  = row.get("Vol_Z", 0.0)
+        rs     = row.get("RS_20d", 0.0)
+        ma60   = row.get("MA60偏离", 0.0)
+
+        vz_color  = "#2ECC71" if vol_z > 1.0 else ("#E74C3C" if vol_z < 0 else "#F1C40F")
+        rs_color  = "#2ECC71" if rs > 0 else "#E74C3C"
+        ma60_color = "#2ECC71" if -10 <= ma60 <= 20 else ("#F39C12" if ma60 <= 50 else "#E74C3C")
+
+        if rank == 1:
+            rank_html = "<span style='font-size:16px;'>🥇</span>"
+        elif rank == 2:
+            rank_html = "<span style='font-size:16px;'>🥈</span>"
+        elif rank == 3:
+            rank_html = "<span style='font-size:16px;'>🥉</span>"
+        else:
+            rank_html = f"<span style='color:#555; font-size:13px;'>#{rank}</span>"
+
+        f1_val = row.get("因子1_分", 0.0)
+        f2_val = row.get("因子2_分", 0.0)
+        f3_val = row.get("因子3_分", 0.0)
+        f1_pct = f1_val / max(max_score, 1.0) * 100
+        f2_pct = f2_val / max(max_score, 1.0) * 100
+        f3_pct = f3_val / max(max_score, 1.0) * 100
+        factor_bars_html = (
+            f"<div style='width:{f1_pct:.0f}%; background:{_D_FACTOR_COLORS[0]};' "
+            f"title='量价共振烈度: {f1_val:.1f}'></div>"
+            f"<div style='width:{f2_pct:.0f}%; background:{_D_FACTOR_COLORS[1]};' "
+            f"title='相对强度 Alpha: {f2_val:.1f}'></div>"
+            f"<div style='width:{f3_pct:.0f}%; background:{_D_FACTOR_COLORS[2]};' "
+            f"title='均线起飞姿态: {f3_val:.1f}'></div>"
+        )
+
+        rows_html += (
+            "<div style='display:flex; align-items:center; border-bottom:1px solid #1e1e1e; padding:8px 0;'>"
+            f"<div style='width:46px; text-align:center;'>{rank_html}</div>"
+            "<div style='width:150px; display:flex; align-items:baseline; gap:8px;'>"
+            f"<span style='font-size:14px; font-weight:bold; color:#eee;'>{row['Ticker']}</span>"
+            f"<span style='font-size:11px; color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>{row['名称']}</span>"
+            "</div>"
+            "<div style='flex:1; padding:0 20px;'>"
+            "<div style='display:flex; width:100%; height:10px; background:#1e1e1e; border-radius:4px; overflow:hidden;'>"
+            f"{factor_bars_html}"
+            "</div></div>"
+            f"<div style='width:82px; text-align:right; font-weight:bold; color:{vz_color};'>{vol_z:+.2f}</div>"
+            f"<div style='width:100px; text-align:right; font-weight:bold; color:{rs_color};'>{rs:+.1f}%</div>"
+            f"<div style='width:90px; text-align:right; font-weight:bold; color:{ma60_color};'>{ma60:+.1f}%</div>"
+            "<div style='width:160px; padding-left:12px;'>"
+            "<div style='display:flex; align-items:center; gap:8px;'>"
+            "<div style='flex:1; background:#1e1e1e; border-radius:4px; height:8px;'>"
+            f"<div style='width:{bar_pct:.0f}%; background:{meta['color']}; border-radius:4px; height:8px;'></div>"
+            "</div>"
+            f"<span style='font-size:13px; font-weight:bold; color:{meta['color']}; min-width:32px;'>{score:.0f}</span>"
+            "</div></div></div>"
+        )
+
+    st.markdown(
+        f"<div style='width:100%; font-size:13px;'>{header_html}{rows_html}</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -879,4 +1127,128 @@ elif _sel4 == "C":
                     st.success(f"已锁定 {champ_ticker_c}！请切换至 **5 个股深度猎杀** 页面。")
 
 elif _sel4 == "D":
-    _render_arena_tab(df_all[df_all["类别"] == "D"].copy(), "D")
+    df_d  = df_all[df_all["类别"] == "D"].copy()
+    meta  = CLASS_META["D"]
+    cfg_d = ARENA_CONFIG["D"]
+
+    # ── 赛道头部介绍 ──────────────────────────────────────────────
+    st.markdown(f"""
+    <div class='arena-header' style='background:{meta["bg"]}; border:1px solid {meta["color"]}44;'>
+        <div style='font-size:18px; font-weight:bold; color:{meta["color"]}; margin-bottom:8px;'>
+            {meta["icon"]} {meta["label"]} — {cfg_d["score_name"]}赛道
+        </div>
+        <div style='font-size:13px; color:#bbb; line-height:1.8;'>{cfg_d["logic"]}</div>
+        <div style='margin-top:10px; font-size:11px; color:#666;'>
+            评分权重 →
+            <span class='factor-pill' style='background:{_D_FACTOR_COLORS[0]}22; color:{_D_FACTOR_COLORS[0]}; border:1px solid {_D_FACTOR_COLORS[0]}55;'>量价共振烈度  45%</span>
+            <span class='factor-pill' style='background:{_D_FACTOR_COLORS[1]}22; color:{_D_FACTOR_COLORS[1]}; border:1px solid {_D_FACTOR_COLORS[1]}55;'>相对强度 Alpha RS₂₀  35%</span>
+            <span class='factor-pill' style='background:{_D_FACTOR_COLORS[2]}22; color:{_D_FACTOR_COLORS[2]}; border:1px solid {_D_FACTOR_COLORS[2]}55;'>均线起飞姿态  20%</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── 白盒公式展示 ──────────────────────────────────────────────
+    st.markdown("""
+    <div class='formula-box' style='background:#1a1a1a; border-left:3px solid #9B59B6;
+         padding:14px; margin-bottom:16px; font-size:13px; color:#ccc; border-radius:4px;'>
+    <b>⚙️ ScorecardD 白盒公式（满分 100 分）：</b><br><br>
+    <span style='color:#9B59B6; font-weight:bold;'>Score<sub>D</sub></span> =
+    <span style='color:#9B59B6;'>(45 × Z<sub>Vol5d</sub>)</span> +
+    <span style='color:#3498DB;'>(35 × RS<sub>20d vs SPY</sub>)</span> +
+    <span style='color:#F39C12;'>(20 × MA60<sub>Breakout</sub>)</span><br><br>
+    <span style='color:#888; font-size:11px;'>
+    MA60 起飞姿态分：0-20% 突破区满分，>50% 强弩之末 0 分，
+    深埋 MA60 20% 以下得分递减。Vol Z-Score 和 RS 均经 Min-Max 归一化。
+    </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if df_d.empty:
+        st.info("当前 D 级赛道暂无参赛资产。请先运行 **2 资产分拣** 或开启演示模式。")
+    else:
+        with st.spinner("正在拉取 D 组爆点因子数据（Vol_Z、RS vs SPY、MA60 位置）…"):
+            _factors_d = get_arena_d_factors(tuple(df_d["Ticker"].tolist()))
+
+        df_d["Vol_Z"]   = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("vol_z",    0.0)))
+        df_d["RS_20d"]  = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("rs_20d",   0.0)))
+        df_d["MA60偏离"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("ma60_dist", 0.0)))
+
+        df_scored_d = compute_scorecard_d(df_d)
+
+        # 保存至 session_state 供下游使用
+        n_d = len(df_scored_d)
+        if n_d > 0:
+            leaders = st.session_state.get("p4_arena_leaders", {})
+            leaders["D"] = [
+                {"ticker": row["Ticker"], "name": row["名称"], "score": float(row["竞技得分"]), "cls": "D"}
+                for _, row in df_scored_d.head(3).iterrows()
+            ]
+            st.session_state["p4_arena_leaders"] = leaders
+
+        # ── KPI 卡片 ─────────────────────────────────────────────
+        top_score_d = df_scored_d["竞技得分"].iloc[0] if n_d > 0 else 0.0
+        avg_score_d = df_scored_d["竞技得分"].mean()  if n_d > 0 else 0.0
+        n_breakout  = int((df_scored_d["MA60偏离"].between(-10, 20)).sum()) if n_d > 0 else 0
+
+        kpi_cols_d = st.columns(4)
+        for col_obj, (label, val, suffix) in zip(kpi_cols_d, [
+            ("参赛资产",       f"{n_d}",           "只"),
+            ("黄金突破区",     f"{n_breakout}",    f"/ {n_d}"),
+            ("赛道冠军分",     f"{top_score_d:.0f}", "/ 100"),
+            ("赛道平均分",     f"{avg_score_d:.0f}", "/ 100"),
+        ]):
+            with col_obj:
+                st.metric(label=label, value=val, delta=suffix)
+
+        st.markdown("---")
+
+        # ── 颁奖台 ────────────────────────────────────────────────
+        st.markdown("#### 🏆 赛道翘楚 — Top 3 高亮置顶")
+        _render_podium_d(df_scored_d.head(3))
+
+        # ── 冠军深度解读 ──────────────────────────────────────────
+        if n_d > 0:
+            champ_d = df_scored_d.iloc[0]
+            vol_z_c  = champ_d.get("Vol_Z", 0.0)
+            rs_c     = champ_d.get("RS_20d", 0.0)
+            ma60_c   = champ_d.get("MA60偏离", 0.0)
+
+            if -10 <= ma60_c <= 20:
+                ma60_verdict = "⚡ 处于黄金突破区（季线起飞最佳姿态）"
+            elif ma60_c > 50:
+                ma60_verdict = "🔴 乖离过大（强弩之末，建议等回调）"
+            elif ma60_c > 20:
+                ma60_verdict = "⚠️ 偏离季线偏高，注意追高风险"
+            else:
+                ma60_verdict = "🔵 尚在季线下方蓄力，等待突破信号"
+
+            st.success(
+                f"**🚀 赛道冠军深度解读 — {champ_d['Ticker']} ({champ_d['名称']})**\n\n"
+                f"在 D 级 {n_d} 位参赛标的中以 **爆点扫描指数 {champ_d['竞技得分']:.0f} 分**夺冠。\n"
+                f"量价共振烈度（Vol_Z）= **{vol_z_c:+.2f}**，贡献 {champ_d['因子1_分']:.1f} 分；"
+                f"相对强度 RS₂₀ vs SPY = **{rs_c:+.1f}%**，贡献 {champ_d['因子2_分']:.1f} 分；"
+                f"MA60 偏离 = **{ma60_c:+.1f}%** — {ma60_verdict}，贡献 {champ_d['因子3_分']:.1f} 分。"
+            )
+
+        st.markdown("---")
+
+        # ── 完整排行榜 ─────────────────────────────────────────────
+        _render_leaderboard_d(df_scored_d)
+
+        # ── 快捷跳转 ──────────────────────────────────────────────
+        if n_d > 0:
+            champ_ticker_d = df_scored_d.iloc[0]["Ticker"]
+            champ_name_d   = df_scored_d.iloc[0]["名称"]
+            col_hint_d, col_btn_d = st.columns([3, 1])
+            with col_hint_d:
+                st.markdown(
+                    f"<div style='font-size:13px; color:#888; margin-top:6px;'>"
+                    f"🏆 赛道冠军 <b style='color:#FFD700;'>{champ_ticker_d}</b>"
+                    f" ({champ_name_d}) 已就绪，可一键送入深度猎杀模块进行单体精析。"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            with col_btn_d:
+                if st.button("🎯 深度猎杀", key="hunt_D"):
+                    st.session_state["p4_champion_ticker"] = champ_ticker_d
+                    st.success(f"已锁定 {champ_ticker_d}！请切换至 **5 个股深度猎杀** 页面。")

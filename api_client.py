@@ -143,6 +143,66 @@ def get_arena_c_factors(tickers: tuple) -> dict:
     return result
 
 
+@st.cache_data(ttl=3600*4)
+def get_arena_d_factors(tickers: tuple) -> dict:
+    """获取 D 组 ScorecardD 所需三维因子：
+    - vol_z:     5日均量 Z-Score（相对60日基准，量价共振烈度）
+    - rs_20d:    近20日相对 SPY 超额收益率（%，相对强度 Alpha）
+    - ma60_dist: 当前价格距 MA60 偏离百分比（%，均线起飞姿态）
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    import numpy as np
+
+    # 先取 SPY 基准 20 日收益
+    try:
+        spy_hist = yf.Ticker("SPY").history(period="65d")
+        if not spy_hist.empty and len(spy_hist) >= 21:
+            spy_prices = spy_hist["Close"].dropna().astype(float)
+            spy_ret20 = float((spy_prices.iloc[-1] / spy_prices.iloc[-21] - 1) * 100)
+        else:
+            spy_ret20 = 0.0
+    except Exception:
+        spy_ret20 = 0.0
+
+    def _fetch_one(t):
+        try:
+            hist = yf.Ticker(t).history(period="65d")
+            if hist.empty or len(hist) < 10:
+                return t, {"vol_z": 0.0, "rs_20d": 0.0, "ma60_dist": 0.0}
+
+            prices = hist["Close"].dropna().astype(float)
+            vol    = hist["Volume"].dropna().astype(float)
+
+            # Vol Z-Score (5日均量 vs 60日基线)
+            mu, sigma = vol.mean(), vol.std()
+            recent5   = vol.tail(5).mean()
+            vol_z = float((recent5 - mu) / sigma) if sigma > 0 else 0.0
+
+            # RS 20日超额收益
+            if len(prices) >= 21:
+                ret20 = float((prices.iloc[-1] / prices.iloc[-21] - 1) * 100)
+                rs_20d = ret20 - spy_ret20
+            else:
+                rs_20d = 0.0
+
+            # MA60 偏离百分比
+            if len(prices) >= 60:
+                ma60 = prices.tail(60).mean()
+            else:
+                ma60 = prices.mean()
+            ma60_dist = float((prices.iloc[-1] / ma60 - 1) * 100) if ma60 > 0 else 0.0
+
+            return t, {"vol_z": vol_z, "rs_20d": rs_20d, "ma60_dist": ma60_dist}
+        except Exception:
+            return t, {"vol_z": 0.0, "rs_20d": 0.0, "ma60_dist": 0.0}
+
+    result = {}
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        for t, data in executor.map(_fetch_one, tickers):
+            result[t] = data
+    return result
+
+
 @st.cache_data(ttl=3600)
 def fetch_macro_scores(df, clock_g=None, clock_i=None):
     """将公开 DataFrame 发送到云端，换取机密打分结果"""
