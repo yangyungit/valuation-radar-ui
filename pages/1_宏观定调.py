@@ -731,6 +731,98 @@ if not df.empty and len(df) > 750:
 
     st.markdown(f"<div class='conclusion-box'><b>🧠 因子轮动结论：</b>{factor_desc} (当前市场最强单一因子为: <b>{best_f}</b>)</div>", unsafe_allow_html=True)
 
+    # ─── 🎯 战术分组映射引擎 (Tactical Group Mapping) ──────────────────────
+    _all_f_vals = {**off_f, **def_f}
+    _sorted_f = sorted(_all_f_vals.items(), key=lambda x: x[1], reverse=True)
+    _top3_f = [f[0] for f in _sorted_f[:3]]
+    _spy_vs_iwm = get_ret('SPY') - get_ret('IWM')   # 大盘 vs 小盘强弱差
+
+    # 各战术组因子匹配得分 (满分: C=5, D=6, A=5)
+    _score_C = sum([
+        2 if '动量'  in _top3_f else 0,
+        1 if '投机'  in _top3_f else 0,
+        1 if off_mean > def_mean + 0.5 else 0,   # 进攻风格占优
+        1 if _spy_vs_iwm > 0 else 0,              # 大盘跑赢小盘
+    ])
+    _score_D = sum([
+        2 if '价值'  in _top3_f else 0,
+        2 if '小盘'  in _top3_f else 0,
+        1 if '高贝塔' in _top3_f else 0,
+        1 if _spy_vs_iwm < 0 else 0,              # 小盘跑赢大盘
+        1 if off_f.get('高贝塔', 0) > 0 else 0,  # 高贝塔本身为正
+    ])
+    _score_A = sum([
+        2 if '低波'  in _top3_f else 0,
+        1 if '质量'  in _top3_f else 0,
+        1 if '红利'  in _top3_f else 0,
+        1 if def_mean > off_mean + 0.5 else 0,   # 防守风格占优
+    ])
+
+    _group_scores = {'C': _score_C, 'D': _score_D, 'A': _score_A}
+    _winner_group = max(_group_scores, key=_group_scores.get)
+    _winner_score = _group_scores[_winner_group]
+    _top2_f_str = ' + '.join(_top3_f[:2])
+
+    if _winner_score < 2:
+        # 信号过弱 → 均衡核心配置 B组
+        _map_color, _map_badge = '#95A5A6', '⚖️'
+        _map_title = 'B 组 (均衡核心)'
+        _map_body = ('当前因子信号混杂，进攻与防守均无明确共振主线。建议维持均衡核心配置，'
+                     '持有优质宽基资产，等待因子方向明确后再加大方向性押注。')
+        _map_etfs = 'SPY · QQQ · QUAL · VIG'
+        _map_confidence = '低'
+    elif _winner_group == 'C':
+        _map_color, _map_badge = '#E74C3C', '👑'
+        _map_title = 'C 组 (时代之王)'
+        _map_body = (f'资金正向流动性极佳的头部资产抱团。<b>{_top2_f_str}</b> 因子领衔，'
+                     f'大盘成长全面压制价值小盘。建议超配 <b>C 组（时代之王）</b>，'
+                     f'享受科技、AI、半导体的趋势主升浪。')
+        _map_etfs = 'XLK · SMH · IGV · AIQ · NVDA · MSFT'
+        _map_confidence = '高' if _winner_score >= 4 else '中'
+    elif _winner_group == 'D':
+        _map_color, _map_badge = '#F39C12', '⛏️'
+        _map_title = 'D 组 (预备队·强周期)'
+        _map_body = (f'典型再通胀/价值轮动信号共振。<b>{_top2_f_str}</b> 因子霸榜，'
+                     f'小盘与强周期承接主力资金。建议重点狙击 <b>D 组（预备队·强周期）</b>，'
+                     f'关注能源、基础材料与区域银行的爆发行情。')
+        _map_etfs = 'XLE · XOP · KRE · CPER · PICK · URA'
+        _map_confidence = '高' if _winner_score >= 4 else '中'
+    else:   # A
+        _map_color, _map_badge = '#3498DB', '🛡️'
+        _map_title = 'A 组 (压舱石·防御)'
+        _map_body = (f'避险情绪升温，资金躲入防空洞。<b>{_top2_f_str}</b> 因子主导，'
+                     f'防御风格全面压制进攻。建议收缩进攻敞口，向 <b>A 组（压舱石）</b>转移——'
+                     f'公用事业、优质红利与黄金提供安全边际。')
+        _map_etfs = 'XLU · XLP · VIG · GLD · USMV · QUAL'
+        _map_confidence = '高' if _winner_score >= 4 else '中'
+
+    _confidence_color = {'高': '#2ECC71', '中': '#F39C12', '低': '#95A5A6'}[_map_confidence]
+    _score_bar = ''.join(['█' if i < _winner_score else '░' for i in range(6)])
+
+    st.markdown(f"""
+    <div style='background:{_map_color}18; border:1px solid {_map_color}50; border-left:5px solid {_map_color};
+                border-radius:8px; padding:18px 22px; margin-top:14px;'>
+        <div style='display:flex; align-items:center; gap:14px; margin-bottom:10px;'>
+            <div style='font-size:26px; line-height:1;'>{_map_badge}</div>
+            <div>
+                <div style='font-size:16px; font-weight:bold; color:{_map_color};'>
+                    🎯 战术分组映射 &nbsp;→&nbsp; {_map_title}
+                </div>
+                <div style='font-size:13px; color:#aaa; margin-top:3px;'>
+                    信号强度：<span style='color:{_confidence_color}; font-weight:bold;'>{_map_confidence}</span>
+                    &nbsp;<span style='color:{_confidence_color}; font-family:monospace; letter-spacing:1px;'>[{_score_bar}]</span>
+                    &nbsp;·&nbsp; 触发因子 Top-3：<b style='color:#F1C40F;'>{" · ".join(_top3_f)}</b>
+                    &nbsp;·&nbsp; 进攻均值 <b>{off_mean:+.2f}%</b> | 防守均值 <b>{def_mean:+.2f}%</b>
+                </div>
+            </div>
+        </div>
+        <div style='font-size:14px; color:#ddd; line-height:1.9;'>{_map_body}</div>
+        <div style='margin-top:10px; padding-top:8px; border-top:1px solid {_map_color}30; font-size:13px; color:#888;'>
+            🗂️ 参考标的：<span style='color:#ccc;'>{_map_etfs}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown("---")
 
     st.header("3️⃣ 四大剧本推演 (The Four Horsemen)")
