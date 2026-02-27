@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-02-27 | Page 6 仓位配置 — 漏斗评分与卫星激活统一使用现任剧本平滑胜率
+
+### 背景
+`fetch_funnel_scores` 在 Page 6 被调用时传入的是 `raw_probs`（原始截面胜率），导致 Molt 评分中占 40 分的宏观共振项（`score_macro`）基于快变的原始胜率计算，而非慢变的状态机现任剧本。结果：卫星激活门控用的是平滑胜率（正确），但实际选股评分仍跟着原始剧本走（错误）。
+
+### 改动
+
+**`pages/6_仓位配置.py`**
+- 将 `session_state.get("smoothed_regime_probs")` 和 `session_state.get("live_regime_label")` 的读取提前到 `fetch_funnel_scores` 调用之前（原来在其后）。
+- 新增 `_scores_macro = live_smoothed_probs if live_smoothed_probs else raw_probs`，以平滑胜率替代原始胜率传入 `fetch_funnel_scores`，确保 `df_qualified` 排序与卫星激活逻辑所用的剧本信号保持一致。
+- fallback 逻辑完整：若 Page 1 未曾访问（session_state 为空），自动退回 `raw_probs`，无副作用。
+
+### 遗留
+- [ ] `arena_winners`（来自 Page 4）的冠军名单在 Page 4 访问时基于彼时的原始胜率生成，若剧本在两次访问间发生切换，arena_winners 中的票可能与当前现任剧本不完全对齐。建议用户在剧本切换后重新访问 Page 4 刷新竞技场结果。
+
+---
+
 ## 2026-02-27 | 宏观定调 — 🎯 战术分组映射模块上线 (Tactical Group Mapping)
 
 ### 背景

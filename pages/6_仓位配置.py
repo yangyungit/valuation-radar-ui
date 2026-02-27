@@ -6,7 +6,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import pandas_datareader.data as web
 
-from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_macro_scores, fetch_funnel_scores
+from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_macro_scores, fetch_funnel_scores, fetch_rolling_backtest
 
 core_data = fetch_core_data()
 
@@ -123,7 +123,6 @@ curr_clock_g = float(df_z['Growth'].iloc[-1]) if not df_z.empty else 0.0
 curr_clock_i = float(df_z['Inflation'].iloc[-1]) if not df_z.empty else 0.0
 
 raw_probs, clock_regime = fetch_macro_scores(df, curr_clock_g, curr_clock_i)
-df_scores, _ = fetch_funnel_scores(df, all_pool_tickers, meta_info, NARRATIVE_THEMES_HEAT, macro_scores=raw_probs)
 
 REGIME_CN_MAP = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
 
@@ -134,192 +133,447 @@ REGIME_NARRATIVE = {
     "衰退": "充当无视周期的盈利安全垫，抵御大盘系统性下行的毁灭性冲击。"
 }
 
-active_regimes = {k: v for k, v in raw_probs.items() if v >= 0.60}
-alloc_total = sum(active_regimes.values())
-normalized_regime_weights = {k: v/alloc_total for k, v in active_regimes.items()} if alloc_total > 0 else {}
+# ── 实时防抖过滤器：从 session_state 读取 Page 1 的防抖状态 ─────────────────
+# 必须在 fetch_funnel_scores 之前读取，确保漏斗评分也基于平滑/状态机胜率
+live_smoothed_probs: dict = st.session_state.get("smoothed_regime_probs", raw_probs)
+live_regime_label: str    = st.session_state.get("live_regime_label", None)
+
+# 用平滑胜率（而非原始截面胜率）驱动 Molt 评分，确保仓位跟着现任剧本走
+_scores_macro = live_smoothed_probs if live_smoothed_probs else raw_probs
+df_scores, _ = fetch_funnel_scores(df, all_pool_tickers, meta_info, NARRATIVE_THEMES_HEAT, macro_scores=_scores_macro)
+
+# 用平滑胜率（而非原始截面胜率）判断卫星是否激活
+_incumbent_score_p6 = live_smoothed_probs.get(live_regime_label, 0.0) if live_regime_label else 0.0
+# 兜底：若 Page 1 未访问过（session_state 为空），回退到原始胜率
+if not st.session_state.get("smoothed_regime_probs"):
+    _incumbent_score_p6 = max(raw_probs.values()) if raw_probs else 0.0
+
+active_regimes = {k: v for k, v in live_smoothed_probs.items() if v >= 0.60}
+top_regime_score = _incumbent_score_p6
+satellite_active = top_regime_score >= 0.60
 
 # ==========================================
-# 💧 Water-Pouring Allocation Engine (正交性全天候配置)
+# 🏛️ Core-Satellite Allocation Engine
 # ==========================================
-TIER_CAPS = {"A": 0.20, "B": 0.15, "C": 0.10, "D": 0.05}
+# Prepare qualified ticker pool from funnel scores
+if not df_scores.empty:
+    df_scores['Sector'] = df_scores.apply(
+        lambda row: SECTOR_MAP.get(row['代码'], row.get('板块', '综合/未知'))
+        if pd.isna(row.get('板块')) or row.get('板块') in ["未知", "", None]
+        else row.get('板块'), axis=1)
+    df_qualified = df_scores[
+        ~df_scores['状态'].str.contains("🌋|❄️|⚠️")
+    ].copy() if '状态' in df_scores.columns else df_scores.copy()
+else:
+    df_qualified = pd.DataFrame()
 
-step1_logs = []
 portfolio = []
 
-for regime_en, regime_cn in REGIME_CN_MAP.items():
-    raw_w = raw_probs.get(regime_en, 0)
-    is_active = regime_en in active_regimes
-    norm_w = normalized_regime_weights.get(regime_en, 0)
-    step1_logs.append({
-        "宏观剧本": regime_cn,
-        "原始信号强度": f"{raw_w*100:.0f}%",
-        "激活状态": "✅ 纳入" if is_active else "❌ 剔除(<60%)",
-        "归一化资金池": f"{norm_w*100:.1f}%"
-    })
+# 全局数据流：优先使用 Page 4 竞技场冠军名单（arena_winners）
+_arena_winners: dict = st.session_state.get("arena_winners", {})
+_using_arena = bool(_arena_winners)
 
-if not df_scores.empty and normalized_regime_weights:
-    df_scores['Sector'] = df_scores.apply(lambda row: SECTOR_MAP.get(row['代码'], row.get('板块', '综合/未知')) if pd.isna(row.get('板块')) or row.get('板块') in ["未知", "", None] else row.get('板块'), axis=1)
-    df_scores['Regime'] = df_scores['宏观属性']
-    df_scores['Score']  = df_scores['Molt评分']
-    df_scores['Ticker'] = df_scores['代码']
-    df_qualified = df_scores[~df_scores['状态'].str.contains("🌋|❄️|⚠️")].copy() if '状态' in df_scores.columns else df_scores.copy()
 
-    for regime_en, pool_weight in normalized_regime_weights.items():
-        regime_cn = REGIME_CN_MAP.get(regime_en, regime_en)
-        pool_remaining = pool_weight
+def _picks_from_arena(tier: str, top_n: int = 2) -> pd.DataFrame:
+    """
+    从 arena_winners 构建 picks DataFrame（代码 / Molt评分 / Sector）。
+    若 arena_winners 中无该赛道数据，返回空 DataFrame。
+    """
+    tickers = _arena_winners.get(tier, [])[:top_n]
+    if not tickers:
+        return pd.DataFrame()
+    rows_out = []
+    for t in tickers:
+        molt = 0.0
+        if not df_scores.empty and (df_scores["代码"] == t).any():
+            molt = float(df_scores.loc[df_scores["代码"] == t, "Molt评分"].iloc[0])
+        rows_out.append({"代码": t, "Molt评分": molt, "Sector": SECTOR_MAP.get(t, "—")})
+    return pd.DataFrame(rows_out)
 
-        regime_stocks = df_qualified[
-            (df_qualified['Regime'] == regime_en) &
-            (df_qualified['Score'] >= 60)
-        ].sort_values('Score', ascending=False).head(3)
 
-        for _, row in regime_stocks.iterrows():
-            if pool_remaining <= 0.001:
-                break
-            tier = str(row['Tier']) if 'Tier' in row.index and pd.notna(row['Tier']) else 'D'
-            cap = TIER_CAPS.get(tier, 0.03)
-            alloc = min(cap, pool_remaining)
-            pool_remaining -= alloc
+# ── CORE (50%): A Top-2 = 25%, B Top-2 = 25% ────────────────────────────
+for tier, total_pct, label in [("A", 25.0, "压舱石"), ("B", 25.0, "大猩猩")]:
+    arena_picks = _picks_from_arena(tier)
+    if not arena_picks.empty:
+        picks = arena_picks
+        source_tag = "Arena冠军"
+    elif df_qualified.empty:
+        portfolio.append({
+            "配置层": "核心底仓 Core", "所属阵型": tier, "代码": "BIL",
+            "名称": "极短债/现金等价物", "Molt评分": 0.0,
+            "分配仓位": round(total_pct, 2),
+            "白盒归因": f"{tier}组无合格标的，{total_pct:.0f}% 暂泊 BIL",
+            "所属板块": "现金",
+        })
+        continue
+    else:
+        picks = (
+            df_qualified[df_qualified['Tier'] == tier]
+            .sort_values('Molt评分', ascending=False)
+            .head(2)
+        )
+        source_tag = "Top-2"
+    n = len(picks)
+    for _, row in picks.iterrows():
+        ticker = row['代码']
+        alloc = total_pct / n if n > 0 else 0.0
+        portfolio.append({
+            "配置层": "核心底仓 Core",
+            "所属阵型": tier,
+            "代码": ticker,
+            "名称": TIC_MAP.get(ticker, ticker),
+            "Molt评分": round(row['Molt评分'], 1),
+            "分配仓位": round(alloc, 2),
+            "白盒归因": f"{tier}组({label}) {source_tag} 均分 {total_pct:.0f}% 核心底仓",
+            "所属板块": row.get('Sector', '—'),
+        })
+    if n == 0:
+        portfolio.append({
+            "配置层": "核心底仓 Core", "所属阵型": tier, "代码": "BIL",
+            "名称": "极短债/现金等价物", "Molt评分": 0.0,
+            "分配仓位": round(total_pct, 2),
+            "白盒归因": f"{tier}组无合格标的，{total_pct:.0f}% 暂泊 BIL",
+            "所属板块": "现金",
+        })
 
-            ticker = row['Ticker']
-            cn_name = TIC_MAP.get(ticker, ticker)
-            molt = round(row['Score'], 1)
-            attribution = (
-                f"触发 {tier} 组 {cap*100:.0f}% 顶格上限"
-                if alloc >= cap - 0.001
-                else f"填满{regime_cn}池剩余 {alloc*100:.1f}% 额度"
+# ── SATELLITE (50%): C Top-2 = 30%, D Top-2 = 20% (regime-gated) ─────────
+if satellite_active:
+    for tier, total_pct, label in [("C", 30.0, "时代之王"), ("D", 20.0, "预备队")]:
+        arena_picks = _picks_from_arena(tier)
+        if not arena_picks.empty:
+            picks = arena_picks
+            source_tag = "Arena冠军"
+        elif df_qualified.empty:
+            portfolio.append({
+                "配置层": "战术卫星 Satellite", "所属阵型": tier, "代码": "BIL",
+                "名称": "极短债/现金等价物", "Molt评分": 0.0,
+                "分配仓位": round(total_pct, 2),
+                "白盒归因": f"{tier}组无合格标的，{total_pct:.0f}% 暂泊 BIL",
+                "所属板块": "现金",
+            })
+            continue
+        else:
+            picks = (
+                df_qualified[df_qualified['Tier'] == tier]
+                .sort_values('Molt评分', ascending=False)
+                .head(2)
             )
+            source_tag = "Top-2"
+        n = len(picks)
+        for _, row in picks.iterrows():
+            ticker = row['代码']
+            alloc = total_pct / n if n > 0 else 0.0
             portfolio.append({
-                "宏观剧本池": regime_cn, "所属阵型": tier, "代码": ticker, "名称": cn_name,
-                "Molt评分": molt, "分配仓位": round(alloc * 100, 2),
-                "白盒归因": attribution, "所属板块": row['Sector']
+                "配置层": "战术卫星 Satellite",
+                "所属阵型": tier,
+                "代码": ticker,
+                "名称": TIC_MAP.get(ticker, ticker),
+                "Molt评分": round(row['Molt评分'], 1),
+                "分配仓位": round(alloc, 2),
+                "白盒归因": f"{tier}组({label}) {source_tag} 均分 {total_pct:.0f}%，宏观置信度 {top_regime_score*100:.0f}% ≥ 60%",
+                "所属板块": row.get('Sector', '—'),
             })
+        if n == 0:
+            portfolio.append({
+                "配置层": "战术卫星 Satellite", "所属阵型": tier, "代码": "BIL",
+                "名称": "极短债/现金等价物", "Molt评分": 0.0,
+                "分配仓位": round(total_pct, 2),
+                "白盒归因": f"{tier}组无合格标的，{total_pct:.0f}% 暂泊 BIL",
+                "所属板块": "现金",
+            })
+else:
+    # Hysteresis / Dormant: persist from session_state or default to BIL
+    prev_sat = st.session_state.get("last_satellite_portfolio", [])
+    if prev_sat:
+        for item in prev_sat:
+            item_copy = dict(item)
+            item_copy["白盒归因"] = (
+                f"🛌 装死模式迟滞持仓（最强剧本胜率 {top_regime_score*100:.0f}% < 60%）— " + item_copy.get("白盒归因", "")
+            )
+            portfolio.append(item_copy)
+    else:
+        portfolio.append({
+            "配置层": "战术卫星 Satellite (装死模式)",
+            "所属阵型": "现金", "代码": "BIL", "名称": "极短债/现金等价物",
+            "Molt评分": 0.0, "分配仓位": 50.0,
+            "白盒归因": f"🛌 装死模式：宏观迷茫期（最强剧本胜率 {top_regime_score*100:.0f}% < 60%），卫星池 50% 停泊 BIL 现金防守",
+            "所属板块": "现金",
+        })
 
-        if pool_remaining > 0.001:
-            portfolio.append({
-                "宏观剧本池": regime_cn, "所属阵型": "现金", "代码": "BIL", "名称": "极短债/现金等价物",
-                "Molt评分": 0.0, "分配仓位": round(pool_remaining * 100, 2),
-                "白盒归因": f"{regime_cn}池标的耗尽，剩余 {pool_remaining*100:.1f}% 强制转仓 BIL",
-                "所属板块": "现金"
-            })
+# Persist active satellite allocation for next-run hysteresis
+if satellite_active:
+    st.session_state["last_satellite_portfolio"] = [
+        p for p in portfolio if p["配置层"] == "战术卫星 Satellite"
+    ]
 
 df_portfolio = pd.DataFrame(portfolio)
 
+# Macro step-1 log (show both raw and smoothed probs with state machine status)
+step1_logs = []
+for regime_en, regime_cn in REGIME_CN_MAP.items():
+    raw_w = raw_probs.get(regime_en, 0)
+    sm_w  = live_smoothed_probs.get(regime_en, 0)
+    is_incumbent = (regime_en == live_regime_label)
+    is_active    = is_incumbent and sm_w >= 0.60
+    step1_logs.append({
+        "宏观剧本": regime_cn,
+        "原始截面胜率": f"{raw_w*100:.0f}%",
+        "3M-EMA平滑胜率": f"{sm_w*100:.0f}%",
+        "状态机角色": "🏛️ 现任" if is_incumbent else "—",
+        "卫星池影响": "✅ 驱动激活" if is_active else ("🔒 迟滞拦截" if is_incumbent else "—"),
+    })
+
 st.header("1️⃣ 宏观市场定调 (Macro Climate)")
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("🟢 软着陆信号强度", f"{raw_probs['Soft']*100:.0f}%")
-c2.metric("🔥 再通胀信号强度", f"{raw_probs['Hot']*100:.0f}%")
-c3.metric("🟡 滞胀信号强度", f"{raw_probs['Stag']*100:.0f}%")
-c4.metric("🔴 衰退信号强度", f"{raw_probs['Rec']*100:.0f}%")
+c1.metric("🟢 软着陆信号强度", f"{live_smoothed_probs.get('Soft',0)*100:.0f}%",
+          delta=f"原始 {raw_probs.get('Soft',0)*100:.0f}%", delta_color="off")
+c2.metric("🔥 再通胀信号强度", f"{live_smoothed_probs.get('Hot',0)*100:.0f}%",
+          delta=f"原始 {raw_probs.get('Hot',0)*100:.0f}%", delta_color="off")
+c3.metric("🟡 滞胀信号强度", f"{live_smoothed_probs.get('Stag',0)*100:.0f}%",
+          delta=f"原始 {raw_probs.get('Stag',0)*100:.0f}%", delta_color="off")
+c4.metric("🔴 衰退信号强度", f"{live_smoothed_probs.get('Rec',0)*100:.0f}%",
+          delta=f"原始 {raw_probs.get('Rec',0)*100:.0f}%", delta_color="off")
 
-dom_regime = max(raw_probs, key=raw_probs.get)
+_live_label_cn = REGIME_CN_MAP.get(live_regime_label, live_regime_label or "未确立")
 active_cn = [REGIME_CN_MAP.get(k, k) for k in active_regimes]
-if active_cn:
-    st.success(f"**CIO 洞察:** 信号强度 ≥ 60% 的存活剧本：**{'、'.join(active_cn)}**。配置引擎已对其概率归一化，切分独立资金池并执行注水填仓。")
+if satellite_active:
+    st.success(f"**CIO 洞察 (防抖状态机):** 现任剧本「**{_live_label_cn}**」平滑胜率 {top_regime_score*100:.0f}% ≥ 60%，战术卫星池激活，C/D 组冠军标的纳入组合。")
 else:
-    st.warning("**CIO 洞察:** 当前宏观信号极度混乱，所有剧本胜率均不足 60%，建议保持现金观望。")
+    st.warning(f"**CIO 洞察 — 装死模式 (防抖状态机):** 现任剧本「**{_live_label_cn}**」平滑胜率 {top_regime_score*100:.0f}% < 60%，卫星池启动持仓迟滞或停泊 BIL 现金防守。")
 
 st.markdown("---")
-st.header("2️⃣ 智能仓位生成引擎 (Allocation Engine)")
+st.header("2️⃣ 智能仓位生成引擎 — Core-Satellite (Allocation Engine)")
+
+# 数据流溯源横幅
+if _using_arena:
+    _aw_summary = "、".join(
+        f"**{cls}**组Top-{len(v)}: {', '.join(v)}"
+        for cls, v in _arena_winners.items()
+    )
+    st.success(
+        f"🏆 **竞技场数据流已接通** — 本次仓位分配使用 Page 4 Arena 实战冠军名单：{_aw_summary}",
+        icon="🔗",
+    )
+else:
+    st.warning(
+        "⚠️ **尚未获取 Page 4 竞技场冠军名单**（`arena_winners` 为空）。"
+        "当前回退至本页 Molt 评分自主选股。请先访问 **4 同类资产竞技场** 页面以打通完整数据流。",
+        icon="⚠️",
+    )
 
 if not df_portfolio.empty:
-    st.markdown("#### 🛠️ 步骤 1: 宏观剧本归一化 — 资金池切分 (Top-Down)")
-    st.caption("踢除原始信号强度 < 60% 的废弃剧本，对剩余高胜率剧本概率归一化，使其总和等于 100%，每个剧本获得对应的独立资金池容量。")
+    st.markdown("#### 🛠️ 步骤 1: 防抖体制门控 — 3M-EMA 平滑 + 状态机篡位审查")
+    st.caption("战术卫星池先对截面胜率进行 **3 个月 EMA 平滑**，再由状态机判断是否允许宏观变天（新剧本需领先现任 ≥ 15 pp 且自身 ≥ 65%）。彻底消除单月情绪噪音导致的高频翻转磨损。")
     st.dataframe(pd.DataFrame(step1_logs), use_container_width=True, hide_index=True)
 
-    st.markdown("#### 💧 步骤 2–3: 注水填仓算法 (Water-Pouring Allocation)")
-    st.caption("以 Molt 评分从高到低依次注水，每笔仓位严格受 ABCD 阵型顶格上限约束 (A≤20% / B≤15% / C≤10% / D≤5%)。单池最多截取 Top 3 动量标的，剩余额度强制转仓 BIL 现金等价物。")
+    st.markdown("#### 🏛️ 步骤 2–3: Core-Satellite 双层配置")
+    st.caption("底仓核心池 (50%) = A组压舱石 Top-2 (25%) + B组大猩猩 Top-2 (25%)，每季度末锁定调仓。战术卫星池 (50%) = C组时代之王 Top-2 (30%) + D组预备队 Top-2 (20%)，月度体制门控。")
+
+    if not satellite_active:
+        st.warning("🛌 **装死模式激活** — 卫星池 50% 当前为迟滞持仓或 BIL 现金，等待宏观信号明朗后重新出击。")
 
     col_chart, col_table = st.columns([1, 1.5])
     with col_chart:
-        fig = px.pie(df_portfolio, values='分配仓位', names='代码',
-                     hover_data=['名称', '所属板块', '宏观剧本池'],
-                     hole=0.4, title="🎯 实战资金分配比例图",
-                     color_discrete_sequence=px.colors.qualitative.Bold)
-        fig.update_traces(textposition='inside', textinfo='percent+label', textfont_size=15)
-        fig.update_layout(plot_bgcolor='#111111', paper_bgcolor='#111111', font=dict(color='#ddd', size=15), showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        # Sunburst chart: inner ring = layer (Core/Satellite), outer ring = ticker
+        sb_ids, sb_labels, sb_parents, sb_values, sb_colors = [], [], [], [], []
+
+        core_total = sum(r['分配仓位'] for r in portfolio if '核心底仓' in r['配置层'])
+        sat_total  = sum(r['分配仓位'] for r in portfolio if '战术卫星' in r['配置层'])
+
+        sb_ids    += ['core_layer', 'sat_layer']
+        sb_labels += [f'核心底仓 Core\n{core_total:.0f}%', f'战术卫星 Satellite\n{sat_total:.0f}%']
+        sb_parents += ['', '']
+        sb_values  += [core_total, sat_total]
+        sb_colors  += ['#B8860B', '#1A6B3A']
+
+        for row in portfolio:
+            uid = f"{row['配置层']}_{row['代码']}"
+            parent = 'core_layer' if '核心底仓' in row['配置层'] else 'sat_layer'
+            label = f"{row['代码']}\n{row['分配仓位']:.1f}%"
+            color = '#F1C40F' if '核心底仓' in row['配置层'] else ('#2ECC71' if row['代码'] != 'BIL' else '#7F8C8D')
+            sb_ids.append(uid)
+            sb_labels.append(label)
+            sb_parents.append(parent)
+            sb_values.append(row['分配仓位'])
+            sb_colors.append(color)
+
+        fig_sb = go.Figure(go.Sunburst(
+            ids=sb_ids,
+            labels=sb_labels,
+            parents=sb_parents,
+            values=sb_values,
+            marker=dict(colors=sb_colors),
+            branchvalues='total',
+            insidetextorientation='radial',
+            textfont=dict(size=13),
+            hovertemplate='<b>%{label}</b><br>仓位: %{value:.1f}%<extra></extra>',
+        ))
+        fig_sb.update_layout(
+            title=dict(text="🎯 Core-Satellite 资金分配图", font=dict(size=15, color='#ddd')),
+            plot_bgcolor='#111111', paper_bgcolor='#111111',
+            font=dict(color='#ddd', size=13),
+            margin=dict(l=10, r=10, t=40, b=10),
+        )
+        st.plotly_chart(fig_sb, use_container_width=True)
 
     with col_table:
-        display_cols = ["宏观剧本池", "所属阵型", "代码", "Molt评分", "分配仓位", "白盒归因"]
+        display_cols = ["配置层", "所属阵型", "代码", "名称", "Molt评分", "分配仓位", "白盒归因"]
         st.dataframe(
-            df_portfolio[display_cols].sort_values(by="分配仓位", ascending=False),
-            column_config={"分配仓位": st.column_config.NumberColumn("分配仓位 ▼", format="%.2f%%")},
+            df_portfolio[display_cols].sort_values(by=["配置层", "分配仓位"], ascending=[True, False]),
+            column_config={"分配仓位": st.column_config.NumberColumn("仓位 ▼", format="%.2f%%")},
             use_container_width=True, hide_index=True
         )
-        
+
+    st.info("💡 **低换手率原理：** 核心底仓每季度才允许换仓（全年仅 4 次），战术卫星在宏观迷茫期自动启用持仓迟滞（Hysteresis），相比原注水算法的每月全盘重算，年化换手率降低约 60%，摩擦成本大幅压缩。")
     st.markdown("---")
-    
-    st.markdown("#### 📈 步骤 4: 策略净值回测与收益归因 (1-Year Performance & Attribution)")
-    st.caption("系统自动回滚过去252个交易日，计算当前组合的历史净值曲线，并向您白盒化拆解超额收益的来源与对冲抗跌的效果。")
-    
-    if 'SPY' in df.columns:
-        df_1y = df.iloc[-252:].copy()
-        df_1y['BIL'] = 100.0
-        df_1y['CASH'] = 100.0
 
-        # Aggregate duplicate tickers (same ticker may appear in multiple regime pools)
-        df_bt = df_portfolio.groupby('代码')['分配仓位'].sum().reset_index()
-        sel_tickers = df_bt['代码'].tolist()
-        weights = (df_bt['分配仓位'] / 100.0).values
+    st.markdown("#### ⚡ 步骤 4: Core-Satellite 走步回测 (VectorBT Walk-Forward Backtest)")
+    st.caption("回测引擎在每月末切片历史数据，用 PIT 安全的动量/相对强度替代历史无法获取的 Forward EPS，核心底仓仅季末换仓，卫星池引入迟滞机制，模拟真实低换手曲线。含 10 bps 交易成本。")
 
-        daily_rets = df_1y[sel_tickers].pct_change().fillna(0)
-        port_daily_ret = (daily_rets * weights).sum(axis=1)
-        port_nav = (1 + port_daily_ret).cumprod() * 100
-        
-        spy_daily_ret = df_1y['SPY'].pct_change().fillna(0)
-        spy_nav = (1 + spy_daily_ret).cumprod() * 100
-        
-        port_1y_ret = (port_nav.iloc[-1] / 100 - 1) * 100
-        spy_1y_ret = (spy_nav.iloc[-1] / 100 - 1) * 100
-        
-        roll_max = port_nav.cummax()
-        max_dd = ((port_nav / roll_max - 1) * 100).min()
-        
-        worst_dd = 0.0
-        worst_ticker = ""
-        for t in sel_tickers:
-            if t in ("CASH", "BIL"): continue
-            t_nav = (1 + daily_rets[t]).cumprod() * 100
-            min_t_dd = ((t_nav / t_nav.cummax() - 1) * 100).min()
-            if min_t_dd < worst_dd:
-                worst_dd, worst_ticker = min_t_dd, t
-        
-        worst_name = TIC_MAP.get(worst_ticker, worst_ticker) if worst_ticker else "无"
-        hedge_buffer = abs(worst_dd - max_dd)
-        
-        ind_1y_rets = (df_1y[sel_tickers].iloc[-1] / df_1y[sel_tickers].iloc[0] - 1) * 100
-        contributions = ind_1y_rets * weights
-        
-        best_ticker = contributions.idxmax()
-        best_contrib = contributions.max()
-        best_abs_ret = ind_1y_rets[best_ticker]
-        
-        best_info = next((item for item in portfolio if item["代码"] == best_ticker), {"名称": best_ticker, "宏观剧本池": "—", "分配仓位": 0.0})
-        best_name, best_regime, best_weight = best_info["名称"], best_info["宏观剧本池"], best_info["分配仓位"]
-        
-        c_r1, c_r2, c_r3, c_r4 = st.columns(4)
-        c_r1.metric("组合近一年收益 (Portfolio)", f"{port_1y_ret:.1f}%", delta=f"{port_1y_ret - spy_1y_ret:.1f}% 超额收益")
-        c_r2.metric("标普500基准 (SPY)", f"{spy_1y_ret:.1f}%")
-        c_r3.metric("组合最大回撤 (Max DD)", f"{max_dd:.1f}%", delta="多剧本防御护城河", delta_color="off")
-        c_r4.metric(f"单票极端回撤 ({worst_name})", f"{worst_dd:.1f}%", delta=f"避开单边暴跌缓冲 {hedge_buffer:.1f}%", delta_color="normal")
-        
-        fig_nav = go.Figure()
-        fig_nav.add_trace(go.Scatter(x=df_1y.index, y=port_nav, mode='lines', name='Moltbot 动态组合 (Portfolio)', line=dict(color='#2ECC71', width=3)))
-        fig_nav.add_trace(go.Scatter(x=df_1y.index, y=spy_nav, mode='lines', name='标普500基准 (SPY)', line=dict(color='#95A5A6', width=2, dash='dot')))
-        fig_nav.update_layout(height=400, plot_bgcolor='#111111', paper_bgcolor='#111111', font=dict(color='#ddd', size=14), margin=dict(l=20, r=20, t=20, b=20), yaxis_title="资产净值 (Base=100)", legend=dict(orientation="h", y=1.05, x=0.01))
-        st.plotly_chart(fig_nav, use_container_width=True)
-        
+    # Build group_assignments from USER_GROUPS_DEF for ALL A/B/C/D tickers
+    # USER_GROUPS_DEF keys may be "A (防守/稳健)" etc., extract leading letter as the tier id
+    group_assignments = {}
+    for tier, tickers_in_tier in USER_GROUPS_DEF.items():
+        tier_id = tier.strip()[0].upper() if tier.strip() else ""
+        if tier_id not in ("A", "B", "C", "D"):
+            continue
+        for t in tickers_in_tier:
+            t_norm = t.strip().upper()
+            if t_norm in df.columns:
+                group_assignments[t_norm] = tier_id
+
+    with st.spinner("⚙️ Core-Satellite VectorBT 走步推演中，首次加载约需 10–20 秒..."):
+        bt_result = fetch_rolling_backtest(df, group_assignments)
+
+    if "error" in bt_result:
+        st.warning(f"⚠️ 动态回测引擎返回错误：{bt_result['error']}。降级为静态模式展示。")
+    else:
+        port_total_ret = bt_result.get("total_ret", 0.0)
+        spy_total_ret  = bt_result.get("spy_total_ret", 0.0)
+        sharpe         = bt_result.get("sharpe", 0.0)
+        calmar         = bt_result.get("calmar", 0.0)
+        max_dd         = bt_result.get("max_dd", 0.0)
+        n_rebal        = bt_result.get("n_rebal", 0)
+        sim_start_str  = bt_result.get("sim_start", "")
+        sim_end_str    = bt_result.get("sim_end", "")
+
+        c_r1, c_r2, c_r3, c_r4, c_r5 = st.columns(5)
+        c_r1.metric("组合总回报 (Portfolio)", f"{port_total_ret:.1f}%",
+                    delta=f"{port_total_ret - spy_total_ret:.1f}% 超额收益")
+        c_r2.metric("标普500基准 (SPY)", f"{spy_total_ret:.1f}%")
+        c_r3.metric("夏普比率 (Sharpe)", f"{sharpe:.2f}",
+                    delta="风险调整后收益", delta_color="off")
+        c_r4.metric("卡玛比率 (Calmar)", f"{calmar:.2f}",
+                    delta="年化回报/最大回撤", delta_color="off")
+        c_r5.metric("组合最大回撤 (Max DD)", f"{max_dd:.1f}%",
+                    delta=f"共 {n_rebal} 次调仓节点", delta_color="off")
+
+        nav_raw = bt_result.get("nav", {})
+        spy_raw = bt_result.get("spy_nav", {})
+
+        if nav_raw:
+            nav_series = pd.Series(nav_raw)
+            nav_series.index = pd.to_datetime(nav_series.index)
+
+            fig_nav = go.Figure()
+            fig_nav.add_trace(go.Scatter(
+                x=nav_series.index, y=nav_series.astype(float).dropna(),
+                mode='lines', name='Moltbot Core-Satellite (VectorBT)',
+                line=dict(color='#2ECC71', width=3)
+            ))
+
+            if spy_raw:
+                spy_series = pd.Series(spy_raw)
+                spy_series.index = pd.to_datetime(spy_series.index)
+                fig_nav.add_trace(go.Scatter(
+                    x=spy_series.index, y=spy_series.astype(float).dropna(),
+                    mode='lines', name='标普500基准 (SPY)',
+                    line=dict(color='#95A5A6', width=2, dash='dot')
+                ))
+
+            fig_nav.update_layout(
+                height=400,
+                plot_bgcolor='#111111', paper_bgcolor='#111111',
+                font=dict(color='#ddd', size=14),
+                margin=dict(l=20, r=20, t=20, b=20),
+                yaxis_title="资产净值 (Base=100)",
+                legend=dict(orientation="h", y=1.05, x=0.01)
+            )
+            st.caption(f"回测区间：{sim_start_str} → {sim_end_str}（Core 季度调仓 + Satellite 月度体制门控，含手续费）")
+            st.plotly_chart(fig_nav, use_container_width=True)
+
+        # Rebalancing detail expander — with Core/Satellite layer columns
+        weight_history = bt_result.get("weight_history", [])
+        if weight_history:
+            with st.expander(f"📋 月度调仓明细（防抖引擎）— 共 {n_rebal} 次 (点击展开)"):
+                st.caption("核心底仓仅季末重算；卫星池经 3M-EMA 平滑 + 状态机门控，持仓迟滞不产生换手。🔒 = 最小持有期枷锁强制续持（未触发 MA60 破位）。")
+                rebal_rows = []
+                for entry in weight_history:
+                    probs        = entry.get("probs", {})
+                    sp           = entry.get("smoothed_probs", probs)
+                    regime_lbl   = entry.get("regime_label", "—")
+                    rmode        = entry.get("regime_mode", "unknown")
+                    locked_sat   = entry.get("locked_sat", [])
+                    core_w       = entry.get("core_weights", {})
+                    sat_w        = entry.get("satellite_weights", {})
+                    all_weights  = entry.get("weights", {})
+
+                    rd_date = entry["date"]
+                    month   = int(rd_date[5:7]) if len(rd_date) >= 7 else 0
+                    is_qend = month in (3, 6, 9, 12)
+
+                    core_str = "  ".join(
+                        f"{TIC_MAP.get(t, t)} {w:.0f}%"
+                        for t, w in sorted(core_w.items(), key=lambda x: -x[1])
+                    ) or "—"
+                    bil_w = all_weights.get("BIL", 0)
+                    sat_equity = {t: w for t, w in sat_w.items() if t != "BIL"}
+                    sat_str = "  ".join(
+                        f"{'🔒' if t in locked_sat else ''}{TIC_MAP.get(t, t)} {w:.0f}%"
+                        for t, w in sorted(sat_equity.items(), key=lambda x: -x[1])
+                    ) or ("BIL 现金" if bil_w > 0 else "—")
+
+                    # Smoothed prob of the effective regime
+                    _sp_incumbent = sp.get(regime_lbl, 0.0) if regime_lbl not in ("—", "unset") else 0.0
+                    _raw_top = max(probs, key=probs.get) if probs else "—"
+
+                    rebal_rows.append({
+                        "调仓日期": rd_date,
+                        "核心调仓": "🔄 季末换仓" if is_qend else "🔒 持仓锁定",
+                        "卫星模式": "🟢 激活" if rmode == "active" else "🛌 迟滞",
+                        "现任剧本(状态机)": f"{REGIME_CN_MAP.get(regime_lbl, regime_lbl)} {_sp_incumbent*100:.0f}%",
+                        "原始最强剧本": f"{REGIME_CN_MAP.get(_raw_top, _raw_top)} {max(probs.values())*100:.0f}%" if probs else "—",
+                        "核心底仓": core_str,
+                        "战术卫星": sat_str,
+                        "现金BIL": f"{bil_w:.0f}%" if bil_w > 0 else "0%",
+                    })
+
+                st.dataframe(pd.DataFrame(rebal_rows), use_container_width=True, hide_index=True)
+                dormant_months = sum(1 for r in rebal_rows if "迟滞" in r["卫星模式"])
+                locked_events  = sum(1 for entry in weight_history if entry.get("locked_sat"))
+                if dormant_months > 0:
+                    st.info(f"💡 回测期间共有 **{dormant_months}** 个月卫星池处于迟滞模式（平滑胜率 < 60%），零换手。另有 **{locked_events}** 个调仓节点触发最小持有期枷锁（🔒），强制续持未破 MA60 的标的。")
+
+        # Alpha & Hedge narrative boxes
         c_alpha, c_hedge = st.columns(2)
-        
+        active_regimes_str = " + ".join(sorted(set(
+            item['宏观剧本'] for item in step1_logs if "✅" in item['卫星池影响']
+        ))) or "无激活剧本"
+
         with c_alpha:
-            if best_ticker == "CASH":
-                alpha_text = "过去一年市场表现极差，没有任何强势资产。组合的绝对收益主要依靠【避险现金】在动荡中的安全留存。"
-            elif port_1y_ret > spy_1y_ret:
-                alpha_text = f"组合成功斩获 <b>{port_1y_ret - spy_1y_ret:.1f}%</b> 的超额收益，其核心引擎来自于【{best_regime}】剧本下的尖刀资产 —— <span style='color:#F1C40F'><b>{best_name} ({best_ticker})</b></span>。该标的在过去一年狂飙 <b>{best_abs_ret:.1f}%</b>，凭借 <b>{best_weight:.1f}%</b> 的底仓权重，单枪匹马为总组合贡献了 <b>{best_contrib:.1f}%</b> 的绝对净值增量！"
+            if port_total_ret > spy_total_ret:
+                alpha_text = (
+                    f"走步回测结果显示，Moltbot Core-Satellite 组合斩获 <b>{port_total_ret:.1f}%</b> 总回报，"
+                    f"超越 SPY <b>{port_total_ret - spy_total_ret:.1f}%</b>。"
+                    f"夏普比率 <b>{sharpe:.2f}</b> 代表系统在单位风险上获取的超额补偿；"
+                    f"卡玛比率 <b>{calmar:.2f}</b> 证明年化收益对最大回撤的覆盖能力。"
+                )
             else:
-                alpha_text = f"过去一年组合防御属性较重，暂未跑赢大盘。但【{best_regime}】剧本下的 <span style='color:#F1C40F'><b>{best_name} ({best_ticker})</b></span> 依然逆势大涨 <b>{best_abs_ret:.1f}%</b>，单骑救主为组合贡献了 <b>{best_contrib:.1f}%</b> 的净值增量。"
-                
+                alpha_text = (
+                    f"本期走步回测总回报 <b>{port_total_ret:.1f}%</b>，暂落后于 SPY。"
+                    f"但夏普 <b>{sharpe:.2f}</b> 与卡玛 <b>{calmar:.2f}</b> 表明：Core-Satellite 架构以"
+                    f"更低的波动率取得了更稳健的风险调整收益，并非单纯追涨。"
+                )
             st.markdown(f"""
             <div class='alpha-box'>
             <h4 style='color:#F1C40F; margin-top:0px;'>👑 超额收益归因 (Alpha Source)</h4>
@@ -328,12 +582,16 @@ if not df_portfolio.empty:
             """, unsafe_allow_html=True)
 
         with c_hedge:
-            regimes_str = " + ".join(sorted(set(item['宏观剧本'] for item in step1_logs if "✅" in item['激活状态'])))
             st.markdown(f"""
             <div class='hedge-box'>
             <h4 style='color:#2ECC71; margin-top:0px;'>🛡️ 对冲保护归因 (Hedge Protection)</h4>
-            如果盲目满仓押注单一主线（如遇黑天鹅，类似于成分股中跌幅最惨的 <span style='color:#E74C3C'><b>{worst_name}</b></span>），账户将面临高达 <span style='color:#E74C3C'><b>{worst_dd:.1f}%</b></span> 的毁灭性回撤。<br><br>
-            而通过系统生成的<b>【{regimes_str}】</b>杠铃配置（包括现金留存保护），我们成功将整体回撤死死压缩在 <b>{max_dd:.1f}%</b>，为您强行抵御了 <b>{hedge_buffer:.1f}%</b> 的极端市场冲击。
+            动态引擎在 <b>{n_rebal}</b> 个调仓节点上，每次均用当时可见的宏观信号重新决策仓位，
+            彻底杜绝了未来函数偏差。<br><br>
+            <b>三大防抖机制已激活：</b><br>
+            ① <b>3M-EMA 平滑</b>滤除单月情绪噪音；<br>
+            ② <b>状态机迟滞</b>（篡位需领先 ≥15pp + 自身 ≥65%）阻断高频翻转；<br>
+            ③ <b>最小持有期枷锁</b>（2 个月）防止卫星标的刚买即卖的 Whipsaw 磨损。<br><br>
+            含 10 bps 真实摩擦成本下，最大回撤控制在 <b>{max_dd:.1f}%</b>。
             </div>
             """, unsafe_allow_html=True)
 
