@@ -7,7 +7,7 @@ from plotly.subplots import make_subplots
 import numpy as np
 from datetime import datetime, timedelta
 import pandas_datareader.data as web
-from api_client import fetch_core_data, get_global_data, fetch_macro_scores
+from api_client import fetch_core_data, get_global_data
 
 # 1. 动态向云端 API 请求核心机密字典
 core_data = fetch_core_data()
@@ -16,7 +16,6 @@ REGIME_MAP = core_data.get("REGIME_MAP", {})
 MACRO_TAGS_MAP = core_data.get("MACRO_TAGS_MAP", {})
 USER_GROUPS_DEF = core_data.get("USER_GROUPS_DEF", {})
 
-ALL_TICKERS = list(TIC_MAP.keys())
 # --- 架构师注释: 宏观定调中心 v13.37 (终极量化逻辑升级版) ---
 # 1. 实装 SPY 5阶状态机（强多头/多头回调/上涨力竭/强空头/震荡）。
 # 2. SSOT 对齐缓存，消除 Z-Score 漂移与缩进报错。
@@ -30,20 +29,8 @@ with st.sidebar:
         st.success("缓存已清除！正在重新拉取最新数据...")
         st.rerun()
 
-# 读取上一次 rerun 写入的时钟尺度状态（首次为默认值战术之眼）
-_tf_mode_state = st.session_state.get("clock_timeframe", "tactical")
-if _tf_mode_state == "structural":
-    z_window = 2500
-    years_to_fetch = 12
-    _tf_label = "战略之眼"
-    _tf_horizon = "基准10年 · 展望1-2年"
-    _tf_badge_color = "#8E44AD"
-else:
-    z_window = 750
-    years_to_fetch = 4
-    _tf_label = "战术之眼"
-    _tf_horizon = "基准3年 · 展望3-6个月"
-    _tf_badge_color = "#E67E22"
+years_to_fetch = 10  # 10年原始数据，扣除750日预热后约7年着色范围，三大比例图视野充足
+z_window = 750       # 统一使用 3Y (750日) 中期战略基准
 
 st.markdown("""
 <style>
@@ -93,7 +80,7 @@ TOP_HOLDINGS = {
 
 CONSTITUENT_STOCKS = []
 for stocks in TOP_HOLDINGS.values(): CONSTITUENT_STOCKS.extend(stocks)
-ALL_TICKERS = list(set(CLOCK_ASSETS + FACTOR_ASSETS + TARGETS_A + TARGETS_B + TARGETS_C + TARGETS_D + CONSTITUENT_STOCKS))
+CONSTITUENT_STOCKS = list(set(CONSTITUENT_STOCKS))
 
 ASSET_NAMES = {
     "XLK": "科技", "XLC": "通讯", "SMH": "半导体", "IGV": "软件", "AIQ": "AI", 
@@ -116,9 +103,12 @@ ASSET_NAMES = {
     "FCX": "自由港", "SCCO": "南方铜业", "TECK": "泰克资源", "ADM": "阿彻丹尼尔斯", "BG": "邦吉", "TSN": "泰森食品"
 }
 
-MACRO_ASSETS_ALL = ["XLY", "XLP", "XLI", "XLU", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "CPER", "USO", "DBC", "KRE", "GLD", "XLK", "RSP", "XLF", "XLB", "XLRE"]
-UNIVERSAL_TICKERS = list(set(ALL_TICKERS + MACRO_ASSETS_ALL + list(TIC_MAP.keys()) + list(REGIME_MAP.keys())))
-UNIVERSAL_TICKERS.sort() 
+MACRO_ASSETS_ALL = ["XLY", "XLP", "XLI", "XLU", "TIP", "IEF", "TLT", "SHY", "HYG", "UUP", "LQD", "MTUM", "IWM", "SPHB", "ARKK", "USMV", "QUAL", "VLUE", "VIG", "SPY", "QQQ", "CPER", "USO", "DBC", "KRE", "GLD", "XLK", "RSP", "XLF", "XLB", "XLRE"]
+# 核心宏观计算批次：仅 ETF/指数，不含成分股（成分股仅需 2 年，单独拉取以减少 12 年下载量）
+MACRO_TICKERS_CORE = list(set(
+    CLOCK_ASSETS + FACTOR_ASSETS + TARGETS_A + TARGETS_B + TARGETS_C + TARGETS_D + MACRO_ASSETS_ALL
+))
+MACRO_TICKERS_CORE.sort()
 
 @st.cache_data(ttl=3600*4)
 def get_liquidity_data():
@@ -189,8 +179,8 @@ def get_clock_fred_data():
     except Exception:
         return pd.DataFrame(columns=['Core_CPI_YoY', 'Core_PCE_YoY', 'HY_Spread', 'T10YIE', 'INDPRO_YoY', 'PAYEMS_YoY', 'RSAFS_YoY'])
 
-with st.spinner(f"⏳ 正在拉取 [{_tf_label}] 数据管道 ({years_to_fetch}年历史)..."):
-    df = get_global_data(UNIVERSAL_TICKERS, years=years_to_fetch)
+with st.spinner(f"⏳ 正在拉取宏观数据管道 ({years_to_fetch}年历史 · {len(MACRO_TICKERS_CORE)} 个 ETF/指数)..."):
+    df = get_global_data(MACRO_TICKERS_CORE, years=years_to_fetch)
 
 with st.spinner("📡 正在接入 FRED 官方宏观数据管道 (INDPRO + PAYEMS + RSAFS + CPI + PCE + HY Spread)..."):
     df_fred_clock = get_clock_fred_data()
@@ -208,12 +198,19 @@ if not df.empty and len(df) > 750:
         return 0.0
 
     def _zscore(series, window=z_window):
-        """滚动 Z-Score (窗口={z_window}日)，防零除，保持原始 index。"""
+        """滚动预期边际差 (窗口={z_window}日)，防零除，保持原始 index。"""
         mu = series.rolling(window=window).mean()
         sigma = series.rolling(window=window).std()
         return (series - mu) / sigma.where(sigma > 0)
 
-    # ── 横轴：经济增长复合 Z-Score (三引擎等权合成) ──────────────────
+    def _ratio_z_curr(a_col, b_col):
+        """返回 a/b 比值的 3Y 滚动 Z-Score 当前值（20日均线预平滑）。全页面统一度量衡。"""
+        if a_col not in df.columns or b_col not in df.columns:
+            return 0.0
+        z_s = _zscore((df[a_col] / df[b_col].replace(0, np.nan)).rolling(20).mean()).dropna()
+        return float(z_s.iloc[-1]) if not z_s.empty else 0.0
+
+    # ── 横轴：经济预期边际差复合 (三引擎等权合成) ──────────────────
     # 引擎1: 铜金比 CPER/GLD — 全球宏观周期的终极测温枪
     # 铜代表工业需求/增长，黄金代表避险/通缩。比率↑ = 全球增长共振
     z_copper_gold = _zscore(
@@ -239,7 +236,7 @@ if not df.empty and len(df) > 750:
         'Z_credit': z_credit,
     }).mean(axis=1)
 
-    # ── 纵轴：通胀复合 Z-Score (三引擎等权合成) ──────────────────────
+    # ── 纵轴：通胀预期边际差复合 (三引擎等权合成) ──────────────────────
     # 引擎1: FRED T10YIE 10年期隐含通胀预期 — 债市聪明钱的前瞻锚
     # 降级 fallback: TIP/IEF ETF 代理（当 FRED 不可用时）
     if _fred_ok and 'T10YIE' in df_fred_clock.columns:
@@ -336,27 +333,35 @@ if not df.empty and len(df) > 750:
     curr_clock_g = star_a_g_curr
     curr_clock_i = star_a_i_curr
 
+    def _get_quad(g, i):
+        if abs(g) < 0.5 and abs(i) < 0.5: return "软着陆"
+        elif g > 0 and i <= 0: return "软着陆"
+        elif g > 0 and i > 0: return "再通胀"
+        elif g <= 0 and i > 0: return "滞胀"
+        else: return "衰退"
+
+    _quad_a = _get_quad(star_a_g_curr, star_a_i_curr)
+    _quad_b = _get_quad(star_b_g_curr, star_b_i_curr)
+
     # Phase 3: 象限裁决 — 优先判断"软着陆"中心区（双轴 Z 均在 ±0.5 以内）
-    if abs(curr_clock_g) < 0.5 and abs(curr_clock_i) < 0.5:
-        _quadrant_name = "🌤️ 软着陆 (Soft Landing)"
+    if _quad_a == "软着陆":
+        _quadrant_name = "🚗 软着陆 (Soft Landing)"
         _quadrant_color = "#27AE60"
-    elif curr_clock_g > 0 and curr_clock_i > 0:
-        _quadrant_name = "🔥 过热 (Overheat)"
+    elif _quad_a == "再通胀":
+        _quadrant_name = "🔥 再通胀 (Reflation)"
         _quadrant_color = "#E74C3C"
-    elif curr_clock_g > 0 and curr_clock_i <= 0:
-        _quadrant_name = "🟢 复苏 (Recovery)"
-        _quadrant_color = "#2ECC71"
-    elif curr_clock_g <= 0 and curr_clock_i > 0:
-        _quadrant_name = "🌧️ 滞胀 (Stagflation)"
+    elif _quad_a == "滞胀":
+        _quadrant_name = "🚨 滞胀 (Stagflation)"
         _quadrant_color = "#F1C40F"
     else:
-        _quadrant_name = "❄️ 衰退/再通胀 (Reflation)"
+        _quadrant_name = "❄️ 衰退 (Recession)"
         _quadrant_color = "#3498DB"
 
-    tlt_shy_diff = get_ret('TLT') - get_ret('SHY')
-    hyg_ief_diff = get_ret('HYG') - get_ret('IEF')
-    tip_ief_diff = get_ret('TIP') - get_ret('IEF')
-    usd_val = get_ret('UUP')
+    # 宏观底色四维 Z-Score（3Y 滚动基准，与宏观时钟同一度量衡）
+    tlt_shy_diff = _ratio_z_curr('TLT', 'SHY')   # 长债/短债 Z-Score (>0=长端历史性强)
+    hyg_ief_diff = _ratio_z_curr('HYG', 'IEF')   # 信用/国债 Z-Score (>0=Risk-On)
+    tip_ief_diff = _ratio_z_curr('TIP', 'IEF')   # 通胀保值/名义 Z-Score (>0=通胀升温)
+    usd_val      = _ratio_z_curr('UUP', 'SHY')   # 美元/现金 Z-Score (>0=美元历史性走强)
     
     # =======================================================
     # 🧠 架构师级更新：实装 SPY 5阶趋势状态机，精准捕捉“力竭”与“回调”
@@ -388,7 +393,194 @@ if not df.empty and len(df) > 750:
         spy_status = "未知 (数据不足)"
     # =======================================================
 
+    def _fl(label, series_id):
+        """将 FRED 序列标签包装为可点击超链接；仅当 label 含 'FRED' 字样时生效。"""
+        if series_id and 'FRED' in label:
+            url = f"https://fred.stlouisfed.org/series/{series_id}"
+            return f'<a href="{url}" target="_blank" style="color:#2ECC71; text-decoration:underline dotted;">{label}</a>'
+        return label
+
+    _indpro_label_fl  = _fl(_indpro_label,  'INDPRO')
+    _payems_label_fl  = _fl(_payems_label,  'PAYEMS')
+    _rsafs_label_fl   = _fl(_rsafs_label,   'RSAFS')
+    _gov_cpi_label_fl = _fl(_gov_cpi_label, 'CPILFESL')
+    _gov_pce_label_fl = _fl(_gov_pce_label, 'PCEPILFE')
+    _t10yie_label_fl  = _fl(_t10yie_label,  'T10YIE')
+    _credit_label_fl  = _fl(_credit_label,  'BAMLH0A0HYM2')
+    _cpi_label_fl     = _fl(_cpi_label,     'CPILFESL')
+
+    # ─── 大盘趋势状态机 (Market Trend Matrix) ────────────────────────────────
+    st.subheader("📊 大盘趋势状态机 (Market Trend Matrix)")
+    st.caption("基于 Close / MA60 / MA200 的四象限绝对强弱切割")
+
+    _MTM_COLORS = {
+        "主升狂飙": "#2ECC71",
+        "颠簸震荡": "#F1C40F",
+        "冰面滑行": "#E74C3C",
+        "触底抢修": "#3498DB",
+    }
+    _MTM_EN = {
+        "主升狂飙": "Full Throttle",
+        "颠簸震荡": "Bumpy Road",
+        "冰面滑行": "Slippery Ice",
+        "触底抢修": "Bottom Rebound",
+    }
+    _MTM_DESC = {
+        "主升狂飙": "Close > MA60 > MA200：均线完美多头排列，主力趋势全面向上，进攻优先，是持仓最舒适的环境。",
+        "颠簸震荡": "Close < MA60，MA60 > MA200：价格跌破 60 日生命线，但长期趋势（MA200）仍上行，属牛市内部震荡回调，需等待重新站上 MA60 确认。",
+        "冰面滑行": "Close < MA60 < MA200：均线空头排列，价格在双均线下方滑行，市场处于下跌通道，风险最高，严控仓位。",
+        "触底抢修": "Close > MA60，MA60 < MA200：短期动能回归站上 MA60，但 200 日长期趋势仍朝下，属底部修复试探信号，需谨慎观察 MA200 能否被打穿。",
+    }
+    _MTM_INDEX_OPTIONS = {
+        "🇺🇸 SPY (标普500)":     "SPY",
+        "📡 QQQ (纳斯达克100)": "QQQ",
+    }
+    _MTM_INDEX_YLABEL = {"SPY": "SPY 收盘价 ($)", "QQQ": "QQQ 收盘价 ($)"}
+
+    def _classify_mtm(row):
+        c, m60, m200 = row['close'], row['ma60'], row['ma200']
+        if c > m60 and m60 > m200:   return "主升狂飙"
+        elif c < m60 and m60 > m200: return "颠簸震荡"
+        elif c < m60 and m60 < m200: return "冰面滑行"
+        else:                        return "触底抢修"
+
+    _mtm_tab_spy, _mtm_tab_qqq = st.tabs(["🇺🇸 SPY (标普500)", "📡 QQQ (纳斯达克100)"])
+
+    def _render_mtm_tab(ticker, tab):
+        with tab:
+            if ticker not in df.columns:
+                st.warning(f"⚠️ {ticker} 数据暂不可用")
+                return
+            _full  = df[ticker].dropna().astype(float)
+            _ma60  = _full.rolling(60).mean()
+            _ma200 = _full.rolling(200).mean()
+            _df = pd.DataFrame({'close': _full, 'ma60': _ma60, 'ma200': _ma200}).dropna()
+            _df['phase'] = _df.apply(_classify_mtm, axis=1)
+
+            if _df.empty:
+                st.warning(f"⚠️ {ticker} 数据不足（需至少 200 个交易日），无法计算 MA200")
+                return
+            _latest    = _df.iloc[-1]
+            _phase     = _latest['phase']
+            _price     = float(_latest['close'])
+            _ma60_val  = float(_latest['ma60'])
+            _ma200_val = float(_latest['ma200'])
+            _color     = _MTM_COLORS.get(_phase, "#888")
+            _date_str  = _df.index[-1].strftime('%Y-%m-%d')
+
+            st.markdown(f"""
+            <div style='background:#1a1a1a; border-left:5px solid {_color}; border-radius:8px; padding:14px 20px; margin-bottom:12px; display:flex; align-items:center; gap:32px;'>
+                <div>
+                    <div style='font-size:13px; color:#aaa; margin-bottom:4px;'>当前阶段（{_date_str}）</div>
+                    <div style='font-size:28px; font-weight:bold; color:{_color}; margin-bottom:2px;'>{_phase}</div>
+                    <div style='font-size:14px; color:#ccc;'>{_MTM_EN.get(_phase, "")}</div>
+                </div>
+                <div style='font-size:13px; color:#aaa; line-height:2.0; border-left:1px solid #333; padding-left:24px;'>
+                    <b>Close &nbsp;</b> <span style='color:#ddd;'>${_price:.2f}</span><br>
+                    <b>MA60 &nbsp;&nbsp;</b> <span style='color:#F1C40F;'>${_ma60_val:.2f}</span><br>
+                    <b>MA200 &nbsp;</b> <span style='color:#3498DB;'>${_ma200_val:.2f}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            _change_pts = [0]
+            for _i in range(1, len(_df)):
+                if _df['phase'].iloc[_i] != _df['phase'].iloc[_i - 1]:
+                    _change_pts.append(_i)
+            _change_pts.append(len(_df))
+
+            _traces = []
+            _seen   = set()
+            for _j in range(len(_change_pts) - 1):
+                _s  = _change_pts[_j]
+                _e  = min(_change_pts[_j + 1] + 1, len(_df))
+                _seg = _df.iloc[_s:_e]
+                _ph  = _df['phase'].iloc[_s]
+                _traces.append(go.Scatter(
+                    x=_seg.index,
+                    y=_seg['close'].astype(float).values,
+                    mode='lines',
+                    line=dict(color=_MTM_COLORS.get(_ph, '#888'), width=2),
+                    name=_ph,
+                    showlegend=(_ph not in _seen),
+                    legendgroup=_ph,
+                ))
+                _seen.add(_ph)
+
+            _fig = go.Figure()
+            for _tr in _traces:
+                _fig.add_trace(_tr)
+            _fig.add_trace(go.Scatter(
+                x=_df.index, y=_df['ma60'].astype(float),
+                mode='lines', name='MA60',
+                line=dict(color='rgba(241,196,15,0.5)', width=1, dash='dot'),
+            ))
+            _fig.add_trace(go.Scatter(
+                x=_df.index, y=_df['ma200'].astype(float),
+                mode='lines', name='MA200',
+                line=dict(color='rgba(52,152,219,0.5)', width=1, dash='dash'),
+            ))
+            _fig.update_layout(
+                height=340,
+                margin=dict(l=20, r=20, t=40, b=20),
+                plot_bgcolor='#1a1a1a', paper_bgcolor='#1a1a1a',
+                font=dict(color='#ddd'),
+                showlegend=True,
+                legend=dict(orientation="h", y=1.18, x=0.5, xanchor="center", font=dict(size=12)),
+                hovermode="x unified",
+                xaxis=dict(showgrid=False),
+                yaxis=dict(title=_MTM_INDEX_YLABEL.get(ticker, f"{ticker} 收盘价 ($)"), showgrid=True, gridcolor='rgba(255,255,255,0.06)'),
+                title=dict(text=f"{ticker} 历史路况：分段染色折线图", font=dict(size=14), x=0.01, xanchor='left'),
+            )
+            st.plotly_chart(_fig, use_container_width=True)
+
+            _desc = _MTM_DESC.get(_phase, "")
+            st.markdown(f"""
+            <div style='background:#1a1a1a; border-left:4px solid {_color}; border-radius:6px; padding:12px 16px; margin-top:4px;'>
+                <div style='font-size:13px; color:#aaa; margin-bottom:5px;'>🧠 当前阶段白盒解读</div>
+                <div style='font-size:14px; color:#ddd; line-height:1.75;'>{_desc}</div>
+            </div>
+            <div style='background:#111; border:1px solid #2a2a2a; border-radius:6px; padding:14px 18px; margin-top:8px;'>
+                <div style='font-size:13px; color:#888; margin-bottom:10px; letter-spacing:0.3px;'>📐 四色染色判断标准（Close / MA60 / MA200）</div>
+                <div style='display:grid; grid-template-columns:1fr 1fr; gap:8px;'>
+                    <div style='background:#1a1a1a; border-left:3px solid #2ECC71; border-radius:4px; padding:8px 12px;'>
+                        <div style='font-size:13px; font-weight:bold; color:#2ECC71; margin-bottom:3px;'>🟢 主升狂飙 · Full Throttle</div>
+                        <div style='font-size:13px; color:#aaa; line-height:1.6;'>Close &gt; MA60 &gt; MA200<br>均线完美多头排列，趋势最强</div>
+                    </div>
+                    <div style='background:#1a1a1a; border-left:3px solid #F1C40F; border-radius:4px; padding:8px 12px;'>
+                        <div style='font-size:13px; font-weight:bold; color:#F1C40F; margin-bottom:3px;'>🟡 颠簸震荡 · Bumpy Road</div>
+                        <div style='font-size:13px; color:#aaa; line-height:1.6;'>Close &lt; MA60，MA60 &gt; MA200<br>牛市内部回调，长期趋势仍健康</div>
+                    </div>
+                    <div style='background:#1a1a1a; border-left:3px solid #3498DB; border-radius:4px; padding:8px 12px;'>
+                        <div style='font-size:13px; font-weight:bold; color:#3498DB; margin-bottom:3px;'>🔵 触底抢修 · Bottom Rebound</div>
+                        <div style='font-size:13px; color:#aaa; line-height:1.6;'>Close &gt; MA60，MA60 &lt; MA200<br>短期动能回归，长期趋势仍朝下</div>
+                    </div>
+                    <div style='background:#1a1a1a; border-left:3px solid #E74C3C; border-radius:4px; padding:8px 12px;'>
+                        <div style='font-size:13px; font-weight:bold; color:#E74C3C; margin-bottom:3px;'>🔴 冰面滑行 · Slippery Ice</div>
+                        <div style='font-size:13px; color:#aaa; line-height:1.6;'>Close &lt; MA60 &lt; MA200<br>均线空头排列，风险最高，严控仓位</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    _render_mtm_tab("SPY", _mtm_tab_spy)
+    _render_mtm_tab("QQQ", _mtm_tab_qqq)
+
+    # 供后续 SPY 5阶状态机逻辑继续使用
+    _spy_full  = df['SPY'].dropna().astype(float)
+    _spy_ma60  = _spy_full.rolling(60).mean()
+    _spy_ma200 = _spy_full.rolling(200).mean()
+    _df_mtm = pd.DataFrame({'close': _spy_full, 'ma60': _spy_ma60, 'ma200': _spy_ma200}).dropna()
+    _df_mtm['phase'] = _df_mtm.apply(_classify_mtm, axis=1)
+    _mtm_latest    = _df_mtm.iloc[-1]
+    _mtm_phase     = _mtm_latest['phase']
+    _mtm_color     = _MTM_COLORS.get(_mtm_phase, "#888")
+
+    st.markdown("---")
+
     st.header("1️⃣ 宏观底色 (Macro Dashboard)")
+
+    st.markdown("---")
     if tlt_shy_diff > 0: rate_txt = "📉 增长放缓"; rate_cls = "status-red" 
     else: rate_txt = "📈 增长强劲"; rate_cls = "status-green"
     if hyg_ief_diff > 0: risk_txt = "🦁 Risk-On"; risk_cls = "status-green"
@@ -402,51 +594,26 @@ if not df.empty and len(df) > 750:
     def draw_card(col, title, val, txt, cls, desc):
         with col:
             st.markdown(f"**{title}**")
-            st.markdown(f"<div class='metric-value'>{val:.2f}%</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-value'>{val:+.2f}σ</div>", unsafe_allow_html=True)
             st.markdown(f"<div class='{cls}'>{txt}</div>", unsafe_allow_html=True)
             st.caption(desc)
-    draw_card(c1, "增长预期 (TLT-SHY)", tlt_shy_diff, rate_txt, rate_cls, "长债跑赢 = 衰退预期")
-    draw_card(c2, "风险偏好 (HYG-IEF)", hyg_ief_diff, risk_txt, risk_cls, "利差收窄 = 追逐风险")
-    draw_card(c3, "通胀预期 (TIP-IEF)", tip_ief_diff, inf_txt, inf_cls, "抗通胀债跑赢 = 预期抬头")
-    draw_card(c4, "美元压力 (UUP)", usd_val, usd_txt, usd_cls, "美元上涨 = 流动性收紧")
+    draw_card(c1, "增长预期 (TLT/SHY Z)", tlt_shy_diff, rate_txt, rate_cls, "Z>0: 长债历史性跑赢短债 → 衰退/降息定价")
+    draw_card(c2, "风险偏好 (HYG/IEF Z)", hyg_ief_diff, risk_txt, risk_cls, "Z>0: 信用债历史性领涨 → Risk-On")
+    draw_card(c3, "通胀预期 (TIP/IEF Z)", tip_ief_diff, inf_txt, inf_cls, "Z>0: 通胀保值债领跑 → 通胀预期升温")
+    draw_card(c4, "美元压力 (UUP/SHY Z)", usd_val, usd_txt, usd_cls, "Z>0: 美元历史性走强 → 流动性收紧")
     
     st.markdown("---")
     
-    # 获取云端时钟状态以对齐显示
-    raw_probs, api_clock_regime = fetch_macro_scores(df, curr_clock_g, curr_clock_i)
+    # api_clock_regime 由本地 3Y Z-Score 象限直接推导（客观真实，不依赖 API 或刷新频率）
+    _clock_eng_map = {
+        "软着陆": "Recovery (Soft Landing)",
+        "再通胀": "Overheat (Reflation)",
+        "滞胀":   "Stagflation",
+        "衰退":   "Recession",
+    }
+    api_clock_regime = _clock_eng_map.get(_quad_a, "Recovery")
 
-    _clock_hdr_col, _clock_toggle_col = st.columns([3, 2])
-    with _clock_hdr_col:
-        st.markdown(f"### 🕰️ 宏观周期定位: <span style='color:#3498DB'>{api_clock_regime}</span>", unsafe_allow_html=True)
-    with _clock_toggle_col:
-        _tf_options = ["⚔️ 战术之眼 (Tactical · 3Y)", "🔭 战略之眼 (Structural · 10Y)"]
-        _tf_default_idx = 1 if _tf_mode_state == "structural" else 0
-        _tf_picked = st.radio(
-            "🕐 时钟尺度",
-            _tf_options,
-            index=_tf_default_idx,
-            horizontal=True,
-            key="clock_timeframe_widget",
-            help="仅影响宏观时钟的 Z-Score 基准窗口，页面其余部分不变。"
-        )
-        # 写入 session_state，下次 rerun 顶部读取后重新计算
-        _new_state = "structural" if "战略" in _tf_picked else "tactical"
-        if _new_state != _tf_mode_state:
-            st.session_state["clock_timeframe"] = _new_state
-            st.rerun()
-        # 时间尺度语义标注
-        _tf_desc = {
-            "tactical":   ("⚔️ **战术之眼**", "基准窗口 **3年 (750日)**", "展望未来 **3–6 个月**", "#E67E22"),
-            "structural": ("🔭 **战略之眼**", "基准窗口 **10年 (2500日)**", "展望未来 **1–2 年**",   "#8E44AD"),
-        }[_tf_mode_state]
-        st.markdown(
-            f"<div style='font-size:13px; color:#aaa; margin-top:2px; line-height:1.7;'>"
-            f"<span style='color:{_tf_desc[3]}; font-weight:bold;'>{_tf_desc[0].replace('**','')}</span>"
-            f"&nbsp;&nbsp;|&nbsp;&nbsp;{_tf_desc[1].replace('**','')}"
-            f"&nbsp;&nbsp;→&nbsp;&nbsp;<span style='color:{_tf_desc[3]};'>{_tf_desc[2].replace('**','')}</span>"
-            f"</div>",
-            unsafe_allow_html=True
-        )
+    st.markdown(f"### 🔭 宏观周期定位 (3Y 中期战略视角): <span style='color:#3498DB'>{api_clock_regime}</span>", unsafe_allow_html=True)
 
     # Phase 3: 当前坐标与象限裁决横幅
     st.markdown(f"""
@@ -460,9 +627,68 @@ if not df.empty and len(df) > 750:
             <b style='color:#3498DB;'>★ 政府滞后星 B</b>&nbsp;&nbsp;
             Growth=<b>{star_b_g_curr:+.2f}</b> | Infl=<b>{star_b_i_curr:+.2f}</b>
         </div>
-        <div style='font-size:13px; color:{_tf_badge_color}; margin-left:auto; font-weight:bold; letter-spacing:0.3px;'>🕐 {_tf_label}</div>
+        <div style='font-size:13px; color:#8E44AD; margin-left:auto; font-weight:bold; letter-spacing:0.3px;'>🔭 中期战略视角 (3Y · 750日)</div>
+    </div>
+    
+    <div style='background-color:#1a1a1a; border:1px solid #E67E22; border-left:4px solid #E67E22; border-radius:6px; padding:14px 16px; margin-bottom:12px;'>
+        <div style='font-size:15px; font-weight:bold; color:#E67E22; margin-bottom:10px;'>💡 交易员指南：为什么坐标轴是"预期边际差 (Z-Score)"而不是"绝对经济指标"？</div>
+        <div style='font-size:13px; color:#ccc; line-height:1.75;'>
+            <span style='color:#aaa;'>📈</span> <b style='color:#ddd;'>一阶（速度）= 资金流向：</b>消费/医疗等底层比值，反映此刻资金偏好<b>进攻</b>还是<b>防守</b>。<br>
+            <span style='color:#aaa;'>📊</span> <b style='color:#ddd;'>二阶（加速度）= 预期差（Z-Score）：</b>将今天的资金流速与过去 1 年平均流速对比，衡量<b>变化的变化</b>。<br><br>
+            <span style='color:#E67E22; font-weight:bold;'>🎯 实战意义：</span> 股市永远为未来定价。如果经济增速从 <b>120码</b> 降到了 <b>80码</b>，即使绝对经济仍在增长，<b style='color:#E74C3C;'>"加速度（Z-Score）已转负"</b>。系统敏锐捕捉"增速减弱"，并在官方确认经济变差<b>之前</b>，提前将其判定为【衰退/滞胀】倾向，触发调仓防守。
+        </div>
     </div>
     """, unsafe_allow_html=True)
+
+    with st.expander("🔬 白盒溯源：双星底层因子完整披露 (点击展开)", expanded=False):
+        _wb_a, _wb_b = st.columns(2)
+        with _wb_a:
+            st.markdown(f"""
+            <div class="formula-box" style="height:100%;">
+            <b style='color:#F1C40F; font-size:15px;'>🌟 市场前瞻星 (Market Leading Star)</b><br>
+            <span style='color:#aaa; font-size:13px;'>领先官方数据 3-6 个月 | 当前象限：<b style='color:#F1C40F;'>{_quad_a}</b> | G={star_a_g_curr:+.2f} / I={star_a_i_curr:+.2f}</span>
+            <hr style='border-color:#333; margin:10px 0;'>
+            <b style='color:#3498DB;'>📈 经济增长轴 X (三引擎等权合成)</b><br><br>
+            <b>① 铜金比</b> <code>CPER / GLD</code> — 20日均线，{z_window}日滚动预期边际差<br>
+            <span style='color:#aaa; font-size:13px;'>全球宏观测温枪：铜跑赢黄金 = 工业需求扩张 / Risk-On</span><br><br>
+            <b>② 工业实体</b> <code>XLI / XLU</code> — 20日均线，{z_window}日滚动预期边际差<br>
+            <span style='color:#aaa; font-size:13px;'>美股内部复苏信号：工业 vs 防御公用事业</span><br><br>
+            <b>③ 信用扩张</b> <code>{_credit_label_fl}</code> — 20日均线，{z_window}日滚动预期边际差（已反转）<br>
+            <span style='color:#aaa; font-size:13px;'>高收益债利差收窄 = 融资畅通 / 信心充裕</span>
+            <hr style='border-color:#333; margin:10px 0;'>
+            <b style='color:#E67E22;'>🎈 通胀预期轴 Y (两引擎等权合成)</b><br><br>
+            <b>① 隐含通胀预期</b> <code>{_t10yie_label_fl}</code> — 20日均线，{z_window}日滚动预期边际差<br>
+            <span style='color:#aaa; font-size:13px;'>债市聪明钱对未来10年通胀的实时定价（名义利率 − TIPS实际利率）</span><br><br>
+            <b>② 实物资产溢价</b> <code>DBC / IEF</code> — 20日均线，{z_window}日滚动预期边际差<br>
+            <span style='color:#aaa; font-size:13px;'>广义大宗商品 vs 法币国债：当下通胀压力最直接市场证据</span>
+            </div>
+            """, unsafe_allow_html=True)
+        with _wb_b:
+            st.markdown(f"""
+            <div class="formula-box" style="height:100%;">
+            <b style='color:#3498DB; font-size:15px;'>🔵 政府滞后星 (Gov Lagging Star)</b><br>
+            <span style='color:#aaa; font-size:13px;'>滞后真实经济 1-3 个月 | 当前象限：<b style='color:#3498DB;'>{_quad_b}</b> | G={star_b_g_curr:+.2f} / I={star_b_i_curr:+.2f}</span>
+            <hr style='border-color:#333; margin:10px 0;'>
+            <b style='color:#3498DB;'>📈 经济增长轴 X (三引擎等权合成)</b><br><br>
+            <b>① 工业锚</b> <code>{_indpro_label_fl}</code> — 20日均线，{z_window}日滚动预期边际差<br>
+            <span style='color:#aaa; font-size:13px;'>FRED 月度官方工业产出存量（YoY同比），反映实体制造业景气度。</span><br><br>
+            <b>② 就业锚</b> <code>{_payems_label_fl}</code> — 20日均线，{z_window}日滚动预期边际差<br>
+            <span style='color:#aaa; font-size:13px;'>FRED 月度非农就业人数（YoY同比），是美联储双重使命中就业端的核心锚点，滞后性强。</span><br><br>
+            <b>③ 消费锚</b> <code>{_rsafs_label_fl}</code> — 20日均线，{z_window}日滚动预期边际差<br>
+            <span style='color:#aaa; font-size:13px;'>FRED 月度零售销售总额（YoY同比），反映消费端实物需求，是 GDP 中最直接的终端需求信号。</span><br><br>
+            <span style='color:#777; font-size:13px;'>注：FRED 月度数据逐日前向填充对齐时间轴。若所有官方数据均不可用，自动降级为 <code>XLY/XLP</code> ETF 代理。</span>
+            <hr style='border-color:#333; margin:10px 0;'>
+            <b style='color:#E67E22;'>🎈 通胀回溯轴 Y (双引擎等权合成)</b><br><br>
+            <b>① CPI锚</b> <code>{_gov_cpi_label_fl}</code> — {z_window}日滚动预期边际差<br>
+            <span style='color:#aaa; font-size:13px;'>FRED 核心CPI YoY（剔除食品与能源）：官方货币政策决策锚，属月度滞后统计。</span><br><br>
+            <b>② PCE锚</b> <code>{_gov_pce_label_fl}</code> — {z_window}日滚动预期边际差<br>
+            <span style='color:#aaa; font-size:13px;'>FRED 核心个人消费支出价格指数 YoY：美联储首选通胀参考指标，与 CPI 互为验证，覆盖更广泛的消费品篮子。</span><br><br>
+            <span style='color:#777; font-size:13px;'>当 FRED 不可用时，自动降级为 <code>TIP/IEF</code> ETF 代理。</span>
+            <hr style='border-color:#333; margin:10px 0;'>
+            <b style='color:#aaa; font-size:13px;'>📐 合成方法</b><br>
+            <span style='color:#aaa; font-size:13px;'>所有序列先取20日均线平滑（增长轴），再计算过去 <b style='color:#8E44AD;'>{z_window}日（中期战略视角 · 3Y）</b> 滚动预期边际差，最终等权平均为单轴坐标。防零除：sigma=0 时分母以 NaN 处理，不参与合成。</span>
+            </div>
+            """, unsafe_allow_html=True)
 
     fig_clock = go.Figure()
     limit = 3.0
@@ -477,24 +703,24 @@ if not df.empty and len(df) > 750:
     fig_clock.add_trace(go.Scatter(
         x=[star_b_g_curr], y=[star_b_i_curr], mode='markers', name='政府滞后星',
         marker=dict(color='#3498DB', size=18, symbol='star'),
-        hovertemplate="<b>🔵 政府滞后星 (官方后视镜)</b><br>Growth Z: %{x:.2f}<br>Inflation Z: %{y:.2f}<br><i>⏰ 滞后真实经济 1-3 个月</i><extra></extra>"
+        hovertemplate="<b>🔵 政府滞后星 (官方后视镜)</b><br>Growth Mom: %{x:.2f}<br>Inflation Mom: %{y:.2f}<br><i>⏰ 滞后真实经济 1-3 个月</i><extra></extra>"
     ))
     # 🌟 星星 A: 市场前瞻星 — 金色五角星
     fig_clock.add_trace(go.Scatter(
         x=[star_a_g_curr], y=[star_a_i_curr], mode='markers', name='市场前瞻星',
         marker=dict(color='#F1C40F', size=18, symbol='star'),
-        hovertemplate="<b>🌟 市场前瞻星 (聪明钱)</b><br>Growth Z: %{x:.2f}<br>Inflation Z: %{y:.2f}<br><i>🚀 领先官方数据 3-6 个月</i><extra></extra>"
+        hovertemplate="<b>🌟 市场前瞻星 (聪明钱)</b><br>Growth Mom: %{x:.2f}<br>Inflation Mom: %{y:.2f}<br><i>🚀 领先官方数据 3-6 个月</i><extra></extra>"
     ))
     # 张力虚线: 从政府星(B)指向市场星(A)
     fig_clock.add_shape(type='line', x0=star_b_g_curr, y0=star_b_i_curr, x1=star_a_g_curr, y1=star_a_i_curr, line=dict(color='rgba(200,200,200,0.45)', width=2, dash='dash'))
     fig_clock.add_annotation(x=star_a_g_curr, y=star_a_i_curr, ax=star_b_g_curr, ay=star_b_i_curr, axref='x', ayref='y', arrowhead=3, arrowsize=1.3, arrowwidth=2, arrowcolor='rgba(200,200,200,0.6)', showarrow=True, text="")
 
-    fig_clock.update_layout(height=480, margin=dict(l=20,r=20,t=20,b=60), xaxis=dict(title="<-- 衰退 (Growth -) | 复苏 (Growth +) -->", range=[-limit, limit], zeroline=True, zerolinewidth=2), yaxis=dict(title="<-- 通缩 (Inflation -) | 通胀 (Inflation +) -->", range=[-limit, limit], zeroline=True, zerolinewidth=2), showlegend=True, legend=dict(orientation="h", y=-0.14, x=0.5, xanchor="center", font=dict(size=11)), plot_bgcolor='#222', paper_bgcolor='#222', font=dict(color='#ddd'))
+    fig_clock.update_layout(height=480, margin=dict(l=20,r=20,t=20,b=60), xaxis=dict(title="<-- 衰退 (Recession) | 软着陆 (Soft Landing) -->", range=[-limit, limit], zeroline=True, zerolinewidth=2), yaxis=dict(title="<-- 通缩 (Inflation -) | 通胀 (Inflation +) -->", range=[-limit, limit], zeroline=True, zerolinewidth=2), showlegend=True, legend=dict(orientation="h", y=-0.14, x=0.5, xanchor="center", font=dict(size=11)), plot_bgcolor='#222', paper_bgcolor='#222', font=dict(color='#ddd'))
     
-    fig_clock.add_annotation(x=1.5, y=1.5, text="🔥 过热 (Overheat)", showarrow=False, font=dict(color="#E74C3C", size=14))
-    fig_clock.add_annotation(x=1.5, y=-1.5, text="🟢 复苏 (Recovery)", showarrow=False, font=dict(color="#2ECC71", size=14))
-    fig_clock.add_annotation(x=-1.5, y=-1.5, text="❄️ 衰退 (Reflation)", showarrow=False, font=dict(color="#3498DB", size=14))
-    fig_clock.add_annotation(x=-1.5, y=1.5, text="🌧️ 滞胀 (Stagflation)", showarrow=False, font=dict(color="#F1C40F", size=14))
+    fig_clock.add_annotation(x=1.5, y=1.5, text="🔥 再通胀 (Reflation)", showarrow=False, font=dict(color="#E74C3C", size=14))
+    fig_clock.add_annotation(x=1.5, y=-1.5, text="🚗 软着陆 (Soft Landing)", showarrow=False, font=dict(color="#2ECC71", size=14))
+    fig_clock.add_annotation(x=-1.5, y=-1.5, text="❄️ 衰退 (Recession)", showarrow=False, font=dict(color="#3498DB", size=14))
+    fig_clock.add_annotation(x=-1.5, y=1.5, text="🚨 滞胀 (Stagflation)", showarrow=False, font=dict(color="#F1C40F", size=14))
     _col_clock, _col_commentary = st.columns([3, 2])
     with _col_clock:
         st.plotly_chart(fig_clock, use_container_width=True)
@@ -502,19 +728,18 @@ if not df.empty and len(df) > 750:
     # ── Phase 3: 动态旁白解读引擎 (Dynamic Commentary Engine) ──────────────
     def _get_quad(g, i):
         if abs(g) < 0.5 and abs(i) < 0.5: return "软着陆"
-        elif g > 0 and i > 0: return "过热"
-        elif g > 0 and i <= 0: return "复苏"
+        elif g > 0 and i <= 0: return "软着陆"
+        elif g > 0 and i > 0: return "再通胀"
         elif g <= 0 and i > 0: return "滞胀"
         else: return "衰退"
 
     _QUAD_ASSETS = {
         "软着陆": "科技 (XLK / SMH / IGV) + 成长消费 (XRT / ARKK)",
-        "过热":   "能源 (XLE / XOP) + 工业 (XLI / PAVE) + 铜矿 (CPER / PICK)",
-        "复苏":   "科技 (XLK) + 区域银行 (KRE) + 工业 (XLI) + 消费 (XRT)",
-        "滞胀":   "黄金 (GLD / SLV) + 广义商品 (DBC) + 防御 (XLP / XLV)",
-        "衰退":   "长债 (TLT) + 黄金 (GLD) + 必选消费 (XLP) + 公用 (XLU)",
+        "再通胀": "能源 (XLE / XOP) + 工业 (XLI / PAVE) + 铜矿 (CPER / PICK)",
+        "滞胀": "黄金 (GLD / SLV) + 广义商品 (DBC) + 防御 (XLP / XLV)",
+        "衰退": "长债 (TLT) + 黄金 (GLD) + 必选消费 (XLP) + 公用 (XLU)",
     }
-    _DIAGONALS = {("过热", "衰退"), ("衰退", "过热"), ("复苏", "滞胀"), ("滞胀", "复苏")}
+    _DIAGONALS = {("再通胀", "衰退"), ("衰退", "再通胀"), ("软着陆", "滞胀"), ("滞胀", "软着陆")}
 
     dynamic_recommendations = {
         "Recovery":    "全面进攻 (Risk-On)：宏观基本面加速复苏。建议放大 C 组（时代之王/科技成长）与 B 组敞口，享受主升浪。",
@@ -522,27 +747,27 @@ if not df.empty and len(df) > 750:
         "Stagflation": "滞胀防御 (Defensive)：最恶劣的宏观环境（高通胀+低增长）。建议强行压降多头仓位，向 A 组（压舱石/黄金 GLD）转移，保留高现金水位。",
         "Recession":   "衰退避险 (Safe Haven)：需求坍塌。建议切入长端美债（TLT/IEF）、防御性公用事业（XLU），并严格执行 Page 2 的全域均线截断风控。",
     }
-    _QUAD_TO_ENG = {"复苏": "Recovery", "过热": "Overheat", "滞胀": "Stagflation", "衰退": "Recession", "软着陆": "Recovery"}
+    _QUAD_TO_ENG = {"软着陆": "Recovery", "再通胀": "Overheat", "滞胀": "Stagflation", "衰退": "Recession"}
 
     _quad_a = _get_quad(star_a_g_curr, star_a_i_curr)
     _quad_b = _get_quad(star_b_g_curr, star_b_i_curr)
     _dist = ((star_a_g_curr - star_b_g_curr) ** 2 + (star_a_i_curr - star_b_i_curr) ** 2) ** 0.5
     _dynamic_rec = dynamic_recommendations.get(_QUAD_TO_ENG.get(_quad_a, "Recovery"), dynamic_recommendations["Recovery"])
 
-    # ── 增长轴背离向量：Market_Z_Growth - Gov_Z_Growth ──────────────────
+    # ── 增长轴背离向量：Market_Growth_Mom - Gov_Growth_Mom ──────────────────
     _growth_divergence = star_a_g_curr - star_b_g_curr
     if _growth_divergence > 0.5:
         _growth_divergence_text = (
             f"<br><br><span style='color:#2ECC71; font-weight:bold;'>📈 上修预警：</span>"
-            f"市场前瞻增长信号（Market Growth Z={star_a_g_curr:+.2f}）远强于官方后视镜"
-            f"（Gov Growth Z={star_b_g_curr:+.2f}，差值={_growth_divergence:+.2f}）。"
+            f"市场前瞻增长信号（Market Growth Mom={star_a_g_curr:+.2f}）远强于官方后视镜"
+            f"（Gov Growth Mom={star_b_g_curr:+.2f}，差值={_growth_divergence:+.2f}）。"
             f"历史表明，官方滞后的经济指标（如就业/零售/GDP）将在未来几周内面临<b>上修</b>。"
         )
     elif _growth_divergence < -0.5:
         _growth_divergence_text = (
             f"<br><br><span style='color:#E74C3C; font-weight:bold;'>📉 下修预警：</span>"
-            f"官方数据仍在强撑（Gov Growth Z={star_b_g_curr:+.2f}），但市场前瞻真金白银"
-            f"已开始计价衰退（Market Growth Z={star_a_g_curr:+.2f}，差值={_growth_divergence:+.2f}）。"
+            f"官方数据仍在强撑（Gov Growth Mom={star_b_g_curr:+.2f}），但市场前瞻真金白银"
+            f"已开始计价衰退周期（Market Growth Mom={star_a_g_curr:+.2f}，差值={_growth_divergence:+.2f}）。"
             f"历史表明，就业、零售等官方数据将在未来被<b>大幅下修</b>。"
         )
     else:
@@ -589,115 +814,313 @@ if not df.empty and len(df) > 750:
             <div style='font-size:13px; color:#888; margin-top:10px; border-top:1px solid #333; padding-top:8px;'>
                 市场前瞻星 → <b style='color:#F1C40F;'>{_quad_a}</b> &nbsp;|&nbsp;
                 政府滞后星 → <b style='color:#3498DB;'>{_quad_b}</b> &nbsp;|&nbsp;
-                两星距离: <b>{_dist:.2f}</b> Z 单位
+                两星距离: <b>{_dist:.2f}</b> 动量单位
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Phase 4: 白盒化呈现 (White-Box Factor Transparency) ────────────────
-    def _fl(label, series_id):
-        """将 FRED 序列标签包装为可点击超链接；仅当 label 含 'FRED' 字样时生效。"""
-        if series_id and 'FRED' in label:
-            url = f"https://fred.stlouisfed.org/series/{series_id}"
-            return f'<a href="{url}" target="_blank" style="color:#2ECC71; text-decoration:underline dotted;">{label}</a>'
-        return label
+    def get_z_a_trajectory(df_data, df_fred, window):
+        def _z(series):
+            mu = series.rolling(window=window).mean()
+            sigma = series.rolling(window=window).std()
+            return (series - mu) / sigma.where(sigma > 0)
+        z_copper_gold = _z((df_data['CPER'] / df_data['GLD'].replace(0, np.nan)).rolling(20).mean())
+        z_industrial = _z((df_data['XLI'] / df_data['XLU'].replace(0, np.nan)).rolling(20).mean())
+        if not df_fred.empty and 'HY_Spread' in df_fred.columns:
+            _hy_raw = df_fred['HY_Spread'].reindex(df_data.index).ffill().rolling(20).mean()
+            z_credit = _z(_hy_raw) * -1
+        else:
+            _hy_raw = (df_data['HYG'] / df_data['IEF'].replace(0, np.nan)).rolling(20).mean()
+            z_credit = _z(_hy_raw)
+        growth_z = pd.DataFrame({'Z_copper_gold': z_copper_gold, 'Z_industrial': z_industrial, 'Z_credit': z_credit}).mean(axis=1)
+        if not df_fred.empty and 'T10YIE' in df_fred.columns:
+            _t10yie_raw = df_fred['T10YIE'].reindex(df_data.index).ffill().rolling(20).mean()
+            z_t10yie = _z(_t10yie_raw)
+        else:
+            _t10yie_raw = (df_data['TIP'] / df_data['IEF'].replace(0, np.nan)).rolling(20).mean()
+            z_t10yie = _z(_t10yie_raw)
+        z_commodity = _z((df_data['DBC'] / df_data['IEF'].replace(0, np.nan)).rolling(20).mean())
+        inflation_z = pd.DataFrame({'Z_t10yie': z_t10yie, 'Z_commodity': z_commodity}).mean(axis=1)
+        return pd.DataFrame({'经济预期边际差': growth_z, '通胀预期边际差': inflation_z}).dropna()
 
-    _indpro_label  = _fl(_indpro_label,  'INDPRO')
-    _payems_label  = _fl(_payems_label,  'PAYEMS')
-    _rsafs_label   = _fl(_rsafs_label,   'RSAFS')
-    _gov_cpi_label = _fl(_gov_cpi_label, 'CPILFESL')
-    _gov_pce_label = _fl(_gov_pce_label, 'PCEPILFE')
-    _t10yie_label  = _fl(_t10yie_label,  'T10YIE')
-    _credit_label  = _fl(_credit_label,  'BAMLH0A0HYM2')
-    _cpi_label     = _fl(_cpi_label,     'CPILFESL')
+    def map_to_4_regime(g, i, driving_style=True):
+        if abs(g) < 0.5 and abs(i) < 0.5: return "软着陆"
+        elif g > 0 and i <= 0: return "软着陆"
+        elif g > 0 and i > 0: return "再通胀"
+        elif g <= 0 and i > 0: return "滞胀"
+        else: return "衰退"
 
-    with st.expander("🔬 白盒溯源：双星底层因子完整披露 (点击展开)", expanded=False):
-        _wb_a, _wb_b = st.columns(2)
-        with _wb_a:
-            st.markdown(f"""
-            <div class="formula-box" style="height:100%;">
-            <b style='color:#F1C40F; font-size:15px;'>🌟 市场前瞻星 (Market Leading Star)</b><br>
-            <span style='color:#aaa; font-size:13px;'>领先官方数据 3-6 个月 | 当前象限：<b style='color:#F1C40F;'>{_quad_a}</b> | G={star_a_g_curr:+.2f} / I={star_a_i_curr:+.2f}</span>
-            <hr style='border-color:#333; margin:10px 0;'>
-            <b style='color:#3498DB;'>📈 经济增长轴 X (三引擎等权合成)</b><br><br>
-            <b>① 铜金比</b> <code>CPER / GLD</code> — 20日均线，{z_window}日滚动 Z-Score<br>
-            <span style='color:#aaa; font-size:13px;'>全球宏观测温枪：铜跑赢黄金 = 工业需求扩张 / Risk-On</span><br><br>
-            <b>② 工业实体</b> <code>XLI / XLU</code> — 20日均线，{z_window}日滚动 Z-Score<br>
-            <span style='color:#aaa; font-size:13px;'>美股内部复苏信号：工业 vs 防御公用事业</span><br><br>
-            <b>③ 信用扩张</b> <code>{_credit_label}</code> — 20日均线，{z_window}日滚动 Z-Score（已反转）<br>
-            <span style='color:#aaa; font-size:13px;'>高收益债利差收窄 = 融资畅通 / 信心充裕</span>
-            <hr style='border-color:#333; margin:10px 0;'>
-            <b style='color:#E67E22;'>🎈 通胀预期轴 Y (两引擎等权合成)</b><br><br>
-            <b>① 隐含通胀预期</b> <code>{_t10yie_label}</code> — 20日均线，{z_window}日滚动 Z-Score<br>
-            <span style='color:#aaa; font-size:13px;'>债市聪明钱对未来10年通胀的实时定价（名义利率 − TIPS实际利率）</span><br><br>
-            <b>② 实物资产溢价</b> <code>DBC / IEF</code> — 20日均线，{z_window}日滚动 Z-Score<br>
-            <span style='color:#aaa; font-size:13px;'>广义大宗商品 vs 法币国债：当下通胀压力最直接市场证据</span>
+    def generate_history_table(df_traj, driving_style=True):
+        try:
+            df_monthly = df_traj.resample('ME').last().dropna()
+        except Exception:
+            df_monthly = df_traj.resample('M').last().dropna()
+        df_monthly['平滑经济边际差'] = df_monthly['经济预期边际差'].ewm(alpha=0.5, adjust=False).mean()
+        df_monthly['平滑通胀边际差'] = df_monthly['通胀预期边际差'].ewm(alpha=0.5, adjust=False).mean()
+        df_monthly['原始剧本'] = df_monthly.apply(lambda row: map_to_4_regime(row['经济预期边际差'], row['通胀预期边际差'], driving_style), axis=1)
+        df_monthly['现任剧本'] = df_monthly.apply(lambda row: map_to_4_regime(row['平滑经济边际差'], row['平滑通胀边际差'], driving_style), axis=1)
+        df_monthly = df_monthly.tail(120).sort_index(ascending=False)
+        df_monthly.index = df_monthly.index.strftime('%Y-%m')
+        df_monthly = df_monthly[['现任剧本', '原始剧本', '经济预期边际差', '通胀预期边际差', '平滑经济边际差', '平滑通胀边际差']]
+        for col in ['经济预期边际差', '通胀预期边际差', '平滑经济边际差', '平滑通胀边际差']:
+            df_monthly[col] = df_monthly[col].astype(float).round(2)
+        df_monthly.rename(columns={'现任剧本': '现任剧本(状态机)', '原始剧本': '原始最强剧本'}, inplace=True)
+        df_monthly.index.name = '调仓日期'
+        return df_monthly
+
+    def style_regime_df(styler):
+        def apply_color(val):
+            color = ''
+            if val == '软着陆': color = '#2ECC71'
+            elif val == '再通胀': color = '#E74C3C'
+            elif val == '滞胀': color = '#F1C40F'
+            elif val == '衰退': color = '#3498DB'
+            return f'color: {color}; font-weight: bold;'
+        return styler.map(apply_color, subset=['原始最强剧本', '现任剧本(状态机)'])
+
+    with st.spinner("⏳ 正在计算宏观历史轨迹..."):
+        df_traj_3y = get_z_a_trajectory(df, df_fred_clock, 750)
+
+    # ── 📈 宏观时钟验证图 · 相对强弱宏观剧本染色图 ──────────────────────────────────────────
+    _REGIME_LINE_C = {"软着陆": "#2ECC71", "再通胀": "#E74C3C", "滞胀": "#F1C40F", "衰退": "#3498DB"}
+    _REGIME_BG_C   = {"软着陆": "rgba(46,204,113,0.15)", "再通胀": "rgba(231,76,60,0.15)", "滞胀": "rgba(241,196,15,0.15)", "衰退": "rgba(52,152,219,0.15)"}
+    _REGIME_EMO    = {"软着陆": "🚗", "再通胀": "🔥", "滞胀": "🚨", "衰退": "❄️"}
+
+    # 四大剧本 24 条件历史裁决（全局复用：染色图 + 历史裁决表）
+    def _build_horsemen_history(df_data, df_fred, window=750):
+        def _z(s):
+            mu = s.rolling(window=window).mean()
+            sg = s.rolling(window=window).std()
+            return (s - mu) / sg.where(sg > 0)
+        _z_cg = _z((df_data['CPER'] / df_data['GLD'].replace(0, np.nan)).rolling(20).mean())
+        _z_xi = _z((df_data['XLI']  / df_data['XLU'].replace(0, np.nan)).rolling(20).mean())
+        if not df_fred.empty and 'HY_Spread' in df_fred.columns:
+            _z_cr = _z(df_fred['HY_Spread'].reindex(df_data.index).ffill().rolling(20).mean()) * -1
+        else:
+            _z_cr = _z((df_data['HYG'] / df_data['IEF'].replace(0, np.nan)).rolling(20).mean())
+        _g = pd.DataFrame({'a': _z_cg, 'b': _z_xi, 'c': _z_cr}).mean(axis=1)
+        if not df_fred.empty and 'T10YIE' in df_fred.columns:
+            _z_ti = _z(df_fred['T10YIE'].reindex(df_data.index).ffill().rolling(20).mean())
+        else:
+            _z_ti = _z((df_data['TIP'] / df_data['IEF'].replace(0, np.nan)).rolling(20).mean())
+        _z_co = _z((df_data['DBC'] / df_data['IEF'].replace(0, np.nan)).rolling(20).mean())
+        _i = pd.DataFrame({'a': _z_ti, 'b': _z_co}).mean(axis=1)
+        _z_xlk_xle   = _z((df_data['XLK']  / df_data['XLE'].replace(0, np.nan)).rolling(20).mean())
+        _z_xly_xlp   = _z((df_data['XLY']  / df_data['XLP'].replace(0, np.nan)).rolling(20).mean())
+        _z_gld_spy   = _z((df_data['GLD']  / df_data['SPY'].replace(0, np.nan)).rolling(20).mean())
+        _z_vlue_mtum = _z((df_data['VLUE'] / df_data['MTUM'].replace(0, np.nan)).rolling(20).mean())
+        _z_tlt_shy   = _z((df_data['TLT']  / df_data['SHY'].replace(0, np.nan)).rolling(20).mean())
+        _z_xlp_spy   = _z((df_data['XLP']  / df_data['SPY'].replace(0, np.nan)).rolling(20).mean())
+        _z_ief_hyg   = _z((df_data['IEF']  / df_data['HYG'].replace(0, np.nan)).rolling(20).mean())
+        def _quad_h(gv, iv):
+            if abs(gv) < 0.5 and abs(iv) < 0.5: return "软着陆"
+            elif gv > 0 and iv <= 0:  return "软着陆"
+            elif gv > 0 and iv > 0:   return "再通胀"
+            elif gv <= 0 and iv > 0:  return "滞胀"
+            else:                     return "衰退"
+        _ds = pd.DataFrame({
+            'g': _g, 'i': _i, 'z_cr': _z_cr, 'z_xlk_xle': _z_xlk_xle, 'z_xly_xlp': _z_xly_xlp,
+            'z_cg': _z_cg, 'z_ti': _z_ti, 'z_co': _z_co, 'z_gld_spy': _z_gld_spy,
+            'z_vlue_mtum': _z_vlue_mtum, 'z_tlt_shy': _z_tlt_shy, 'z_xlp_spy': _z_xlp_spy,
+            'z_ief_hyg': _z_ief_hyg,
+        }).dropna()
+        _ds['quad'] = _ds.apply(lambda r: _quad_h(r['g'], r['i']), axis=1)
+        _ds['score_a'] = ((_ds['quad'] == "软着陆").astype(int) + (_ds['g'] > 0).astype(int) + ((_ds['i'] <= 0) | (_ds['i'].abs() < 0.5)).astype(int) + (_ds['z_xlk_xle'] > 0).astype(int) + (_ds['z_cr'] > 0).astype(int) + (_ds['z_xly_xlp'] > 0).astype(int))
+        _ds['score_b'] = ((_ds['quad'] == "再通胀").astype(int) + (_ds['g'] > 0).astype(int) + (_ds['i'] > 0).astype(int) + (_ds['z_cg'] > 0).astype(int) + (_ds['z_ti'] > 0).astype(int) + (_ds['z_co'] > 0).astype(int))
+        _ds['score_c'] = ((_ds['quad'] == "滞胀").astype(int) + (_ds['g'] <= 0).astype(int) + (_ds['i'] > 0).astype(int) + (_ds['z_gld_spy'] > 0).astype(int) + (_ds['z_vlue_mtum'] > 0).astype(int) + (_ds['z_xly_xlp'] < 0).astype(int))
+        _ds['score_d'] = ((_ds['quad'] == "衰退").astype(int) + (_ds['g'] <= 0).astype(int) + (_ds['i'] <= 0).astype(int) + (_ds['z_tlt_shy'] > 0).astype(int) + (_ds['z_xlp_spy'] > 0).astype(int) + (_ds['z_ief_hyg'] > 0).astype(int))
+        _ds['prob_a'] = (_ds['score_a'] / 6 * 100).round().astype(int)
+        _ds['prob_b'] = (_ds['score_b'] / 6 * 100).round().astype(int)
+        _ds['prob_c'] = (_ds['score_c'] / 6 * 100).round().astype(int)
+        _ds['prob_d'] = (_ds['score_d'] / 6 * 100).round().astype(int)
+        def _winner(r):
+            p = {'软着陆': r['prob_a'], '再通胀': r['prob_b'], '滞胀': r['prob_c'], '衰退': r['prob_d']}
+            return max(p, key=p.get)
+        _ds['剧本裁决'] = _ds.apply(_winner, axis=1)
+        try:
+            _dm = _ds.resample('ME').last().dropna()
+        except Exception:
+            _dm = _ds.resample('M').last().dropna()
+        _dm = _dm.tail(120).sort_index(ascending=False)
+        _dm.index = _dm.index.strftime('%Y-%m')
+        _dm.index.name = '月份'
+        out = _dm[['剧本裁决', 'prob_a', 'prob_b', 'prob_c', 'prob_d']].copy()
+        out.columns = ['剧本裁决', '软着陆%', '再通胀%', '滞胀%', '衰退%']
+        return out, _ds['剧本裁决']
+
+    def _style_horsemen_df(styler):
+        def _color(val):
+            cmap = {'软着陆': '#2ECC71', '再通胀': '#E74C3C', '滞胀': '#F1C40F', '衰退': '#3498DB'}
+            return f'color: {cmap.get(val, "#888")}; font-weight: bold;' if val in cmap else ''
+        return styler.map(_color, subset=['剧本裁决'])
+
+    df_hist_horsemen, _horsemen_daily = _build_horsemen_history(df, df_fred_clock, window=z_window)
+
+    _RATIO_OPTIONS = {
+        "🔬 科技/能源比 (XLK/XLE)": ("XLK", "XLE", "XLK / XLE 比值"),
+        "🌡️ 铜金比 (CPER/GLD)": ("CPER", "GLD", "CPER / GLD 比值"),
+        "🛡️ 纯防御/纯进攻比 (XLP/XLY)": ("XLP", "XLY", "XLP / XLY 比值"),
+    }
+    _RATIO_COMMENTARY = {
+        "🔬 科技/能源比 (XLK/XLE)": {
+            "软着陆": "📈 科技领跑：金发姑娘环境中，无通胀的增长驱动资金涌入科技成长，能源被冷落。比值应持续走高。",
+            "再通胀": "📉 能源接棒：通胀高烧驱动大宗周期，科技估值受利率压制溃败。比值应明显下降，是换仓到 XLE/XOP 的信号。",
+            "滞胀": "⚠️ 双杀陷阱：科技跌估值，能源跌需求。能源通常相对更抗跌，比值在低位震荡。应两者均减仓，向黄金撤退。",
+            "衰退": "❄️ 双双受压：增长坍塌压垮两者。科技盈利预期下修，能源需求萎靡。比值低位徘徊，正确选择是逃往长债与防御。",
+        },
+        "🌡️ 铜金比 (CPER/GLD)": {
+            "软着陆": "📈 铜跑赢金：工业扩张、需求旺盛，铜作为经济温度计大涨，黄金避险溢价褪去。比值走高是全球经济共振的最强证明。",
+            "再通胀": "🔥 铜金共振：工业需求强劲同时通胀升温，铜持续领涨，金也有支撑。比值高位震荡——顺周期资产的天堂。",
+            "滞胀": "🚨 金反超铜：经济放缓压制铜需求，通胀高企却让黄金成为最佳避险资产。比值下降是黄金超配的最强入场信号。",
+            "衰退": "❄️ 金大幅跑赢：需求坍塌压垮铜，恐慌情绪推升黄金。比值触底是宏观时钟最清晰的衰退认证章。",
+        },
+        "🛡️ 纯防御/纯进攻比 (XLP/XLY)": {
+            "软着陆": "📉 进攻占优：消费者信心高涨，可选消费(XLY)大涨，必选消费(XLP)被冷落。比值下降，持有 XLY 正确。",
+            "再通胀": "📊 初期进攻，后期防御切换：通胀初期 XLY 跑赢，随着利率高企侵蚀可支配收入，比值企稳回升——防御切换信号亮起。",
+            "滞胀": "📈 防御全面占优：口袋缩水让消费者只买必需品，XLP 大幅跑赢。比值显著上升，是宏观环境恶化的直接写照。",
+            "衰退": "🚨 防御彻底躺平：资金全速撤入必选消费避险，比值冲顶——这是资金对经济彻底绝望的终极信号。",
+        },
+    }
+
+    st.markdown("##### 🔬 宏观时钟验证图 — 在四色剧本背景下，亲眼验证宏观物理定律")
+    _selected_ratio = st.selectbox(
+        "选择验证指标：",
+        options=list(_RATIO_OPTIONS.keys()),
+        index=0,
+        key="regime_ratio_selector",
+        help="这三条线在四种颜色背景下如物理定律般规律起伏，是宏观时钟有效性的终极视觉证明。"
+    )
+    _tick_a, _tick_b, _ratio_ylabel = _RATIO_OPTIONS[_selected_ratio]
+
+    _ratio_series = (df[_tick_a] / df[_tick_b].replace(0, np.nan)).rolling(20).mean().astype(float).dropna()
+
+    if _ratio_series.empty:
+        st.warning(f"⚠️ 所选指标 {_tick_a}/{_tick_b} 数据不足，无法渲染比值图")
+        st.stop()
+
+    _reg_aligned_r = _horsemen_daily.reindex(_ratio_series.index).ffill().dropna()
+    _traj_start_r = _horsemen_daily.index[0] if not _horsemen_daily.empty else _ratio_series.index[0]
+    _ratio_3y = _ratio_series[_ratio_series.index >= _traj_start_r]
+    _reg_3y_r  = _reg_aligned_r[_reg_aligned_r.index >= _traj_start_r]
+
+    _shapes_ratio = []
+    _traces_ratio = []
+    _leg_seen_r   = set()
+    _curr_rr      = None
+    _seg_start_rr = None
+
+    for _d, _reg in _reg_3y_r.items():
+        if _reg != _curr_rr:
+            if _curr_rr is not None and _seg_start_rr is not None:
+                _shapes_ratio.append(dict(
+                    type="rect", x0=_seg_start_rr, x1=_d,
+                    y0=0, y1=1, yref="paper",
+                    fillcolor=_REGIME_BG_C.get(_curr_rr, "rgba(128,128,128,0.1)"),
+                    line_width=0, layer="below"
+                ))
+                _seg = _ratio_3y[(_ratio_3y.index >= _seg_start_rr) & (_ratio_3y.index < _d)]
+                if not _seg.empty:
+                    _traces_ratio.append(go.Scatter(
+                        x=_seg.index, y=_seg.values, mode='lines',
+                        line=dict(color=_REGIME_LINE_C.get(_curr_rr, '#888'), width=2),
+                        name=f"{_REGIME_EMO.get(_curr_rr,'')} {_curr_rr}",
+                        showlegend=(_curr_rr not in _leg_seen_r),
+                        legendgroup=_curr_rr
+                    ))
+                    _leg_seen_r.add(_curr_rr)
+            _curr_rr = _reg
+            _seg_start_rr = _d
+
+    if _curr_rr is not None and _seg_start_rr is not None and not _ratio_3y.empty:
+        _shapes_ratio.append(dict(
+            type="rect", x0=_seg_start_rr, x1=_ratio_3y.index[-1],
+            y0=0, y1=1, yref="paper",
+            fillcolor=_REGIME_BG_C.get(_curr_rr, "rgba(128,128,128,0.1)"),
+            line_width=0, layer="below"
+        ))
+        _seg = _ratio_3y[_ratio_3y.index >= _seg_start_rr]
+        if not _seg.empty:
+            _traces_ratio.append(go.Scatter(
+                x=_seg.index, y=_seg.values, mode='lines',
+                line=dict(color=_REGIME_LINE_C.get(_curr_rr, '#888'), width=2),
+                name=f"{_REGIME_EMO.get(_curr_rr,'')} {_curr_rr}",
+                showlegend=(_curr_rr not in _leg_seen_r),
+                legendgroup=_curr_rr
+            ))
+
+    _fig_ratio_regime = go.Figure()
+    for _tr in _traces_ratio:
+        _fig_ratio_regime.add_trace(_tr)
+    _fig_ratio_regime.update_layout(
+        height=320,
+        shapes=_shapes_ratio,
+        margin=dict(l=20, r=20, t=40, b=20),
+        plot_bgcolor='#1a1a1a', paper_bgcolor='#1a1a1a',
+        font=dict(color='#ddd'),
+        showlegend=True,
+        legend=dict(orientation="h", y=1.16, x=0.5, xanchor="center", font=dict(size=12)),
+        hovermode="x unified",
+        xaxis=dict(showgrid=False),
+        yaxis=dict(title=_ratio_ylabel, showgrid=True, gridcolor='rgba(255,255,255,0.06)'),
+        title=dict(
+            text=f"{_selected_ratio} · 四大剧本染色图 ({_traj_start_r.strftime('%Y')}-至今) &nbsp;|&nbsp; 当前裁决：{_REGIME_EMO.get(df_hist_horsemen['剧本裁决'].iloc[0],'') if not df_hist_horsemen.empty else ''} {df_hist_horsemen['剧本裁决'].iloc[0] if not df_hist_horsemen.empty else 'N/A'}",
+            font=dict(size=14), x=0.01, xanchor='left'
+        )
+    )
+    st.plotly_chart(_fig_ratio_regime, use_container_width=True)
+
+    _horsemen_curr = df_hist_horsemen['剧本裁决'].iloc[0] if not df_hist_horsemen.empty else ""
+    _ratio_comment = _RATIO_COMMENTARY.get(_selected_ratio, {}).get(_horsemen_curr, "")
+    if _ratio_comment:
+        _comment_color = _REGIME_LINE_C.get(_horsemen_curr, "#888")
+        st.markdown(f"""
+        <div style='background:#1a1a1a; border-left:4px solid {_comment_color}; border-radius:6px; padding:12px 16px; margin-bottom:4px;'>
+            <div style='font-size:13px; color:#aaa; margin-bottom:5px;'>
+                {_REGIME_EMO.get(_horsemen_curr, "")} 当前剧本 <b style='color:{_comment_color};'>{_horsemen_curr}</b> 下，{_selected_ratio} 的宏观含义：
             </div>
-            """, unsafe_allow_html=True)
-        with _wb_b:
-            st.markdown(f"""
-            <div class="formula-box" style="height:100%;">
-            <b style='color:#3498DB; font-size:15px;'>🔵 政府滞后星 (Gov Lagging Star)</b><br>
-            <span style='color:#aaa; font-size:13px;'>滞后真实经济 1-3 个月 | 当前象限：<b style='color:#3498DB;'>{_quad_b}</b> | G={star_b_g_curr:+.2f} / I={star_b_i_curr:+.2f}</span>
-            <hr style='border-color:#333; margin:10px 0;'>
-            <b style='color:#3498DB;'>📈 经济增长轴 X (三引擎等权合成)</b><br><br>
-            <b>① 工业锚</b> <code>{_indpro_label}</code> — 20日均线，{z_window}日滚动 Z-Score<br>
-            <span style='color:#aaa; font-size:13px;'>FRED 月度官方工业产出存量（YoY同比），反映实体制造业景气度。</span><br><br>
-            <b>② 就业锚</b> <code>{_payems_label}</code> — 20日均线，{z_window}日滚动 Z-Score<br>
-            <span style='color:#aaa; font-size:13px;'>FRED 月度非农就业人数（YoY同比），是美联储双重使命中就业端的核心锚点，滞后性强。</span><br><br>
-            <b>③ 消费锚</b> <code>{_rsafs_label}</code> — 20日均线，{z_window}日滚动 Z-Score<br>
-            <span style='color:#aaa; font-size:13px;'>FRED 月度零售销售总额（YoY同比），反映消费端实物需求，是 GDP 中最直接的终端需求信号。</span><br><br>
-            <span style='color:#777; font-size:13px;'>注：FRED 月度数据逐日前向填充对齐时间轴。若所有官方数据均不可用，自动降级为 <code>XLY/XLP</code> ETF 代理。</span>
-            <hr style='border-color:#333; margin:10px 0;'>
-            <b style='color:#E67E22;'>🎈 通胀回溯轴 Y (双引擎等权合成)</b><br><br>
-            <b>① CPI锚</b> <code>{_gov_cpi_label}</code> — {z_window}日滚动 Z-Score<br>
-            <span style='color:#aaa; font-size:13px;'>FRED 核心CPI YoY（剔除食品与能源）：官方货币政策决策锚，属月度滞后统计。</span><br><br>
-            <b>② PCE锚</b> <code>{_gov_pce_label}</code> — {z_window}日滚动 Z-Score<br>
-            <span style='color:#aaa; font-size:13px;'>FRED 核心个人消费支出价格指数 YoY：美联储首选通胀参考指标，与 CPI 互为验证，覆盖更广泛的消费品篮子。</span><br><br>
-            <span style='color:#777; font-size:13px;'>当 FRED 不可用时，自动降级为 <code>TIP/IEF</code> ETF 代理。</span>
-            <hr style='border-color:#333; margin:10px 0;'>
-            <b style='color:#aaa; font-size:13px;'>📐 合成方法</b><br>
-            <span style='color:#aaa; font-size:13px;'>所有序列先取20日均线平滑（增长轴），再计算过去 <b style='color:{_tf_badge_color};'>{z_window}日（当前：{_tf_label}）</b> 滚动 Z-Score，最终等权平均为单轴坐标。防零除：sigma=0 时分母以 NaN 处理，不参与合成。</span>
-            </div>
-            """, unsafe_allow_html=True)
+            <div style='font-size:14px; color:#ddd; line-height:1.75;'>{_ratio_comment}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("---")
 
     st.header("🔬 债市阶梯深度透视 (Bond Ladder)")
-    r_tlt, r_ief, r_shy = get_ret('TLT'), get_ret('IEF'), get_ret('SHY')
-    
-    if r_tlt > r_ief > r_shy: 
-        curve_shape = "🟢 牛陡 (Bull Steepening)"
-        curve_desc = "长债大幅跑赢短债。市场正在强烈定价衰退与未来的降息预期，资金涌入长端国债避险。"
-    elif r_shy > r_ief > r_tlt: 
-        curve_shape = "🔴 熊平 (Bear Flattening)"
-        curve_desc = "短端承压大于长端。市场正在定价加息、紧缩或滞胀风险，流动性预期恶化。"
-    else: 
-        curve_shape = "⚖️ 混合震荡 (Mixed)"
-        curve_desc = "长短端收益率变化不一致，市场对未来宏观路径存在分歧，缺乏单边趋势。"
+    # 3Y Z-Score：衡量当前债市走势相对于过去3年历史均值的偏差（与宏观时钟同一度量衡）
+    z_bl_tlt_shy = tlt_shy_diff                  # 已在宏观底色中计算
+    z_bl_ief_shy = _ratio_z_curr('IEF', 'SHY')   # 中端/短端 Z-Score
+    z_bl_hyg_ief = hyg_ief_diff                   # 已在宏观底色中计算
+    z_bl_lqd_ief = _ratio_z_curr('LQD', 'IEF')   # 投资级/国债 Z-Score
 
-    c_hyg, c_lqd, c_ief = get_ret('HYG'), get_ret('LQD'), get_ret('IEF')
-    
-    if c_hyg > c_lqd > c_ief:
-        credit_desc = "垃圾债跑赢投资级和国债。信用利差收窄，资金无惧违约风险，处于极度 Risk-On 追逐收益的状态。"
-    elif c_ief > c_lqd > c_hyg:
-        credit_desc = "国债大幅跑赢信用债。信用利差走阔，资金担忧企业违约风险，处于极度 Risk-Off 的避险状态。"
+    if z_bl_tlt_shy > 0.3:
+        curve_shape = "🟢 牛陡 (Bull Steepening)"
+        curve_desc = "长债相对短债处于3年历史高位。市场正在强烈定价衰退与降息预期，资金涌入长端国债避险。"
+    elif z_bl_tlt_shy < -0.3:
+        curve_shape = "🔴 熊平 (Bear Flattening)"
+        curve_desc = "短端相对强于长端（3年维度）。市场正在定价加息、紧缩或滞胀风险，流动性预期恶化。"
     else:
-        credit_desc = "信用利差保持平稳，市场风险偏好处于中性温和状态。"
-    
+        curve_shape = "⚖️ 中性震荡 (Neutral)"
+        curve_desc = "长短端相对强弱处于3年历史均值附近，市场对未来宏观路径尚无明确共识。"
+
+    if z_bl_hyg_ief > 0.3:
+        credit_desc = "信用债相对国债处于3年历史强位。信用利差收窄，资金无惧违约风险，处于历史性 Risk-On 状态。"
+    elif z_bl_hyg_ief < -0.3:
+        credit_desc = "国债相对信用债处于3年历史强位。信用利差走阔，资金担忧企业违约，处于历史性 Risk-Off 状态。"
+    else:
+        credit_desc = "信用利差在3年历史均值附近震荡，市场风险偏好处于中性温和状态。"
+
     c_b1, c_b2 = st.columns(2)
     with c_b1:
         st.info(f"📈 **利率形态：{curve_shape}**")
-        rates_data = {"SHY (短)": r_shy, "IEF (中)": r_ief, "TLT (长)": r_tlt}
-        fig_r = px.bar(pd.DataFrame(list(rates_data.items()), columns=['期限', '涨跌']), x='涨跌', y='期限', orientation='h', color='涨跌', color_continuous_scale='RdYlGn')
+        rates_data = {"SHY (短端)": 0.0, "IEF (中端)": z_bl_ief_shy, "TLT (长端)": z_bl_tlt_shy}
+        fig_r = px.bar(pd.DataFrame(list(rates_data.items()), columns=['期限', 'Z-Score']), x='Z-Score', y='期限', orientation='h', color='Z-Score', color_continuous_scale='RdYlGn', range_color=[-2, 2])
         fig_r.update_layout(height=200, margin=dict(l=0,r=0,t=0,b=0), plot_bgcolor='#1a1a1a', paper_bgcolor='#1a1a1a', font=dict(color='#ddd'))
         st.plotly_chart(fig_r, use_container_width=True)
         st.markdown(f"<div class='conclusion-box'><b>🧠 宏观结论：</b>{curve_desc}</div>", unsafe_allow_html=True)
 
     with c_b2:
         st.info(f"🦁 **信用风险偏好**")
-        credit_data = {"HYG (垃圾)": c_hyg, "LQD (投资)": c_lqd, "IEF (国债)": c_ief}
-        fig_c = px.bar(pd.DataFrame(list(credit_data.items()), columns=['资产', '涨跌']), x='涨跌', y='资产', orientation='h', color='涨跌', color_continuous_scale='RdYlGn')
+        credit_data = {"IEF (国债)": 0.0, "LQD (投资级)": z_bl_lqd_ief, "HYG (垃圾债)": z_bl_hyg_ief}
+        fig_c = px.bar(pd.DataFrame(list(credit_data.items()), columns=['资产', 'Z-Score']), x='Z-Score', y='资产', orientation='h', color='Z-Score', color_continuous_scale='RdYlGn', range_color=[-2, 2])
         fig_c.update_layout(height=200, margin=dict(l=0,r=0,t=0,b=0), plot_bgcolor='#1a1a1a', paper_bgcolor='#1a1a1a', font=dict(color='#ddd'))
         st.plotly_chart(fig_c, use_container_width=True)
         st.markdown(f"<div class='conclusion-box'><b>🧠 资金行为：</b>{credit_desc}</div>", unsafe_allow_html=True)
@@ -705,37 +1128,48 @@ if not df.empty and len(df) > 750:
     st.markdown("---")
 
     st.header("2️⃣ 聪明钱因子 (Smart Money Factors)")
-    off_f = {"动量": get_ret('MTUM'), "小盘": get_ret('IWM'), "高贝塔": get_ret('SPHB'), "投机": get_ret('ARKK')}
-    def_f = {"低波": get_ret('USMV'), "质量": get_ret('QUAL'), "价值": get_ret('VLUE'), "红利": get_ret('VIG')}
-    
+    # 3Y Z-Score of factor/SPY：衡量每个因子相对标普500在3年历史维度的超额强度
+    off_f = {
+        "动量": _ratio_z_curr('MTUM', 'SPY'),
+        "小盘": _ratio_z_curr('IWM',  'SPY'),
+        "高贝塔": _ratio_z_curr('SPHB', 'SPY'),
+        "投机": _ratio_z_curr('ARKK', 'SPY'),
+    }
+    def_f = {
+        "低波": _ratio_z_curr('USMV', 'SPY'),
+        "质量": _ratio_z_curr('QUAL', 'SPY'),
+        "价值": _ratio_z_curr('VLUE', 'SPY'),
+        "红利": _ratio_z_curr('VIG',  'SPY'),
+    }
+
     off_mean = sum(off_f.values()) / len(off_f)
     def_mean = sum(def_f.values()) / len(def_f)
     best_f = max({**off_f, **def_f}, key={**off_f, **def_f}.get)
-    
+
     if off_mean > def_mean + 0.5:
-        factor_desc = "⚔️ **进攻占优 (Risk-On):** 动量、高贝塔等高弹性因子整体领涨，资金疯狂追逐利润，市场情绪较为亢奋。"
+        factor_desc = "⚔️ **进攻占优 (Risk-On):** 动量、高贝塔等进攻因子在3年历史维度全面跑赢大盘，资金正在历史性追逐高弹性资产。"
     elif def_mean > off_mean + 0.5:
-        factor_desc = "🛡️ **防守占优 (Risk-Off):** 红利、低波等防御因子抗跌，资金正在进行避险调仓，防范下行风险。"
+        factor_desc = "🛡️ **防守占优 (Risk-Off):** 红利、低波等防御因子在3年历史维度持续超额，资金正在历史性向安全资产迁移。"
     else:
-        factor_desc = "⚖️ **均衡博弈:** 进攻与防守因子整体表现差异不大，市场处于风格切换的震荡期或缺乏主线。"
-    
+        factor_desc = "⚖️ **均衡博弈:** 进攻与防守因子在3年历史均值附近均衡分布，市场处于风格切换震荡期，缺乏单边主线。"
+
     c_f1, c_f2 = st.columns(2)
     with c_f1:
-        fig_off = px.bar(pd.DataFrame(list(off_f.items()), columns=['F', 'V']), x='V', y='F', orientation='h', color='V', color_continuous_scale='RdYlGn', range_color=[-5,5])
-        fig_off.update_layout(height=200, plot_bgcolor='#111111', paper_bgcolor='#111111', font=dict(color='#ddd'), title="⚔️ 进攻组 (Risk)")
+        fig_off = px.bar(pd.DataFrame(list(off_f.items()), columns=['F', 'V']), x='V', y='F', orientation='h', color='V', color_continuous_scale='RdYlGn', range_color=[-2, 2])
+        fig_off.update_layout(height=200, plot_bgcolor='#111111', paper_bgcolor='#111111', font=dict(color='#ddd'), title="⚔️ 进攻组 相对SPY Z-Score")
         st.plotly_chart(fig_off, use_container_width=True)
     with c_f2:
-        fig_def = px.bar(pd.DataFrame(list(def_f.items()), columns=['F', 'V']), x='V', y='F', orientation='h', color='V', color_continuous_scale='RdYlGn', range_color=[-5,5])
-        fig_def.update_layout(height=200, plot_bgcolor='#111111', paper_bgcolor='#111111', font=dict(color='#ddd'), title="🛡️ 防守组 (Safety)")
+        fig_def = px.bar(pd.DataFrame(list(def_f.items()), columns=['F', 'V']), x='V', y='F', orientation='h', color='V', color_continuous_scale='RdYlGn', range_color=[-2, 2])
+        fig_def.update_layout(height=200, plot_bgcolor='#111111', paper_bgcolor='#111111', font=dict(color='#ddd'), title="🛡️ 防守组 相对SPY Z-Score")
         st.plotly_chart(fig_def, use_container_width=True)
 
-    st.markdown(f"<div class='conclusion-box'><b>🧠 因子轮动结论：</b>{factor_desc} (当前市场最强单一因子为: <b>{best_f}</b>)</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='conclusion-box'><b>🧠 因子轮动结论：</b>{factor_desc} (当前3Y历史维度最强单一因子: <b>{best_f}</b>)</div>", unsafe_allow_html=True)
 
     # ─── 🎯 战术分组映射引擎 (Tactical Group Mapping) ──────────────────────
     _all_f_vals = {**off_f, **def_f}
     _sorted_f = sorted(_all_f_vals.items(), key=lambda x: x[1], reverse=True)
     _top3_f = [f[0] for f in _sorted_f[:3]]
-    _spy_vs_iwm = get_ret('SPY') - get_ret('IWM')   # 大盘 vs 小盘强弱差
+    _spy_vs_iwm = _ratio_z_curr('SPY', 'IWM')   # 大盘 vs 小盘 3Y Z-Score
 
     # 各战术组因子匹配得分 (满分: C=5, D=6, A=5)
     _score_C = sum([
@@ -812,7 +1246,7 @@ if not df.empty and len(df) > 750:
                     信号强度：<span style='color:{_confidence_color}; font-weight:bold;'>{_map_confidence}</span>
                     &nbsp;<span style='color:{_confidence_color}; font-family:monospace; letter-spacing:1px;'>[{_score_bar}]</span>
                     &nbsp;·&nbsp; 触发因子 Top-3：<b style='color:#F1C40F;'>{" · ".join(_top3_f)}</b>
-                    &nbsp;·&nbsp; 进攻均值 <b>{off_mean:+.2f}%</b> | 防守均值 <b>{def_mean:+.2f}%</b>
+                    &nbsp;·&nbsp; 进攻均值 <b>{off_mean:+.2f}σ</b> | 防守均值 <b>{def_mean:+.2f}σ</b>
                 </div>
             </div>
         </div>
@@ -827,57 +1261,164 @@ if not df.empty and len(df) > 750:
 
     st.header("3️⃣ 四大剧本推演 (The Four Horsemen)")
 
-    prob_a = int(raw_probs.get("Soft", 0) * 100)
-    prob_b = int(raw_probs.get("Hot", 0) * 100)
-    prob_c = int(raw_probs.get("Stag", 0) * 100)
-    prob_d = int(raw_probs.get("Rec", 0) * 100)
-
     def check(condition, desc_pass, desc_fail):
         if condition: return f"<div class='ev-item'><span class='ev-pass'>✅</span> <span>{desc_pass}</span></div>"
         else: return f"<div class='ev-item'><span class='ev-fail'>⚪</span> <span>{desc_fail}</span></div>"
 
     # =======================================================
-    # 🧠 将全新的 5阶 SPY 状态深度融入白盒化推演中
+    # 🧠 四大剧本证据链：全部升级为 3Y Z-Score（与宏观时钟同一时间维度）
     # =======================================================
+
+    def _4h_ratio_z(a_col, b_col):
+        """3Y 滚动 Z-Score of ratio a/b, 20日均线预平滑。"""
+        if a_col not in df.columns or b_col not in df.columns:
+            return 0.0
+        z_s = _zscore((df[a_col] / df[b_col].replace(0, np.nan)).rolling(20).mean()).dropna()
+        return float(z_s.iloc[-1]) if not z_s.empty else 0.0
+
+    # 直接复用宏观时钟已计算的 Z-Score（避免重复计算）
+    z_4h_cper_gld  = float(z_copper_gold.dropna().iloc[-1]) if not z_copper_gold.dropna().empty else 0.0
+    z_4h_tip_ief   = float(z_t10yie.dropna().iloc[-1])      if not z_t10yie.dropna().empty      else 0.0
+    z_4h_dbc_ief   = float(z_commodity.dropna().iloc[-1])   if not z_commodity.dropna().empty   else 0.0
+    z_4h_hyg_ief   = float(z_credit.dropna().iloc[-1])      if not z_credit.dropna().empty      else 0.0
+    # 额外计算四大剧本专属比值
+    z_4h_xlk_xle   = _4h_ratio_z('XLK',  'XLE')    # 科技/能源: 成长 vs 通胀溢价
+    z_4h_xly_xlp   = _4h_ratio_z('XLY',  'XLP')    # 可选/必选消费: 进攻 vs 防御
+    z_4h_gld_spy   = _4h_ratio_z('GLD',  'SPY')    # 黄金/美股: 避险溢价
+    z_4h_tlt_shy   = _4h_ratio_z('TLT',  'SHY')    # 长债/短债: 衰退买盘
+    z_4h_xlp_spy   = _4h_ratio_z('XLP',  'SPY')    # 防御/大盘: 防御超配
+    z_4h_vlue_mtum = _4h_ratio_z('VLUE', 'MTUM')   # 价值/动量: 成长预期下修
+    z_4h_ief_hyg   = _4h_ratio_z('IEF',  'HYG')    # 国债/垃圾债: 利差走阔(衰退信号)
+
+    # ── 证据条件布尔列表（双用：驱动概率 + 渲染勾选）────────────────────
+    _cond_a = [
+        "Recovery" in api_clock_regime or "Soft" in api_clock_regime,
+        curr_clock_g > 0,
+        curr_clock_i <= 0 or abs(curr_clock_i) < 0.5,
+        z_4h_xlk_xle > 0,
+        z_4h_hyg_ief > 0,
+        z_4h_xly_xlp > 0,
+    ]
+    _cond_b = [
+        "Overheat" in api_clock_regime,
+        curr_clock_g > 0,
+        curr_clock_i > 0,
+        z_4h_cper_gld > 0,
+        z_4h_tip_ief > 0,
+        z_4h_dbc_ief > 0,
+    ]
+    _cond_c = [
+        "Stagflation" in api_clock_regime,
+        curr_clock_g <= 0,
+        curr_clock_i > 0,
+        z_4h_gld_spy > 0,
+        z_4h_vlue_mtum > 0,
+        z_4h_xly_xlp < 0,
+    ]
+    _cond_d = [
+        "Recession" in api_clock_regime,
+        curr_clock_g <= 0,
+        curr_clock_i <= 0,
+        z_4h_tlt_shy > 0,
+        z_4h_xlp_spy > 0,
+        z_4h_ief_hyg > 0,
+    ]
+
+    # 概率 = 通过的证据条数 / 总条数（打几个钩 = 显示几成概率）
+    prob_a = round(sum(_cond_a) / len(_cond_a) * 100)
+    prob_b = round(sum(_cond_b) / len(_cond_b) * 100)
+    prob_c = round(sum(_cond_c) / len(_cond_c) * 100)
+    prob_d = round(sum(_cond_d) / len(_cond_d) * 100)
+
+    # 全局宏观剧本写入 session_state — 以四大剧本历史裁决表为唯一数据源 (SSOT)
+    # df_hist_horsemen 已在本页宏观时钟染色图前统一计算，月度频率，最新行 = iloc[0]
+    _cn_to_en = {"软着陆": "Soft", "再通胀": "Hot", "滞胀": "Stag", "衰退": "Rec"}
+    if df_hist_horsemen.empty:
+        _horsemen_en_winner = "Soft"
+        _horsemen_probs = {"Soft": 1.0, "Hot": 0.0, "Stag": 0.0, "Rec": 0.0}
+    else:
+        _horsemen_en_winner = _cn_to_en.get(df_hist_horsemen['剧本裁决'].iloc[0], "Soft")
+        _horsemen_probs = {
+            "Soft": df_hist_horsemen['软着陆%'].iloc[0] / 100.0,
+            "Hot":  df_hist_horsemen['再通胀%'].iloc[0] / 100.0,
+            "Stag": df_hist_horsemen['滞胀%'].iloc[0] / 100.0,
+            "Rec":  df_hist_horsemen['衰退%'].iloc[0] / 100.0,
+        }
+    # D 组剧本规则：第二高概率若 >60% 则用之，否则同 B/C（最高概率剧本）
+    _sorted_for_d = sorted(_horsemen_probs.items(), key=lambda x: x[1], reverse=True)
+    _d_raw_regime = (
+        _sorted_for_d[1][0]
+        if len(_sorted_for_d) >= 2 and _sorted_for_d[1][1] > 0.60
+        else _horsemen_en_winner
+    )
+    # Page 4 读取: current_macro_regime / current_macro_regime_raw (宏观剧本设定 selectbox 默认值)
+    st.session_state["current_macro_regime"]     = _horsemen_en_winner
+    st.session_state["current_macro_regime_raw"] = _d_raw_regime
+    # Page 6 读取: smoothed_regime_probs (驱动卫星池激活门控) / live_regime_label (现任剧本标签)
+    st.session_state["smoothed_regime_probs"]    = _horsemen_probs
+    st.session_state["live_regime_label"]        = _horsemen_en_winner
+    # Page 6 回测引擎读取: horsemen_monthly_probs — 月度历史裁决表概率查找表
+    # 格式: {"YYYY-MM": {"Soft": f, "Hot": f, "Stag": f, "Rec": f}}
+    # 回测在每个历史月份用此表代替 calculate_macro_scores，确保两边信号源一致
+    st.session_state["horsemen_monthly_probs"] = {
+        month_str: {
+            "Soft": float(row["软着陆%"]) / 100.0,
+            "Hot":  float(row["再通胀%"]) / 100.0,
+            "Stag": float(row["滞胀%"])   / 100.0,
+            "Rec":  float(row["衰退%"])   / 100.0,
+        }
+        for month_str, row in df_hist_horsemen.iterrows()
+    }
+
     items_a = [
-        check("Recovery" in api_clock_regime or "Soft" in api_clock_regime, "时钟指向复苏/软着陆", f"时钟不符 ({api_clock_regime})"),
-        check(is_bullish, f"美股维持上升通道 ({spy_status})", f"美股动能破坏 ({spy_status})"),
-        check(get_ret('XLY') > get_ret('XLP'), f"消费信心强 (XLY收益 > XLP)", f"消费防御占优 (XLY弱于XLP)"),
-        check(get_ret('XLK') > 0, f"科技领涨 (+{get_ret('XLK'):.1f}%)", f"科技走弱 ({get_ret('XLK'):.1f}%)"),
-        check(hyg_ief_diff > -0.5, f"信用风险低 (HYG-IEF利差: {hyg_ief_diff:.2f}%)", f"信用利差走阔 ({hyg_ief_diff:.2f}%)")
+        check(_cond_a[0], "时钟指向复苏/软着陆", f"时钟不符 ({api_clock_regime})"),
+        check(_cond_a[1], f"增长 Z={star_a_g_curr:+.2f}↑ (3Y视角: 经济动能扩张)", f"增长 Z={star_a_g_curr:+.2f}↓ (3Y视角: 增长动能收缩)"),
+        check(_cond_a[2], f"通胀 Z={star_a_i_curr:+.2f} (3Y视角: 无通胀压力)", f"通胀 Z={star_a_i_curr:+.2f}↑ (3Y视角: 通胀压力残余)"),
+        check(_cond_a[3], f"科技/能源比 Z={z_4h_xlk_xle:+.2f}↑ 成长主导，无通胀溢价", f"科技/能源比 Z={z_4h_xlk_xle:+.2f}↓ 能源抢镜，通胀交易回归"),
+        check(_cond_a[4], f"信用/国债比 Z={z_4h_hyg_ief:+.2f}↑ Risk-On: 信用利差收窄", f"信用/国债比 Z={z_4h_hyg_ief:+.2f}↓ Risk-Off: 信用利差走阔"),
+        check(_cond_a[5], f"可选/必选消费 Z={z_4h_xly_xlp:+.2f}↑ 消费信心足，进攻占优", f"可选/必选消费 Z={z_4h_xly_xlp:+.2f}↓ 防御转强，消费降级"),
     ]
     items_b = [
-        check("Overheat" in api_clock_regime, "时钟指向过热/再通胀", f"时钟不符 ({api_clock_regime})"),
-        check(get_ret('CPER') > 0 or get_ret('USO') > 0, f"大宗商品上涨 (铜{get_ret('CPER'):.1f}%, 油{get_ret('USO'):.1f}%)", f"大宗走弱 (铜{get_ret('CPER'):.1f}%, 油{get_ret('USO'):.1f}%)"),
-        check(get_ret('XLI') > get_ret('SPY'), "工业/制造跑赢大盘 (XLI > SPY)", "工业跑输大盘"),
-        check(tip_ief_diff > 0, f"通胀预期抬头 (TIP-IEF: {tip_ief_diff:.2f}%)", f"通胀预期平稳 ({tip_ief_diff:.2f}%)"),
-        check(get_ret('KRE') > 0, f"银行/金融活跃 (+{get_ret('KRE'):.1f}%)", f"银行走弱 ({get_ret('KRE'):.1f}%)")
+        check(_cond_b[0], "时钟指向再通胀/过热", f"时钟不符 ({api_clock_regime})"),
+        check(_cond_b[1], f"增长 Z={star_a_g_curr:+.2f}↑ (3Y视角: 需求旺盛)", f"增长 Z={star_a_g_curr:+.2f}↓ (3Y视角: 需求不足)"),
+        check(_cond_b[2], f"通胀 Z={star_a_i_curr:+.2f}↑ (3Y视角: 通胀超历史均值)", f"通胀 Z={star_a_i_curr:+.2f} (3Y视角: 通胀压力不足，成色不纯)"),
+        check(_cond_b[3], f"铜/金比 Z={z_4h_cper_gld:+.2f}↑ 铜跑赢金，工业需求强劲", f"铜/金比 Z={z_4h_cper_gld:+.2f}↓ 金跑赢铜，工业需求转弱"),
+        check(_cond_b[4], f"通胀预期 Z={z_4h_tip_ief:+.2f}↑ 债市定价通胀持续", f"通胀预期 Z={z_4h_tip_ief:+.2f}↓ 债市通胀定价消退"),
+        check(_cond_b[5], f"大宗/债券 Z={z_4h_dbc_ief:+.2f}↑ 实物通胀压力仍在", f"大宗/债券 Z={z_4h_dbc_ief:+.2f}↓ 大宗承压，通胀交易退潮"),
     ]
     items_c = [
-        check("Stagflation" in api_clock_regime, "时钟指向滞胀", f"时钟不符 ({api_clock_regime})"),
-        check("熊平" in curve_shape, f"曲线熊平 (短端利率上行抗通胀)", f"形态不符 ({curve_shape})"),
-        check(get_ret('GLD') > get_ret('SPY'), "黄金跑赢美股 (GLD > SPY)", "黄金未跑赢"),
-        check(get_ret('VLUE') > get_ret('MTUM'), "价值跑赢成长 (VLUE > MTUM)", "成长跑赢价值"),
-        check(not is_bullish, f"美股上升趋势破坏 ({spy_status})", f"美股仍具韧性 ({spy_status})")
+        check(_cond_c[0], "时钟指向滞胀", f"时钟不符 ({api_clock_regime})"),
+        check(_cond_c[1], f"增长 Z={star_a_g_curr:+.2f}↓ (3Y视角: 经济动能衰竭)", f"增长 Z={star_a_g_curr:+.2f}↑ (3Y视角: 增长仍正，滞胀不纯)"),
+        check(_cond_c[2], f"通胀 Z={star_a_i_curr:+.2f}↑ (3Y视角: 通胀高于历史均值)", f"通胀 Z={star_a_i_curr:+.2f} (3Y视角: 通胀压力不足)"),
+        check(_cond_c[3], f"黄金/美股 Z={z_4h_gld_spy:+.2f}↑ 避险溢价涌现，黄金超额表现", f"黄金/美股 Z={z_4h_gld_spy:+.2f}↓ 美股仍强，黄金避险需求低"),
+        check(_cond_c[4], f"价值/动量 Z={z_4h_vlue_mtum:+.2f}↑ 成长预期下修，价值防御抗跌", f"价值/动量 Z={z_4h_vlue_mtum:+.2f}↓ 成长动量仍强，滞胀特征不纯"),
+        check(_cond_c[5], f"可选/必选消费 Z={z_4h_xly_xlp:+.2f}↓ 防御全面占优，消费降级确立", f"可选/必选消费 Z={z_4h_xly_xlp:+.2f}↑ 消费仍旺，防御切换不彻底"),
     ]
     items_d = [
-        check("Reflation" in api_clock_regime, "时钟指向衰退", f"时钟不符 ({api_clock_regime})"),
-        check("牛陡" in curve_shape, f"曲线牛陡 (长债买盘汹涌/衰退交易)", f"形态不符 ({curve_shape})"),
-        check(tlt_shy_diff > 1.5, f"长债大涨避险 (TLT-SHY: {tlt_shy_diff:.2f}%)", f"长债平淡 ({tlt_shy_diff:.2f}%)"),
-        check(get_ret('XLP') > get_ret('SPY'), "必选消费/公用抗跌 (XLP > SPY)", "防御板块未跑赢"),
-        check(get_ret('HYG') < -1, f"信用利差崩塌 ({get_ret('HYG'):.1f}%)", f"信用尚可 ({get_ret('HYG'):.1f}%)")
+        check(_cond_d[0], "时钟指向衰退", f"时钟不符 ({api_clock_regime})"),
+        check(_cond_d[1], f"增长 Z={star_a_g_curr:+.2f}↓ (3Y视角: 需求坍塌)", f"增长 Z={star_a_g_curr:+.2f}↑ (3Y视角: 增长仍正，衰退深度存疑)"),
+        check(_cond_d[2], f"通胀 Z={star_a_i_curr:+.2f} (3Y视角: 通缩压力出现)", f"通胀 Z={star_a_i_curr:+.2f}↑ (3Y视角: 通胀尚存，非纯衰退)"),
+        check(_cond_d[3], f"长债/短债 Z={z_4h_tlt_shy:+.2f}↑ 牛陡: 衰退买盘汹涌", f"长债/短债 Z={z_4h_tlt_shy:+.2f}↓ 长债未受追捧，衰退交易未启动"),
+        check(_cond_d[4], f"防御/大盘 Z={z_4h_xlp_spy:+.2f}↑ 必选消费超配，资金抱团防守", f"防御/大盘 Z={z_4h_xlp_spy:+.2f}↓ 大盘仍强，防御溢价低"),
+        check(_cond_d[5], f"国债/垃圾债 Z={z_4h_ief_hyg:+.2f}↑ 信用利差走阔，企业违约风险升温", f"国债/垃圾债 Z={z_4h_ief_hyg:+.2f}↓ 信用尚好，衰退认证不足"),
     ]
 
     c1, c2, c3, c4 = st.columns(4)
-    with c1: st.markdown(f"<div class='scenario-card'><b>🌤️ 软着陆 ({prob_a}%)</b><div class='evidence-list'>{''.join(items_a)}</div></div>", unsafe_allow_html=True)
+    with c1: st.markdown(f"<div class='scenario-card'><b>🚗 软着陆 ({prob_a}%)</b><div class='evidence-list'>{''.join(items_a)}</div></div>", unsafe_allow_html=True)
     with c2: st.markdown(f"<div class='scenario-card'><b>🔥 再通胀 ({prob_b}%)</b><div class='evidence-list'>{''.join(items_b)}</div></div>", unsafe_allow_html=True)
-    with c3: st.markdown(f"<div class='scenario-card'><b>🌧️ 滞胀 ({prob_c}%)</b><div class='evidence-list'>{''.join(items_c)}</div></div>", unsafe_allow_html=True)
+    with c3: st.markdown(f"<div class='scenario-card'><b>🚨 滞胀 ({prob_c}%)</b><div class='evidence-list'>{''.join(items_c)}</div></div>", unsafe_allow_html=True)
     with c4: st.markdown(f"<div class='scenario-card'><b>❄️ 衰退 ({prob_d}%)</b><div class='evidence-list'>{''.join(items_d)}</div></div>", unsafe_allow_html=True)
+
+    with st.expander("📋 四大剧本历史裁决表 (月度 · 24条件证据链)", expanded=False):
+        st.caption("每月打钩得分 → 四个概率 → 最终裁决，即上方三大比例染色图背景色的决策来源。")
+        st.dataframe(df_hist_horsemen.style.pipe(_style_horsemen_df), use_container_width=True, height=400)
 
     st.markdown("---")
 
     st.header("4️⃣ 分场景实战推荐 (Sector & Stock Picks)")
     st.caption("穿透板块表面：当板块强势时，自动为您展开其底层三大权重龙头股进行精确制导。")
+    with st.spinner(f"📈 正在拉取成分股近期行情 ({len(CONSTITUENT_STOCKS)} 只个股 · 2年)..."):
+        df_stocks = get_global_data(CONSTITUENT_STOCKS, years=2)
     with st.expander("🛡️ 白盒化声明：为什么 XLF, XLB, XLRE, XLY 等常见大宽基被系统剔除？"):
         st.markdown("""
         根据 **《Moltbot 白盒化设计第一基本法》**，本系统拒绝黑盒逻辑。以下传统宽基 ETF 因宏观特征不纯、弹性不足或逻辑冲突，已被剥夺“战术统帅”资格，由更锋利的特种部队替代：
@@ -908,40 +1449,40 @@ if not df.empty and len(df) > 750:
                 display_name = ASSET_NAMES.get(t, t)
                 
                 if is_active: 
-                    col.markdown(f"✅ **{t} ({display_name})**<br><span style='font-size:12px;color:#aaa'>Z: {z_score:.2f} | 强势</span>", unsafe_allow_html=True)
+                    col.markdown(f"✅ **{t} ({display_name})**<br><span style='font-size:12px;color:#aaa'>Mom: {z_score:.2f} | 强势</span>", unsafe_allow_html=True)
                 else: 
-                    col.markdown(f"<span style='color:#555'>🔒 {t} ({display_name})</span><br><span style='font-size:12px;color:#444'>Z: {z_score:.2f} | 观察 (板块休整)</span>", unsafe_allow_html=True)
+                    col.markdown(f"<span style='color:#555'>🔒 {t} ({display_name})</span><br><span style='font-size:12px;color:#444'>Mom: {z_score:.2f} | 观察 (板块休整)</span>", unsafe_allow_html=True)
                 
                 if t in TOP_HOLDINGS:
                     for sub_t in TOP_HOLDINGS[t]:
-                        if sub_t in df.columns:
-                            sub_ts = df[sub_t].dropna()
-                            if len(sub_ts) < 200: continue
-                            sub_curr = float(sub_ts.iloc[-1])
-                            sub_rm = float(sub_ts.rolling(250).mean().iloc[-1])
-                            sub_rs = float(sub_ts.rolling(250).std().iloc[-1])
-                            sub_z = (sub_curr - sub_rm) / sub_rs if sub_rs != 0 else 0.0
-                            
-                            sub_m20 = float(sub_ts.rolling(20).mean().iloc[-1])
-                            sub_m60 = float(sub_ts.rolling(60).mean().iloc[-1])
-                            sub_icon = "🔥" if sub_m20 > sub_m60 else "⏱️"
-                            
-                            opacity_style = "opacity: 1.0;" if is_active else "opacity: 0.4;"
-                            col.markdown(f"<div class='sub-ticker' style='{opacity_style}'>{sub_icon} <b>{sub_t}</b> ({ASSET_NAMES.get(sub_t, sub_t)}) | Z: {sub_z:.1f}</div>", unsafe_allow_html=True)
+                        if sub_t not in df_stocks.columns: continue
+                        sub_ts = df_stocks[sub_t].dropna()
+                        if len(sub_ts) < 200: continue
+                        sub_curr = float(sub_ts.iloc[-1])
+                        sub_rm = float(sub_ts.rolling(250).mean().iloc[-1])
+                        sub_rs = float(sub_ts.rolling(250).std().iloc[-1])
+                        sub_z = (sub_curr - sub_rm) / sub_rs if sub_rs != 0 else 0.0
+                        
+                        sub_m20 = float(sub_ts.rolling(20).mean().iloc[-1])
+                        sub_m60 = float(sub_ts.rolling(60).mean().iloc[-1])
+                        sub_icon = "🔥" if sub_m20 > sub_m60 else "⏱️"
+                        
+                        opacity_style = "opacity: 1.0;" if is_active else "opacity: 0.4;"
+                        col.markdown(f"<div class='sub-ticker' style='{opacity_style}'>{sub_icon} <b>{sub_t}</b> ({ASSET_NAMES.get(sub_t, sub_t)}) | Mom: {sub_z:.1f}</div>", unsafe_allow_html=True)
             except: continue
 
     col_pa, col_pb, col_pc, col_pd = st.columns(4)
     with col_pa:
-        st.subheader("🟢 买入：软着陆")
+        st.subheader("🚗 买入：软着陆")
         render_picks_with_stocks(TARGETS_A, col_pa)
     with col_pb:
-        st.subheader("🟡 买入：再通胀")
+        st.subheader("🔥 买入：再通胀")
         render_picks_with_stocks(TARGETS_B, col_pb)
     with col_pc:
-        st.subheader("🟠 买入：滞胀")
+        st.subheader("🚨 买入：滞胀")
         render_picks_with_stocks(TARGETS_C, col_pc)
     with col_pd:
-        st.subheader("🔴 买入：衰退")
+        st.subheader("❄️ 买入：衰退")
         render_picks_with_stocks(TARGETS_D, col_pd)
 
     st.markdown("---")

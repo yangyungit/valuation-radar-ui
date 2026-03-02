@@ -42,4 +42,29 @@
 
 ---
 
+## 3. 架构演进路线图 (Architecture Roadmap)
+
+### 🚨 第二阶段：Alpha 引擎的阿喀琉斯之踵（为什么未来必须换数据源？）
+
+Page 4（同类资产竞技场）为 C 组（时代之王）设计的终极指标是 **Forward EPS（预期每股收益）增速**，这正是 yfinance 这根免费水管的致命死穴。
+
+yfinance 本质上是爬虫，从雅虎财经网页硬刮数据。刮几只股票的收盘价没问题，但若每天刮美股几千只股票"未来 12 个月华尔街分析师一致预期 EPS"这种深度基本面数据，雅虎财经会直接封 IP（Rate Limit）或返回大量空值（NaN）。底层 Forward EPS 取不到数，ScorecardC 瞬间瘫痪。
+
+#### 🔌 OpenBB：不是水源，是"超级路由器"
+
+OpenBB 本身不生产数据，它是一个**标准化数据聚合终端**。专业资管领域要获取最准的 EPS 预期、最快的财报数据，需购买专业 API（如 Financial Modeling Prep (FMP)、Polygon.io、Alpha Vantage 等，哪怕几十美元/月的平民级机构接口）。
+
+* **没有 OpenBB：** 需要自己学 FMP、Polygon 等各家接口，代码变成屎山。
+* **有了 OpenBB：** 在 OpenBB 中填入各 API 密钥，之后只需调用 `obb.equity.fundamental.estimates(symbol="NVDA")`，OpenBB 自动从 FMP 拉回精准 Forward EPS，并自动清洗成干净 Pandas 表格喂给系统。
+
+#### 📍 首席架构师实战路线图："先上车，后换引擎"
+
+**现在（Mock / yfinance 阶段）：**
+继续用 yfinance 搞定量价，FRED 搞定宏观。C 组的 EPS 数据暂时用静态表格或简单缓存替代（或用 `yfinance.Ticker().info` 刮一点算一点），**先让整个 UI 交互、数据流转、自动旁白生成、饼图分配的逻辑层全部写死并跑通**。
+
+**未来（OpenBB 赋能阶段）：**
+当 Moltbot 逻辑完美无瑕、准备实盘或服务高净值客户时，再做一次**数据源重构（Data Source Refactoring）**——只需将底层取数函数从 yfinance 替换为 OpenBB，逻辑层完全不动。
+
+---
+
 

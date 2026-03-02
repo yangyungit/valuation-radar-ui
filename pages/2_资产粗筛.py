@@ -1,3 +1,4 @@
+import math
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -44,10 +45,10 @@ CLASS_META = {
         "icon": "🦍",
         "color": "#F39C12",
         "update_freq": "月/季",
-        "criteria": "市值 > $1000亿  |  索提诺比率 > 1.0  |  MA20 > MA60（趋势健康）",
+        "criteria": "市值>$1000亿 | 近3年最大回撤<40% | 价格>MA200 (长线牛熊)",
         "logic": (
-            "超大市值护城河 + 优秀的风险调整收益 + 趋势健康，三项全部通过。"
-            "代表具有宽护城河的核心基石标的。月/季度评估。"
+            "超大市值护城河+极强的跨周期抗跌能力。"
+            "强行将强周期巨头拒签，使其向下流入 C 组赛道。"
         ),
     },
     "C": {
@@ -68,10 +69,11 @@ CLASS_META = {
         "icon": "🔭",
         "color": "#9B59B6",
         "update_freq": "日/周",
-        "criteria": "近20天涨幅 > +8%  或  近5天涨幅 > +5%（短期动量突破信号）",
+        "criteria": "(近20天涨幅 > +8% 或 近5天涨幅 > +5%)  且  近60日年化波动率 > 25%",
         "logic": (
             "最宽容的单项关卡：宏观归因尚未明确，但近期资金行为极强。"
-            "是趋势爆发前的早期布局候选，日/周动态追踪，止损纪律第一。"
+            "条件：(近20天涨幅 > +8% 或 近5天涨幅 > +5%) 且 (近60日年化波动率 > 25%)。"
+            "强行剔除低波动防守股的短期脉冲假阳性。"
         ),
     },
 }
@@ -89,7 +91,7 @@ SCREEN_TICKERS = sorted(set(USER_TICKERS + page1_picks))
 DOWNLOAD_TICKERS = sorted(set(SCREEN_TICKERS + ["SPY"]))
 
 with st.spinner("⏳ 正在加载资产价格矩阵..."):
-    df = get_global_data(DOWNLOAD_TICKERS, years=2)
+    df = get_global_data(DOWNLOAD_TICKERS, years=3)
 
 with st.spinner("⏳ 正在加载基本面元数据（市值/股息率）..."):
     meta_data = get_stock_metadata(SCREEN_TICKERS)
@@ -115,6 +117,7 @@ def compute_metrics(ticker: str) -> dict:
 
     ma20  = float(ts.rolling(20).mean().iloc[-1])
     ma60  = float(ts.rolling(60).mean().iloc[-1])
+    ma200_val = float(ts.rolling(200).mean().iloc[-1]) if data_len >= 200 else None
     ma250_val = float(ts.rolling(250).mean().iloc[-1]) if data_len >= 250 else None
 
     z_score = 0.0
@@ -135,6 +138,11 @@ def compute_metrics(ticker: str) -> dict:
     drawdowns = (ts_1y - roll_max) / roll_max * 100
     max_dd = round(abs(float(drawdowns.min())), 1) if not drawdowns.isna().all() else 0.0
 
+    ts_3y = ts.iloc[-756:] if data_len >= 756 else ts
+    roll_max_3y = ts_3y.cummax().replace(0, np.nan)
+    drawdowns_3y = (ts_3y - roll_max_3y) / roll_max_3y * 100
+    max_dd_3y = round(abs(float(drawdowns_3y.min())), 1) if not drawdowns_3y.isna().all() else 0.0
+
     # SPY 相关性（周度，近1年）
     spy_corr = 0.0
     w_asset = ts.resample("W").last().pct_change().dropna()
@@ -154,12 +162,18 @@ def compute_metrics(ticker: str) -> dict:
         down_std = float(downside.std()) * np.sqrt(252) if len(downside) > 5 else 1.0
         sortino  = round((ann_ret - 0.04) / down_std, 2) if down_std > 0 else 0.0
 
+    # 60日年化历史波动率
+    hv_60d = 0.0
+    if len(daily_rets) >= 60:
+        hv_60d = round(float(daily_rets.iloc[-60:].std()) * math.sqrt(250), 4)
+
     return {
         "has_data":     True,
         "data_len":     data_len,
         "curr":         curr,
         "ma20":         round(ma20, 2),
         "ma60":         round(ma60, 2),
+        "ma200":        round(ma200_val, 2) if ma200_val is not None else None,
         "ma250":        round(ma250_val, 2) if ma250_val is not None else None,
         "is_bullish":   ma20 > ma60,
         "full_uptrend": (ma250_val is not None and ma20 > ma60 > ma250_val),
@@ -170,8 +184,10 @@ def compute_metrics(ticker: str) -> dict:
         "rs_rank_pct":  1.0,
         "rs_rel":       0.0,
         "max_dd":       max_dd,
+        "max_dd_3y":    max_dd_3y,
         "spy_corr":     spy_corr,
         "sortino":      sortino,
+        "hv_60d":       hv_60d,
         "trend_label":  "趋势健康 (MA20>MA60)" if ma20 > ma60 else "趋势走弱 (MA20<MA60)",
     }
 
@@ -206,21 +222,31 @@ def classify_asset(m: dict, div_yield: float, mcap: float) -> tuple:
         return "A", reason, detail_a
 
     # ── B 级 ──────────────────────────────────────────────────────
-    b_mcap    = mcap > 1e11
-    b_sortino = m["sortino"] > 1.0
-    b_trend   = m["is_bullish"]
+    b_mcap        = mcap > 1e11
+    b_dd_3y       = m.get("max_dd_3y", 99.0) < 40.0
+    _ma200        = m.get("ma200")
+    b_above_ma200 = _ma200 is not None and m["curr"] > _ma200
     detail_b = {
-        "市值":   (b_mcap,    f"${mcap/1e9:.0f}B（需>$1000亿）"),
-        "索提诺": (b_sortino, f"{m['sortino']:.2f}（需>1.0）"),
-        "趋势":   (b_trend,   f"MA20 {'>' if b_trend else '<'} MA60"),
+        "市值":         (b_mcap,        f"${mcap/1e9:.0f}B（需>$1000亿）"),
+        "近3年最大回撤": (b_dd_3y,       f"{m.get('max_dd_3y', 0):.1f}%（需<40%）"),
+        "价格vs MA200":  (b_above_ma200, f"收盘价{'>' if b_above_ma200 else '<'}MA200（长线牛熊）"),
     }
-    if b_mcap and b_sortino and b_trend:
+    if b_mcap and b_dd_3y and b_above_ma200:
         reason = (
             f"通过B级三重关卡：市值 ${mcap/1e9:.0f}B > $1000亿，"
-            f"索提诺比率 {m['sortino']:.2f} > 1.0，"
-            f"MA20({m['ma20']:.1f}) > MA60({m['ma60']:.1f}) 趋势健康"
+            f"近3年最大回撤 {m.get('max_dd_3y', 0):.1f}% < 40%，"
+            f"收盘价({m['curr']:.1f}) > MA200({_ma200:.1f}) 长线趋势健康"
         )
         return "B", reason, detail_b
+
+    b_reject_note = ""
+    if b_mcap and (not b_dd_3y or not b_above_ma200):
+        _rej = []
+        if not b_dd_3y:
+            _rej.append(f"因近3年最大回撤超标被拒签({m.get('max_dd_3y', 0):.1f}%>=40%)")
+        if not b_above_ma200:
+            _rej.append("收盘价未站上MA200")
+        b_reject_note = "[B级拒签：" + "，".join(_rej) + "] "
 
     # ── C 级 ──────────────────────────────────────────────────────
     c_rs    = m["rs_rank_pct"] <= 0.20
@@ -234,21 +260,24 @@ def classify_asset(m: dict, div_yield: float, mcap: float) -> tuple:
             f"通过C级双重关卡：RS动量排名全域前 {m['rs_rank_pct']*100:.0f}%，"
             f"站稳 MA20>MA60>MA250 主升浪"
         )
-        return "C", reason, detail_c
+        return "C", b_reject_note + reason, detail_c
 
     # ── D 级 ──────────────────────────────────────────────────────
     d_mom20 = m["mom20"] > 8.0
     d_mom5  = m["mom5"] > 5.0
+    d_hv    = m.get("hv_60d", 0.0) > 0.25
     detail_d = {
-        "20日涨幅": (d_mom20, f"{m['mom20']:+.1f}%（需>+8%）"),
-        "5日涨幅":  (d_mom5,  f"{m['mom5']:+.1f}%（需>+5%）"),
+        "20日涨幅":       (d_mom20, f"{m['mom20']:+.1f}%（需>+8%）"),
+        "5日涨幅":        (d_mom5,  f"{m['mom5']:+.1f}%（需>+5%）"),
+        "60日年化波动率": (d_hv,    f"{m.get('hv_60d', 0.0)*100:.1f}%（需>25%）"),
     }
-    if d_mom20 or d_mom5:
+    if (d_mom20 or d_mom5) and d_hv:
         reason = (
-            f"通过D级动量关卡：20日涨幅 {m['mom20']:+.1f}%，"
-            f"5日涨幅 {m['mom5']:+.1f}%，近期资金介入信号强烈"
+            f"通过D级关卡：20日涨幅 {m['mom20']:+.1f}%，"
+            f"5日涨幅 {m['mom5']:+.1f}%，"
+            f"60日年化波动率 {m.get('hv_60d', 0.0)*100:.1f}% > 25%，近期资金介入信号强烈"
         )
-        return "D", reason, detail_d
+        return "D", b_reject_note + reason, detail_d
 
     # ── 未通过任何关卡 ─────────────────────────────────────────────
     fail_parts = []
@@ -256,8 +285,11 @@ def classify_asset(m: dict, div_yield: float, mcap: float) -> tuple:
     if not a_dd:   fail_parts.append(f"回撤{m['max_dd']:.1f}%过大")
     if not b_mcap: fail_parts.append(f"市值${mcap/1e9:.0f}B不足")
     if not c_rs:   fail_parts.append(f"RS排名{m['rs_rank_pct']*100:.0f}%靠后")
-    if not d_mom20 and not d_mom5: fail_parts.append(f"动量不足({m['mom20']:+.1f}%)")
-    reason = "未通过任何分拣关卡：" + "，".join(fail_parts[:4])
+    if not d_mom20 and not d_mom5:
+        fail_parts.append(f"动量不足({m['mom20']:+.1f}%)")
+    elif not d_hv:
+        fail_parts.append(f"因年化波动率不足25%被拒签（HV_60d={m.get('hv_60d', 0.0)*100:.1f}%）")
+    reason = b_reject_note + "未通过任何分拣关卡：" + "，".join(fail_parts[:4])
     return "?", reason, {}
 
 

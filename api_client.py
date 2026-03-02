@@ -105,12 +105,157 @@ def get_stock_metadata(tickers):
 
 
 @st.cache_data(ttl=3600*4)
+def get_arena_a_factors(tickers: tuple) -> dict:
+    """获取 A 组 ScorecardA 所需四维避风港因子 (252 日回溯)：
+    - div_yield:  年化股息率 (%)
+    - max_dd_252: 近252日最大回撤 (负数)
+    - spy_corr:   与 SPY 日收益率的皮尔逊相关系数
+    - ann_vol:    252日年化波动率
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    import numpy as np
+
+    try:
+        spy_hist = yf.Ticker("SPY").history(period="1y")
+        if not spy_hist.empty and len(spy_hist) >= 60:
+            spy_prices = spy_hist["Close"].dropna().astype(float)
+            spy_daily_ret = spy_prices.pct_change().dropna()
+        else:
+            spy_daily_ret = pd.Series(dtype=float)
+    except Exception:
+        spy_daily_ret = pd.Series(dtype=float)
+
+    def _fetch_one(t):
+        try:
+            stock = yf.Ticker(t)
+            fi = stock.fast_info
+            mcap = fi.get('marketCap', 0) or 0
+            last_div = fi.get('lastDividendValue', 0) or 0
+            price = fi.get('regularMarketPrice', 0) or fi.get('previousClose', 1) or 1
+            div_yield = round(last_div * 4 / price * 100, 2) if (last_div > 0 and price > 0) else 0.0
+
+            hist = stock.history(period="1y")
+            if hist.empty or len(hist) < 60:
+                return t, {"div_yield": div_yield, "max_dd_252": 0.0,
+                           "spy_corr": 0.5, "ann_vol": 0.30}
+
+            prices = hist["Close"].dropna().astype(float)
+            daily_ret = prices.pct_change().dropna()
+
+            roll_max = prices.cummax()
+            max_dd = float((prices / roll_max - 1.0).min())
+
+            vol = float(daily_ret.std())
+            ann_vol = vol * np.sqrt(252) if vol > 1e-9 else 0.30
+            if np.isnan(ann_vol) or np.isinf(ann_vol):
+                ann_vol = 0.30
+
+            if len(spy_daily_ret) > 30:
+                aligned = pd.concat([daily_ret, spy_daily_ret], axis=1).dropna()
+                if len(aligned) > 30:
+                    spy_corr = float(aligned.iloc[:, 0].corr(aligned.iloc[:, 1]))
+                    if np.isnan(spy_corr) or np.isinf(spy_corr):
+                        spy_corr = 0.5
+                else:
+                    spy_corr = 0.5
+            else:
+                spy_corr = 0.5
+
+            return t, {
+                "div_yield": div_yield,
+                "max_dd_252": max_dd,
+                "spy_corr": spy_corr,
+                "ann_vol": ann_vol,
+            }
+        except Exception:
+            return t, {"div_yield": 0.0, "max_dd_252": 0.0,
+                       "spy_corr": 0.5, "ann_vol": 0.30}
+
+    result = {}
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        for t, data in executor.map(_fetch_one, tickers):
+            result[t] = data
+    return result
+
+
+@st.cache_data(ttl=3600*4)
+def get_arena_b_factors(tickers: tuple) -> dict:
+    """获取 B 组 ScorecardB 所需四维慢变量因子：
+    - div_yield:      年化股息率 (%)
+    - max_dd_252:     近252日最大回撤 (负数)
+    - sharpe_252:     近252日年化夏普比率
+    - log_mcap:       log10(市值)
+    - eps_stability:  EPS稳定性代理 (年化波动率倒数)
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    import numpy as np
+
+    def _fetch_one(t):
+        try:
+            stock = yf.Ticker(t)
+            fi = stock.fast_info
+            mcap = fi.get('marketCap', 0) or 0
+            if mcap < 1e6:
+                mcap = 1e9
+            last_div = fi.get('lastDividendValue', 0) or 0
+            price = fi.get('regularMarketPrice', 0) or fi.get('previousClose', 1) or 1
+            div_yield = round(last_div * 4 / price * 100, 2) if (last_div > 0 and price > 0) else 0.0
+
+            hist = stock.history(period="1y")
+            if hist.empty or len(hist) < 60:
+                return t, {"div_yield": div_yield, "max_dd_252": 0.0, "sharpe_252": 0.0,
+                           "log_mcap": float(np.log10(max(mcap, 1e6))), "eps_stability": 0.0}
+
+            prices = hist["Close"].dropna().astype(float)
+            daily_ret = prices.pct_change().dropna()
+
+            roll_max = prices.cummax()
+            max_dd = float((prices / roll_max - 1.0).min())
+
+            vol = float(daily_ret.std())
+            sharpe = (float(daily_ret.mean()) / vol * np.sqrt(252)) if vol > 1e-9 else 0.0
+            if np.isnan(sharpe) or np.isinf(sharpe):
+                sharpe = 0.0
+
+            ann_vol = vol * np.sqrt(252)
+            eps_stab = 1.0 / max(ann_vol, 0.01)
+
+            return t, {
+                "div_yield": div_yield,
+                "max_dd_252": max_dd,
+                "sharpe_252": sharpe,
+                "log_mcap": float(np.log10(max(mcap, 1e6))),
+                "eps_stability": eps_stab,
+            }
+        except Exception:
+            return t, {"div_yield": 0.0, "max_dd_252": 0.0, "sharpe_252": 0.0,
+                       "log_mcap": 9.0, "eps_stability": 0.0}
+
+    result = {}
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        for t, data in executor.map(_fetch_one, tickers):
+            result[t] = data
+    return result
+
+
+@st.cache_data(ttl=3600*4)
 def get_arena_c_factors(tickers: tuple) -> dict:
-    """获取 C 组 ScorecardC 所需特殊因子：Forward EPS 增速 + 5日成交量 Z-Score。
+    """获取 C 组 ScorecardC 所需特殊因子：Forward EPS 增速 + 120日中长线相对强度 RS。
     tickers 用 tuple 传入以保证 st.cache_data 可序列化。
     """
     from concurrent.futures import ThreadPoolExecutor
     import numpy as np
+
+    # 先取 SPY 基准 120 日收益（135d 确保拿满 121 根 bar）
+    try:
+        spy_hist = yf.Ticker("SPY").history(period="135d")
+        if not spy_hist.empty and len(spy_hist) >= 121:
+            spy_prices = spy_hist["Close"].dropna().astype(float)
+            spy_ret120 = float((spy_prices.iloc[-1] / spy_prices.iloc[-121] - 1) * 100)
+        else:
+            spy_ret120 = 0.0
+    except Exception:
+        spy_ret120 = 0.0
 
     def _fetch_one(t):
         try:
@@ -122,19 +267,19 @@ def get_arena_c_factors(tickers: tuple) -> dict:
                 pass
             # earningsGrowth 为华尔街一致预期 YoY EPS 增速（小数形式）
             earnings_growth = info.get("earningsGrowth") or info.get("revenueGrowth") or 0.0
-            # 5 日成交量 Z-Score（相对过去 60 个交易日均值）
-            hist = stock.history(period="60d")
-            if not hist.empty and len(hist) >= 10:
-                vol = hist["Volume"].dropna().astype(float)
-                mu = vol.mean()
-                sigma = vol.std()
-                recent = vol.tail(5).mean()
-                vol_z = float((recent - mu) / sigma) if sigma > 0 else 0.0
+
+            # 120 日中长线相对强度 RS（vs SPY 超额收益率）
+            hist = stock.history(period="135d")
+            if not hist.empty and len(hist) >= 121:
+                prices = hist["Close"].dropna().astype(float)
+                ret120 = float((prices.iloc[-1] / prices.iloc[-121] - 1) * 100)
+                rs_120d = ret120 - spy_ret120
             else:
-                vol_z = 0.0
-            return t, {"earnings_growth": float(earnings_growth), "vol_z": vol_z}
+                rs_120d = 0.0
+
+            return t, {"earnings_growth": float(earnings_growth), "rs_120d": rs_120d}
         except Exception:
-            return t, {"earnings_growth": 0.0, "vol_z": 0.0}
+            return t, {"earnings_growth": 0.0, "rs_120d": 0.0}
 
     result = {}
     with ThreadPoolExecutor(max_workers=10) as executor:
@@ -222,6 +367,37 @@ def fetch_macro_scores(df, clock_g=None, clock_i=None):
 
 
 
+@st.cache_data(ttl=3600*4)
+def fetch_rolling_backtest(df, group_assignments: dict, regime_history: dict = None,
+                           trim_enabled: bool = True, drift_threshold: float = 0.30,
+                           arena_history: dict = None) -> dict:
+    """发送价格数据和 Core-Satellite 分组映射给后端，换取 VectorBT 动态滚动回测结果。
+    group_assignments : {ticker: group}  group in ['A','B','C','D']
+    regime_history    : {"YYYY-MM": {"Soft":f,"Hot":f,"Stag":f,"Rec":f}} — Page 1 月度历史裁决表
+    arena_history     : {"YYYY-MM": {"C":[{ticker,score}...],"D":[...]}} — Page 4 Arena 月度 SSOT
+                        传入后回测引擎用 Arena 历史选股替代 PIT 动量逻辑，确保 C/D 卫星与 Page 4 完全一致。
+    返回: {nav, spy_nav, total_ret, spy_total_ret, sharpe, calmar, max_dd,
+           n_rebal, sim_start, sim_end, weight_history}
+    或 {"error": "..."} on failure.
+    """
+    try:
+        payload = {
+            "df_json": df.to_json(orient="split"),
+            "group_assignments": group_assignments,
+            "trim_enabled": trim_enabled,
+            "drift_threshold": drift_threshold,
+        }
+        if regime_history:
+            payload["regime_history"] = regime_history
+        if arena_history:
+            payload["arena_history"] = arena_history
+        response = requests.post(f"{API_BASE_URL}/api/v1/rolling_backtest", json=payload, timeout=120)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        return {"error": f"滚动回测引擎连接失败: {e}"}
+
+
 @st.cache_data(ttl=3600)
 def fetch_funnel_scores(df, tickers, meta_data, theme_heat_dict, macro_scores=None):
     """将沉重的公开数据和参数打包发给云端，换取打分结果"""
@@ -244,3 +420,18 @@ def fetch_funnel_scores(df, tickers, meta_data, theme_heat_dict, macro_scores=No
     except Exception as e:
         st.error(f"🚨 云端漏斗计算引擎连接失败: {e}")
         return pd.DataFrame(), 0.0
+
+
+@st.cache_data(ttl=3600)
+def fetch_vcp_analysis(ohlcv_df, lookback_days=180):
+    """发送 OHLCV 数据到后端 VCP 分析引擎，获取 VCP 形态诊断与 TWAP 建议"""
+    try:
+        payload = {
+            "ohlcv_json": ohlcv_df.to_json(orient="split"),
+            "lookback_days": lookback_days,
+        }
+        response = requests.post(f"{API_BASE_URL}/api/v1/vcp_analysis", json=payload, timeout=30)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        return {"error": f"VCP 分析引擎连接失败: {e}"}

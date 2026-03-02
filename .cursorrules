@@ -2,6 +2,9 @@
 
 本文件是 `valuation-radar-ui` 前端项目的专属规则，与后端 `valuation-radar/.cursorrules` 联合生效。
 
+## 🗣️ 交流语言规范
+* **必须使用中文**与主理人交流，包括所有回复、解释、问题和建议。代码注释、变量名、API 字段等技术内容保持英文不变。
+
 ## 🖥️ 本地开发环境 (Local Dev Environment)
 * **操作系统：** 主理人使用 macOS (Apple Silicon Mac mini)，所有 Shell 命令默认为 zsh。
 * **Python 虚拟环境：** 项目统一使用 `/Users/zhanghao/yangyun/Code_Projects/system/venv/`。**每次打开新终端**都必须先激活，否则 `streamlit` 命令不存在。

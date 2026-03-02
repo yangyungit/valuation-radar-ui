@@ -16,13 +16,17 @@ CLASS_META: dict = {
         "icon": "⚓",
         "color": "#3498DB",
         "update_freq": "月/季",
-        "criteria": "股息率(TTM) ≥ 3%  |  近1年最大回撤 < 15%  |  与 SPY 相关性 < 0.65",
+        "criteria": (
+            "绝对防御与对冲指数：(35% 真实最大回撤倒数) + (25% 股息率) "
+            "+ (20% SPY相关性倒数) + (20% 年化波动率倒数)"
+        ),
         "logic": (
-            "最严格的三重关卡，全部通过方可入列。高分红保障现金回报，"
-            "极低回撤控制尾部风险，低 SPY 相关性提供组合对冲价值。月/季度评估。"
+            "彻底摒弃动量与均线，专抓极低波动与大盘对冲属性。"
+            "公式：(35% 真实最大回撤倒数) + (25% 股息率) + (20% SPY相关性倒数) + (20% 年化波动率倒数)。"
+            "选出的资产将长年卧倒不动，构成投资组合最后的避难所。月/季度评估。"
         ),
         "strategy": (
-            "衰退与高波动周期的定海神针。严格的三重门槛筛出极少数「真正的防守资产」，"
+            "衰退与高波动周期的定海神针。四维纯统计指标筛出极少数「真正的避风港资产」，"
             "持仓目标是对冲组合波动、压低最大回撤，而非博取弹性。"
         ),
     },
@@ -32,14 +36,21 @@ CLASS_META: dict = {
         "icon": "🦍",
         "color": "#F39C12",
         "update_freq": "月/季",
-        "criteria": "市值 > $1000亿  |  索提诺比率 > 1.0  |  MA20 > MA60（趋势健康）",
+        "criteria": (
+            "核心底仓质量指数：(40% 真·自由现金流/回报率质量) + "
+            "(30% 近3年最低最大回撤) + (20% 近3年夏普比率) + (10% 绝对市值壁垒)"
+        ),
         "logic": (
-            "超大市值护城河 + 优秀的风险调整收益 + 趋势健康，三项全部通过。"
-            "代表具有宽护城河的核心基石标的。月/季度评估。"
+            "核心底仓质量指数。彻底剔除短期动量，追求极低换手率与极强抗跌性。"
+            "公式：(40% 真·自由现金流/回报率质量) + (30% 近3年最低最大回撤) + "
+            "(20% 近3年夏普比率) + (10% 绝对市值壁垒)。"
+            "高分者将形成稳固的长期护城河。月/季度评估。"
+            "3年超长回溯期犹如周期照妖镜，彻底过滤掉伪装成白马的短期爆发周期股。"
         ),
         "strategy": (
-            "大盘主升浪的「骑象人」。超大市值形成流动性护城河，"
-            "索提诺比率保障下行风险可控，趋势健康过滤掉假突破。"
+            "长期底仓的定海神针。以股息率与盈利稳定性代理 FCF/ROIC 质量，"
+            "辅以抗跌韧性和夏普比率双重风控，彻底拒绝短线动量噪音。"
+            "换手率极低，只在年度调仓窗口微调。"
         ),
     },
     "C": {
@@ -81,8 +92,49 @@ st.markdown("""
     .info-card  { border-radius:8px; padding:16px; }
     .detail-box { border-radius:0 6px 6px 0; padding:14px; margin-bottom:10px; }
     .small-text { font-size:11px; color:#888; line-height:1.5; }
+    .macro-pill {
+        display:inline-block; padding:3px 10px; border-radius:999px;
+        font-size:13px; font-weight:600; margin:3px 4px 3px 0;
+        border:1px solid transparent;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────
+#  宏观场景元信息
+# ─────────────────────────────────────────────────────────────────
+MACRO_SCENARIO_META: dict = {
+    "Soft": {
+        "label": "软着陆",
+        "color": "#2ECC71",
+        "bg":    "#0d2e1a",
+        "desc":  "经济温和降速、通胀受控、美联储停止加息，风险资产普涨环境",
+    },
+    "Hot":  {
+        "label": "再通胀",
+        "color": "#F39C12",
+        "bg":    "#2e1a00",
+        "desc":  "经济强劲复苏、大宗商品与能源受益、通胀预期抬升",
+    },
+    "Stag": {
+        "label": "滞胀",
+        "color": "#E74C3C",
+        "bg":    "#2e0a0a",
+        "desc":  "经济停滞 + 通胀顽固，实物资产与防御板块相对占优",
+    },
+    "Rec":  {
+        "label": "衰退防御",
+        "color": "#3498DB",
+        "bg":    "#0a1a2e",
+        "desc":  "经济衰退预期上升，资金流向高股息、低波动、刚需消费类资产",
+    },
+    "Other": {
+        "label": "其他",
+        "color": "#888888",
+        "bg":    "#1a1a1a",
+        "desc":  "暂无明确宏观剧本归因",
+    },
+}
 
 # ─────────────────────────────────────────────────────────────────
 #  侧边栏
@@ -324,9 +376,16 @@ selected_option = st.selectbox(
 if not selected_option:
     st.stop()
 
-# 加载 DEEP_INSIGHTS（从核心 API 拉取，已有缓存）
-_core_data   = fetch_core_data()
+# 加载核心数据（DEEP_INSIGHTS + MACRO_TAGS_MAP）
+_core_data      = fetch_core_data()
 _deep_insights: dict = _core_data.get("DEEP_INSIGHTS", {})
+
+# 构建 ticker → 宏观标签列表 的反向查找字典
+_macro_tags_map: dict = _core_data.get("MACRO_TAGS_MAP", {})
+_ticker_macro: dict = {}
+for scenario, tickers_in_scenario in _macro_tags_map.items():
+    for t in tickers_in_scenario:
+        _ticker_macro.setdefault(t, []).append(scenario)
 
 sel_ticker = selected_option.split("  |  ")[0].strip()
 sel_row    = df_show[df_show["Ticker"] == sel_ticker].iloc[0]
@@ -396,7 +455,36 @@ with col_badge:
     """, unsafe_allow_html=True)
 
 with col_detail:
-    # ① 机构级核心逻辑 (来自 DEEP_INSIGHTS)
+    # ① 宏观场景属性标签
+    _ticker_scenarios = _ticker_macro.get(sel_ticker, [])
+    if _ticker_scenarios:
+        pills_html = "".join(
+            f"<span class='macro-pill' "
+            f"style='color:{MACRO_SCENARIO_META[s]['color']}; "
+            f"background:{MACRO_SCENARIO_META[s]['bg']}; "
+            f"border-color:{MACRO_SCENARIO_META[s]['color']}55;'>"
+            f"{MACRO_SCENARIO_META[s]['label']}</span>"
+            for s in _ticker_scenarios
+            if s in MACRO_SCENARIO_META
+        )
+        descriptions_html = "<br>".join(
+            f"<span style='color:{MACRO_SCENARIO_META[s]['color']}; font-weight:600;'>"
+            f"{MACRO_SCENARIO_META[s]['label']}：</span>"
+            f"<span style='color:#bbb;'>{MACRO_SCENARIO_META[s]['desc']}</span>"
+            for s in _ticker_scenarios
+            if s in MACRO_SCENARIO_META
+        )
+        st.markdown(f"""
+    <div class='detail-box' style='border-left:3px solid #9B59B6; background:#120a1a;'>
+        <div style='font-size:13px; font-weight:bold; color:#BB8FCE; margin-bottom:10px;'>
+            🌐 宏观场景适配
+        </div>
+        <div style='margin-bottom:10px;'>{pills_html}</div>
+        <div style='font-size:13px; color:#888; line-height:2.0;'>{descriptions_html}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ③ 机构级核心逻辑 (来自 DEEP_INSIGHTS)
     _insight = _deep_insights.get(sel_ticker, "")
     if _insight:
         st.markdown(f"""
@@ -408,7 +496,7 @@ with col_detail:
     </div>
     """, unsafe_allow_html=True)
 
-    # ② 类别入选标准逻辑
+    # ④ 类别入选标准逻辑
     st.markdown(f"""
     <div class='detail-box' style='border-left:3px solid {sel_meta["color"]};
                 background:{sel_meta["color"]}0D;'>
@@ -420,7 +508,7 @@ with col_detail:
     </div>
     """, unsafe_allow_html=True)
 
-    # ③ 个股白盒判定理由
+    # ⑤ 个股白盒判定理由
     method_color = "#2980B9" if "相关性" in sel_row["分类方法"] else "#27AE60"
     st.markdown(f"""
     <div class='detail-box' style='border-left:3px solid #444; background:#161616;'>
@@ -434,7 +522,7 @@ with col_detail:
     </div>
     """, unsafe_allow_html=True)
 
-    # ④ 象限操作建议
+    # ⑥ 象限操作建议
     st.markdown(f"""
     <div class='detail-box' style='border-left:3px solid {quad_color};
                 background:{quad_color}0D;'>
@@ -445,7 +533,7 @@ with col_detail:
     </div>
     """, unsafe_allow_html=True)
 
-    # ⑤ 类别整体战略建议
+    # ⑦ 类别整体战略建议
     st.markdown(f"""
     <div class='detail-box' style='border-left:3px solid #555; background:#1a1a1a;'>
         <div style='font-size:13px; font-weight:bold; color:#999; margin-bottom:8px;'>
