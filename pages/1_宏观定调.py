@@ -153,41 +153,46 @@ def get_clock_fred_data():
     通胀侧双锚: CPILFESL (核心CPI), PCEPILFE (核心PCE) — 均计算 YoY
     市场侧:    BAMLH0A0HYM2 (HY信用利差, 日度), T10YIE (10年隐含通胀预期, 日度)
     """
+    if web is None:
+        raise RuntimeError("pandas_datareader 未安装")
     end_date = datetime.now()
     start_date = end_date - timedelta(days=3650 + 400)
-    try:
-        df_fred = web.DataReader(
-            ['CPILFESL', 'PCEPILFE', 'BAMLH0A0HYM2', 'T10YIE', 'INDPRO', 'PAYEMS', 'RSAFS'],
-            'fred', start_date, end_date
-        )
-        if df_fred.index.tz is not None:
-            df_fred.index = df_fred.index.tz_localize(None)
-        result = pd.DataFrame(index=df_fred.index)
-        if 'CPILFESL' in df_fred.columns:
-            result['Core_CPI_YoY'] = df_fred['CPILFESL'].pct_change(12) * 100
-        if 'PCEPILFE' in df_fred.columns:
-            result['Core_PCE_YoY'] = df_fred['PCEPILFE'].pct_change(12) * 100
-        if 'BAMLH0A0HYM2' in df_fred.columns:
-            result['HY_Spread'] = df_fred['BAMLH0A0HYM2']
-        if 'T10YIE' in df_fred.columns:
-            result['T10YIE'] = df_fred['T10YIE']
-        if 'INDPRO' in df_fred.columns:
-            result['INDPRO_YoY'] = df_fred['INDPRO'].pct_change(12) * 100
-        if 'PAYEMS' in df_fred.columns:
-            result['PAYEMS_YoY'] = df_fred['PAYEMS'].pct_change(12) * 100
-        if 'RSAFS' in df_fred.columns:
-            result['RSAFS_YoY'] = df_fred['RSAFS'].pct_change(12) * 100
-        result = result.dropna(how='all').resample('D').ffill()
-        return result
-    except Exception:
-        return pd.DataFrame(columns=['Core_CPI_YoY', 'Core_PCE_YoY', 'HY_Spread', 'T10YIE', 'INDPRO_YoY', 'PAYEMS_YoY', 'RSAFS_YoY'])
+    df_fred = web.DataReader(
+        ['CPILFESL', 'PCEPILFE', 'BAMLH0A0HYM2', 'T10YIE', 'INDPRO', 'PAYEMS', 'RSAFS'],
+        'fred', start_date, end_date
+    )
+    if df_fred.index.tz is not None:
+        df_fred.index = df_fred.index.tz_localize(None)
+    result = pd.DataFrame(index=df_fred.index)
+    if 'CPILFESL' in df_fred.columns:
+        result['Core_CPI_YoY'] = df_fred['CPILFESL'].pct_change(12) * 100
+    if 'PCEPILFE' in df_fred.columns:
+        result['Core_PCE_YoY'] = df_fred['PCEPILFE'].pct_change(12) * 100
+    if 'BAMLH0A0HYM2' in df_fred.columns:
+        result['HY_Spread'] = df_fred['BAMLH0A0HYM2']
+    if 'T10YIE' in df_fred.columns:
+        result['T10YIE'] = df_fred['T10YIE']
+    if 'INDPRO' in df_fred.columns:
+        result['INDPRO_YoY'] = df_fred['INDPRO'].pct_change(12) * 100
+    if 'PAYEMS' in df_fred.columns:
+        result['PAYEMS_YoY'] = df_fred['PAYEMS'].pct_change(12) * 100
+    if 'RSAFS' in df_fred.columns:
+        result['RSAFS_YoY'] = df_fred['RSAFS'].pct_change(12) * 100
+    result = result.dropna(how='all').resample('D').ffill()
+    return result
+
+_FRED_EMPTY = pd.DataFrame(columns=['Core_CPI_YoY', 'Core_PCE_YoY', 'HY_Spread', 'T10YIE', 'INDPRO_YoY', 'PAYEMS_YoY', 'RSAFS_YoY'])
 
 with st.spinner(f"⏳ 正在拉取宏观数据管道 ({years_to_fetch}年历史 · {len(MACRO_TICKERS_CORE)} 个 ETF/指数)..."):
     df = get_global_data(MACRO_TICKERS_CORE, years=years_to_fetch)
 
 with st.spinner("📡 正在接入 FRED 官方宏观数据管道 (INDPRO + PAYEMS + RSAFS + CPI + PCE + HY Spread)..."):
-    df_fred_clock = get_clock_fred_data()
-    _fred_ok = not df_fred_clock.empty
+    try:
+        df_fred_clock = get_clock_fred_data()
+        _fred_ok = not df_fred_clock.empty
+    except Exception:
+        df_fred_clock = _FRED_EMPTY
+        _fred_ok = False
     if not _fred_ok:
         st.warning("⚠️ FRED 数据暂时不可用，信用利差与核心CPI将降级为 ETF 代理指标。")
 

@@ -514,7 +514,7 @@ if not df_portfolio.empty:
     st.dataframe(pd.DataFrame(step1_logs), use_container_width=True, hide_index=True)
 
     st.markdown("#### 🏛️ 步骤 2: Core-Satellite 双层配置")
-    st.caption("底仓核心池 (50%) = A组压舱石 (25%) + B组大猩猩 (25%)，**手动长期持有，无自动换仓**。战术卫星池 (50%) = C组时代之王 Top-2 (30%) + D组预备队 Top-2 (20%)，月度历史裁决胜率门控。")
+    st.caption("底仓核心池 (50%) = A组压舱石 (25%) + B组大猩猩 (25%)，**Arena 迟滞选股**：持仓只要仍在 Arena 前三且 MA60 生命线完好即续持，出现空缺才补位。战术卫星池 (50%) = C组时代之王 Top-2 (30%) + D组预备队 Top-2 (20%)，月度历史裁决胜率门控，同样 Arena 迟滞。")
 
     # ── 手动底仓选股（A/B组）──────────────────────────────────────────────────────
     # 备选池来自完整的 USER_GROUPS_DEF（不受回测过滤影响），确保下拉框始终显示全量标的
@@ -713,7 +713,7 @@ if not df_portfolio.empty:
             use_container_width=True, hide_index=True
         )
 
-    st.info("💡 **极低换手率原理：** A/B 核心底仓由主理人手动长期持有，换仓完全由人决策，系统不自动触发。C/D 卫星池由 Arena 竞技结果驱动迟滞选股：持仓只要仍在前三且 MA60 生命线完好，永不主动换仓；出现空缺时才用当时榜首补位。")
+    st.info("💡 **极低换手率原理：** A/B/C/D 四组均采用 Arena 迟滞选股：当前持仓只要仍在 Arena 前三且 MA60 生命线完好，永不主动换仓；出现空缺（跌出前三或跌破 MA60）时才用当时榜首依次补位，每组最多持有 2 只。下方「手动配置」区可覆盖当前实盘持仓，不影响回测历史逻辑。")
 
     # ── C/D Arena 迟滞选股状态审计面板 ──────────────────────────────────────
     if _sat_hysteresis_log:
@@ -893,14 +893,14 @@ if not df_portfolio.empty:
                 yaxis_title="资产净值 (Base=100)",
                 legend=dict(orientation="h", y=1.05, x=0.01)
             )
-            st.caption(f"回测区间：{sim_start_str} → {sim_end_str}（A/B 核心底仓手动持仓 + C/D 卫星月度体制门控，含手续费）")
+            st.caption(f"回测区间：{sim_start_str} → {sim_end_str}（A/B/C/D 全组 Arena 迟滞选股 + C/D 月度体制门控，含 10 bps 手续费）")
             st.plotly_chart(fig_nav, use_container_width=True)
 
         # Rebalancing detail expander — with Core/Satellite layer columns
         weight_history = bt_result.get("weight_history", [])
         if weight_history:
-            with st.expander(f"📋 月度调仓明细（回测引擎）— 共 {n_rebal} 次 (点击展开)"):
-                st.caption("⚠️ 表内「回测当期剧本」由后端回测引擎在**各历史月份独立计算**，代表当时的宏观信号——与 Page 1 当前裁决结果无关（历史回测必须用当期信号，不能用今天的结果）。A/B 核心底仓回测期间按历史年末换仓模拟（仅供参考，实盘改为手动配置）；C/D 卫星月度体制门控；🔒 = 最小持有期枷锁强制续持（未触发 MA60 破位）。")
+            with st.expander(f"📋 月度持仓快照（回测引擎）— 共 {n_rebal} 次实际交易 (点击展开)"):
+                st.caption("仓位随价格**自然漂移**，不做月度再平衡。表中权重为当月实际漂移后的仓位比例（非固定目标）。仅在 Arena 换仓、卫星体制切换或漂移触发阈值时产生实际交易。🔒 = C/D 最小持有期枷锁续持；🔄 = A/B 标的本期发生变化。")
                 def _fmt_tw(tw, locked=None):
                     if not tw:
                         return "—"
@@ -937,10 +937,9 @@ if not df_portfolio.empty:
                         if group_assignments.get(t) == 'D'
                     }
 
-                    rd_date     = entry["date"]
-                    month       = int(rd_date[5:7]) if len(rd_date) >= 7 else 0
-                    is_year_end = month == 12
-                    bil_w       = all_weights.get("BIL", 0)
+                    rd_date      = entry["date"]
+                    bil_w        = all_weights.get("BIL", 0)
+                    _core_chg    = entry.get("core_changed", False)
 
                     _sp_incumbent = sp.get(regime_lbl, 0.0) if regime_lbl not in ("—", "unset") else 0.0
                     trim_ev  = entry.get("trim_event")
@@ -963,7 +962,7 @@ if not df_portfolio.empty:
                         "C组(时代之王)": _fmt_tw(c_w, locked_sat),
                         "第二剧本": f"{REGIME_CN_MAP.get(_d_r_en, _d_r_en)} {_d_r_score*100:.0f}%",
                         "D组(预备队)": _fmt_tw(d_w, locked_sat),
-                        "核心调仓": "🔄 年末换仓" if is_year_end else "🔒 持仓锁定",
+                        "核心调仓": "🔄 Arena换仓" if _core_chg else "🔒 续持",
                         "卫星模式": "🟢 激活" if rmode == "active" else "🛌 迟滞",
                         "阈值警报": trim_str,
                         "现金BIL": f"{bil_w:.0f}%" if bil_w > 0 else "0%",
@@ -1000,6 +999,226 @@ if not df_portfolio.empty:
                     summary_parts.append(f"**{trim_count}** 次触发极致宽幅阈值再平衡（⚖️），跨组剪枝并恢复 50:50")
                 if summary_parts:
                     st.info("💡 回测期间：" + "；".join(summary_parts) + "。")
+
+        # ── 📒 详细交易记录日志 (Trade Journal) ──────────────────────────────────
+        if weight_history and len(weight_history) >= 2:
+            st.markdown("---")
+            st.markdown("#### 📒 详细交易记录日志 (Trade Journal)")
+            st.caption("仓位随价格自然漂移，**不做月度再平衡**。仅在以下情况产生交易："
+                       "① Arena 竞技场换仓（标的跌出前三或跌破 MA60）→ 卖旧买新；"
+                       "② 卫星池体制切换（激活/休眠）→ 买入/清仓；"
+                       "③ Core↔Satellite 漂移突破极限阈值 → 跨组剪枝恢复 50:50。")
+
+            _GRP_CN_TJ = {"A": "压舱石", "B": "大猩猩", "C": "时代之王", "D": "预备队"}
+
+            def _tj_holdings(entry):
+                h = {}
+                for g in ("a", "b", "c", "d"):
+                    for t, w in entry.get(f"{g}_weights", {}).items():
+                        h[t] = {"group": g.upper(), "weight": w}
+                return h
+
+            trade_log = []
+            _prev_tj = None
+
+            for _tj_entry in weight_history:
+                _tj_date = _tj_entry["date"]
+                _tj_h = _tj_holdings(_tj_entry)
+                _tj_rcn = REGIME_CN_MAP.get(_tj_entry.get("regime_label", ""), _tj_entry.get("regime_label", "—"))
+                _tj_mode = _tj_entry.get("regime_mode", "unknown")
+                _tj_trim = _tj_entry.get("trim_event")
+
+                if _prev_tj is None:
+                    for t, info in sorted(_tj_h.items(), key=lambda x: x[1]["group"]):
+                        trade_log.append({
+                            "日期": _tj_date, "操作": "🟢 建仓",
+                            "代码": t, "名称": TIC_MAP.get(t, t),
+                            "组别": f"{info['group']}({_GRP_CN_TJ.get(info['group'], '')})",
+                            "仓位": f"{info['weight']:.1f}%",
+                            "交易理由": f"回测起始建仓 — {info['group']}组({_GRP_CN_TJ.get(info['group'], '')})初始配置",
+                        })
+                    _prev_tj = _tj_entry
+                    continue
+
+                _prev_h = _tj_holdings(_prev_tj)
+                _prev_mode = _prev_tj.get("regime_mode", "unknown")
+
+                # ── 买入：本期新增标的 ──
+                for t, info in sorted(_tj_h.items(), key=lambda x: x[1]["group"]):
+                    if t in _prev_h:
+                        continue
+                    grp = info["group"]
+                    if grp in ("A", "B"):
+                        reason = f"Arena竞技场换仓 → {grp}组({_GRP_CN_TJ[grp]})新入选"
+                    elif _tj_mode == "active" and _prev_mode == "dormant":
+                        reason = f"卫星池从休眠恢复激活（锚定「{_tj_rcn}」≥60%）→ {grp}组新买入"
+                    elif _tj_mode == "active":
+                        reason = f"卫星池月度轮换 → {grp}组({_GRP_CN_TJ.get(grp, '')})入选（锚定「{_tj_rcn}」）"
+                    else:
+                        reason = f"{grp}组迟滞补位"
+                    trade_log.append({
+                        "日期": _tj_date, "操作": "🟢 买入",
+                        "代码": t, "名称": TIC_MAP.get(t, t),
+                        "组别": f"{grp}({_GRP_CN_TJ.get(grp, '')})",
+                        "仓位": f"{info['weight']:.1f}%",
+                        "交易理由": reason,
+                    })
+
+                # ── 卖出：本期消失标的 ──
+                for t, info in sorted(_prev_h.items(), key=lambda x: x[1]["group"]):
+                    if t in _tj_h:
+                        continue
+                    grp = info["group"]
+                    if grp in ("A", "B"):
+                        reason = f"Arena竞技场换仓 → 被踢出{grp}组（跌出前三或跌破MA60）"
+                    elif _tj_mode == "dormant" and _prev_mode == "active":
+                        reason = f"卫星池转入休眠（「{_tj_rcn}」置信度 < 60%）→ 清仓至BIL"
+                    elif grp in ("C", "D"):
+                        reason = f"Arena月度轮换 → {grp}组({_GRP_CN_TJ.get(grp, '')})标的被替换"
+                    else:
+                        reason = "调仓移除"
+                    trade_log.append({
+                        "日期": _tj_date, "操作": "🔴 卖出",
+                        "代码": t, "名称": TIC_MAP.get(t, t),
+                        "组别": f"{grp}({_GRP_CN_TJ.get(grp, '')})",
+                        "仓位": "0%",
+                        "交易理由": reason,
+                    })
+
+                # ── 跨组剪枝 ──
+                if _tj_trim:
+                    trade_log.append({
+                        "日期": _tj_date, "操作": "⚖️ 跨组剪枝",
+                        "代码": "全组", "名称": "Core↔Satellite 强制配平",
+                        "组别": "—", "仓位": "→ 50:50",
+                        "交易理由": f"{_tj_trim[0]} 漂移至 {_tj_trim[1]}%，触发极限阈值再平衡",
+                    })
+
+                _prev_tj = _tj_entry
+
+            # ── 汇总统计 ──
+            n_buy = sum(1 for r in trade_log if "买入" in r["操作"] or "建仓" in r["操作"])
+            n_sell = sum(1 for r in trade_log if "卖出" in r["操作"])
+            n_tr = sum(1 for r in trade_log if "剪枝" in r["操作"])
+            _n_drift = sum(1 for e in weight_history if not e.get("needs_trade", True))
+
+            _tc1, _tc2, _tc3, _tc4 = st.columns(4)
+            _tc1.metric("🟢 买入/建仓", f"{n_buy} 笔")
+            _tc2.metric("🔴 卖出", f"{n_sell} 笔")
+            _tc3.metric("⚖️ 跨组剪枝", f"{n_tr} 次")
+            _tc4.metric("💤 自然漂移月", f"{_n_drift} 个月", help="无任何交易，仓位随价格自由漂移")
+
+            if trade_log:
+                _tj_filter_ops = st.multiselect(
+                    "筛选操作类型",
+                    options=["🟢 建仓", "🟢 买入", "🔴 卖出", "⚖️ 跨组剪枝"],
+                    default=["🟢 建仓", "🟢 买入", "🔴 卖出", "⚖️ 跨组剪枝"],
+                    key="tj_filter",
+                )
+                _tj_filtered = [r for r in trade_log if r["操作"] in _tj_filter_ops] if _tj_filter_ops else trade_log
+                st.dataframe(
+                    pd.DataFrame(_tj_filtered[::-1]),
+                    use_container_width=True, hide_index=True,
+                    column_config={
+                        "交易理由": st.column_config.TextColumn("交易理由", width="large"),
+                    },
+                )
+
+            # ── 📊 标的持仓周期汇总表 ──────────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 📊 标的持仓周期汇总 (Holding Lifecycle)")
+            st.caption("追踪每只标的从买入到卖出的完整生命周期，同一标的可能有多轮买卖周期。")
+
+            _lifecycle: dict = {}
+            _prev_lc = None
+
+            for _lc_entry in weight_history:
+                _lc_date = _lc_entry["date"]
+                _lc_h: dict = {}
+                for _g in ("a", "b", "c", "d"):
+                    for _t, _w in _lc_entry.get(f"{_g}_weights", {}).items():
+                        _lc_h[_t] = _g.upper()
+
+                if _prev_lc is None:
+                    for _t, _g in _lc_h.items():
+                        _lifecycle.setdefault(_t, []).append({
+                            "group": _g, "buy_date": _lc_date,
+                            "buy_reason": f"回测起始建仓 — {_g}组({_GRP_CN_TJ.get(_g, '')})",
+                            "sell_date": None, "sell_reason": None,
+                        })
+                    _prev_lc = _lc_entry
+                    continue
+
+                _prev_lc_h: dict = {}
+                for _g in ("a", "b", "c", "d"):
+                    for _t, _w in _prev_lc.get(f"{_g}_weights", {}).items():
+                        _prev_lc_h[_t] = _g.upper()
+
+                _lc_rcn = REGIME_CN_MAP.get(_lc_entry.get("regime_label", ""), "—")
+                _lc_mode = _lc_entry.get("regime_mode", "unknown")
+                _prev_lc_mode = _prev_lc.get("regime_mode", "unknown")
+
+                for _t, _g in _prev_lc_h.items():
+                    if _t not in _lc_h and _t in _lifecycle and _lifecycle[_t]:
+                        _open = _lifecycle[_t][-1]
+                        if _open["sell_date"] is None:
+                            if _g in ("A", "B"):
+                                _sr = "Arena换仓出局（跌出前三或跌破MA60）"
+                            elif _lc_mode == "dormant" and _prev_lc_mode == "active":
+                                _sr = f"卫星休眠（「{_lc_rcn}」< 60%）"
+                            else:
+                                _sr = "月度轮换被替换"
+                            _open["sell_date"] = _lc_date
+                            _open["sell_reason"] = _sr
+
+                for _t, _g in _lc_h.items():
+                    if _t not in _prev_lc_h:
+                        if _g in ("A", "B"):
+                            _br = f"Arena竞技场{_g}组入选"
+                        elif _lc_mode == "active":
+                            _br = f"卫星{_g}组选入（锚定「{_lc_rcn}」）"
+                        else:
+                            _br = f"{_g}组迟滞补位"
+                        _lifecycle.setdefault(_t, []).append({
+                            "group": _g, "buy_date": _lc_date,
+                            "buy_reason": _br,
+                            "sell_date": None, "sell_reason": None,
+                        })
+
+                _prev_lc = _lc_entry
+
+            _lc_rows = []
+            for _t, _cycles in sorted(_lifecycle.items()):
+                for _cyc in _cycles:
+                    _bd = _cyc["buy_date"]
+                    _sd_display = _cyc["sell_date"] if _cyc["sell_date"] else "📌 当前持有"
+                    _bd_ts = pd.Timestamp(_bd)
+                    _sd_ts = pd.Timestamp(_cyc["sell_date"]) if _cyc["sell_date"] else pd.Timestamp.now()
+                    _hold_m = max(1, round((_sd_ts - _bd_ts).days / 30))
+                    _ret_str = "—"
+                    if _t in df.columns:
+                        try:
+                            _p_b = df.loc[:_bd_ts, _t].dropna().astype(float)
+                            _p_s = df.loc[:_sd_ts, _t].dropna().astype(float)
+                            if not _p_b.empty and not _p_s.empty:
+                                _ret = (float(_p_s.iloc[-1]) / float(_p_b.iloc[-1]) - 1) * 100
+                                _ret_str = f"{_ret:+.1f}%"
+                        except Exception:
+                            pass
+                    _lc_rows.append({
+                        "代码": _t, "名称": TIC_MAP.get(_t, _t),
+                        "组别": f"{_cyc['group']}({_GRP_CN_TJ.get(_cyc['group'], '')})",
+                        "买入日期": _bd, "买入理由": _cyc["buy_reason"],
+                        "卖出日期": _sd_display,
+                        "卖出理由": _cyc["sell_reason"] or "—",
+                        "持有月数": _hold_m, "期间涨跌": _ret_str,
+                    })
+
+            if _lc_rows:
+                st.dataframe(
+                    pd.DataFrame(_lc_rows).sort_values(by=["买入日期", "代码"], ascending=[False, True]),
+                    use_container_width=True, hide_index=True,
+                )
 
         # Alpha & Hedge narrative boxes
         c_alpha, c_hedge = st.columns(2)

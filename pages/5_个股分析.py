@@ -32,68 +32,95 @@ with st.sidebar:
         st.success("缓存已清除！")
         st.rerun()
 
-with st.sidebar:
-    st.header("🎯 猎杀目标选择")
+# ── 目标选择逻辑（主区域顶部） ──
+p4_arena_leaders = st.session_state.get("p4_arena_leaders", {})
+p4_routed = st.session_state.get("p4_champion_ticker", "")
 
-    p4_arena_leaders = st.session_state.get("p4_arena_leaders", {})
-    p4_routed = st.session_state.get("p4_champion_ticker", "")
+all_candidates = []
+if p4_arena_leaders:
+    rank_labels = ["🥇", "🥈", "🥉"]
+    for c in ["A", "B", "C", "D"]:
+        entries = p4_arena_leaders.get(c, [])
+        for rank, entry in enumerate(entries):
+            medal = rank_labels[rank] if rank < 3 else ""
+            medal_prefix = f"{medal} " if medal else ""
+            all_candidates.append({
+                "label": f"{medal_prefix}{entry['ticker']} ({entry['name']}) | {c}级#{rank+1} {entry['score']:.0f}分",
+                "ticker": entry["ticker"],
+            })
 
-    auto_ticker = ""
-    if p4_arena_leaders:
-        all_candidates = []
-        rank_labels = ["🥇", "🥈", "🥉"]
-        for c in ["A", "B", "C", "D"]:
-            entries = p4_arena_leaders.get(c, [])
-            for rank, entry in enumerate(entries):
-                medal = rank_labels[rank] if rank < 3 else ""
-                all_candidates.append({
-                    "label": f"{medal} {entry['ticker']} ({entry['name']}) | {c}级#{rank+1} {entry['score']:.0f}分",
-                    "ticker": entry["ticker"],
-                })
+options = ["-- 🔍 手动输入自定义代码 --"] + [c["label"] for c in all_candidates]
+label_to_ticker = {c["label"]: c["ticker"] for c in all_candidates}
 
-        default_idx = 0
-        if p4_routed:
-            for i, cand in enumerate(all_candidates):
-                if cand["ticker"] == p4_routed:
-                    default_idx = i
-                    break
-
-        st.caption("📡 数据来源：Page 4 竞技场 Top 3 × 4 赛道")
-        selected_label = st.selectbox("🏆 赛道精英候选池:", [c["label"] for c in all_candidates], index=default_idx)
-        auto_ticker = selected_label.split(" ")[1]
-
-        if p4_routed:
-            st.info(f"🏆 竞技场直通：**{p4_routed}**")
-            if st.button("✖ 清除路由", key="clear_p4_route"):
-                del st.session_state["p4_champion_ticker"]
-                st.rerun()
-    else:
-        st.warning(
-            "尚未获取到竞技场冠军数据。\n\n"
-            "请先访问 **4 资产强筛** 页面，待各赛道评分完成后再返回此页。"
-        )
-
-    st.markdown("---")
-    st.caption("手动越权查询 / 覆盖路由:")
-    manual_ticker = st.text_input("🔍 输入自定义代码:", value=p4_routed if p4_routed else "").upper()
-    target_ticker = manual_ticker if manual_ticker else auto_ticker
-
-    st.markdown("---")
-    st.header("📐 VCP 参数")
-    lookback_days = st.slider(
-        "VCP 回溯天数", 90, 360, 180, step=30,
-        help="越长捕获越大级别的 VCP 底部，越短聚焦近期收缩形态",
-    )
+default_idx = 1 if all_candidates else 0
+if p4_routed:
+    for i, cand in enumerate(all_candidates):
+        if cand["ticker"] == p4_routed:
+            default_idx = i + 1
+            break
 
 # ── Main ──
 st.title("🎯 Layer 5: VCP 精准猎杀 & TWAP 作战室")
 st.caption("核心逻辑：Page 4 竞技场推荐标的 ➡️ Minervini VCP 形态解剖 ➡️ TWAP 最优建仓执行")
 
+# ── 目标选择控件 ──
+sel_col, manual_col, route_col = st.columns([3, 2, 1])
+
+with sel_col:
+    if p4_arena_leaders:
+        st.caption("📡 数据来源：Page 4 竞技场 Top 3 × 4 赛道")
+    selected_label = st.selectbox("🏆 猎杀目标选择:", options, index=default_idx, label_visibility="visible")
+
+target_ticker = ""
+if selected_label == "-- 🔍 手动输入自定义代码 --":
+    with manual_col:
+        st.caption("输入任意股票代码")
+        manual_ticker = st.text_input("🔍 自定义代码 (如 AAPL, 000001.SS):", value="", label_visibility="visible").upper()
+    target_ticker = manual_ticker
+else:
+    target_ticker = label_to_ticker[selected_label]
+
+with route_col:
+    if p4_routed:
+        st.caption(" ")
+        st.info(f"直通: **{p4_routed}**")
+        if st.button("✖ 清除", key="clear_p4_route"):
+            del st.session_state["p4_champion_ticker"]
+            st.rerun()
+    elif not p4_arena_leaders:
+        st.warning("请先访问 **4 资产强筛** 获取竞技场数据")
+
+st.markdown("---")
+
+with st.expander("📐 VCP 方法论 (Mark Minervini) — 点击展开核心逻辑", expanded=False):
+    st.markdown("""
+**VCP (Volatility Contraction Pattern)** 是机构级趋势交易的黄金模式，由 Mark Minervini 系统化为四步法：
+
+1. **Stage 2 大前提** — 股票必须处于长期上升趋势（价格 > 150/200日均线，200MA 向上）
+2. **价格收缩** — 2-6次回调，每次深度递减（如 -25% → -12% → -4%），浮筹被逐步洗净
+3. **量能枯竭** — 最后一波收缩中成交量极度萎缩（< 50日均量的50%），无人愿卖
+4. **枢轴突破** — 价格收敛至极致后，放量突破阻力线（枢轴点）= 最佳入场
+
+**TWAP 配合：** 发现 VCP 极致收缩 → 次日若放量突破枢轴 → 激活 TWAP 2-4h 平滑建仓，规避单笔冲击成本。
+
+---
+
+**每一只股票的生命周期都在这四个阶段里轮回：**
+
+📉 **Stage 1（筑底阶段 - 忽视期）：** 股票刚经历了大熊市，在底部半死不活地横盘。均线走平。没人关注。（绝不能买，会浪费时间）
+
+🚀 **Stage 2（上升阶段 - 主升浪）：** 股票放量突破底部，价格站上 150 日和 200 日均线，且 200 日均线拐头向上。机构疯狂建仓。（VCP 唯一的作战区域！）本页通过 4/5 的打分就是在测算这个。
+
+🌋 **Stage 3（做头阶段 - 派发期）：** 股价涨到了极高位，开始剧烈震荡（宽幅大阴大阳），均线走平。这是机构在把筹码卖给最后的接盘侠（散户）。（危险区域，准备逃顶）
+
+💀 **Stage 4（下降阶段 - 崩溃期）：** 价格跌破 200 日均线，均线向下发散。（绝对禁区，做空或空仓）
+""")
+
 if target_ticker:
     try:
-        with st.spinner(f"正在拉取 {target_ticker} 历史数据 (2年)..."):
+        with st.spinner(f"正在拉取 {target_ticker} 历史数据 (5年)..."):
             stock = yf.Ticker(target_ticker)
-            hist = stock.history(period="2y")
+            hist = stock.history(period="5y")
             try:
                 info = stock.info or {}
             except Exception:
@@ -110,6 +137,22 @@ if target_ticker:
 
         curr_price = float(hist['Close'].iloc[-1])
         cn_name = TIC_MAP.get(target_ticker, target_ticker)
+
+        # ── VCP 参数 & K线频率（图表上方控件栏） ──
+        ctrl_l, ctrl_r = st.columns([3, 1])
+        with ctrl_l:
+            lookback_days = st.slider(
+                "📐 VCP 回溯天数", 90, 360, 180, step=30,
+                help="越长捕获越大级别的 VCP 底部，越短聚焦近期收缩形态",
+            )
+        with ctrl_r:
+            timeframe = st.radio(
+                "📡 K线频率",
+                ["周线 🛰️ 卫星图", "日线 🔭 狙击镜"],
+                horizontal=True,
+                help="周线看阵型：过滤日线噪音，确认宏大 Base | 日线扣扳机：精确枢轴突破入场",
+            )
+            is_weekly = timeframe.startswith("周线")
 
         ohlcv = hist[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
         if ohlcv.index.tz is not None:
@@ -148,13 +191,28 @@ if target_ticker:
         mc4.metric("TWAP 指令", vcp["twap"]["action_label"])
 
         # ── VCP Chart ──
-        chart_bars = min(len(hist), lookback_days + 60)
-        hist_chart = hist.iloc[-chart_bars:].copy()
+        if is_weekly:
+            hist_w = hist.resample('W-FRI').agg({
+                'Open': 'first', 'High': 'max', 'Low': 'min',
+                'Close': 'last', 'Volume': 'sum',
+            }).dropna()
+            hist_chart = hist_w.copy()
+            ma_short, ma_mid, ma_long = 10, 30, 40
+            ma_labels = ('MA10w', 'MA30w', 'MA40w')
+        else:
+            chart_bars = min(len(hist), lookback_days + 60)
+            hist_chart = hist.iloc[-chart_bars:].copy()
+            ma_short, ma_mid, ma_long = 50, 150, 200
+            ma_labels = ('MA50', 'MA150', 'MA200')
+
         if hist_chart.index.tz is not None:
             try:
                 hist_chart.index = hist_chart.index.tz_localize(None)
             except TypeError:
                 hist_chart.index = hist_chart.index.tz_convert(None)
+
+        tf_tag = "周线 · 卫星图" if is_weekly else "日线 · 狙击镜"
+        st.caption(f"📡 当前视图: **{tf_tag}** — 回溯 {len(hist_chart)} 根 K 线")
 
         fig = make_subplots(
             rows=2, cols=1, shared_xaxes=True,
@@ -171,12 +229,12 @@ if target_ticker:
             increasing_line_color='#2ECC71', decreasing_line_color='#E74C3C',
         ), row=1, col=1)
 
-        ma50_line = hist_chart['Close'].astype(float).rolling(50).mean()
-        ma150_line = hist_chart['Close'].astype(float).rolling(150).mean()
-        ma200_line = hist_chart['Close'].astype(float).rolling(200).mean()
-        fig.add_trace(go.Scatter(x=hist_chart.index, y=ma50_line, line=dict(color='#3498DB', width=1), name='MA50'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=hist_chart.index, y=ma150_line, line=dict(color='#F39C12', width=1), name='MA150'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=hist_chart.index, y=ma200_line, line=dict(color='#E74C3C', width=1.5), name='MA200'), row=1, col=1)
+        ma_s = hist_chart['Close'].astype(float).rolling(ma_short).mean()
+        ma_m = hist_chart['Close'].astype(float).rolling(ma_mid).mean()
+        ma_l = hist_chart['Close'].astype(float).rolling(ma_long).mean()
+        fig.add_trace(go.Scatter(x=hist_chart.index, y=ma_s, line=dict(color='#3498DB', width=1), name=ma_labels[0]), row=1, col=1)
+        fig.add_trace(go.Scatter(x=hist_chart.index, y=ma_m, line=dict(color='#F39C12', width=1), name=ma_labels[1]), row=1, col=1)
+        fig.add_trace(go.Scatter(x=hist_chart.index, y=ma_l, line=dict(color='#E74C3C', width=1.5), name=ma_labels[2]), row=1, col=1)
 
         for ci, cw in enumerate(vcp.get("contractions", [])):
             fig.add_shape(
@@ -233,10 +291,12 @@ if target_ticker:
             marker_color=vol_colors, name='成交量', opacity=0.6,
         ), row=2, col=1)
 
-        vol_ma50 = hist_chart['Volume'].astype(float).rolling(50).mean()
+        vol_ma_period = 10 if is_weekly else 50
+        vol_ma = hist_chart['Volume'].astype(float).rolling(vol_ma_period).mean()
+        vol_ma_label = '10周均量' if is_weekly else '50日均量'
         fig.add_trace(go.Scatter(
-            x=hist_chart.index, y=vol_ma50,
-            line=dict(color='#F39C12', width=1), name='50日均量',
+            x=hist_chart.index, y=vol_ma,
+            line=dict(color='#F39C12', width=1), name=vol_ma_label,
         ), row=2, col=1)
 
         fig.update_layout(
@@ -328,18 +388,6 @@ if target_ticker:
         • 风险敞口: <b>{twap['risk_pct']:.1f}%</b>（入场至止损距离）<br>
         • 盈亏比: <b>{twap['rr_ratio']:.1f} : 1</b><br><br>
         {twap['details']}
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class='formula-box'>
-        <b>📐 VCP 方法论 (Mark Minervini):</b><br><br>
-        VCP (Volatility Contraction Pattern) 是机构级趋势交易的黄金模式：<br>
-        1. <b>Stage 2 大前提</b> — 股票必须处于长期上升趋势（价格 > 150/200日均线，200MA 向上）<br>
-        2. <b>价格收缩</b> — 2-6次回调，每次深度递减（如 -25% → -12% → -4%），浮筹被逐步洗净<br>
-        3. <b>量能枯竭</b> — 最后一波收缩中成交量极度萎缩（< 50日均量的50%），无人愿卖<br>
-        4. <b>枢轴突破</b> — 价格收敛至极致后，放量突破阻力线（枢轴点）= 最佳入场<br><br>
-        <b>TWAP 配合:</b> 发现 VCP 极致收缩 → 次日若放量突破枢轴 → 激活 TWAP 2-4h 平滑建仓，规避单笔冲击成本。
         </div>
         """, unsafe_allow_html=True)
 

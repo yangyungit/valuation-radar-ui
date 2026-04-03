@@ -6,14 +6,12 @@
 * **必须使用中文**与主理人交流，包括所有回复、解释、问题和建议。代码注释、变量名、API 字段等技术内容保持英文不变。
 
 ## 🖥️ 本地开发环境 (Local Dev Environment)
-* **操作系统：** 主理人使用 macOS (Apple Silicon Mac mini)，所有 Shell 命令默认为 zsh。
-* **Python 虚拟环境：** 项目统一使用 `/Users/zhanghao/yangyun/Code_Projects/system/venv/`。**每次打开新终端**都必须先激活，否则 `streamlit` 命令不存在。
-* **本地调试启动顺序（两步，缺一不可）：**
-  1. **后端先启动（新终端）：** `cd /Users/zhanghao/yangyun/Code_Projects/valuation-radar && source ../system/venv/bin/activate && python api_server.py`
-  2. **前端再启动（新终端）：** `cd /Users/zhanghao/yangyun/Code_Projects/valuation-radar-ui && source ../system/venv/bin/activate && streamlit run app.py`
+* **操作系统兼容性：** 团队采用跨平台协作。当你（AI）需要执行 Shell 命令时，请先侦测当前运行的操作系统（macOS/Linux 使用 bash/zsh，Windows 使用 PowerShell/cmd）并使用对应的兼容命令。
+* **Python 虚拟环境：** 项目约定在各项目目录的**上级目录**下存放共享虚拟环境（如 `../system/venv/`）。激活命令因系统而异：macOS/Linux 用 `source ../system/venv/bin/activate`，Windows 用 `..\system\venv\Scripts\activate`。**请勿硬编码任何绝对路径。**
+* **本地调试启动：** 请运行本项目根目录下的启动脚本 `start_dev.sh`（macOS/Linux）或 `start_dev.bat`（Windows），脚本会自动检测虚拟环境并依次启动后端与前端。
 * **前端访问地址：** http://localhost:8501
-* **API 自动切换：** `api_client.py` 已内置 Darwin 判断，Mac 本地自动对接 `localhost:8000`，无需手动改代码。
-* **给出 Shell 命令时：** 必须包含 `source /Users/zhanghao/yangyun/Code_Projects/system/venv/bin/activate`，禁止假设 streamlit/uvicorn 已在 PATH 中。
+* **API 自动切换：** `api_client.py` 已内置操作系统判断，本地开发自动对接 `localhost:8000`，无需手动改代码。
+* **给出 Shell 命令时：** 必须包含虚拟环境激活步骤，禁止假设 streamlit/uvicorn 已在 PATH 中。根据操作系统使用对应的激活命令，**禁止硬编码绝对路径**。
 
 ## 🏗️ 前端架构约束
 * **物理隔离：** 前端页面 (`pages/`) 严禁存放业务逻辑和因子字典，所有计算必须通过 `api_client.py` 向后端请求。
