@@ -6,7 +6,10 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
 from datetime import datetime, timedelta
-import pandas_datareader.data as web
+try:
+    import pandas_datareader.data as web
+except Exception:
+    web = None
 from api_client import fetch_core_data, get_global_data
 
 # 1. 动态向云端 API 请求核心机密字典

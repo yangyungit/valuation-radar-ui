@@ -267,7 +267,7 @@ if not raw_data.empty:
             return 'color: #aaa'
 
         st.dataframe(
-            df_plot.sort_values("相对强度", ascending=False).style.applymap(
+            df_plot.sort_values("相对强度", ascending=False).style.map(
                 color_structure, subset=['趋势结构']
             ).format({"Z-Score": "{:.2f}", "相对强度": "{:.2f}", "L/VL": "{:.2f}"}), 
             use_container_width=True, hide_index=True
