@@ -7,7 +7,10 @@ import os
 import calendar
 import yfinance as yf
 from datetime import datetime, timedelta
-from api_client import fetch_core_data, get_stock_metadata, get_arena_a_factors, get_arena_b_factors, get_arena_c_factors, get_arena_d_factors
+from api_client import (fetch_core_data, get_stock_metadata,
+                        get_arena_a_factors, get_arena_b_factors,
+                        get_arena_c_factors, get_arena_d_factors,
+                        clear_api_caches)
 
 _core_data = fetch_core_data()
 _MACRO_TAGS_MAP     = _core_data.get("MACRO_TAGS_MAP", {})
@@ -1484,10 +1487,33 @@ with st.sidebar:
     )
     st.markdown("---")
     st.header("🛠️ 系统维护")
-    if st.button("🔄 清理缓存并重刷"):
-        st.cache_data.clear()
-        st.success("缓存已清除！")
+    if st.button("🔄 轻量刷新（保留历史档案与回填缓存）"):
+        clear_api_caches()
+        st.success("实时因子缓存已刷新！历史档案和回填价格数据完好保留。")
         st.rerun()
+    if st.button("🗑️ 全局缓存重置（含回填价格缓存）"):
+        st.cache_data.clear()
+        st.success("全部缓存已清除（下次回填需重新下载历史价格）。历史档案文件不受影响。")
+        st.rerun()
+    if st.button("⚠️ 清空历史档案（换策略时使用）"):
+        st.session_state["_confirm_delete_history"] = True
+    if st.session_state.get("_confirm_delete_history"):
+        st.warning("此操作将删除所有赛道历史月度 Top 3 记录，不可撤销。")
+        _c1, _c2 = st.columns(2)
+        with _c1:
+            if st.button("确认删除", type="primary"):
+                try:
+                    if os.path.exists(_HISTORY_FILE):
+                        os.remove(_HISTORY_FILE)
+                    st.session_state.pop("_confirm_delete_history", None)
+                    st.success("历史档案已清空！")
+                    st.rerun()
+                except Exception as _e:
+                    st.error(f"删除失败：{_e}")
+        with _c2:
+            if st.button("取消"):
+                st.session_state.pop("_confirm_delete_history", None)
+                st.rerun()
 
 # ─────────────────────────────────────────────────────────────────
 #  页面标题

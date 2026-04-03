@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from api_client import fetch_core_data
+from api_client import fetch_core_data, clear_api_caches
 
 st.set_page_config(page_title="资产矩阵与雷达", layout="wide", page_icon="📡")
 
@@ -150,9 +150,13 @@ with st.sidebar:
     only_bullish = st.checkbox("仅显示趋势健康资产 (MA20 > MA60)", value=False)
     st.markdown("---")
     st.header("🛠️ 系统维护")
-    if st.button("🔄 清理缓存并重刷"):
+    if st.button("🔄 轻量刷新（仅刷新 API 数据）"):
+        clear_api_caches()
+        st.success("API 缓存已刷新！历史价格数据保留。")
+        st.rerun()
+    if st.button("🗑️ 全局缓存重置（含历史价格）"):
         st.cache_data.clear()
-        st.success("缓存已清除！")
+        st.success("全部缓存已清除！")
         st.rerun()
 
 # ─────────────────────────────────────────────────────────────────

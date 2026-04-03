@@ -2,15 +2,19 @@ import math
 import streamlit as st
 import pandas as pd
 import numpy as np
-from api_client import fetch_core_data, get_global_data, get_stock_metadata
+from api_client import fetch_core_data, get_global_data, get_stock_metadata, clear_api_caches
 
 st.set_page_config(page_title="资产分拣与白盒初筛", layout="wide", page_icon="🗂️")
 
 with st.sidebar:
     st.header("🛠️ 系统维护")
-    if st.button("🔄 清理缓存并重新下载数据"):
+    if st.button("🔄 轻量刷新（仅刷新 API 数据）"):
+        clear_api_caches()
+        st.success("API 缓存已刷新！历史价格数据保留。")
+        st.rerun()
+    if st.button("🗑️ 全局缓存重置（含历史价格）"):
         st.cache_data.clear()
-        st.success("缓存已清除！")
+        st.success("全部缓存已清除！")
         st.rerun()
 
 st.markdown("""

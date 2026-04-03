@@ -435,3 +435,21 @@ def fetch_vcp_analysis(ohlcv_df, lookback_days=180):
         return response.json()
     except Exception as e:
         return {"error": f"VCP 分析引擎连接失败: {e}"}
+
+
+# ==========================================
+# 分级缓存清除工具
+# ==========================================
+def clear_api_caches():
+    """轻量刷新：只清除 API 请求和实时因子缓存（秒级可恢复），
+    保留重型历史数据下载缓存（_fetch_backfill_prices / get_global_data / fetch_rolling_backtest）。
+    """
+    fetch_core_data.clear()
+    get_stock_metadata.clear()
+    get_arena_a_factors.clear()
+    get_arena_b_factors.clear()
+    get_arena_c_factors.clear()
+    get_arena_d_factors.clear()
+    fetch_macro_scores.clear()
+    fetch_funnel_scores.clear()
+    fetch_vcp_analysis.clear()
