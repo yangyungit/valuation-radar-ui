@@ -11,6 +11,7 @@ from api_client import (fetch_core_data, get_stock_metadata,
                         get_arena_a_factors, get_arena_b_factors,
                         get_arena_c_factors, get_arena_d_factors,
                         clear_api_caches)
+from screener_engine import classify_all_at_date
 
 _core_data = fetch_core_data()
 _MACRO_TAGS_MAP     = _core_data.get("MACRO_TAGS_MAP", {})
@@ -258,33 +259,35 @@ def _fetch_backfill_prices(tickers: tuple) -> tuple:
 
 
 def _backfill_arena_history(all_assets: dict, months_back: int = 24,
-                            monthly_probs: dict = None) -> tuple:
+                            monthly_probs: dict = None,
+                            meta_data: dict = None) -> tuple:
     """
     用历史价格数据回填过去 N 个月各赛道的 Top 3。
-    使用当前 ABCD 分类；Z-Score 用价格滚动 Z 代理；C 组 EPS 用动量代理；
-    D 组三因子（Vol_Z / RS₂₀ / MA60偏离）全量计算。
+    Point-in-Time 模式：每个月末重新执行粗筛分类，消除前视偏差。
     monthly_probs: {"YYYY-MM": {"Soft": f, "Hot": f, "Stag": f, "Rec": f}}
-                   从 Page 1 的 horsemen_monthly_probs 传入，用于逐月派生宏观剧本。
+    meta_data: {ticker: {"mcap": float, "div_yield": float}} — 当前快照用作近似。
     返回 (saved_month_count, error_msg)
     """
-    cls_tickers: dict = {"A": [], "B": [], "C": [], "D": []}
+    # Build full ticker universe and name map from all_assets
     ticker_names: dict = {}
+    all_tickers_set: set = set()
     for ticker, info in all_assets.items():
-        cls = info.get("cls", "?")
-        if cls not in cls_tickers or not info.get("has_data", True):
+        if not info.get("has_data", True):
             continue
-        cls_tickers[cls].append(ticker)
+        all_tickers_set.add(ticker)
         ticker_names[ticker] = info.get("cn_name", ticker)
 
-    all_tickers = tuple(t for ts in cls_tickers.values() for t in ts)
+    all_tickers = tuple(sorted(all_tickers_set))
     if not all_tickers:
         return 0, "无有效标的"
+
+    if meta_data is None:
+        meta_data = {}
 
     price_df, vol_df = _fetch_backfill_prices(all_tickers)
     if price_df.empty:
         return 0, "历史价格数据下载失败，请检查网络或稍后重试。"
 
-    # 构建月末日期列表（从上个月起，向前推 months_back 个月）
     today = datetime.now()
     y, m  = today.year, today.month
     m -= 1
@@ -310,7 +313,16 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
         if loc < 120:
             continue
 
-        # 派生该月 B/C 和 D 组宏观剧本
+        # PIT classification at this month-end
+        pit_assets = classify_all_at_date(
+            price_df, loc, list(all_tickers), meta_data, tic_map=ticker_names,
+        )
+        cls_tickers: dict = {"A": [], "B": [], "C": [], "D": []}
+        for t, info in pit_assets.items():
+            _cls = info.get("cls", "?")
+            if _cls in cls_tickers:
+                cls_tickers[_cls].append(t)
+
         _m_probs = (monthly_probs or {}).get(month_key, {})
         bc_regime, d_regime = _derive_monthly_regimes(_m_probs)
 
@@ -2101,16 +2113,18 @@ with _bf_col2:
 with _bf_col3:
     st.markdown(
         "<div style='font-size:13px; color:#666; padding-top:8px;'>"
-        "注：A/B 组 Z-Score 用价格滚动 Z 代理；C 组 EPS 用动量代理；D 组三因子全量计算。"
+        "注：每月末先 Point-in-Time 重新跑粗筛分拣（消除前视偏差），再在各赛道内评分。"
         "首次下载约需 60-120 秒（5年数据量较大）。</div>",
         unsafe_allow_html=True,
     )
 
 if _do_backfill:
-    with st.spinner(f"正在下载 {len(all_assets)} 只标的约 6 年历史数据并逐月计算…"):
+    with st.spinner(f"正在下载 {len(all_assets)} 只标的约 6 年历史数据并逐月 PIT 分拣 + 评分…"):
+        _bf_meta = get_stock_metadata(tuple(all_assets.keys()))
         _bf_saved, _bf_err = _backfill_arena_history(
             all_assets, months_back=_bf_months,
             monthly_probs=st.session_state.get("horsemen_monthly_probs", {}),
+            meta_data=_bf_meta,
         )
     if _bf_err:
         st.error(f"回填失败：{_bf_err}")

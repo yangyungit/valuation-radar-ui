@@ -1,8 +1,18 @@
 import math
+import os
+import json
+import calendar
 import streamlit as st
 import pandas as pd
 import numpy as np
+import yfinance as yf
+from datetime import datetime, timedelta
 from api_client import fetch_core_data, get_global_data, get_stock_metadata, clear_api_caches
+from screener_engine import (
+    compute_metrics as _engine_compute_metrics,
+    classify_asset,
+    classify_all_at_date,
+)
 
 st.set_page_config(page_title="资产分拣与白盒初筛", layout="wide", page_icon="🗂️")
 
@@ -108,193 +118,8 @@ if df.empty or len(df) < 30:
 #  核心函数
 # ─────────────────────────────────────────────────────────────────
 def compute_metrics(ticker: str) -> dict:
-    """计算单个资产的所有分拣所需量化指标。"""
-    base = {"has_data": False, "ticker": ticker}
-    if ticker not in df.columns:
-        return base
-    ts = df[ticker].dropna().astype(float)
-    if len(ts) < 60:
-        return {**base, "data_len": len(ts)}
-
-    curr     = float(ts.iloc[-1])
-    data_len = len(ts)
-
-    ma20  = float(ts.rolling(20).mean().iloc[-1])
-    ma60  = float(ts.rolling(60).mean().iloc[-1])
-    ma200_val = float(ts.rolling(200).mean().iloc[-1]) if data_len >= 200 else None
-    ma250_val = float(ts.rolling(250).mean().iloc[-1]) if data_len >= 250 else None
-
-    z_score = 0.0
-    if data_len >= 250:
-        mean250 = float(ts.rolling(250).mean().iloc[-1])
-        std250  = float(ts.rolling(250).std().iloc[-1])
-        z_score = round((curr - mean250) / std250, 2) if std250 > 0 else 0.0
-
-    mom20 = round((curr / float(ts.iloc[-21]) - 1) * 100, 2) if data_len > 20 and ts.iloc[-21] > 0 else 0.0
-    mom5  = round((curr / float(ts.iloc[-6])  - 1) * 100, 2) if data_len > 5  and ts.iloc[-6]  > 0 else 0.0
-
-    rs_raw = None
-    if data_len >= 127 and float(ts.iloc[-127]) > 0:
-        rs_raw = round((curr / float(ts.iloc[-127]) - 1) * 100, 2)
-
-    ts_1y    = ts.iloc[-252:] if data_len >= 252 else ts
-    roll_max = ts_1y.cummax().replace(0, np.nan)
-    drawdowns = (ts_1y - roll_max) / roll_max * 100
-    max_dd = round(abs(float(drawdowns.min())), 1) if not drawdowns.isna().all() else 0.0
-
-    ts_3y = ts.iloc[-756:] if data_len >= 756 else ts
-    roll_max_3y = ts_3y.cummax().replace(0, np.nan)
-    drawdowns_3y = (ts_3y - roll_max_3y) / roll_max_3y * 100
-    max_dd_3y = round(abs(float(drawdowns_3y.min())), 1) if not drawdowns_3y.isna().all() else 0.0
-
-    # SPY 相关性（周度，近1年）
-    spy_corr = 0.0
-    w_asset = ts.resample("W").last().pct_change().dropna()
-    if "SPY" in df.columns:
-        w_spy  = df["SPY"].dropna().astype(float).resample("W").last().pct_change().dropna()
-        common = w_asset.index.intersection(w_spy.index)
-        if len(common) >= 26:
-            c = float(w_asset.loc[common].corr(w_spy.loc[common]))
-            spy_corr = round(c, 2) if not np.isnan(c) else 0.0
-
-    # 索提诺比率（近2年，4% 无风险利率）
-    daily_rets = ts.pct_change().dropna()
-    sortino = 0.0
-    if len(daily_rets) >= 60:
-        ann_ret  = (1 + float(daily_rets.mean())) ** 252 - 1
-        downside = daily_rets[daily_rets < 0]
-        down_std = float(downside.std()) * np.sqrt(252) if len(downside) > 5 else 1.0
-        sortino  = round((ann_ret - 0.04) / down_std, 2) if down_std > 0 else 0.0
-
-    # 60日年化历史波动率
-    hv_60d = 0.0
-    if len(daily_rets) >= 60:
-        hv_60d = round(float(daily_rets.iloc[-60:].std()) * math.sqrt(250), 4)
-
-    return {
-        "has_data":     True,
-        "data_len":     data_len,
-        "curr":         curr,
-        "ma20":         round(ma20, 2),
-        "ma60":         round(ma60, 2),
-        "ma200":        round(ma200_val, 2) if ma200_val is not None else None,
-        "ma250":        round(ma250_val, 2) if ma250_val is not None else None,
-        "is_bullish":   ma20 > ma60,
-        "full_uptrend": (ma250_val is not None and ma20 > ma60 > ma250_val),
-        "z_score":      z_score,
-        "mom20":        mom20,
-        "mom5":         mom5,
-        "rs_raw":       rs_raw,
-        "rs_rank_pct":  1.0,
-        "rs_rel":       0.0,
-        "max_dd":       max_dd,
-        "max_dd_3y":    max_dd_3y,
-        "spy_corr":     spy_corr,
-        "sortino":      sortino,
-        "hv_60d":       hv_60d,
-        "trend_label":  "趋势健康 (MA20>MA60)" if ma20 > ma60 else "趋势走弱 (MA20<MA60)",
-    }
-
-
-def classify_asset(m: dict, div_yield: float, mcap: float) -> tuple:
-    """
-    漏斗级联分拣：A → B → C → D → ?
-    返回 (class_str, reason_str, criteria_detail_dict)
-    criteria_detail: {名称: (passed: bool, value_str: str)}
-    """
-    if not m.get("has_data"):
-        return "?", "数据不足，无法完成分拣", {}
-
-    # ── A 级 ──────────────────────────────────────────────────────
-    # 收益入口灵活：有股息(≥1%)或均线趋势健康二选一
-    # 回撤与相关性保持严格：压舱石的核心护城河
-    a_income = div_yield >= 1.0 or m["is_bullish"]
-    a_dd     = m["max_dd"] < 15.0
-    a_corr   = m["spy_corr"] < 0.65
-    div_tag  = f"股息 {div_yield:.1f}%" if div_yield >= 1.0 else "趋势健康(无股息)"
-    detail_a = {
-        "收益来源(股息/趋势)": (a_income, f"{div_tag}（需股息≥1% 或 MA20>MA60）"),
-        "1年最大回撤":        (a_dd,     f"{m['max_dd']:.1f}%（需<15%）"),
-        "SPY相关性":          (a_corr,   f"{m['spy_corr']:.2f}（需<0.65）"),
-    }
-    if a_income and a_dd and a_corr:
-        reason = (
-            f"通过A级三重关卡：{div_tag}，"
-            f"1年最大回撤 {m['max_dd']:.1f}% < 15%，"
-            f"SPY相关性 {m['spy_corr']:.2f} < 0.65（低相关，对冲价值高）"
-        )
-        return "A", reason, detail_a
-
-    # ── B 级 ──────────────────────────────────────────────────────
-    b_mcap        = mcap > 1e11
-    b_dd_3y       = m.get("max_dd_3y", 99.0) < 40.0
-    _ma200        = m.get("ma200")
-    b_above_ma200 = _ma200 is not None and m["curr"] > _ma200
-    detail_b = {
-        "市值":         (b_mcap,        f"${mcap/1e9:.0f}B（需>$1000亿）"),
-        "近3年最大回撤": (b_dd_3y,       f"{m.get('max_dd_3y', 0):.1f}%（需<40%）"),
-        "价格vs MA200":  (b_above_ma200, f"收盘价{'>' if b_above_ma200 else '<'}MA200（长线牛熊）"),
-    }
-    if b_mcap and b_dd_3y and b_above_ma200:
-        reason = (
-            f"通过B级三重关卡：市值 ${mcap/1e9:.0f}B > $1000亿，"
-            f"近3年最大回撤 {m.get('max_dd_3y', 0):.1f}% < 40%，"
-            f"收盘价({m['curr']:.1f}) > MA200({_ma200:.1f}) 长线趋势健康"
-        )
-        return "B", reason, detail_b
-
-    b_reject_note = ""
-    if b_mcap and (not b_dd_3y or not b_above_ma200):
-        _rej = []
-        if not b_dd_3y:
-            _rej.append(f"因近3年最大回撤超标被拒签({m.get('max_dd_3y', 0):.1f}%>=40%)")
-        if not b_above_ma200:
-            _rej.append("收盘价未站上MA200")
-        b_reject_note = "[B级拒签：" + "，".join(_rej) + "] "
-
-    # ── C 级 ──────────────────────────────────────────────────────
-    c_rs    = m["rs_rank_pct"] <= 0.20
-    c_trend = m["full_uptrend"]
-    detail_c = {
-        "RS动量排名": (c_rs,    f"全域前 {m['rs_rank_pct']*100:.0f}%（需≤20%）"),
-        "主升浪":     (c_trend, f"MA20>MA60>MA250：{'✅' if c_trend else '❌'}"),
-    }
-    if c_rs and c_trend:
-        reason = (
-            f"通过C级双重关卡：RS动量排名全域前 {m['rs_rank_pct']*100:.0f}%，"
-            f"站稳 MA20>MA60>MA250 主升浪"
-        )
-        return "C", b_reject_note + reason, detail_c
-
-    # ── D 级 ──────────────────────────────────────────────────────
-    d_mom20 = m["mom20"] > 8.0
-    d_mom5  = m["mom5"] > 5.0
-    d_hv    = m.get("hv_60d", 0.0) > 0.25
-    detail_d = {
-        "20日涨幅":       (d_mom20, f"{m['mom20']:+.1f}%（需>+8%）"),
-        "5日涨幅":        (d_mom5,  f"{m['mom5']:+.1f}%（需>+5%）"),
-        "60日年化波动率": (d_hv,    f"{m.get('hv_60d', 0.0)*100:.1f}%（需>25%）"),
-    }
-    if (d_mom20 or d_mom5) and d_hv:
-        reason = (
-            f"通过D级关卡：20日涨幅 {m['mom20']:+.1f}%，"
-            f"5日涨幅 {m['mom5']:+.1f}%，"
-            f"60日年化波动率 {m.get('hv_60d', 0.0)*100:.1f}% > 25%，近期资金介入信号强烈"
-        )
-        return "D", b_reject_note + reason, detail_d
-
-    # ── 未通过任何关卡 ─────────────────────────────────────────────
-    fail_parts = []
-    if not a_income:  fail_parts.append(f"股息率{div_yield:.1f}%且趋势走弱")
-    if not a_dd:   fail_parts.append(f"回撤{m['max_dd']:.1f}%过大")
-    if not b_mcap: fail_parts.append(f"市值${mcap/1e9:.0f}B不足")
-    if not c_rs:   fail_parts.append(f"RS排名{m['rs_rank_pct']*100:.0f}%靠后")
-    if not d_mom20 and not d_mom5:
-        fail_parts.append(f"动量不足({m['mom20']:+.1f}%)")
-    elif not d_hv:
-        fail_parts.append(f"因年化波动率不足25%被拒签（HV_60d={m.get('hv_60d', 0.0)*100:.1f}%）")
-    reason = b_reject_note + "未通过任何分拣关卡：" + "，".join(fail_parts[:4])
-    return "?", reason, {}
+    """Thin wrapper: delegates to screener_engine using page-level ``df``."""
+    return _engine_compute_metrics(ticker, df, spy_col="SPY")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -582,3 +407,228 @@ def render_class_tab(asset_list: list, cls: str):
 
 _active_cls = st.session_state["page2_selected_group"]
 render_class_tab(class_groups[_active_cls], _active_cls)
+
+# ─────────────────────────────────────────────────────────────────
+#  历史分拣名单 — Point-in-Time 回溯
+# ─────────────────────────────────────────────────────────────────
+_SCREENER_HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "screener_history.json")
+
+
+def _load_screener_history() -> dict:
+    try:
+        if os.path.exists(_SCREENER_HISTORY_FILE):
+            with open(_SCREENER_HISTORY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+def _save_screener_history(history: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(_SCREENER_HISTORY_FILE), exist_ok=True)
+        with open(_SCREENER_HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+@st.cache_data(ttl=3600 * 6, show_spinner=False)
+def _fetch_screener_backfill_prices(tickers: tuple) -> pd.DataFrame:
+    end   = datetime.now()
+    start = end - timedelta(days=365 * 6)
+    try:
+        raw = yf.download(list(tickers) + ["SPY"], start=start, end=end, progress=False)
+        return raw["Close"].ffill().dropna(how="all")
+    except Exception:
+        return pd.DataFrame()
+
+
+def _backfill_screener_history(screen_tickers: list, meta_data: dict,
+                               tic_map: dict, months_back: int = 24) -> tuple:
+    """Re-run classify_asset at each historical month-end (Point-in-Time).
+
+    Returns (saved_count, error_msg).
+    """
+    all_dl = tuple(sorted(set(screen_tickers)))
+    price_df = _fetch_screener_backfill_prices(all_dl)
+    if price_df.empty:
+        return 0, "历史价格数据下载失败，请检查网络或稍后重试。"
+
+    today = datetime.now()
+    y, m = today.year, today.month
+    m -= 1
+    if m == 0:
+        m, y = 12, y - 1
+
+    month_ends: list = []
+    for _ in range(months_back):
+        last_day = calendar.monthrange(y, m)[1]
+        target   = pd.Timestamp(y, m, last_day)
+        avail    = price_df.index[price_df.index <= target]
+        if len(avail) > 0:
+            month_ends.append((f"{y:04d}-{m:02d}", avail[-1]))
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+
+    history = _load_screener_history()
+    saved   = 0
+
+    for month_key, me_date in month_ends:
+        loc = price_df.index.get_loc(me_date)
+        if loc < 120:
+            continue
+
+        pit_assets = classify_all_at_date(
+            price_df, loc, screen_tickers, meta_data, tic_map=tic_map,
+        )
+
+        month_record: dict = {}
+        for cls_key in ["A", "B", "C", "D", "?"]:
+            tickers_in_cls = [
+                t for t, info in pit_assets.items() if info["cls"] == cls_key
+            ]
+            month_record[cls_key] = {
+                "count": len(tickers_in_cls),
+                "tickers": sorted(tickers_in_cls),
+            }
+        history[month_key] = month_record
+        saved += 1
+
+    _save_screener_history(history)
+    return saved, ""
+
+
+# ── Section 4：历史分拣名单变化 ─────────────────────────────────
+st.markdown("---")
+st.header("3️⃣ 历史分拣名单变化 (Screener Roster Drift)")
+st.caption(
+    "Point-in-Time 回溯：用历史价格数据在每个月末重新执行粗筛分拣逻辑，"
+    "展示 ABCD 各级人数的月度变化。市值与股息率使用当前值作为近似。"
+)
+
+_bf2_col1, _bf2_col2, _bf2_col3 = st.columns([2, 1, 3])
+with _bf2_col1:
+    _bf2_months = st.selectbox(
+        "回填月数", options=[12, 18, 24, 36, 60], index=2,
+        format_func=lambda x: f"过去 {x} 个月",
+        key="bf2_months_sel",
+        help="选择要回填的历史月份数（月数越多下载时间越长）",
+    )
+with _bf2_col2:
+    _do_bf2 = st.button("🔄 回填历史分拣", use_container_width=True,
+                         help="用 yfinance 历史价格在每个月末重新跑粗筛分拣")
+with _bf2_col3:
+    st.markdown(
+        "<div style='font-size:13px; color:#666; padding-top:8px;'>"
+        "注：每个月末会对全池资产重新跑 ABCD 分拣（计算 RS/MA/回撤等），"
+        "市值和股息率使用当前快照近似。首次下载约需 60-120 秒。</div>",
+        unsafe_allow_html=True,
+    )
+
+if _do_bf2:
+    with st.spinner(f"正在下载 {len(SCREEN_TICKERS)} 只标的约 6 年历史数据并逐月分拣…"):
+        _bf2_saved, _bf2_err = _backfill_screener_history(
+            SCREEN_TICKERS, meta_data, TIC_MAP, months_back=_bf2_months,
+        )
+    if _bf2_err:
+        st.error(f"回填失败：{_bf2_err}")
+    else:
+        st.success(f"回填完成！已写入 {_bf2_saved} 个月的历史分拣档案。")
+        st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ── 历史数据展示 ─────────────────────────────────────────────────
+_scr_history = _load_screener_history()
+_CLASS_COLORS = {
+    "A": "#3498DB", "B": "#F39C12", "C": "#2ECC71", "D": "#9B59B6", "?": "#888",
+}
+_CLASS_ICONS = {"A": "⚓", "B": "🦍", "C": "👑", "D": "🔭", "?": "❓"}
+
+if not _scr_history:
+    st.info("暂无历史分拣记录。点击上方「回填历史分拣」按钮，一键生成过去 N 个月的档案。", icon="📋")
+else:
+    _sorted_months = sorted(_scr_history.keys(), reverse=True)
+
+    _header_html = (
+        "<div style='display:flex; align-items:center; padding:6px 8px; "
+        "border-bottom:2px solid #2a2a2a; font-size:13px; color:#555; font-weight:bold;'>"
+        "<div style='width:80px; flex-shrink:0;'>月份</div>"
+    )
+    for _ck in ["A", "B", "C", "D", "?"]:
+        _lbl = CLASS_META[_ck]["label"] if _ck in CLASS_META else "待审核"
+        _ico = _CLASS_ICONS[_ck]
+        _header_html += (
+            f"<div style='width:100px; text-align:center; flex-shrink:0;'>"
+            f"{_ico} {_ck if _ck != '?' else '?'}</div>"
+        )
+    _header_html += "<div style='flex:1; padding-left:8px;'>合计</div></div>"
+
+    _data_rows = ""
+    _prev_counts: dict = {}
+    for _idx, _mo in enumerate(_sorted_months):
+        _rec   = _scr_history[_mo]
+        _bg    = "#111" if _idx % 2 == 0 else "#0d0d0d"
+        _row   = (
+            f"<div style='display:flex; align-items:center; padding:8px 8px; "
+            f"background:{_bg}; border-bottom:1px solid #1a1a1a;'>"
+            f"<div style='width:80px; font-size:13px; font-weight:bold; "
+            f"color:#ccc; flex-shrink:0;'>{_mo}</div>"
+        )
+        _total = 0
+        for _ck in ["A", "B", "C", "D", "?"]:
+            _cnt   = _rec.get(_ck, {}).get("count", 0)
+            _total += _cnt
+            _color = _CLASS_COLORS[_ck]
+
+            _delta_html = ""
+            if _prev_counts:
+                _prev = _prev_counts.get(_ck, 0)
+                _diff = _cnt - _prev
+                if _diff > 0:
+                    _delta_html = f"<span style='color:#2ECC71; font-size:13px; margin-left:4px;'>+{_diff}</span>"
+                elif _diff < 0:
+                    _delta_html = f"<span style='color:#E74C3C; font-size:13px; margin-left:4px;'>{_diff}</span>"
+
+            _row += (
+                f"<div style='width:100px; text-align:center; flex-shrink:0;'>"
+                f"<span style='font-size:15px; font-weight:bold; color:{_color};'>{_cnt}</span>"
+                f"{_delta_html}</div>"
+            )
+        _row += (
+            f"<div style='flex:1; padding-left:8px; font-size:14px; color:#888;'>"
+            f"{_total}</div></div>"
+        )
+        _data_rows += _row
+        _prev_counts = {ck: _rec.get(ck, {}).get("count", 0) for ck in ["A", "B", "C", "D", "?"]}
+
+    st.markdown(
+        f"<div style='border:1px solid #333; border-radius:8px; overflow:hidden;'>"
+        f"{_header_html}{_data_rows}</div>",
+        unsafe_allow_html=True,
+    )
+
+    # 可展开查看某月具体标的
+    with st.expander("🔍 展开查看各月具体标的清单"):
+        _detail_month = st.selectbox(
+            "选择月份", options=_sorted_months, key="scr_hist_detail_month",
+        )
+        if _detail_month in _scr_history:
+            _dm = _scr_history[_detail_month]
+            for _ck in ["A", "B", "C", "D", "?"]:
+                _info = _dm.get(_ck, {})
+                _tks  = _info.get("tickers", [])
+                _cnt  = _info.get("count", 0)
+                _icon = _CLASS_ICONS[_ck]
+                _color = _CLASS_COLORS[_ck]
+                _lbl  = CLASS_META[_ck]["label"] if _ck in CLASS_META else "待人工审核"
+                st.markdown(
+                    f"<div style='margin-bottom:8px;'>"
+                    f"<span style='color:{_color}; font-weight:bold; font-size:14px;'>"
+                    f"{_icon} {_lbl}（{_cnt}）</span>"
+                    f"<span style='color:#888; font-size:13px; margin-left:12px;'>"
+                    f"{', '.join(_tks) if _tks else '—'}</span></div>",
+                    unsafe_allow_html=True,
+                )
