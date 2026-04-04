@@ -200,6 +200,36 @@ def _derive_monthly_regimes(probs: dict) -> tuple:
 #  历史榜单持久化（History Persistence）
 # ─────────────────────────────────────────────────────────────────
 _HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "arena_history.json")
+_HORSEMEN_VERDICT_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "horsemen_monthly_verdict.json")
+
+
+def _load_horsemen_verdict_archive() -> dict:
+    """Page 1「四大剧本历史裁决表」持久化副本：按月 SSOT 裁决（与 C 组宏观匹配同源概率表）。"""
+    try:
+        if os.path.exists(_HORSEMEN_VERDICT_FILE):
+            with open(_HORSEMEN_VERDICT_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("months", {}) or {}
+    except Exception:
+        pass
+    return {}
+
+
+def _verdict_cn_from_session_probs(month_key: str) -> str:
+    """当本地档案缺失时，用当前 session 的 horsemen_monthly_probs 推导该月最高概率剧本（中文）。"""
+    probs = st.session_state.get("horsemen_monthly_probs", {}).get(month_key)
+    if not probs:
+        return ""
+    _cn = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
+    w = max(probs.items(), key=lambda x: x[1])[0]
+    return _cn.get(w, "")
+
+
+def _resolve_horsemen_verdict_cn(month_key: str, archive: dict) -> str:
+    rec = archive.get(month_key)
+    if isinstance(rec, dict) and rec.get("verdict_cn"):
+        return str(rec["verdict_cn"])
+    return _verdict_cn_from_session_probs(month_key)
 
 
 def _load_arena_history() -> dict:
@@ -2095,6 +2125,8 @@ st.markdown(
 st.caption(
     f"当前赛道：{_hist_meta['label']}。纵向追踪每月末排名，"
     "方便确认哪些标的被持续输送至 Page 5 / Page 6。"
+    "「四剧本裁决」列来自 Page 1 月度表（与 C 组宏观匹配同源）；"
+    "「竞技场剧本」为当时评分写入的 B/C 或 D 派生剧本，可作对照。"
     "切换顶部 ABCD 色块即可查看其他赛道历史。"
 )
 
@@ -2135,18 +2167,26 @@ if _do_backfill:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── 当前赛道历史数据展示 ─────────────────────────────────────────
-_history      = _load_arena_history()
+_history           = _load_arena_history()
+_horsemen_archive  = _load_horsemen_verdict_archive()
 _medal_icons  = ["🥇", "🥈", "🥉"]
 _medal_colors = ["#FFD700", "#C0C0C0", "#CD7F32"]
 
 # 宏观剧本徽章（用于历史榜单宏观列）
 _REGIME_BADGE: dict = {
-    "Soft": ("<span style='color:#2ECC71; font-size:12px; font-weight:bold;'>🚗 软着陆</span>", "#2ECC71"),
-    "Hot":  ("<span style='color:#E74C3C; font-size:12px; font-weight:bold;'>🔥 再通胀</span>", "#E74C3C"),
-    "Stag": ("<span style='color:#F1C40F; font-size:12px; font-weight:bold;'>🚨 滞胀</span>",   "#F1C40F"),
-    "Rec":  ("<span style='color:#3498DB; font-size:12px; font-weight:bold;'>❄️ 衰退</span>",   "#3498DB"),
+    "Soft": ("<span style='color:#2ECC71; font-size:13px; font-weight:bold;'>🚗 软着陆</span>", "#2ECC71"),
+    "Hot":  ("<span style='color:#E74C3C; font-size:13px; font-weight:bold;'>🔥 再通胀</span>", "#E74C3C"),
+    "Stag": ("<span style='color:#F1C40F; font-size:13px; font-weight:bold;'>🚨 滞胀</span>",   "#F1C40F"),
+    "Rec":  ("<span style='color:#3498DB; font-size:13px; font-weight:bold;'>❄️ 衰退</span>",   "#3498DB"),
 }
-_REGIME_BADGE_EMPTY = ("<span style='color:#444; font-size:12px;'>—</span>", "#444")
+# Page 1 裁决表为中文「剧本裁决」列，与 EN 徽章并列使用
+_REGIME_BADGE_CN: dict = {
+    "软着陆": ("<span style='color:#2ECC71; font-size:13px; font-weight:bold;'>🚗 软着陆</span>", "#2ECC71"),
+    "再通胀": ("<span style='color:#E74C3C; font-size:13px; font-weight:bold;'>🔥 再通胀</span>", "#E74C3C"),
+    "滞胀":   ("<span style='color:#F1C40F; font-size:13px; font-weight:bold;'>🚨 滞胀</span>",   "#F1C40F"),
+    "衰退":   ("<span style='color:#3498DB; font-size:13px; font-weight:bold;'>❄️ 衰退</span>",   "#3498DB"),
+}
+_REGIME_BADGE_EMPTY = ("<span style='color:#444; font-size:13px;'>—</span>", "#444")
 
 
 def _hist_cell(rec: dict, medal_color: str) -> str:
@@ -2187,7 +2227,8 @@ else:
         _header_row = (
             f"<div style='{_TH}'>"
             f"<div style='width:80px; flex-shrink:0;'>月份</div>"
-            f"<div style='width:100px; flex-shrink:0; padding-left:4px;'>宏观背景</div>"
+            f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>四剧本裁决</div>"
+            f"<div style='width:100px; flex-shrink:0; padding-left:4px;'>竞技场剧本</div>"
             f"<div style='flex:1; padding-left:4px;'>🥇 冠军</div>"
             f"<div style='flex:1; padding-left:4px;'>🥈 亚军</div>"
             f"<div style='flex:1; padding-left:4px;'>🥉 季军</div>"
@@ -2199,12 +2240,15 @@ else:
             _meta  = _history[_mo].get("_meta", {})
             _rkey  = _meta.get("d_regime", "") if _sel4 == "D" else _meta.get("bc_regime", "")
             _badge_html, _badge_color = _REGIME_BADGE.get(_rkey, _REGIME_BADGE_EMPTY)
+            _v_cn   = _resolve_horsemen_verdict_cn(_mo, _horsemen_archive)
+            _v_html, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
             _bg    = "#111" if _idx % 2 == 0 else "#0d0d0d"
             _row   = (
                 f"<div style='display:flex; align-items:center; padding:8px 8px; "
                 f"background:{_bg}; border-bottom:1px solid #1a1a1a;'>"
                 f"<div style='width:80px; font-size:13px; font-weight:bold; "
                 f"color:{_hist_meta['color']}; flex-shrink:0;'>{_mo}</div>"
+                f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>{_v_html}</div>"
                 f"<div style='width:100px; flex-shrink:0; padding-left:4px;'>{_badge_html}</div>"
             )
             for _ri in range(3):

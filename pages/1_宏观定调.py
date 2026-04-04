@@ -5,6 +5,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
+import os
+import json
 from datetime import datetime, timedelta
 try:
     import pandas_datareader.data as web
@@ -1381,6 +1383,31 @@ if not df.empty and len(df) > 750:
         }
         for month_str, row in df_hist_horsemen.iterrows()
     }
+
+    # 持久化月度裁决（与上方「四大剧本历史裁决表」同一套月度 resample 结果），供 Page 4 历史榜并列展示
+    _horsemen_verdict_file = os.path.join(os.path.dirname(__file__), "..", "data", "horsemen_monthly_verdict.json")
+    try:
+        _verdict_months = {}
+        if not df_hist_horsemen.empty:
+            for month_str, row in df_hist_horsemen.iterrows():
+                _verdict_months[str(month_str)] = {
+                    "verdict_cn": str(row["剧本裁决"]),
+                    "verdict_en": _cn_to_en.get(row["剧本裁决"], "Soft"),
+                    "Soft": float(row["软着陆%"]) / 100.0,
+                    "Hot": float(row["再通胀%"]) / 100.0,
+                    "Stag": float(row["滞胀%"]) / 100.0,
+                    "Rec": float(row["衰退%"]) / 100.0,
+                }
+        _verdict_payload = {
+            "source": "macro_page_four_horsemen_monthly",
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "months": _verdict_months,
+        }
+        os.makedirs(os.path.dirname(_horsemen_verdict_file), exist_ok=True)
+        with open(_horsemen_verdict_file, "w", encoding="utf-8") as _hvf:
+            json.dump(_verdict_payload, _hvf, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
     items_a = [
         check(_cond_a[0], "时钟指向复苏/软着陆", f"时钟不符 ({api_clock_regime})"),
