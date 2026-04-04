@@ -567,7 +567,6 @@ else:
     _header_html += "<div style='flex:1; padding-left:8px;'>合计</div></div>"
 
     _data_rows = ""
-    _prev_counts: dict = {}
     for _idx, _mo in enumerate(_sorted_months):
         _rec   = _scr_history[_mo]
         _bg    = "#111" if _idx % 2 == 0 else "#0d0d0d"
@@ -578,14 +577,18 @@ else:
             f"color:#ccc; flex-shrink:0;'>{_mo}</div>"
         )
         _total = 0
+        # 表格按月份降序（新在上）；红绿数字 = 该行月份相对「日历上的上一个月」的增减
+        _prev_mo_rec = None
+        if _idx + 1 < len(_sorted_months):
+            _prev_mo_rec = _scr_history[_sorted_months[_idx + 1]]
         for _ck in ["A", "B", "C", "D", "?"]:
             _cnt   = _rec.get(_ck, {}).get("count", 0)
             _total += _cnt
             _color = _CLASS_COLORS[_ck]
 
             _delta_html = ""
-            if _prev_counts:
-                _prev = _prev_counts.get(_ck, 0)
+            if _prev_mo_rec is not None:
+                _prev = _prev_mo_rec.get(_ck, {}).get("count", 0)
                 _diff = _cnt - _prev
                 if _diff > 0:
                     _delta_html = f"<span style='color:#2ECC71; font-size:13px; margin-left:4px;'>+{_diff}</span>"
@@ -602,7 +605,6 @@ else:
             f"{_total}</div></div>"
         )
         _data_rows += _row
-        _prev_counts = {ck: _rec.get(ck, {}).get("count", 0) for ck in ["A", "B", "C", "D", "?"]}
 
     st.markdown(
         f"<div style='border:1px solid #333; border-radius:8px; overflow:hidden;'>"
