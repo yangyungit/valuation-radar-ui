@@ -243,11 +243,9 @@ def _load_arena_history() -> dict:
     return {}
 
 
-def _record_arena_history(cls: str, top3_records: list, month_key: str = None,
-                          bc_regime: str = None, d_regime: str = None) -> None:
+def _record_arena_history(cls: str, top3_records: list, month_key: str = None) -> None:
     """将某月某赛道的 Top 3 写入历史文件（自动覆盖同月同赛道旧数据）。
     month_key 为 None 时默认使用当前月份（YYYY-MM）。
-    bc_regime / d_regime 有值时写入 _meta，供历史榜单展示宏观背景。
     """
     if month_key is None:
         month_key = datetime.now().strftime("%Y-%m")
@@ -258,13 +256,6 @@ def _record_arena_history(cls: str, top3_records: list, month_key: str = None,
         {"ticker": r["ticker"], "name": r["name"], "score": r["score"]}
         for r in top3_records
     ]
-    if bc_regime is not None or d_regime is not None:
-        meta = history[month_key].get("_meta", {})
-        if bc_regime is not None:
-            meta["bc_regime"] = bc_regime
-        if d_regime is not None:
-            meta["d_regime"] = d_regime
-        history[month_key]["_meta"] = meta
     try:
         os.makedirs(os.path.dirname(_HISTORY_FILE), exist_ok=True)
         with open(_HISTORY_FILE, "w", encoding="utf-8") as f:
@@ -354,7 +345,7 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                 cls_tickers[_cls].append(t)
 
         _m_probs = (monthly_probs or {}).get(month_key, {})
-        bc_regime, d_regime = _derive_monthly_regimes(_m_probs)
+        bc_regime, _ = _derive_monthly_regimes(_m_probs)
 
         p_slice   = price_df.iloc[: loc + 1]
         v_slice   = vol_df.iloc[: loc + 1] if not vol_df.empty else pd.DataFrame()
@@ -465,8 +456,7 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                 {"ticker": r["Ticker"], "name": r["名称"], "score": float(r["竞技得分"])}
                 for _, r in df_scored.head(3).iterrows()
             ]
-            _record_arena_history(cls, top3, month_key=month_key,
-                                  bc_regime=bc_regime, d_regime=d_regime)
+            _record_arena_history(cls, top3, month_key=month_key)
 
         saved += 1
 
@@ -1919,8 +1909,7 @@ elif _sel4 == "C":
                 for _, row in df_scored_c.head(3).iterrows()
             ]
             st.session_state["p4_arena_leaders"] = leaders
-            _record_arena_history("C", leaders["C"],
-                                  bc_regime=macro_regime, d_regime=macro_regime_raw)
+            _record_arena_history("C", leaders["C"])
 
             # 全局数据流：C 组 Top-3 Ticker → arena_winners
             _aw = st.session_state.get("arena_winners", {})
@@ -2038,8 +2027,7 @@ elif _sel4 == "D":
                 for _, row in df_scored_d.head(3).iterrows()
             ]
             st.session_state["p4_arena_leaders"] = leaders
-            _record_arena_history("D", leaders["D"],
-                                  bc_regime=macro_regime, d_regime=macro_regime_raw)
+            _record_arena_history("D", leaders["D"])
 
             # 全局数据流：D 组 Top-3 Ticker → arena_winners
             _aw = st.session_state.get("arena_winners", {})
@@ -2125,8 +2113,7 @@ st.markdown(
 st.caption(
     f"当前赛道：{_hist_meta['label']}。纵向追踪每月末排名，"
     "方便确认哪些标的被持续输送至 Page 5 / Page 6。"
-    "「四剧本裁决」列来自 Page 1 月度表（与 C 组宏观匹配同源）；"
-    "「竞技场剧本」为当时评分写入的 B/C 或 D 派生剧本，可作对照。"
+    "「四剧本裁决」列来自 Page 1 月度表（与 C 组宏观匹配同源）。"
     "切换顶部 ABCD 色块即可查看其他赛道历史。"
 )
 
@@ -2172,14 +2159,7 @@ _horsemen_archive  = _load_horsemen_verdict_archive()
 _medal_icons  = ["🥇", "🥈", "🥉"]
 _medal_colors = ["#FFD700", "#C0C0C0", "#CD7F32"]
 
-# 宏观剧本徽章（用于历史榜单宏观列）
-_REGIME_BADGE: dict = {
-    "Soft": ("<span style='color:#2ECC71; font-size:13px; font-weight:bold;'>🚗 软着陆</span>", "#2ECC71"),
-    "Hot":  ("<span style='color:#E74C3C; font-size:13px; font-weight:bold;'>🔥 再通胀</span>", "#E74C3C"),
-    "Stag": ("<span style='color:#F1C40F; font-size:13px; font-weight:bold;'>🚨 滞胀</span>",   "#F1C40F"),
-    "Rec":  ("<span style='color:#3498DB; font-size:13px; font-weight:bold;'>❄️ 衰退</span>",   "#3498DB"),
-}
-# Page 1 裁决表为中文「剧本裁决」列，与 EN 徽章并列使用
+# Page 1 裁决表为中文「剧本裁决」列
 _REGIME_BADGE_CN: dict = {
     "软着陆": ("<span style='color:#2ECC71; font-size:13px; font-weight:bold;'>🚗 软着陆</span>", "#2ECC71"),
     "再通胀": ("<span style='color:#E74C3C; font-size:13px; font-weight:bold;'>🔥 再通胀</span>", "#E74C3C"),
@@ -2228,7 +2208,6 @@ else:
             f"<div style='{_TH}'>"
             f"<div style='width:80px; flex-shrink:0;'>月份</div>"
             f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>四剧本裁决</div>"
-            f"<div style='width:100px; flex-shrink:0; padding-left:4px;'>竞技场剧本</div>"
             f"<div style='flex:1; padding-left:4px;'>🥇 冠军</div>"
             f"<div style='flex:1; padding-left:4px;'>🥈 亚军</div>"
             f"<div style='flex:1; padding-left:4px;'>🥉 季军</div>"
@@ -2237,9 +2216,6 @@ else:
         _data_rows = ""
         for _idx, _mo in enumerate(_cls_months):
             _recs  = _history[_mo].get(_sel4, [])
-            _meta  = _history[_mo].get("_meta", {})
-            _rkey  = _meta.get("d_regime", "") if _sel4 == "D" else _meta.get("bc_regime", "")
-            _badge_html, _badge_color = _REGIME_BADGE.get(_rkey, _REGIME_BADGE_EMPTY)
             _v_cn   = _resolve_horsemen_verdict_cn(_mo, _horsemen_archive)
             _v_html, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
             _bg    = "#111" if _idx % 2 == 0 else "#0d0d0d"
@@ -2249,7 +2225,6 @@ else:
                 f"<div style='width:80px; font-size:13px; font-weight:bold; "
                 f"color:{_hist_meta['color']}; flex-shrink:0;'>{_mo}</div>"
                 f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>{_v_html}</div>"
-                f"<div style='width:100px; flex-shrink:0; padding-left:4px;'>{_badge_html}</div>"
             )
             for _ri in range(3):
                 _row += _hist_cell(_recs[_ri], _medal_colors[_ri]) if _ri < len(_recs) else _hist_empty()
