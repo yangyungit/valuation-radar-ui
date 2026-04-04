@@ -1,6 +1,7 @@
 import math
 import os
 import json
+import html
 import calendar
 import streamlit as st
 import pandas as pd
@@ -547,90 +548,118 @@ _CLASS_COLORS = {
 }
 _CLASS_ICONS = {"A": "⚓", "B": "🦍", "C": "👑", "D": "🔭", "?": "❓"}
 
+
+def _tickers_diff_html(
+    curr_tickers: list,
+    prev_tickers: list | None,
+) -> str:
+    """Render ticker list: green = new to this grade vs prev month; red = left this grade."""
+    curr = list(curr_tickers or [])
+    prev_set = set(prev_tickers or []) if prev_tickers is not None else None
+    parts: list = []
+    for t in sorted(curr):
+        et = html.escape(str(t), quote=True)
+        if prev_set is None:
+            parts.append(f"<span style='color:#ccc; font-size:13px;'>{et}</span>")
+        elif t not in prev_set:
+            parts.append(
+                f"<span style='color:#2ECC71; font-size:13px; font-weight:600;'>{et}</span>"
+            )
+        else:
+            parts.append(f"<span style='color:#ccc; font-size:13px;'>{et}</span>")
+    if prev_set is not None:
+        for t in sorted(prev_set - set(curr)):
+            et = html.escape(str(t), quote=True)
+            parts.append(
+                f"<span style='color:#E74C3C; font-size:13px; font-weight:600;'>{et}</span>"
+            )
+    if not parts:
+        return "<span style='color:#666; font-size:13px;'>—</span>"
+    return ", ".join(parts)
+
+
 if not _scr_history:
     st.info("暂无历史分拣记录。点击上方「回填历史分拣」按钮，一键生成过去 N 个月的档案。", icon="📋")
 else:
     _sorted_months = sorted(_scr_history.keys(), reverse=True)
 
+    st.markdown(
+        "<div style='font-size:13px; color:#888; margin-bottom:10px;'>"
+        "标的染色：<span style='color:#2ECC71; font-weight:600;'>绿</span> 为本档<strong>新入</strong>（相对上月）；"
+        "<span style='color:#E74C3C; font-weight:600;'>红</span> 为本档<strong>退出</strong>（相对上月）。"
+        " 人数旁 ± 与上方数字同色规则一致。</div>",
+        unsafe_allow_html=True,
+    )
+
     _header_html = (
-        "<div style='display:flex; align-items:center; padding:6px 8px; "
-        "border-bottom:2px solid #2a2a2a; font-size:13px; color:#555; font-weight:bold;'>"
+        "<div style='display:flex; align-items:flex-start; padding:8px 8px; "
+        "border-bottom:2px solid #2a2a2a; font-size:15px; color:#555; font-weight:bold;'>"
         "<div style='width:80px; flex-shrink:0;'>月份</div>"
     )
     for _ck in ["A", "B", "C", "D", "?"]:
-        _lbl = CLASS_META[_ck]["label"] if _ck in CLASS_META else "待审核"
         _ico = _CLASS_ICONS[_ck]
         _header_html += (
-            f"<div style='width:100px; text-align:center; flex-shrink:0;'>"
+            f"<div style='flex:1; min-width:140px; padding:0 4px; text-align:center;'>"
             f"{_ico} {_ck if _ck != '?' else '?'}</div>"
         )
-    _header_html += "<div style='flex:1; padding-left:8px;'>合计</div></div>"
+    _header_html += "<div style='width:56px; flex-shrink:0; text-align:right;'>合计</div></div>"
 
     _data_rows = ""
     for _idx, _mo in enumerate(_sorted_months):
-        _rec   = _scr_history[_mo]
-        _bg    = "#111" if _idx % 2 == 0 else "#0d0d0d"
-        _row   = (
-            f"<div style='display:flex; align-items:center; padding:8px 8px; "
+        _rec = _scr_history[_mo]
+        _bg  = "#111" if _idx % 2 == 0 else "#0d0d0d"
+        _row = (
+            f"<div style='display:flex; align-items:flex-start; padding:10px 8px; "
             f"background:{_bg}; border-bottom:1px solid #1a1a1a;'>"
             f"<div style='width:80px; font-size:13px; font-weight:bold; "
-            f"color:#ccc; flex-shrink:0;'>{_mo}</div>"
+            f"color:#ccc; flex-shrink:0; padding-top:2px;'>{_mo}</div>"
         )
         _total = 0
-        # 表格按月份降序（新在上）；红绿数字 = 该行月份相对「日历上的上一个月」的增减
+        # 表格按月份降序（新在上）；对比「日历上的上一个月」= 列表中下一条（更旧）记录
         _prev_mo_rec = None
         if _idx + 1 < len(_sorted_months):
             _prev_mo_rec = _scr_history[_sorted_months[_idx + 1]]
         for _ck in ["A", "B", "C", "D", "?"]:
-            _cnt   = _rec.get(_ck, {}).get("count", 0)
+            _cnt = _rec.get(_ck, {}).get("count", 0)
+            _tks = _rec.get(_ck, {}).get("tickers", [])
             _total += _cnt
             _color = _CLASS_COLORS[_ck]
 
             _delta_html = ""
             if _prev_mo_rec is not None:
-                _prev = _prev_mo_rec.get(_ck, {}).get("count", 0)
-                _diff = _cnt - _prev
+                _prev_n = _prev_mo_rec.get(_ck, {}).get("count", 0)
+                _diff = _cnt - _prev_n
                 if _diff > 0:
-                    _delta_html = f"<span style='color:#2ECC71; font-size:13px; margin-left:4px;'>+{_diff}</span>"
+                    _delta_html = (
+                        f"<span style='color:#2ECC71; font-size:13px; margin-left:4px;'>+{_diff}</span>"
+                    )
                 elif _diff < 0:
-                    _delta_html = f"<span style='color:#E74C3C; font-size:13px; margin-left:4px;'>{_diff}</span>"
+                    _delta_html = (
+                        f"<span style='color:#E74C3C; font-size:13px; margin-left:4px;'>{_diff}</span>"
+                    )
+
+            _prev_tks = None
+            if _prev_mo_rec is not None:
+                _prev_tks = _prev_mo_rec.get(_ck, {}).get("tickers", [])
+
+            _tk_html = _tickers_diff_html(_tks, _prev_tks)
 
             _row += (
-                f"<div style='width:100px; text-align:center; flex-shrink:0;'>"
+                f"<div style='flex:1; min-width:140px; padding:4px 6px;'>"
+                f"<div style='text-align:center; white-space:nowrap;'>"
                 f"<span style='font-size:15px; font-weight:bold; color:{_color};'>{_cnt}</span>"
                 f"{_delta_html}</div>"
+                f"<div style='margin-top:8px; line-height:1.5; word-break:break-word;'>{_tk_html}</div>"
+                f"</div>"
             )
         _row += (
-            f"<div style='flex:1; padding-left:8px; font-size:14px; color:#888;'>"
-            f"{_total}</div></div>"
+            f"<div style='width:56px; flex-shrink:0; text-align:right; font-size:14px; "
+            f"color:#888; padding-top:2px;'>{_total}</div></div>"
         )
         _data_rows += _row
 
     st.markdown(
-        f"<div style='border:1px solid #333; border-radius:8px; overflow:hidden;'>"
+        f"<div style='border:1px solid #333; border-radius:8px; overflow-x:auto;'>"
         f"{_header_html}{_data_rows}</div>",
         unsafe_allow_html=True,
     )
-
-    # 可展开查看某月具体标的
-    with st.expander("🔍 展开查看各月具体标的清单"):
-        _detail_month = st.selectbox(
-            "选择月份", options=_sorted_months, key="scr_hist_detail_month",
-        )
-        if _detail_month in _scr_history:
-            _dm = _scr_history[_detail_month]
-            for _ck in ["A", "B", "C", "D", "?"]:
-                _info = _dm.get(_ck, {})
-                _tks  = _info.get("tickers", [])
-                _cnt  = _info.get("count", 0)
-                _icon = _CLASS_ICONS[_ck]
-                _color = _CLASS_COLORS[_ck]
-                _lbl  = CLASS_META[_ck]["label"] if _ck in CLASS_META else "待人工审核"
-                st.markdown(
-                    f"<div style='margin-bottom:8px;'>"
-                    f"<span style='color:{_color}; font-weight:bold; font-size:14px;'>"
-                    f"{_icon} {_lbl}（{_cnt}）</span>"
-                    f"<span style='color:#888; font-size:13px; margin-left:12px;'>"
-                    f"{', '.join(_tks) if _tks else '—'}</span></div>",
-                    unsafe_allow_html=True,
-                )
