@@ -9,8 +9,7 @@ import yfinance as yf
 from datetime import datetime, timedelta
 from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         get_arena_a_factors, get_arena_b_factors,
-                        get_arena_c_factors, get_arena_d_factors,
-                        clear_api_caches)
+                        get_arena_c_factors, get_arena_d_factors)
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
     classify_asset_parallel,
@@ -1594,15 +1593,21 @@ with st.sidebar:
     )
     st.markdown("---")
     st.header("🛠️ 系统维护")
-    if st.button("🔄 轻量刷新（保留历史档案与回填缓存）"):
-        clear_api_caches()
-        st.success("实时因子缓存已刷新！历史档案和回填价格数据完好保留。")
+    if st.button("🔄 仅清除当前页缓存"):
+        fetch_core_data.clear()
+        get_global_data.clear()
+        get_stock_metadata.clear()
+        get_arena_a_factors.clear()
+        get_arena_b_factors.clear()
+        get_arena_c_factors.clear()
+        get_arena_d_factors.clear()
+        st.success("当前页缓存已清除！历史档案文件不受影响。")
         st.rerun()
-    if st.button("🗑️ 全局缓存重置（含回填价格缓存）"):
+    if st.button("🗑️ 清除所有页面缓存"):
         st.cache_data.clear()
-        st.success("全部缓存已清除（下次回填需重新下载历史价格）。历史档案文件不受影响。")
+        st.success("所有页面缓存已清除！历史档案文件不受影响。")
         st.rerun()
-    if st.button("⚠️ 清空历史档案（换策略时使用）"):
+    if st.button("⚠️ 仅清除历史月度 Top 3"):
         st.session_state["_confirm_delete_history"] = True
     if st.session_state.get("_confirm_delete_history"):
         st.warning("此操作将删除所有赛道历史月度 Top 3 记录，不可撤销。")
@@ -2343,16 +2348,48 @@ _REGIME_BADGE_CN: dict = {
 _REGIME_BADGE_EMPTY = ("<span style='color:#444; font-size:13px;'>—</span>", "#444")
 
 
-def _hist_cell(rec: dict, medal_color: str) -> str:
+def _compute_streaks(history: dict, cls: str) -> dict:
+    """按时间正序遍历，计算每个月每个标的在该赛道 Top 3 的连续在榜月数。
+    返回 {month: {ticker: streak_count}}。"""
+    sorted_months = sorted(k for k in history if not k.startswith("_"))
+    prev_tickers: set = set()
+    prev_streaks: dict = {}
+    result: dict = {}
+    for mo in sorted_months:
+        recs = history[mo].get(cls, [])[:3]
+        cur_tickers = {r["ticker"] for r in recs}
+        cur_streaks = {}
+        for tk in cur_tickers:
+            cur_streaks[tk] = prev_streaks.get(tk, 0) + 1 if tk in prev_tickers else 1
+        result[mo] = cur_streaks
+        prev_tickers = cur_tickers
+        prev_streaks = cur_streaks
+    return result
+
+
+def _streak_badge_html(streak: int) -> str:
+    if streak >= 6:
+        return (f"<span style='background:#F39C12; color:#000; font-size:13px; "
+                f"font-weight:bold; padding:0 5px; border-radius:3px; "
+                f"flex-shrink:0; margin-left:4px;'>{streak}月</span>")
+    if streak >= 3:
+        return (f"<span style='background:#2ECC71; color:#000; font-size:13px; "
+                f"font-weight:bold; padding:0 5px; border-radius:3px; "
+                f"flex-shrink:0; margin-left:4px;'>{streak}月</span>")
+    return (f"<span style='font-size:13px; color:#555; "
+            f"flex-shrink:0; margin-left:4px;'>{streak}月</span>")
+
+
+def _hist_cell(rec: dict, medal_color: str, streak: int = 0) -> str:
+    _streak_html = _streak_badge_html(streak) if streak >= 1 else ""
     return (
         f"<div style='flex:1; display:flex; align-items:baseline; gap:5px; "
         f"min-width:0; padding-left:4px;'>"
         f"<span style='font-size:14px; font-weight:bold; color:#eee; flex-shrink:0;'>"
         f"{rec['ticker']}</span>"
         f"<span style='font-size:13px; color:#888; overflow:hidden; "
-        f"text-overflow:ellipsis; white-space:nowrap; flex:1;'>{rec['name']}</span>"
-        f"<span style='font-size:13px; font-weight:bold; color:{medal_color}; "
-        f"flex-shrink:0; margin-left:4px;'>{rec['score']:.0f}</span>"
+        f"text-overflow:ellipsis; white-space:nowrap;'>{rec['name']}</span>"
+        f"{_streak_html}"
         f"</div>"
     )
 
@@ -2374,6 +2411,8 @@ else:
             icon="📋",
         )
     else:
+        _streaks_map = _compute_streaks(_history, _sel4)
+
         _TH = (
             "display:flex; align-items:center; padding:6px 8px; "
             "border-bottom:2px solid #2a2a2a; font-size:13px; color:#555; font-weight:bold;"
@@ -2390,6 +2429,7 @@ else:
         _data_rows = ""
         for _idx, _mo in enumerate(_cls_months):
             _recs  = _history[_mo].get(_sel4, [])
+            _mo_streaks = _streaks_map.get(_mo, {})
             _v_cn   = _resolve_horsemen_verdict_cn(_mo, _horsemen_archive)
             _v_html, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
             _bg    = "#111" if _idx % 2 == 0 else "#0d0d0d"
@@ -2401,7 +2441,10 @@ else:
                 f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>{_v_html}</div>"
             )
             for _ri in range(3):
-                _row += _hist_cell(_recs[_ri], _medal_colors[_ri]) if _ri < len(_recs) else _hist_empty()
+                if _ri < len(_recs):
+                    _row += _hist_cell(_recs[_ri], _medal_colors[_ri], _mo_streaks.get(_recs[_ri]["ticker"], 0))
+                else:
+                    _row += _hist_empty()
             _row += "</div>"
             _data_rows += _row
 

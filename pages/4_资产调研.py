@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os, json
 import plotly.graph_objects as go
-from api_client import fetch_core_data, clear_api_caches
+from api_client import fetch_core_data
 
 st.set_page_config(page_title="资产矩阵与雷达", layout="wide", page_icon="📡")
 
@@ -150,13 +151,13 @@ with st.sidebar:
     only_bullish = st.checkbox("仅显示趋势健康资产 (MA20 > MA60)", value=False)
     st.markdown("---")
     st.header("🛠️ 系统维护")
-    if st.button("🔄 轻量刷新（仅刷新 API 数据）"):
-        clear_api_caches()
-        st.success("API 缓存已刷新！历史价格数据保留。")
+    if st.button("🔄 仅清除当前页缓存"):
+        fetch_core_data.clear()
+        st.success("当前页缓存已清除！")
         st.rerun()
-    if st.button("🗑️ 全局缓存重置（含历史价格）"):
+    if st.button("🗑️ 清除所有页面缓存"):
         st.cache_data.clear()
-        st.success("全部缓存已清除！")
+        st.success("所有页面缓存已清除！")
         st.rerun()
 
 # ─────────────────────────────────────────────────────────────────
@@ -180,24 +181,36 @@ if "abcd_classified_assets" not in st.session_state:
 all_assets: dict = st.session_state["abcd_classified_assets"]
 
 # ─────────────────────────────────────────────────────────────────
-#  构建绘图数据框
+#  构建绘图数据框（按 qualifying_grades 展开，与 page3 对齐）
 # ─────────────────────────────────────────────────────────────────
+_GRADE_JITTER = {"A": (0, 0), "B": (0.06, 0.4), "C": (-0.06, -0.4), "D": (0.04, -0.6)}
+
 rows = []
 for ticker, info in all_assets.items():
-    cls = info.get("cls", "?")
-    if not info.get("has_data") or cls not in CLASS_META:
+    if not info.get("has_data"):
         continue
-    rows.append({
-        "Ticker":     ticker,
-        "名称":       info.get("cn_name", ticker),
-        "类别":       cls,
-        "Z-Score":    float(info.get("z_score", 0.0)),
-        "20日动量":   float(info.get("mom20", 0.0)),
-        "趋势健康":   bool(info.get("is_bullish", False)),
-        "趋势标签":   "✅ 趋势健康" if info.get("is_bullish") else "🔒 趋势走弱",
-        "判定理由":   info.get("reason", "—"),
-        "分类方法":   info.get("method", "—"),
-    })
+    q_grades = [g for g in info.get("qualifying_grades", []) if g in CLASS_META]
+    if not q_grades:
+        continue
+    primary = info.get("cls", q_grades[0])
+    all_badges = " + ".join(q_grades)
+    base_z   = float(info.get("z_score", 0.0))
+    base_mom = float(info.get("mom20", 0.0))
+    for g in q_grades:
+        jx, jy = _GRADE_JITTER.get(g, (0, 0)) if len(q_grades) > 1 else (0, 0)
+        rows.append({
+            "Ticker":     ticker,
+            "名称":       info.get("cn_name", ticker),
+            "类别":       g,
+            "is_primary": g == primary,
+            "all_grades": all_badges,
+            "Z-Score":    base_z + jx,
+            "20日动量":   base_mom + jy,
+            "趋势健康":   bool(info.get("is_bullish", False)),
+            "趋势标签":   "✅ 趋势健康" if info.get("is_bullish") else "🔒 趋势走弱",
+            "判定理由":   info.get("reason", "—"),
+            "分类方法":   info.get("method", "—"),
+        })
 
 if not rows:
     st.error("分拣数据中无可用技术指标，请返回 Page 4 检查数据加载状态。")
@@ -253,40 +266,52 @@ else:
             fillcolor=fc, line_width=0, layer="below",
         )
 
-    # 每个 ABCD 类单独一条轨迹（确保图例完整且颜色独立）
+    # 每个 ABCD 类单独一条轨迹；多级别副本用空心环标记
     for cls in ["A", "B", "C", "D"]:
         sub = df_show[df_show["类别"] == cls]
         if sub.empty:
             continue
         meta = CLASS_META[cls]
-        # 悬浮提示用的 customdata 列
-        custom = list(zip(
-            sub["名称"].tolist(),
-            sub["趋势标签"].tolist(),
-            sub["判定理由"].tolist(),
-        ))
-        fig.add_trace(go.Scatter(
-            x=sub["Z-Score"].tolist(),
-            y=sub["20日动量"].tolist(),
-            mode="markers+text",
-            name=f"{meta['icon']} {meta['label']}",
-            marker=dict(
-                color=meta["color"], size=13, opacity=0.88,
-                line=dict(color="#111111", width=1),
-                symbol="circle",
-            ),
-            text=sub["Ticker"].tolist(),
-            textposition="top center",
-            textfont=dict(size=9, color=meta["color"]),
-            customdata=custom,
-            hovertemplate=(
-                "<b>%{text}</b>  %{customdata[0]}<br>"
-                "Z-Score: <b>%{x:.2f}</b>　　20日动量: <b>%{y:.1f}%</b><br>"
-                "趋势: %{customdata[1]}<br>"
-                "<span style='color:#aaa; font-size:10px;'>%{customdata[2]}</span>"
-                "<extra></extra>"
-            ),
-        ))
+        sub_primary   = sub[sub["is_primary"]]
+        sub_secondary = sub[~sub["is_primary"]]
+
+        for part, is_pri in [(sub_primary, True), (sub_secondary, False)]:
+            if part.empty:
+                continue
+            custom = list(zip(
+                part["名称"].tolist(),
+                part["趋势标签"].tolist(),
+                part["判定理由"].tolist(),
+                part["all_grades"].tolist(),
+            ))
+            fig.add_trace(go.Scatter(
+                x=part["Z-Score"].tolist(),
+                y=part["20日动量"].tolist(),
+                mode="markers+text" if is_pri else "markers",
+                name=f"{meta['icon']} {meta['label']}",
+                legendgroup=cls,
+                showlegend=is_pri,
+                marker=dict(
+                    color=meta["color"] if is_pri else "rgba(0,0,0,0)",
+                    size=13 if is_pri else 16,
+                    opacity=0.88 if is_pri else 0.7,
+                    line=dict(color=meta["color"], width=1 if is_pri else 2.5),
+                    symbol="circle" if is_pri else "circle-open",
+                ),
+                text=part["Ticker"].tolist() if is_pri else None,
+                textposition="top center" if is_pri else None,
+                textfont=dict(size=9, color=meta["color"]) if is_pri else None,
+                customdata=custom,
+                hovertemplate=(
+                    "<b>%{customdata[3]}</b><br>"
+                    "<b>" + ("" if is_pri else "⭕ 副级别 ") + meta["label"] + "</b>: "
+                    "%{customdata[0]}<br>"
+                    "Z-Score: <b>%{x:.2f}</b>　　20日动量: <b>%{y:.1f}%</b><br>"
+                    "趋势: %{customdata[1]}<br>"
+                    "<span style='color:#aaa; font-size:10px;'>%{customdata[2]}</span>"
+                    "<extra></extra>"
+                ),
+            ))
 
     # 坐标轴基准线
     fig.add_hline(y=0, line_dash="dot", line_color="rgba(255,255,255,0.2)", line_width=1)
@@ -336,12 +361,29 @@ st.markdown("---")
 #  Section 2：资产宇宙统计卡片
 # ─────────────────────────────────────────────────────────────────
 st.header("2️⃣ 资产宇宙概览 (Universe Snapshot)")
+
+_qg_total:   dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0}
+_qg_show:    dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0}
+_qg_bullish: dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0}
+for _tk, _inf in all_assets.items():
+    if not _inf.get("has_data"):
+        continue
+    _bull = bool(_inf.get("is_bullish", False))
+    for _g in _inf.get("qualifying_grades", []):
+        if _g not in _qg_total:
+            continue
+        _qg_total[_g] += 1
+        if _bull:
+            _qg_bullish[_g] += 1
+        if _g in selected_cls and (not only_bullish or _bull):
+            _qg_show[_g] += 1
+
 stat_cols = st.columns(4)
 for i, cls in enumerate(["A", "B", "C", "D"]):
     meta = CLASS_META[cls]
-    total_n   = len(df_all[df_all["类别"] == cls])
-    show_n    = len(df_show[df_show["类别"] == cls])
-    bullish_n = len(df_all[(df_all["类别"] == cls) & df_all["趋势健康"]])
+    total_n   = _qg_total[cls]
+    show_n    = _qg_show[cls]
+    bullish_n = _qg_bullish[cls]
     bull_pct  = round(bullish_n / total_n * 100) if total_n else 0
     with stat_cols[i]:
         st.markdown(f"""
@@ -355,6 +397,140 @@ for i, cls in enumerate(["A", "B", "C", "D"]):
         </div>
         """, unsafe_allow_html=True)
 
+# ─────────────────────────────────────────────────────────────────
+#  Section 2.5：竞技场胜出者 (Arena Top-2 Winners)
+# ─────────────────────────────────────────────────────────────────
+_ARENA_HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "arena_history.json")
+_arena_hist: dict = {}
+try:
+    if os.path.exists(_ARENA_HISTORY_FILE):
+        with open(_ARENA_HISTORY_FILE, "r", encoding="utf-8") as _f:
+            _arena_hist = json.load(_f)
+except Exception:
+    pass
+
+if _arena_hist:
+    _sorted_months = sorted(
+        [k for k in _arena_hist if not k.startswith("_")],
+        reverse=True,
+    )
+    _latest_month = _sorted_months[0] if _sorted_months else None
+
+    def _calc_streak(ticker: str, cls: str) -> int:
+        """从最新月份往前回溯，统计 ticker 连续出现在该赛道 Top 3 中的月数。"""
+        streak = 0
+        for mo in _sorted_months:
+            entry = _arena_hist[mo].get(cls, [])
+            tickers_in_top3 = [r.get("ticker") for r in entry[:3]]
+            if ticker in tickers_in_top3:
+                streak += 1
+            else:
+                break
+        return streak
+
+    st.markdown(
+        "<div style='margin-top:24px; margin-bottom:8px;'>"
+        "<span style='font-size:18px; font-weight:bold; color:#eee;'>"
+        "🏆 竞技场胜出者 (Arena Top-2)"
+        "</span>"
+        "<span style='font-size:13px; color:#888; margin-left:12px;'>"
+        "来自 Page 3 资产细筛 — 各赛道综合评分前两名"
+        "</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    if _latest_month:
+        _latest_entry = _arena_hist[_latest_month]
+        _winner_cols = st.columns(4)
+        for _ci, _cls in enumerate(["A", "B", "C", "D"]):
+            _cmeta = CLASS_META[_cls]
+            _top2 = _latest_entry.get(_cls, [])[:2]
+            with _winner_cols[_ci]:
+                _inner = ""
+                for _ri, _rec in enumerate(_top2):
+                    _medal = "🥇" if _ri == 0 else "🥈"
+                    _sc = _rec.get("score", 0)
+                    _tk = _rec.get("ticker", "?")
+                    _streak = _calc_streak(_tk, _cls)
+                    if _streak >= 6:
+                        _streak_badge = f"<span style='background:#F39C12; color:#000; font-size:13px; font-weight:bold; padding:1px 6px; border-radius:4px; margin-left:6px;'>🔥 连续{_streak}月</span>"
+                    elif _streak >= 3:
+                        _streak_badge = f"<span style='background:#2ECC71; color:#000; font-size:13px; font-weight:bold; padding:1px 6px; border-radius:4px; margin-left:6px;'>✅ 连续{_streak}月</span>"
+                    elif _streak >= 1:
+                        _streak_badge = f"<span style='font-size:13px; color:#888; margin-left:6px;'>{_streak}月</span>"
+                    else:
+                        _streak_badge = ""
+                    _inner += (
+                        f"<div style='display:flex; align-items:center; gap:8px; padding:6px 0;"
+                        f" border-bottom:1px solid #ffffff10;'>"
+                        f"<span style='font-size:16px;'>{_medal}</span>"
+                        f"<div>"
+                        f"<span style='font-size:14px; font-weight:bold; color:#eee;'>"
+                        f"{_tk}</span>"
+                        f"<span style='font-size:13px; color:#999; margin-left:6px;'>"
+                        f"{_rec.get('name','')}</span>"
+                        f"<div style='font-size:13px; color:{_cmeta['color']};'>"
+                        f"得分 {_sc:.1f}{_streak_badge}</div>"
+                        f"</div></div>"
+                    )
+                if not _top2:
+                    _inner = "<div style='color:#555; font-size:13px; padding:10px 0;'>暂无数据</div>"
+                st.markdown(
+                    f"<div style='background:{_cmeta['color']}10; border:1px solid {_cmeta['color']}44;"
+                    f" border-radius:8px; padding:12px; min-height:120px;'>"
+                    f"<div style='font-size:14px; font-weight:bold; color:{_cmeta['color']};"
+                    f" margin-bottom:6px;'>{_cmeta['icon']} {_cmeta['label']}</div>"
+                    f"{_inner}</div>",
+                    unsafe_allow_html=True,
+                )
+
+    def _compute_streaks_p4(cls: str) -> dict:
+        """按时间正序遍历，计算每月每个标的在该赛道 Top 3 的连续在榜月数。"""
+        _months_asc = sorted(k for k in _arena_hist if not k.startswith("_"))
+        _prev_tk: set = set()
+        _prev_st: dict = {}
+        _res: dict = {}
+        for _m in _months_asc:
+            _recs = _arena_hist[_m].get(cls, [])[:3]
+            _cur_tk = {r["ticker"] for r in _recs}
+            _cur_st = {}
+            for _t in _cur_tk:
+                _cur_st[_t] = _prev_st.get(_t, 0) + 1 if _t in _prev_tk else 1
+            _res[_m] = _cur_st
+            _prev_tk = _cur_tk
+            _prev_st = _cur_st
+        return _res
+
+    _all_streaks = {c: _compute_streaks_p4(c) for c in ["A", "B", "C", "D"]}
+
+    with st.expander(f"📅 历史月度 Top-2 胜出者（共 {len(_sorted_months)} 个月）", expanded=False):
+        _hist_rows = []
+        for _mo in _sorted_months:
+            _entry = _arena_hist[_mo]
+            _row: dict = {"月份": _mo}
+            for _cls in ["A", "B", "C", "D"]:
+                _top2 = _entry.get(_cls, [])[:2]
+                _mo_st = _all_streaks[_cls].get(_mo, {})
+                if len(_top2) >= 1:
+                    _s1 = _mo_st.get(_top2[0]["ticker"], 0)
+                    _row[f"{_cls}🥇"] = f"{_top2[0]['ticker']} ({_s1}月)"
+                else:
+                    _row[f"{_cls}🥇"] = "—"
+                if len(_top2) >= 2:
+                    _s2 = _mo_st.get(_top2[1]["ticker"], 0)
+                    _row[f"{_cls}🥈"] = f"{_top2[1]['ticker']} ({_s2}月)"
+                else:
+                    _row[f"{_cls}🥈"] = "—"
+            _hist_rows.append(_row)
+
+        _df_hist = pd.DataFrame(_hist_rows)
+        st.dataframe(
+            _df_hist,
+            use_container_width=True,
+            hide_index=True,
+            height=min(400, 36 * len(_hist_rows) + 38),
+        )
+
 st.markdown("---")
 
 # ─────────────────────────────────────────────────────────────────
@@ -362,15 +538,18 @@ st.markdown("---")
 # ─────────────────────────────────────────────────────────────────
 st.header("3️⃣ 资产深度查询 (Asset Intelligence Panel)")
 
-if df_show.empty:
+df_show_unique = df_show.drop_duplicates(subset="Ticker", keep="first")
+
+if df_show_unique.empty:
     st.info("当前过滤条件下无可查询资产。")
     st.stop()
 
-# 下拉选项：Ticker | 名称 | 类别标签
+# 下拉选项：Ticker | 名称 | 所有符合级别
 options = []
-for _, row in df_show.iterrows():
+for _, row in df_show_unique.iterrows():
+    badges = row.get("all_grades", row["类别"])
     meta = CLASS_META[row["类别"]]
-    options.append(f"{row['Ticker']}  |  {row['名称']}  |  {meta['icon']} {meta['label']}")
+    options.append(f"{row['Ticker']}  |  {row['名称']}  |  {meta['icon']} {badges}")
 
 selected_option = st.selectbox(
     "选择资产，查看完整档案与类别投资逻辑：",
@@ -392,7 +571,7 @@ for scenario, tickers_in_scenario in _macro_tags_map.items():
         _ticker_macro.setdefault(t, []).append(scenario)
 
 sel_ticker = selected_option.split("  |  ")[0].strip()
-sel_row    = df_show[df_show["Ticker"] == sel_ticker].iloc[0]
+sel_row    = df_show_unique[df_show_unique["Ticker"] == sel_ticker].iloc[0]
 sel_cls    = sel_row["类别"]
 sel_meta   = CLASS_META[sel_cls]
 
