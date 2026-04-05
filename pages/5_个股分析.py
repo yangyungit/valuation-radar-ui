@@ -3,7 +3,7 @@ import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from api_client import fetch_core_data, fetch_vcp_analysis, clear_api_caches
+from api_client import fetch_core_data, fetch_vcp_analysis
 
 core_data = fetch_core_data()
 TIC_MAP = core_data.get("TIC_MAP", {})
@@ -27,13 +27,14 @@ st.markdown("""
 # ── Sidebar ──
 with st.sidebar:
     st.header("🛠️ 系统维护")
-    if st.button("🔄 轻量刷新（仅刷新 API 数据）"):
-        clear_api_caches()
-        st.success("API 缓存已刷新！历史价格数据保留。")
+    if st.button("🔄 仅清除当前页缓存"):
+        fetch_core_data.clear()
+        fetch_vcp_analysis.clear()
+        st.success("当前页缓存已清除！")
         st.rerun()
-    if st.button("🗑️ 全局缓存重置（含历史价格）"):
+    if st.button("🗑️ 清除所有页面缓存"):
         st.cache_data.clear()
-        st.success("全部缓存已清除！")
+        st.success("所有页面缓存已清除！")
         st.rerun()
 
 # ── 目标选择逻辑（主区域顶部） ──

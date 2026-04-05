@@ -1,17 +1,15 @@
 import streamlit as st
-from api_client import clear_api_caches
 
 st.set_page_config(page_title="词频统计与标的发现", layout="wide", page_icon="📊")
 
 with st.sidebar:
     st.header("🛠️ 系统维护")
-    if st.button("🔄 轻量刷新（仅刷新 API 数据）"):
-        clear_api_caches()
-        st.success("API 缓存已刷新！历史价格数据保留。")
+    if st.button("🔄 仅清除当前页缓存"):
+        st.info("当前页暂无数据缓存，已刷新页面。")
         st.rerun()
-    if st.button("🗑️ 全局缓存重置（含历史价格）"):
+    if st.button("🗑️ 清除所有页面缓存"):
         st.cache_data.clear()
-        st.success("全部缓存已清除！")
+        st.success("所有页面缓存已清除！")
         st.rerun()
 
 st.title("📊 词频统计与标的发现 (Word Frequency & Ticker Discovery)")

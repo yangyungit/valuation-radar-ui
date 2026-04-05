@@ -6,7 +6,7 @@ import numpy as np
 import json
 import os
 
-from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_funnel_scores, fetch_rolling_backtest, clear_api_caches
+from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_funnel_scores, fetch_rolling_backtest
 
 core_data = fetch_core_data()
 
@@ -18,14 +18,19 @@ st.set_page_config(page_title="Moltbot 首席投资官中枢", layout="wide", pa
 
 with st.sidebar:
     st.header("🛠️ 系统维护")
-    if st.button("🔄 轻量刷新（仅刷新 API 数据）"):
-        clear_api_caches()
-        st.success("API 缓存已刷新！回测数据保留。")
+    if st.button("🔄 仅清除当前页缓存"):
+        fetch_core_data.clear()
+        get_global_data.clear()
+        get_stock_metadata.clear()
+        fetch_funnel_scores.clear()
+        fetch_rolling_backtest.clear()
+        st.session_state.pop("bt_result_cache", None)
+        st.success("当前页缓存已清除！")
         st.rerun()
-    if st.button("🗑️ 全局缓存重置（含回测与历史价格）"):
+    if st.button("🗑️ 清除所有页面缓存"):
         st.cache_data.clear()
         st.session_state.pop("bt_result_cache", None)
-        st.success("全局缓存已清除！")
+        st.success("所有页面缓存已清除！")
         st.rerun()
 
     st.markdown("---")
