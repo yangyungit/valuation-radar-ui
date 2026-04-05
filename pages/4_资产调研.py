@@ -503,24 +503,49 @@ if _arena_hist:
 
     _all_streaks = {c: _compute_streaks_p4(c) for c in ["A", "B", "C", "D"]}
 
+    _holdings_map: dict = {}
+    for _cls in ["A", "B", "C", "D"]:
+        _months_asc = sorted(k for k in _arena_hist if not k.startswith("_"))
+        _prev_hold: set = set()
+        _cls_map: dict = {}
+        for _m in _months_asc:
+            _recs = _arena_hist[_m].get(_cls, [])
+            _t2_set = {r["ticker"] for r in _recs[:2]}
+            _t3_set = {r["ticker"] for r in _recs[:3]}
+            _t2_list = [r["ticker"] for r in _recs[:2]]
+            if _prev_hold and _prev_hold.issubset(_t3_set):
+                _hold = _prev_hold
+            else:
+                _hold = _t2_set
+            _cls_map[_m] = {"hold": _hold, "top2": _t2_list, "diff": _hold != _t2_set}
+            _prev_hold = _hold
+        _holdings_map[_cls] = _cls_map
+
     with st.expander(f"📅 历史月度 Top-2 胜出者（共 {len(_sorted_months)} 个月）", expanded=False):
         _hist_rows = []
         for _mo in _sorted_months:
             _entry = _arena_hist[_mo]
             _row: dict = {"月份": _mo}
             for _cls in ["A", "B", "C", "D"]:
-                _top2 = _entry.get(_cls, [])[:2]
+                _h = _holdings_map[_cls].get(_mo, {})
+                _hold_set = _h.get("hold", set())
+                _t2_list = _h.get("top2", [])
+                _is_diff = _h.get("diff", False)
                 _mo_st = _all_streaks[_cls].get(_mo, {})
-                if len(_top2) >= 1:
-                    _s1 = _mo_st.get(_top2[0]["ticker"], 0)
-                    _row[f"{_cls}🥇"] = f"{_top2[0]['ticker']} ({_s1}月)"
-                else:
-                    _row[f"{_cls}🥇"] = "—"
-                if len(_top2) >= 2:
-                    _s2 = _mo_st.get(_top2[1]["ticker"], 0)
-                    _row[f"{_cls}🥈"] = f"{_top2[1]['ticker']} ({_s2}月)"
-                else:
-                    _row[f"{_cls}🥈"] = "—"
+
+                _all_recs = _entry.get(_cls, [])[:3]
+                _hold_recs = [r for r in _all_recs if r["ticker"] in _hold_set]
+                _hold_recs.sort(key=lambda r: _mo_st.get(r["ticker"], 0), reverse=True)
+
+                _parts = []
+                for _rec in _hold_recs:
+                    _s = _mo_st.get(_rec["ticker"], 0)
+                    _parts.append(f"{_rec['ticker']}({_s}月)")
+
+                _cell = " / ".join(_parts) if _parts else "—"
+                if _is_diff and _t2_list:
+                    _cell += f" [Top2→{'/'.join(_t2_list)}]"
+                _row[f"{_cls} 持仓"] = _cell
             _hist_rows.append(_row)
 
         _df_hist = pd.DataFrame(_hist_rows)
