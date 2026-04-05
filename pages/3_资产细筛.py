@@ -74,6 +74,12 @@ CLASS_META: dict = {
         "color": "#9B59B6",
         "bg": "#1a0d2b",
     },
+    "Z": {
+        "label": "Z级：现金流堡垒",
+        "icon": "🏦",
+        "color": "#1ABC9C",
+        "bg": "#0d2b25",
+    },
 }
 
 # ─────────────────────────────────────────────────────────────────
@@ -102,21 +108,23 @@ ARENA_CONFIG: dict = {
     },
     "B": {
         "score_name": "核心底仓质量指数",
-        "weights": {"real_quality": 0.40, "resilience": 0.30, "sharpe_1y": 0.20, "mcap_premium": 0.10},
+        "weights": {"real_quality": 0.35, "resilience": 0.25, "sharpe_1y": 0.20, "mcap_premium": 0.10, "revenue_growth": 0.10},
         "invert_z": False,
         "factor_labels": {
-            "real_quality":  "真·护城河质量 (股息率+盈利稳定性)",
-            "resilience":    "抗跌韧性 (近1年最大回撤倒数)",
-            "sharpe_1y":     "长效性价比 (近1年夏普比率)",
-            "mcap_premium":  "绝对体量 (log10市值壁垒)",
+            "real_quality":   "真·护城河质量 (股息率+盈利稳定性)",
+            "resilience":     "抗跌韧性 (近1年最大回撤倒数)",
+            "sharpe_1y":      "长效性价比 (近1年夏普比率)",
+            "mcap_premium":   "绝对体量 (log10市值壁垒)",
+            "revenue_growth": "成长弹性 (Revenue 增速)",
         },
         "logic": (
-            "核心底仓质量指数：彻底剔除短期动量，追求极低换手率与极强抗跌性。<br>"
-            "① 真·护城河质量（股息率 + 盈利稳定性双因子代理 FCF/ROIC，权重 40%）<br>"
-            "② 抗跌韧性（近 1 年最大回撤越小得分越高，权重 30%）<br>"
+            "核心底仓质量指数：兼顾防御与成长弹性，追求极低换手率与极强抗跌性。<br>"
+            "① 真·护城河质量（股息率 + 盈利稳定性双因子代理，权重 35%）<br>"
+            "② 抗跌韧性（近 1 年最大回撤越小得分越高，权重 25%）<br>"
             "③ 长效性价比（近 1 年夏普比率，长期风险调整收益，权重 20%）<br>"
             "④ 绝对体量（log10 市值壁垒，大象起舞加分，权重 10%）<br>"
-            "高分者将形成稳固的长期护城河。"
+            "⑤ 成长弹性（Revenue 增速，避免纯防御型占位，权重 10%）<br>"
+            "高分者兼具护城河深度与成长宽度。"
         ),
     },
     "C": {
@@ -154,6 +162,25 @@ ARENA_CONFIG: dict = {
             "② 相对强度 Alpha（近 20 日超越 SPY 超额收益率，时代之王预备特征，权重 35%）<br>"
             "③ 均线起飞姿态（价格与季线 MA60 位置关系，最佳为刚突破 0-20%，乖离过大扣分，权重 20%）<br>"
             "D 组不区分行业，只看爆发质量：高分即送入 C 组候选，低分说明是骗炮。"
+        ),
+    },
+    "Z": {
+        "score_name": "现金流堡垒指数",
+        "weights": {"div_yield": 0.40, "eps_stability": 0.25, "vol_inv": 0.20, "max_dd_inv": 0.15},
+        "invert_z": False,
+        "factor_labels": {
+            "div_yield":     "现金奶牛 (真实股息率)",
+            "eps_stability": "分红续航力 (盈利稳定性)",
+            "vol_inv":       "绝对低波 (年化波动率倒数)",
+            "max_dd_inv":    "本金盾 (最大回撤倒数)",
+        },
+        "logic": (
+            "Z 组「现金流堡垒」使命：筛选能持续提供真实现金流收入的资产。<br>"
+            "① 真实股息率（年化股息率，权重 40%）— 拿到手的钱最重要<br>"
+            "② 分红续航力（盈利稳定性代理，权重 25%）— 确保分红可持续<br>"
+            "③ 绝对低波（年化波动率倒数，权重 20%）— 收息仓不坐过山车<br>"
+            "④ 本金盾（最大回撤倒数，权重 15%）— 保护本金安全<br>"
+            "入选门槛：股息率 ≥ 1%。零股息资产（如 GLD）不参赛。"
         ),
     },
 }
@@ -375,7 +402,7 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
             for t, info in pit_assets.items()
         }
 
-        cls_tickers: dict = {"A": [], "B": [], "C": [], "D": []}
+        cls_tickers: dict = {"A": [], "B": [], "C": [], "D": [], "Z": []}
         for t, info in pit_assets.items():
             for g in info.get("qualifying_grades", []):
                 if g in cls_tickers:
@@ -450,6 +477,21 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                         "夏普比率": sharpe_b,
                         "市值对数": 9.0,
                         "EPS稳定性": eps_stability_b,
+                        "Revenue增速": 0.0,
+                    })
+
+                elif cls == "Z":
+                    p_1yr_z = p.tail(min(252, len(p)))
+                    daily_ret_z = p_1yr_z.pct_change().dropna()
+                    vol_z_ann = float(daily_ret_z.std() * np.sqrt(252)) if len(daily_ret_z) > 10 else 0.3
+                    roll_max_z = p_1yr_z.cummax()
+                    max_dd_z = float((p_1yr_z / roll_max_z - 1.0).min()) if not p_1yr_z.empty else 0.0
+                    eps_stab_z = 1.0 / max(vol_z_ann, 0.01)
+                    row.update({
+                        "股息率": meta_data.get(t, {}).get("div_yield", 0.0),
+                        "年化波动率": vol_z_ann,
+                        "最大回撤_raw": max_dd_z,
+                        "EPS稳定性": eps_stab_z,
                     })
 
                 elif cls == "C":
@@ -486,6 +528,8 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                 df_scored = compute_scorecard_a(df_cls)
             elif cls == "B":
                 df_scored = compute_scorecard_b(df_cls)
+            elif cls == "Z":
+                df_scored = compute_scorecard_z(df_cls)
             elif cls == "C":
                 df_scored = compute_scorecard_c(df_cls, bc_regime)
             elif cls == "D":
@@ -513,6 +557,7 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
 FACTOR_ANCHORS: dict = {
     "max_dd_inv":    (-0.25, -0.03),
     "div_yield":     (0.0, 5.0),
+    "div_yield_z":   (0.0, 8.0),       # Z 组股息率上限扩至 8%（覆盖 REITs/高息 ETF）
     "spy_corr_inv":  (-0.8, 0.3),
     "vol_inv":       (0.40, 0.08),
     "sharpe_1y":     (-0.5, 2.5),
@@ -524,6 +569,7 @@ FACTOR_ANCHORS: dict = {
     "vol_z":         (-1.0, 4.0),
     "rs_20d":        (-10.0, 25.0),
     "ma60_breakout": (0.0, 100.0),
+    "revenue_growth": (-5.0, 25.0),    # B 组收入增速 %
 }
 
 
@@ -745,13 +791,14 @@ def compute_scorecard_b(df: pd.DataFrame) -> pd.DataFrame:
     """
     ScorecardB -- B 组「核心底仓质量指数」评分体系 (满分 100 分)
 
-    Score_B = (40 x RealQuality) + (30 x Resilience)
-            + (20 x Sharpe1Y) + (10 x MCapPremium)
+    Score_B = (35 x RealQuality) + (25 x Resilience)
+            + (20 x Sharpe1Y) + (10 x MCapPremium) + (10 x RevenueGrowth)
 
-    RealQuality = (DivYield_norm + EPS_Stability_norm) / 2
-    Resilience  = inverse MaxDrawdown (closer to 0 = higher score)
-    Sharpe1Y    = annualized Sharpe ratio
-    MCapPremium = log10(MCap) normalized
+    RealQuality    = (DivYield_norm + EPS_Stability_norm) / 2
+    Resilience     = inverse MaxDrawdown (closer to 0 = higher score)
+    Sharpe1Y       = annualized Sharpe ratio
+    MCapPremium    = log10(MCap) normalized
+    RevenueGrowth  = TTM Revenue growth rate %
     """
     if df.empty:
         return df
@@ -773,10 +820,61 @@ def compute_scorecard_b(df: pd.DataFrame) -> pd.DataFrame:
     mcap_raw = result.get("市值对数", pd.Series(9.0, index=result.index)).astype(float).fillna(9.0)
     f4_norm = _anchor_norm(mcap_raw, *FACTOR_ANCHORS["log_mcap"])
 
-    result["因子1_分"] = (0.40 * f1_norm).round(1)
-    result["因子2_分"] = (0.30 * f2_norm).round(1)
+    rev_raw = result.get("Revenue增速", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f5_norm = _anchor_norm(rev_raw, *FACTOR_ANCHORS["revenue_growth"])
+
+    result["因子1_分"] = (0.35 * f1_norm).round(1)
+    result["因子2_分"] = (0.25 * f2_norm).round(1)
     result["因子3_分"] = (0.20 * f3_norm).round(1)
     result["因子4_分"] = (0.10 * f4_norm).round(1)
+    result["因子5_分"] = (0.10 * f5_norm).round(1)
+
+    result["竞技得分"] = (
+        result["因子1_分"] + result["因子2_分"] + result["因子3_分"]
+        + result["因子4_分"] + result["因子5_分"]
+    ).round(1)
+
+    result = result.sort_values("竞技得分", ascending=False).reset_index(drop=True)
+    result["排名"] = range(1, len(result) + 1)
+    return result
+
+
+def compute_scorecard_z(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    ScorecardZ -- Z 组「现金流堡垒指数」评分体系 (满分 100 分)
+
+    Score_Z = (40 x DivYield) + (25 x EPS_Stability)
+            + (20 x InvVol) + (15 x InvMaxDD)
+
+    入选门槛：股息率 >= 1.0%，零股息资产不参赛。
+    """
+    if df.empty:
+        return df
+
+    result = df.copy()
+
+    # 硬过滤：股息率 >= 1%
+    div_raw = result.get("股息率", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    result = result[div_raw >= 1.0].copy()
+    if result.empty:
+        return result
+
+    div_raw = result["股息率"].astype(float).fillna(0.0)
+    f1_norm = _anchor_norm(div_raw, *FACTOR_ANCHORS["div_yield_z"])
+
+    eps_stab_raw = result.get("EPS稳定性", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f2_norm = _anchor_norm(eps_stab_raw, *FACTOR_ANCHORS["eps_stability"])
+
+    vol_raw = result.get("年化波动率", pd.Series(0.3, index=result.index)).astype(float).fillna(0.3)
+    f3_norm = _anchor_norm(-vol_raw, *FACTOR_ANCHORS["vol_inv"])
+
+    dd_raw = result.get("最大回撤_raw", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f4_norm = _anchor_norm(-dd_raw.abs(), *FACTOR_ANCHORS["max_dd_inv"])
+
+    result["因子1_分"] = (0.40 * f1_norm).round(1)
+    result["因子2_分"] = (0.25 * f2_norm).round(1)
+    result["因子3_分"] = (0.20 * f3_norm).round(1)
+    result["因子4_分"] = (0.15 * f4_norm).round(1)
 
     result["竞技得分"] = (
         result["因子1_分"] + result["因子2_分"] + result["因子3_分"] + result["因子4_分"]
@@ -932,6 +1030,19 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
             f"<div style='width:160px; padding-left:12px;'>{cfg['score_name']}</div>"
             "</div>"
         )
+    elif cls == "Z":
+        header_html = (
+            "<div style='display:flex; align-items:center; border-bottom:2px solid #333;"
+            " color:#888; font-size:11px; padding:6px 0; font-weight:bold;'>"
+            "<div style='width:46px; text-align:center;'>排名</div>"
+            "<div style='width:150px;'>资产</div>"
+            "<div style='flex:1; padding:0 20px;'>因子贡献分解 (堆叠)</div>"
+            "<div style='width:82px; text-align:right;'>股息率</div>"
+            "<div style='width:100px; text-align:right;'>最大回撤</div>"
+            "<div style='width:90px; text-align:right;'>年化波动</div>"
+            f"<div style='width:160px; padding-left:12px;'>{cfg['score_name']}</div>"
+            "</div>"
+        )
     else:
         header_html = (
             "<div style='display:flex; align-items:center; border-bottom:2px solid #333;"
@@ -983,6 +1094,18 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
                 f"<div style='width:82px; text-align:right; font-weight:bold; color:{dd_color};'>{dd_pct:.1f}%</div>"
                 f"<div style='width:82px; text-align:right; font-weight:bold; color:{corr_color};'>{corr_v:.2f}</div>"
                 f"<div style='width:82px; text-align:right; font-weight:bold; color:{vol_color};'>{vol_pct:.1f}%</div>"
+            )
+        elif cls == "Z":
+            dy_z = row.get("股息率", 0.0)
+            dd_z_pct = row.get("最大回撤_raw", 0.0) * 100
+            vol_z_pct = row.get("年化波动率", 0.3) * 100
+            dy_color = "#2ECC71" if dy_z >= 3.0 else ("#F1C40F" if dy_z >= 1.0 else "#888")
+            dd_z_color = "#2ECC71" if abs(dd_z_pct) < 10 else ("#F1C40F" if abs(dd_z_pct) < 20 else "#E74C3C")
+            vol_z_color = "#2ECC71" if vol_z_pct < 15 else ("#F1C40F" if vol_z_pct < 25 else "#E74C3C")
+            kpi_cells = (
+                f"<div style='width:82px; text-align:right; font-weight:bold; color:{dy_color};'>{dy_z:.2f}%</div>"
+                f"<div style='width:100px; text-align:right; font-weight:bold; color:{dd_z_color};'>{dd_z_pct:.1f}%</div>"
+                f"<div style='width:90px; text-align:right; font-weight:bold; color:{vol_z_color};'>{vol_z_pct:.1f}%</div>"
             )
         else:
             z_val = row.get("Z-Score", 0.0)
@@ -1221,7 +1344,7 @@ def _render_leaderboard_d(df_scored: pd.DataFrame) -> None:
 # ─────────────────────────────────────────────────────────────────
 #  UI：B 组专属颁奖台（展示股息率/最大回撤/夏普三维指标）
 # ─────────────────────────────────────────────────────────────────
-_B_FACTOR_COLORS = ["#F39C12", "#3498DB", "#2ECC71", "#9B59B6"]
+_B_FACTOR_COLORS = ["#F39C12", "#3498DB", "#2ECC71", "#9B59B6", "#E74C3C"]
 
 
 def _render_podium_b(top3: pd.DataFrame) -> None:
@@ -1249,8 +1372,11 @@ def _render_podium_b(top3: pd.DataFrame) -> None:
         dd_color = "#2ECC71" if abs(dd) < 0.15 else ("#F39C12" if abs(dd) < 0.25 else "#E74C3C")
         sp_color = "#2ECC71" if sp > 1.0 else ("#F1C40F" if sp > 0 else "#E74C3C")
 
+        rev_g = row.get("Revenue增速", 0.0)
+        rev_color = "#2ECC71" if rev_g >= 10 else ("#F1C40F" if rev_g >= 0 else "#E74C3C")
+
         factor_pills_html = ""
-        for fi in range(1, 5):
+        for fi in range(1, 6):
             fc = _B_FACTOR_COLORS[fi - 1]
             factor_pills_html += (
                 f"<span style='color:{fc}30; background:{fc}20; "
@@ -1277,7 +1403,9 @@ def _render_podium_b(top3: pd.DataFrame) -> None:
                     <span style='color:#888;'>最大回撤(1Y)</span>
                     <span style='color:{dd_color}; font-weight:bold; float:right;'>{dd*100:.1f}%</span><br>
                     <span style='color:#888;'>夏普比率(1Y)</span>
-                    <span style='color:{sp_color}; font-weight:bold; float:right;'>{sp:.2f}</span>
+                    <span style='color:{sp_color}; font-weight:bold; float:right;'>{sp:.2f}</span><br>
+                    <span style='color:#888;'>Revenue 增速</span>
+                    <span style='color:{rev_color}; font-weight:bold; float:right;'>{rev_g:+.1f}%</span>
                 </div>
                 <hr style='border-color:#333; margin:8px 0;'>
                 <div style='font-size:13px; color:#777; text-align:left; line-height:1.8; display:flex; flex-wrap:wrap; gap:4px;'>
@@ -1300,6 +1428,7 @@ def _render_leaderboard_b(df_scored: pd.DataFrame) -> None:
         "抗跌韧性",
         "长效性价比 Sharpe",
         "绝对体量 MCap",
+        "成长弹性 Revenue",
     ]
     legend_html = (
         "<div style='display:flex; gap:16px; font-size:13px; color:#888; margin-bottom:8px; "
@@ -1323,7 +1452,8 @@ def _render_leaderboard_b(df_scored: pd.DataFrame) -> None:
         "<div style='flex:1; padding:0 20px;'>因子贡献分解 (堆叠)</div>"
         "<div style='width:82px; text-align:right;'>股息率</div>"
         "<div style='width:100px; text-align:right;'>最大回撤</div>"
-        "<div style='width:90px; text-align:right;'>夏普比率</div>"
+        "<div style='width:80px; text-align:right;'>夏普比率</div>"
+        "<div style='width:90px; text-align:right;'>Rev增速</div>"
         "<div style='width:160px; padding-left:12px;'>核心底仓质量指数</div>"
         "</div>"
     )
@@ -1337,10 +1467,12 @@ def _render_leaderboard_b(df_scored: pd.DataFrame) -> None:
         dy     = row.get("股息率", 0.0)
         dd     = row.get("最大回撤_raw", 0.0)
         sp     = row.get("夏普比率", 0.0)
+        rv     = row.get("Revenue增速", 0.0)
 
         dy_color = "#2ECC71" if dy > 2.0 else ("#F1C40F" if dy > 0.5 else "#888")
         dd_color = "#2ECC71" if abs(dd) < 0.15 else ("#F39C12" if abs(dd) < 0.25 else "#E74C3C")
         sp_color = "#2ECC71" if sp > 1.0 else ("#F1C40F" if sp > 0 else "#E74C3C")
+        rv_color = "#2ECC71" if rv >= 10 else ("#F1C40F" if rv >= 0 else "#E74C3C")
 
         if rank == 1:
             rank_html = "<span style='font-size:16px;'>🥇</span>"
@@ -1352,7 +1484,7 @@ def _render_leaderboard_b(df_scored: pd.DataFrame) -> None:
             rank_html = f"<span style='color:#555; font-size:13px;'>#{rank}</span>"
 
         factor_bars_html = ""
-        for fi in range(1, 5):
+        for fi in range(1, 6):
             fi_val = row.get(f"因子{fi}_分", 0.0)
             fi_pct = fi_val / max(max_score, 1.0) * 100
             fc = _B_FACTOR_COLORS[fi - 1]
@@ -1375,7 +1507,8 @@ def _render_leaderboard_b(df_scored: pd.DataFrame) -> None:
             "</div></div>"
             f"<div style='width:82px; text-align:right; font-weight:bold; color:{dy_color};'>{dy:.2f}%</div>"
             f"<div style='width:100px; text-align:right; font-weight:bold; color:{dd_color};'>{dd*100:.1f}%</div>"
-            f"<div style='width:90px; text-align:right; font-weight:bold; color:{sp_color};'>{sp:.2f}</div>"
+            f"<div style='width:80px; text-align:right; font-weight:bold; color:{sp_color};'>{sp:.2f}</div>"
+            f"<div style='width:90px; text-align:right; font-weight:bold; color:{rv_color};'>{rv:+.1f}%</div>"
             "<div style='width:160px; padding-left:12px;'>"
             "<div style='display:flex; align-items:center; gap:8px;'>"
             "<div style='flex:1; background:#1e1e1e; border-radius:4px; height:8px;'>"
@@ -1812,11 +1945,11 @@ _sel4 = st.session_state["page4_selected_group"]
 _card4_h = 120
 _ABCD4 = ("[data-testid='stMainBlockContainer'] "
           "div[data-testid='stHorizontalBlock']"
-          ":has(> div:nth-child(4)):not(:has(> div:nth-child(5)))"
+          ":has(> div:nth-child(5)):not(:has(> div:nth-child(6)))"
           ":has(div[data-testid='stButton'])")
 
 _hover4_css = []
-for _i4h in range(1, 5):
+for _i4h in range(1, 6):
     _hover4_css.append(
         f"{_ABCD4} > div:nth-child({_i4h}):has(button:hover)"
         f" div[data-testid='stMarkdownContainer'] > div {{"
@@ -1841,8 +1974,8 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-overview_cols = st.columns(4)
-for i, cls in enumerate(["A", "B", "C", "D"]):
+overview_cols = st.columns(5)
+for i, cls in enumerate(["A", "B", "Z", "C", "D"]):
     meta     = CLASS_META[cls]
     n        = len(df_all[df_all["类别"] == cls])
     selected = (cls == _sel4)
@@ -1902,10 +2035,11 @@ elif _sel4 == "B":
         <div style='font-size:13px; color:#bbb; line-height:1.8;'>{cfg_b["logic"]}</div>
         <div style='margin-top:10px; font-size:13px; color:#666;'>
             评分权重 →
-            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[0]}22; color:{_B_FACTOR_COLORS[0]}; border:1px solid {_B_FACTOR_COLORS[0]}55;'>真·护城河质量  40%</span>
-            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[1]}22; color:{_B_FACTOR_COLORS[1]}; border:1px solid {_B_FACTOR_COLORS[1]}55;'>抗跌韧性  30%</span>
+            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[0]}22; color:{_B_FACTOR_COLORS[0]}; border:1px solid {_B_FACTOR_COLORS[0]}55;'>真·护城河质量  35%</span>
+            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[1]}22; color:{_B_FACTOR_COLORS[1]}; border:1px solid {_B_FACTOR_COLORS[1]}55;'>抗跌韧性  25%</span>
             <span class='factor-pill' style='background:{_B_FACTOR_COLORS[2]}22; color:{_B_FACTOR_COLORS[2]}; border:1px solid {_B_FACTOR_COLORS[2]}55;'>夏普比率  20%</span>
             <span class='factor-pill' style='background:{_B_FACTOR_COLORS[3]}22; color:{_B_FACTOR_COLORS[3]}; border:1px solid {_B_FACTOR_COLORS[3]}55;'>绝对体量  10%</span>
+            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[4]}22; color:{_B_FACTOR_COLORS[4]}; border:1px solid {_B_FACTOR_COLORS[4]}55;'>Revenue增速  10%</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1913,16 +2047,17 @@ elif _sel4 == "B":
     st.markdown("""
     <div class='formula-box' style='background:#1a1a1a; border-left:3px solid #F39C12;
          padding:14px; margin-bottom:16px; font-size:14px; color:#ccc; border-radius:4px;'>
-    <b>ScorecardB 白盒公式（满分 100 分）-- 慢变量底仓质量，拒绝短期动量：</b><br><br>
+    <b>ScorecardB 白盒公式（满分 100 分）— 兼顾防御与成长弹性，拒绝短期动量：</b><br><br>
     <span style='color:#F39C12; font-weight:bold;'>Score<sub>B</sub></span> =
-    <span style='color:#F39C12;'>(40 x RealQuality<sub>norm</sub>)</span> +
-    <span style='color:#3498DB;'>(30 x Resilience<sub>InvMaxDD</sub>)</span> +
-    <span style='color:#2ECC71;'>(20 x Sharpe<sub>1Y</sub>)</span> +
-    <span style='color:#9B59B6;'>(10 x MCap<sub>log10</sub>)</span><br><br>
+    <span style='color:#F39C12;'>(35 × RealQuality<sub>norm</sub>)</span> +
+    <span style='color:#3498DB;'>(25 × Resilience<sub>InvMaxDD</sub>)</span> +
+    <span style='color:#2ECC71;'>(20 × Sharpe<sub>1Y</sub>)</span> +
+    <span style='color:#9B59B6;'>(10 × MCap<sub>log10</sub>)</span> +
+    <span style='color:#E74C3C;'>(10 × RevenueGrowth<sub>TTM</sub>)</span><br><br>
     <span style='color:#888; font-size:13px;'>
     RealQuality = (DivYield<sub>norm</sub> + EPS_Stability<sub>norm</sub>) / 2 (股息率 + 年化波动率倒数 代理 FCF/ROIC)。<br>
-    Resilience = 近 252 日最大回撤取倒数，回撤越小得分越高。<br>
-    所有因子均经 Min-Max 归一化至 [0, 100] 后加权求和。彻底剔除动量/均线等短线信号。
+    Resilience = 近 252 日最大回撤取倒数，回撤越小得分越高。RevenueGrowth = TTM 收入增速（锚点 -5% ~ 25%）。<br>
+    所有因子均经锚点归一化至 [0, 100] 后加权求和。彻底剔除动量/均线等短线信号。
     </span>
     </div>
     """, unsafe_allow_html=True)
@@ -1938,6 +2073,7 @@ elif _sel4 == "B":
         df_b["夏普比率"]    = df_b["Ticker"].map(lambda t: float(_factors_b.get(t, {}).get("sharpe_252",      0.0)))
         df_b["市值对数"]    = df_b["Ticker"].map(lambda t: float(_factors_b.get(t, {}).get("log_mcap",        9.0)))
         df_b["EPS稳定性"]  = df_b["Ticker"].map(lambda t: float(_factors_b.get(t, {}).get("eps_stability",   0.0)))
+        df_b["Revenue增速"] = df_b["Ticker"].map(lambda t: float(_factors_b.get(t, {}).get("revenue_growth", 0.0)))
 
         df_scored_b = compute_scorecard_b(df_b)
 
@@ -1978,6 +2114,7 @@ elif _sel4 == "B":
             dy_c     = champ_b.get("股息率", 0.0)
             dd_c     = champ_b.get("最大回撤_raw", 0.0)
             sp_c     = champ_b.get("夏普比率", 0.0)
+            rv_c     = champ_b.get("Revenue增速", 0.0)
 
             if abs(dd_c) < 0.10:
                 dd_verdict = "极强抗跌韧性"
@@ -1987,12 +2124,13 @@ elif _sel4 == "B":
                 dd_verdict = "回撤偏大，需警惕"
 
             st.success(
-                f"**🦍 赛道冠军深度解读 -- {champ_b['Ticker']} ({champ_b['名称']})**\n\n"
+                f"**🦍 赛道冠军深度解读 — {champ_b['Ticker']} ({champ_b['名称']})**\n\n"
                 f"在 B 级 {n_b} 位参赛标的中以 **核心底仓质量指数 {champ_b['竞技得分']:.0f} 分**夺冠。\n"
                 f"真·护城河质量贡献 = {champ_b['因子1_分']:.1f}（股息率 {dy_c:.2f}%），"
-                f"抗跌韧性贡献 = {champ_b['因子2_分']:.1f}（最大回撤 {dd_c*100:.1f}% -- {dd_verdict}），"
+                f"抗跌韧性贡献 = {champ_b['因子2_分']:.1f}（最大回撤 {dd_c*100:.1f}% — {dd_verdict}），"
                 f"夏普比率贡献 = {champ_b['因子3_分']:.1f}（Sharpe {sp_c:.2f}），"
-                f"市值壁垒贡献 = {champ_b['因子4_分']:.1f}。"
+                f"市值壁垒贡献 = {champ_b['因子4_分']:.1f}，"
+                f"成长弹性贡献 = {champ_b['因子5_分']:.1f}（Revenue 增速 {rv_c:+.1f}%）。"
             )
 
         st.markdown("---")
@@ -2147,6 +2285,123 @@ elif _sel4 == "C":
                 if st.button("🎯 深度猎杀", key="hunt_C"):
                     st.session_state["p4_champion_ticker"] = champ_ticker_c
                     st.success(f"已锁定 {champ_ticker_c}！请切换至 **5 个股深度猎杀** 页面。")
+
+elif _sel4 == "Z":
+    df_z_base = df_all[df_all["类别"] == "Z"].copy()
+    meta_z  = CLASS_META["Z"]
+    cfg_z   = ARENA_CONFIG["Z"]
+
+    st.markdown(f"""
+    <div class='arena-header' style='background:{meta_z["bg"]}; border:1px solid {meta_z["color"]}44;'>
+        <div style='font-size:18px; font-weight:bold; color:{meta_z["color"]}; margin-bottom:8px;'>
+            {meta_z["icon"]} {meta_z["label"]} — {cfg_z["score_name"]}赛道
+        </div>
+        <div style='font-size:13px; color:#bbb; line-height:1.8;'>{cfg_z["logic"]}</div>
+        <div style='margin-top:10px; font-size:13px; color:#666;'>
+            评分权重 →
+            <span class='factor-pill' style='background:{meta_z["color"]}22; color:{meta_z["color"]}; border:1px solid {meta_z["color"]}55;'>真实股息率  40%</span>
+            <span class='factor-pill' style='background:#3498DB22; color:#3498DB; border:1px solid #3498DB55;'>分红续航力  25%</span>
+            <span class='factor-pill' style='background:#9B59B622; color:#9B59B6; border:1px solid #9B59B655;'>绝对低波  20%</span>
+            <span class='factor-pill' style='background:#F39C1222; color:#F39C12; border:1px solid #F39C1255;'>本金盾  15%</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class='formula-box' style='background:#1a1a1a; border-left:3px solid #1ABC9C;
+         padding:14px; margin-bottom:16px; font-size:14px; color:#ccc; border-radius:4px;'>
+    <b>ScorecardZ 白盒公式（满分 100 分）— 拿得到真实现金流：</b><br><br>
+    <span style='color:#1ABC9C; font-weight:bold;'>Score<sub>Z</sub></span> =
+    <span style='color:#1ABC9C;'>(40 × DivYield<sub>norm</sub>)</span> +
+    <span style='color:#3498DB;'>(25 × EPS_Stability<sub>norm</sub>)</span> +
+    <span style='color:#9B59B6;'>(20 × InvVol<sub>norm</sub>)</span> +
+    <span style='color:#F39C12;'>(15 × InvMaxDD<sub>norm</sub>)</span><br><br>
+    <span style='color:#888; font-size:13px;'>
+    入选门槛：股息率 ≥ 1%，零股息资产（如 GLD）不参赛。股息率锚点扩展至 8%，覆盖 REITs 及高息 ETF。
+    </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if df_z_base.empty:
+        st.info("当前 Z 级赛道暂无参赛资产（需股息率 ≥ 1%）。请检查数据或开启演示模式。")
+    else:
+        with st.spinner("正在拉取 Z 组因子数据（股息率、EPS稳定性、波动率、最大回撤）…"):
+            _z_tickers = tuple(df_z_base["Ticker"].tolist())
+            _factors_a_z = get_arena_a_factors(_z_tickers)
+            _factors_b_z = get_arena_b_factors(_z_tickers)
+
+        df_z = df_z_base.copy()
+        df_z["股息率"]      = df_z["Ticker"].map(lambda t: float(_factors_a_z.get(t, {}).get("div_yield",    0.0)))
+        df_z["最大回撤_raw"] = df_z["Ticker"].map(lambda t: float(_factors_a_z.get(t, {}).get("max_dd_252",  0.0)))
+        df_z["年化波动率"]   = df_z["Ticker"].map(lambda t: float(_factors_a_z.get(t, {}).get("ann_vol",     0.30)))
+        df_z["EPS稳定性"]   = df_z["Ticker"].map(lambda t: float(_factors_b_z.get(t, {}).get("eps_stability", 0.0)))
+
+        df_scored_z = compute_scorecard_z(df_z)
+
+        n_z = len(df_scored_z)
+        if n_z > 0:
+            leaders_z = st.session_state.get("p4_arena_leaders", {})
+            leaders_z["Z"] = [
+                {"ticker": row["Ticker"], "name": row["名称"], "score": float(row["竞技得分"]), "cls": "Z"}
+                for _, row in df_scored_z.head(3).iterrows()
+            ]
+            st.session_state["p4_arena_leaders"] = leaders_z
+            _record_arena_history("Z", leaders_z["Z"])
+
+            _aw_z = st.session_state.get("arena_winners", {})
+            _aw_z["Z"] = [row["Ticker"] for _, row in df_scored_z.head(3).iterrows()]
+            st.session_state["arena_winners"] = _aw_z
+
+        top_score_z = df_scored_z["竞技得分"].iloc[0] if n_z > 0 else 0.0
+        avg_score_z = df_scored_z["竞技得分"].mean()  if n_z > 0 else 0.0
+        n_high_div  = int((df_scored_z["股息率"] >= 2.0).sum()) if n_z > 0 else 0
+
+        kpi_cols_z = st.columns(4)
+        for col_obj, (label, val, suffix) in zip(kpi_cols_z, [
+            ("参赛资产",      f"{n_z}",             "只"),
+            ("高股息(≥2%)",  f"{n_high_div}",      f"/ {n_z}"),
+            ("赛道冠军分",    f"{top_score_z:.0f}", "/ 100"),
+            ("赛道平均分",    f"{avg_score_z:.0f}", "/ 100"),
+        ]):
+            with col_obj:
+                st.metric(label=label, value=val, delta=suffix)
+
+        st.markdown("---")
+        st.markdown("#### 🏆 赛道翘楚 — Top 3 高亮置顶")
+        _render_podium(df_scored_z.head(3), "Z")
+
+        if n_z > 0:
+            champ_z = df_scored_z.iloc[0]
+            dy_z    = champ_z.get("股息率", 0.0)
+            dd_z    = champ_z.get("最大回撤_raw", 0.0)
+            st.success(
+                f"**🏦 赛道冠军深度解读 — {champ_z['Ticker']} ({champ_z['名称']})**\n\n"
+                f"在 Z 级 {n_z} 位参赛标的中以 **现金流堡垒指数 {champ_z['竞技得分']:.0f} 分**夺冠。\n"
+                f"真实股息率 = **{dy_z:.2f}%**，贡献 {champ_z['因子1_分']:.1f} 分；"
+                f"分红续航力贡献 = {champ_z['因子2_分']:.1f} 分；"
+                f"绝对低波贡献 = {champ_z['因子3_分']:.1f} 分；"
+                f"本金盾贡献 = {champ_z['因子4_分']:.1f} 分（最大回撤 {dd_z*100:.1f}%）。"
+            )
+
+        st.markdown("---")
+        _render_leaderboard(df_scored_z, "Z")
+
+        if n_z > 0:
+            champ_ticker_z = df_scored_z.iloc[0]["Ticker"]
+            champ_name_z   = df_scored_z.iloc[0]["名称"]
+            col_hint_z, col_btn_z = st.columns([3, 1])
+            with col_hint_z:
+                st.markdown(
+                    f"<div style='font-size:13px; color:#888; margin-top:6px;'>"
+                    f"🏆 赛道冠军 <b style='color:#FFD700;'>{champ_ticker_z}</b>"
+                    f" ({champ_name_z}) 已就绪，可一键送入深度猎杀模块进行单体精析。"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            with col_btn_z:
+                if st.button("🎯 深度猎杀", key="hunt_Z"):
+                    st.session_state["p4_champion_ticker"] = champ_ticker_z
+                    st.success(f"已锁定 {champ_ticker_z}！请切换至 **5 个股深度猎杀** 页面。")
 
 elif _sel4 == "D":
     df_d  = df_all[df_all["类别"] == "D"].copy()

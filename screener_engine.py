@@ -103,7 +103,7 @@ def compute_metrics(ticker: str, df: pd.DataFrame, spy_col: str = "SPY") -> dict
     }
 
 
-_GRADE_PRIORITY = {"A": 0, "B": 1, "C": 2, "D": 3}
+_GRADE_PRIORITY = {"A": 0, "B": 1, "Z": 2, "C": 3, "D": 4}
 
 
 def classify_asset_parallel(
@@ -200,6 +200,15 @@ def classify_asset_parallel(
     }
     if c_pass:
         grades.append("C")
+
+    # ── Z: Cash-flow fortress (high dividend, no hysteresis on entry) ──
+    z_div_pass = div_yield >= 1.0
+    all_details["Z"] = {
+        "pass": z_div_pass,
+        "股息率": (z_div_pass, f"{div_yield:.2f}%（需≥1.0%，零股息资产不参赛）"),
+    }
+    if z_div_pass:
+        grades.append("Z")
 
     # ── D: Scout (speculative momentum, no hysteresis) ──
     d_mom20 = m["mom20"] > 8.0

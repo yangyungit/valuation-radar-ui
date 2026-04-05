@@ -220,16 +220,31 @@ def get_arena_b_factors(tickers: tuple) -> dict:
             ann_vol = vol * np.sqrt(252)
             eps_stab = 1.0 / max(ann_vol, 0.01)
 
+            # Revenue Growth: TTM vs prior year
+            try:
+                fin = stock.financials
+                if fin is not None and "Total Revenue" in fin.index and fin.shape[1] >= 2:
+                    rev_curr = fin.loc["Total Revenue"].iloc[0]
+                    rev_prev = fin.loc["Total Revenue"].iloc[1]
+                    rev_growth = float((rev_curr - rev_prev) / abs(rev_prev) * 100) if rev_prev != 0 else 0.0
+                else:
+                    rev_growth = 0.0
+            except Exception:
+                rev_growth = 0.0
+            if np.isnan(rev_growth) or np.isinf(rev_growth):
+                rev_growth = 0.0
+
             return t, {
                 "div_yield": div_yield,
                 "max_dd_252": max_dd,
                 "sharpe_252": sharpe,
                 "log_mcap": float(np.log10(max(mcap, 1e6))),
                 "eps_stability": eps_stab,
+                "revenue_growth": rev_growth,
             }
         except Exception:
             return t, {"div_yield": 0.0, "max_dd_252": 0.0, "sharpe_252": 0.0,
-                       "log_mcap": 9.0, "eps_stability": 0.0}
+                       "log_mcap": 9.0, "eps_stability": 0.0, "revenue_growth": 0.0}
 
     result = {}
     with ThreadPoolExecutor(max_workers=10) as executor:

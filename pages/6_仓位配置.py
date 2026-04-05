@@ -148,6 +148,16 @@ if _d_regime_score < 0.60:
     _d_regime_en = _c_regime_en
     _d_regime_score = _c_regime_score
 
+# ── B 组宏观制动器 ──────────────────────────────────────────────────
+# 衰退期 B 组清仓泊入 Z 组，滞胀期 50%，过热期 75%，软着陆满仓
+B_REGIME_THROTTLE = {
+    "Soft": 1.0,   # 软着陆：B 组满仓
+    "Hot":  0.75,  # 过热：B 组 75%
+    "Stag": 0.50,  # 滞胀：B 组 50%，剩余泊入 Z 组
+    "Rec":  0.0,   # 衰退：B 组清仓，全部泊入 Z 组
+}
+b_throttle = B_REGIME_THROTTLE.get(live_regime_label, 0.75)
+
 # ==========================================
 # 🏛️ Core-Satellite Allocation Engine
 # ==========================================
@@ -340,50 +350,86 @@ def _apply_arena_hysteresis(tier: str, arena_top3: list, price_df: pd.DataFrame,
 
 if not _wh_last:
     # ── 回退：bt_result 失败时，用 arena_winners 或 Molt 评分建组 ──────────────
-    # ── CORE (50%): A Top-2 = 25%, B Top-2 = 25% ────────────────────────────
-    for tier, total_pct, label in [("A", 25.0, "压舱石"), ("B", 25.0, "大猩猩")]:
-        arena_picks = _picks_from_arena(tier)
-        if not arena_picks.empty:
-            picks = arena_picks
-            source_tag = "Arena冠军"
-        elif df_qualified.empty:
-            portfolio.append({
-                "配置层": "核心底仓 Core", "所属阵型": tier, "代码": "BIL",
-                "名称": "极短债/现金等价物", "Molt评分": 0.0,
-                "分配仓位": round(total_pct, 2),
-                "白盒归因": f"{tier}组无合格标的，{total_pct:.0f}% 暂泊 BIL",
-                "所属板块": "现金",
-            })
-            continue
+    # ── CORE (50%): A Top-2 = 25%, B Top-2 = 25% (B 应用宏观制动器) ─────────
+    for tier, base_pct, label in [("A", 25.0, "压舱石"), ("B", 25.0, "大猩猩")]:
+        # B 组应用宏观制动器
+        if tier == "B":
+            actual_pct = base_pct * b_throttle
+            z_park_pct = base_pct - actual_pct
         else:
-            picks = (
-                df_qualified[df_qualified['Tier'] == tier]
-                .sort_values('Molt评分', ascending=False)
-                .head(2)
-            )
-            source_tag = "Top-2"
-        n = len(picks)
-        for _, row in picks.iterrows():
-            ticker = row['代码']
-            alloc = total_pct / n if n > 0 else 0.0
-            portfolio.append({
-                "配置层": "核心底仓 Core",
-                "所属阵型": tier,
-                "代码": ticker,
-                "名称": TIC_MAP.get(ticker, ticker),
-                "Molt评分": round(row['Molt评分'], 1),
-                "分配仓位": round(alloc, 2),
-                "白盒归因": f"{tier}组({label}) {source_tag} 均分 {total_pct:.0f}% 核心底仓",
-                "所属板块": row.get('Sector', '—'),
-            })
-        if n == 0:
-            portfolio.append({
-                "配置层": "核心底仓 Core", "所属阵型": tier, "代码": "BIL",
-                "名称": "极短债/现金等价物", "Molt评分": 0.0,
-                "分配仓位": round(total_pct, 2),
-                "白盒归因": f"{tier}组无合格标的，{total_pct:.0f}% 暂泊 BIL",
-                "所属板块": "现金",
-            })
+            actual_pct = base_pct
+            z_park_pct = 0.0
+
+        total_pct = actual_pct
+
+        if actual_pct > 0:
+            arena_picks = _picks_from_arena(tier)
+            if not arena_picks.empty:
+                picks = arena_picks
+                source_tag = "Arena冠军"
+            elif df_qualified.empty:
+                portfolio.append({
+                    "配置层": "核心底仓 Core", "所属阵型": tier, "代码": "BIL",
+                    "名称": "极短债/现金等价物", "Molt评分": 0.0,
+                    "分配仓位": round(actual_pct, 2),
+                    "白盒归因": f"{tier}组无合格标的，{actual_pct:.0f}% 暂泊 BIL",
+                    "所属板块": "现金",
+                })
+                picks = None
+            else:
+                picks = (
+                    df_qualified[df_qualified['Tier'] == tier]
+                    .sort_values('Molt评分', ascending=False)
+                    .head(2)
+                )
+                source_tag = "Top-2"
+
+            if picks is not None:
+                n = len(picks)
+                for _, row in picks.iterrows():
+                    ticker = row['代码']
+                    alloc = actual_pct / n if n > 0 else 0.0
+                    portfolio.append({
+                        "配置层": "核心底仓 Core",
+                        "所属阵型": tier,
+                        "代码": ticker,
+                        "名称": TIC_MAP.get(ticker, ticker),
+                        "Molt评分": round(row['Molt评分'], 1),
+                        "分配仓位": round(alloc, 2),
+                        "白盒归因": f"{tier}组({label}) {source_tag} 均分 {actual_pct:.0f}% 核心底仓",
+                        "所属板块": row.get('Sector', '—'),
+                    })
+                if n == 0:
+                    portfolio.append({
+                        "配置层": "核心底仓 Core", "所属阵型": tier, "代码": "BIL",
+                        "名称": "极短债/现金等价物", "Molt评分": 0.0,
+                        "分配仓位": round(actual_pct, 2),
+                        "白盒归因": f"{tier}组无合格标的，{actual_pct:.0f}% 暂泊 BIL",
+                        "所属板块": "现金",
+                    })
+
+        # B 组制动器减出的仓位泊入 Z 组
+        if z_park_pct > 0:
+            z_picks = st.session_state.get("arena_winners", {}).get("Z", [])[:2]
+            if z_picks:
+                for zt in z_picks:
+                    portfolio.append({
+                        "配置层": "核心底仓 Core", "所属阵型": "Z",
+                        "代码": zt,
+                        "名称": TIC_MAP.get(zt, zt),
+                        "Molt评分": 0.0,
+                        "分配仓位": round(z_park_pct / len(z_picks), 2),
+                        "白盒归因": f"B组宏观制动({live_regime_label})减仓 → Z组收息停泊",
+                        "所属板块": SECTOR_MAP.get(zt, "—"),
+                    })
+            else:
+                portfolio.append({
+                    "配置层": "核心底仓 Core", "所属阵型": "Z", "代码": "BIL",
+                    "名称": "极短债/现金等价物", "Molt评分": 0.0,
+                    "分配仓位": round(z_park_pct, 2),
+                    "白盒归因": f"B组宏观制动({live_regime_label})减仓 → 泊入 BIL",
+                    "所属板块": "现金",
+                })
 
     # ── SATELLITE (50%): C Top-2 = 30% (top regime), D Top-2 = 20% (2nd regime) ─
     if satellite_active:
@@ -480,6 +526,13 @@ for regime_en, regime_cn in REGIME_CN_MAP.items():
         "卫星池影响": sat_influence,
     })
 
+step1_logs.append({
+    "宏观剧本": "── B组宏观制动器",
+    "历史裁决胜率": f"当前剧本 {live_regime_label or '未确立'}",
+    "状态机角色": "✅ 满仓" if b_throttle >= 1.0 else f"⚠️ {b_throttle*100:.0f}%",
+    "卫星池影响": f"B组仓位 {b_throttle*100:.0f}%，减仓 {(1-b_throttle)*25:.0f}% 泊入 Z 组",
+})
+
 st.header("1️⃣ 宏观市场定调 (Macro Climate)")
 st.caption("数据源：Page 1「四大剧本历史裁决表」SSOT — 月度裁决，天然防抖，无需额外平滑层")
 c1, c2, c3, c4 = st.columns(4)
@@ -523,7 +576,12 @@ if not df_portfolio.empty:
     st.dataframe(pd.DataFrame(step1_logs), use_container_width=True, hide_index=True)
 
     st.markdown("#### 🏛️ 步骤 2: Core-Satellite 双层配置")
-    st.caption("底仓核心池 (50%) = A组压舱石 (25%) + B组大猩猩 (25%)，**Arena 迟滞选股**：持仓只要仍在 Arena 前三且 MA60 生命线完好即续持，出现空缺才补位。战术卫星池 (50%) = C组时代之王 Top-2 (30%) + D组预备队 Top-2 (20%)，月度历史裁决胜率门控，同样 Arena 迟滞。")
+    st.caption(
+        "底仓核心池 (50%) = A组压舱石 (25%) + B组大猩猩 (25%，受宏观制动器约束)。"
+        "**B组宏观制动器**：软着陆满仓 / 过热 75% / 滞胀 50% / 衰退清仓，减仓部分自动泊入 Z组收息仓。"
+        "**Arena 迟滞选股**：持仓只要仍在 Arena 前三且 MA60 生命线完好即续持，出现空缺才补位。"
+        "战术卫星池 (50%) = C组时代之王 Top-2 (30%) + D组预备队 Top-2 (20%)，月度历史裁决胜率门控，同样 Arena 迟滞。"
+    )
 
     # ── 手动底仓选股（A/B组）──────────────────────────────────────────────────────
     # 备选池来自完整的 USER_GROUPS_DEF（不受回测过滤影响），确保下拉框始终显示全量标的
