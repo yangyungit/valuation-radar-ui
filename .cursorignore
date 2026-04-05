@@ -1,0 +1,35 @@
+# ==========================================
+# Cursor Agent 屏蔽清单 (Token 节省专用)
+# ==========================================
+
+# 1. 虚拟环境与依赖库 (绝对的 Token 黑洞，必须屏蔽)
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 2. 宏观与金融历史数据 (防止 Agent 傻乎乎去读几十万行的行情数据)
+*.csv
+*.xlsx
+*.xls
+*.parquet
+*.db
+*.sqlite
+
+# 3. 本地日志与缓存 (对写代码毫无帮助的运行记录)
+*.log
+.DS_Store
+.ipynb_checkpoints/
+.streamlit/
+# 注意：如果你需要在 .streamlit/secrets.toml 里配 API Key 并让模型帮你看，可以把上面这行删掉。
+
+# 4. 前端构建物 (如果你未来在这个库里加了 Vue/React 页面)
+node_modules/
+dist/
+build/
+
+# 5. 敏感信息 (防止 Agent 意外读取并上传你的私有 Key，虽然通常是安全的，但防患于未然)
+.env
+*.pem

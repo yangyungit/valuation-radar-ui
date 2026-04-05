@@ -7,11 +7,16 @@ import os
 import calendar
 import yfinance as yf
 from datetime import datetime, timedelta
-from api_client import (fetch_core_data, get_stock_metadata,
+from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         get_arena_a_factors, get_arena_b_factors,
                         get_arena_c_factors, get_arena_d_factors,
                         clear_api_caches)
-from screener_engine import classify_all_at_date
+from screener_engine import (
+    compute_metrics as _engine_compute_metrics,
+    classify_asset_parallel,
+    classify_all_at_date,
+    _primary_grade,
+)
 
 _core_data = fetch_core_data()
 _MACRO_TAGS_MAP     = _core_data.get("MACRO_TAGS_MAP", {})
@@ -43,7 +48,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
-#  ABCD 宏观剧本元信息（与 Page 2 / Page 3 保持一致）
+#  ABCD 宏观剧本元信息（与 Page 3 保持一致）
 # ─────────────────────────────────────────────────────────────────
 CLASS_META: dict = {
     "A": {
@@ -124,14 +129,16 @@ ARENA_CONFIG: dict = {
             "log_mcap":        "log₁₀(市值) (流动性保障)",
             "rs_120d":         "RS₁₂₀ 中长线相对强度 (半年超额收益)",
             "macro_alignment": "宏观剧本顺风匹配 (Macro Fit)",
+            "rs_250d":         "RS₂₅₀ 年度超额收益 (年线级慢动量)",
         },
         "logic": (
             "时代之王 ScorecardC — 慢变量霸权测试（满分 100 分）<br>"
-            "① Forward EPS 增速（华尔街一致预期 12 个月 EPS 增速截面 Z-Score，权重 50%）— 盈利是王道。<br>"
+            "① Forward EPS 增速（华尔街一致预期 12 个月 EPS 增速截面 Z-Score，权重 25%）— 盈利是王道。<br>"
             "② log₁₀(市值)（市值越大流动性越好，机构可大仓位介入，权重 15%）<br>"
-            "③ RS₁₂₀ 中长线相对强度（过去 120 日相对 SPY 超额收益率，看它是否在半年维度持续跑赢大盘，权重 15%）<br>"
+            "③ RS₁₂₀ 中长线相对强度（过去 120 日相对 SPY 超额收益率，权重 20%）<br>"
             "④ 宏观顺风（标的宏观标签与当前胜率最高剧本完全匹配得满分，错配得 0，权重 20%）<br>"
-            "所有因子均经 Min-Max 归一化至 [0, 100] 后加权求和。时代之王的评分只问长期基本面与宏大叙事稳健资金沉淀，拒绝短期噪音（5日量能、叙事热度已迁入 D 组）。"
+            "⑤ RS₂₅₀ 年度超额收益（过去 250 日相对 SPY 超额收益率，年线级慢动量，权重 20%）<br>"
+            "所有因子均经锚点归一化至 [0, 100] 后加权求和。拒绝短期噪音（5日量能、叙事热度已迁入 D 组）。"
         ),
     },
     "D": {
@@ -153,7 +160,7 @@ ARENA_CONFIG: dict = {
 }
 
 # ─────────────────────────────────────────────────────────────────
-#  演示模式 Mock 数据（当上游 Page 2 尚未运行时使用）
+#  演示模式 Mock 数据
 # ─────────────────────────────────────────────────────────────────
 _MOCK_ASSETS: dict = {
     # A级：压舱石（高股息/低回撤/抗跌）
@@ -201,6 +208,7 @@ def _derive_monthly_regimes(probs: dict) -> tuple:
 # ─────────────────────────────────────────────────────────────────
 _HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "arena_history.json")
 _HORSEMEN_VERDICT_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "horsemen_monthly_verdict.json")
+_PREV_CLASSIFICATION_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "prev_classification.json")
 
 
 def _load_horsemen_verdict_archive() -> dict:
@@ -230,6 +238,27 @@ def _resolve_horsemen_verdict_cn(month_key: str, archive: dict) -> str:
     if isinstance(rec, dict) and rec.get("verdict_cn"):
         return str(rec["verdict_cn"])
     return _verdict_cn_from_session_probs(month_key)
+
+
+def _load_prev_classification() -> dict:
+    """Load {ticker: [grade_list]} from previous run for hysteresis."""
+    try:
+        if os.path.exists(_PREV_CLASSIFICATION_FILE):
+            with open(_PREV_CLASSIFICATION_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+def _save_prev_classification(grades_map: dict) -> None:
+    """Persist {ticker: [grade_list]} for next run's hysteresis."""
+    try:
+        os.makedirs(os.path.dirname(_PREV_CLASSIFICATION_FILE), exist_ok=True)
+        with open(_PREV_CLASSIFICATION_FILE, "w", encoding="utf-8") as f:
+            json.dump(grades_map, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 
 def _load_arena_history() -> dict:
@@ -284,12 +313,11 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                             meta_data: dict = None) -> tuple:
     """
     用历史价格数据回填过去 N 个月各赛道的 Top 3。
-    Point-in-Time 模式：每个月末重新执行粗筛分类，消除前视偏差。
+    Point-in-Time 模式：每个月末重新执行并行分类（含滞后带），消除前视偏差。
     monthly_probs: {"YYYY-MM": {"Soft": f, "Hot": f, "Stag": f, "Rec": f}}
     meta_data: {ticker: {"mcap": float, "div_yield": float}} — 当前快照用作近似。
     返回 (saved_month_count, error_msg)
     """
-    # Build full ticker universe and name map from all_assets
     ticker_names: dict = {}
     all_tickers_set: set = set()
     for ticker, info in all_assets.items():
@@ -326,23 +354,33 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
         if m == 0:
             m, y = 12, y - 1
 
+    # Chronological order for hysteresis chain
+    month_ends.reverse()
+
     spy_col = "SPY" if "SPY" in price_df.columns else None
     saved   = 0
+    prev_grades_map: dict = {}
 
     for month_key, me_date in month_ends:
         loc = price_df.index.get_loc(me_date)
         if loc < 120:
             continue
 
-        # PIT classification at this month-end
         pit_assets = classify_all_at_date(
-            price_df, loc, list(all_tickers), meta_data, tic_map=ticker_names,
+            price_df, loc, list(all_tickers), meta_data,
+            tic_map=ticker_names, prev_grades_map=prev_grades_map,
         )
+
+        prev_grades_map = {
+            t: info.get("qualifying_grades", [])
+            for t, info in pit_assets.items()
+        }
+
         cls_tickers: dict = {"A": [], "B": [], "C": [], "D": []}
         for t, info in pit_assets.items():
-            _cls = info.get("cls", "?")
-            if _cls in cls_tickers:
-                cls_tickers[_cls].append(t)
+            for g in info.get("qualifying_grades", []):
+                if g in cls_tickers:
+                    cls_tickers[g].append(t)
 
         _m_probs = (monthly_probs or {}).get(month_key, {})
         bc_regime, _ = _derive_monthly_regimes(_m_probs)
@@ -418,7 +456,14 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                 elif cls == "C":
                     spy_ret120 = float((spy_slice.iloc[-1] / spy_slice.iloc[-121] - 1) * 100) if len(spy_slice) >= 121 else 0.0
                     ret120     = float((p.iloc[-1] / p.iloc[-121] - 1) * 100) if len(p) >= 121 else 0.0
-                    row.update({"EPS增速": z_score * 10, "RS120d": ret120 - spy_ret120, "市值对数": 9.0})
+                    spy_ret250 = float((spy_slice.iloc[-1] / spy_slice.iloc[-251] - 1) * 100) if len(spy_slice) >= 251 else 0.0
+                    ret250     = float((p.iloc[-1] / p.iloc[-251] - 1) * 100) if len(p) >= 251 else 0.0
+                    row.update({
+                        "EPS增速": z_score * 10,
+                        "RS120d": ret120 - spy_ret120,
+                        "RS250d": ret250 - spy_ret250,
+                        "市值对数": 9.0,
+                    })
 
                 elif cls == "D":
                     spy_ret20  = float((spy_slice.iloc[-1] / spy_slice.iloc[-21] - 1) * 100) if len(spy_slice) >= 21 else 0.0
@@ -466,8 +511,33 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
 # ─────────────────────────────────────────────────────────────────
 #  相对评分引擎（Relative Scoring Engine）
 # ─────────────────────────────────────────────────────────────────
+FACTOR_ANCHORS: dict = {
+    "max_dd_inv":    (-0.25, -0.03),
+    "div_yield":     (0.0, 5.0),
+    "spy_corr_inv":  (-0.8, 0.3),
+    "vol_inv":       (0.40, 0.08),
+    "sharpe_1y":     (-0.5, 2.5),
+    "log_mcap":      (9.0, 12.5),
+    "eps_stability": (0.5, 10.0),
+    "eps_growth":    (-20.0, 40.0),
+    "rs_120d":       (-15.0, 30.0),
+    "rs_250d":       (-20.0, 40.0),
+    "vol_z":         (-1.0, 4.0),
+    "rs_20d":        (-10.0, 25.0),
+    "ma60_breakout": (0.0, 100.0),
+}
+
+
+def _anchor_norm(series: pd.Series, lo: float, hi: float) -> pd.Series:
+    """Anchor-based normalization using fixed historical percentile bounds.
+    Values outside [lo, hi] are clipped to [0, 100]."""
+    if abs(hi - lo) < 1e-9:
+        return pd.Series(50.0, index=series.index)
+    return ((series - lo) / (hi - lo) * 100.0).clip(0, 100)
+
+
 def _minmax_norm(series: pd.Series) -> pd.Series:
-    """Min-max 归一化至 [0, 100]，单值情况返回 50。"""
+    """Min-max normalization to [0, 100]. Deprecated: use _anchor_norm instead."""
     lo, hi = series.min(), series.max()
     if hi == lo:
         return pd.Series([50.0] * len(series), index=series.index)
@@ -491,7 +561,7 @@ def compute_arena_scores(df: pd.DataFrame, cls: str) -> pd.DataFrame:
     w = cfg["weights"]
     result = df.copy()
 
-    z_norm     = _minmax_norm(result["Z-Score"].astype(float))
+    z_norm     = _minmax_norm(result["Z-Score"].astype(float))  # generic fallback still uses minmax
     z_inv_norm = _minmax_norm(-result["Z-Score"].astype(float))
     m_norm     = _minmax_norm(result["20日动量"].astype(float))
     b_norm     = result["趋势健康"].astype(float) * 100.0
@@ -539,16 +609,16 @@ def compute_scorecard_a(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
 
     dd_raw = result.get("最大回撤_raw", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f1_norm = _minmax_norm(-dd_raw.abs())
+    f1_norm = _anchor_norm(-dd_raw.abs(), *FACTOR_ANCHORS["max_dd_inv"])
 
     div_raw = result.get("股息率", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f2_norm = _minmax_norm(div_raw)
+    f2_norm = _anchor_norm(div_raw, *FACTOR_ANCHORS["div_yield"])
 
     corr_raw = result.get("SPY相关性", pd.Series(0.5, index=result.index)).astype(float).fillna(0.5)
-    f3_norm = _minmax_norm(-corr_raw)
+    f3_norm = _anchor_norm(-corr_raw, *FACTOR_ANCHORS["spy_corr_inv"])
 
     vol_raw = result.get("年化波动率", pd.Series(0.3, index=result.index)).astype(float).fillna(0.3)
-    f4_norm = _minmax_norm(-vol_raw)
+    f4_norm = _anchor_norm(-vol_raw, *FACTOR_ANCHORS["vol_inv"])
 
     result["因子1_分"] = (0.35 * f1_norm).round(1)
     result["因子2_分"] = (0.25 * f2_norm).round(1)
@@ -568,40 +638,45 @@ def compute_scorecard_c(df: pd.DataFrame, macro_regime: str) -> pd.DataFrame:
     """
     ScorecardC — C 组「慢变量霸权」评分体系 (满分 100 分)
 
-    Score_C = (50 × Z_ForwardEPS) + (15 × log10(MCap))
-            + (15 × RS_120d_vs_SPY) + (20 × Fit_Macro)
+    Score_C = (25 × Z_ForwardEPS) + (15 × log10(MCap))
+            + (20 × RS_120d) + (20 × Fit_Macro) + (20 × RS_250d)
 
-    各项均先 Min-Max 归一化至 [0, 100] 后加权求和，确保总分上限 100 分。
-    5日量能 Z-Score 与叙事热度已迁出 C 组，归入 D 组短周期噪音体系。
+    各项均经锚点归一化至 [0, 100] 后加权求和。
     """
     if df.empty:
         return df
 
     result = df.copy()
 
-    # ── 因子 1: Forward EPS Growth Z-Score (50%)
+    # ── 因子 1: Forward EPS Growth Z-Score (25%, was 50%)
     eps_raw = result.get("EPS增速", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f1_norm = _minmax_norm(eps_raw)
+    f1_norm = _anchor_norm(eps_raw, *FACTOR_ANCHORS["eps_growth"])
 
     # ── 因子 2: log10(MarketCap) (15%)
     mcap_log = result.get("市值对数", pd.Series(9.0, index=result.index)).astype(float).fillna(9.0)
-    f2_norm = _minmax_norm(mcap_log)
+    f2_norm = _anchor_norm(mcap_log, *FACTOR_ANCHORS["log_mcap"])
 
-    # ── 因子 3: RS_120d 中长线相对强度 vs SPY (15%)
-    rs_raw = result.get("RS120d", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f3_norm = _minmax_norm(rs_raw)
+    # ── 因子 3: RS_120d 中长线相对强度 vs SPY (20%, was 15%)
+    rs120_raw = result.get("RS120d", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f3_norm = _anchor_norm(rs120_raw, *FACTOR_ANCHORS["rs_120d"])
 
     # ── 因子 4: Macro Alignment — 标的宏观标签与当前胜率剧本匹配 (20%)
     aligned_tickers = set(_MACRO_TAGS_MAP.get(macro_regime, []))
     f4_norm = result["Ticker"].apply(lambda t: 100.0 if t in aligned_tickers else 0.0)
 
-    result["因子1_分"] = (0.50 * f1_norm).round(1)
+    # ── 因子 5: RS_250d 年度超额收益 vs SPY (20%, new)
+    rs250_raw = result.get("RS250d", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f5_norm = _anchor_norm(rs250_raw, *FACTOR_ANCHORS["rs_250d"])
+
+    result["因子1_分"] = (0.25 * f1_norm).round(1)
     result["因子2_分"] = (0.15 * f2_norm).round(1)
-    result["因子3_分"] = (0.15 * f3_norm).round(1)
+    result["因子3_分"] = (0.20 * f3_norm).round(1)
     result["因子4_分"] = (0.20 * f4_norm).round(1)
+    result["因子5_分"] = (0.20 * f5_norm).round(1)
 
     result["竞技得分"] = (
-        result["因子1_分"] + result["因子2_分"] + result["因子3_分"] + result["因子4_分"]
+        result["因子1_分"] + result["因子2_分"] + result["因子3_分"]
+        + result["因子4_分"] + result["因子5_分"]
     ).round(1)
 
     result = result.sort_values("竞技得分", ascending=False).reset_index(drop=True)
@@ -642,13 +717,13 @@ def compute_scorecard_d(df: pd.DataFrame) -> pd.DataFrame:
 
     result = df.copy()
 
-    # ── 因子 1: 5日量能 Z-Score → 正向 MinMax (45%)
+    # ── 因子 1: 5日量能 Z-Score → 锚点归一化 (45%)
     vol_z_raw = result.get("Vol_Z", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f1_norm = _minmax_norm(vol_z_raw)
+    f1_norm = _anchor_norm(vol_z_raw, *FACTOR_ANCHORS["vol_z"])
 
-    # ── 因子 2: 20日相对 SPY 超额收益率 → 正向 MinMax (35%)
+    # ── 因子 2: 20日相对 SPY 超额收益率 → 锚点归一化 (35%)
     rs_raw = result.get("RS_20d", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f2_norm = _minmax_norm(rs_raw)
+    f2_norm = _anchor_norm(rs_raw, *FACTOR_ANCHORS["rs_20d"])
 
     # ── 因子 3: MA60 起飞姿态分 → 分段打分 (20%)
     ma60_raw = result.get("MA60偏离", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
@@ -686,18 +761,18 @@ def compute_scorecard_b(df: pd.DataFrame) -> pd.DataFrame:
 
     div_raw = result.get("股息率", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
     eps_stab_raw = result.get("EPS稳定性", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    div_norm = _minmax_norm(div_raw)
-    eps_stab_norm = _minmax_norm(eps_stab_raw)
+    div_norm = _anchor_norm(div_raw, *FACTOR_ANCHORS["div_yield"])
+    eps_stab_norm = _anchor_norm(eps_stab_raw, *FACTOR_ANCHORS["eps_stability"])
     f1_norm = (div_norm + eps_stab_norm) / 2.0
 
     dd_raw = result.get("最大回撤_raw", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f2_norm = _minmax_norm(-dd_raw.abs())
+    f2_norm = _anchor_norm(-dd_raw.abs(), *FACTOR_ANCHORS["max_dd_inv"])
 
     sharpe_raw = result.get("夏普比率", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f3_norm = _minmax_norm(sharpe_raw)
+    f3_norm = _anchor_norm(sharpe_raw, *FACTOR_ANCHORS["sharpe_1y"])
 
     mcap_raw = result.get("市值对数", pd.Series(9.0, index=result.index)).astype(float).fillna(9.0)
-    f4_norm = _minmax_norm(mcap_raw)
+    f4_norm = _anchor_norm(mcap_raw, *FACTOR_ANCHORS["log_mcap"])
 
     result["因子1_分"] = (0.40 * f1_norm).round(1)
     result["因子2_分"] = (0.30 * f2_norm).round(1)
@@ -1355,7 +1430,7 @@ def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
     """, unsafe_allow_html=True)
 
     if df_cls.empty:
-        st.info(f"当前 {meta['label']} 赛道暂无参赛资产。请先运行 **2 资产分拣** 或开启演示模式。")
+        st.info(f"当前 {meta['label']} 赛道暂无参赛资产。请检查数据加载状态或开启演示模式。")
         return
 
     # ── 计算评分 ─────────────────────────────────────────────────
@@ -1477,7 +1552,7 @@ with st.sidebar:
     st.header("🏆 竞技场控制台")
     demo_mode = st.toggle("演示模式（使用 Mock 数据）", value=False)
     if demo_mode:
-        st.info("当前使用内置 Mock 数据演示。关闭此开关后，将读取上游 Page 2 分拣结果。")
+        st.info("当前使用内置 Mock 数据演示。关闭此开关后，将实时执行 ABCD 并行分类与评分。")
     st.markdown("---")
     st.subheader("🧭 宏观剧本设定 (3Y 中期战略视角)")
     st.caption("平滑剧本供 B/C 组使用；原始剧本供 D 组宏观匹配")
@@ -1552,45 +1627,137 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────────
 st.title("🏆 同类资产竞技场 (Same-Class Arena)")
 st.caption(
-    "数据源：上游 Page 2「资产分拣与白盒初筛」ABCD 分类结果 → "
-    "同类内部相对评分 → 赛道翘楚高亮置顶 → 向下游 Page 5 输送冠军标的"
+    "一体化分类 + 评分引擎 — 并行独立评估 ABCD 四级（含滞后带） → "
+    "同类内部锚点归一化评分 → 赛道翘楚高亮置顶 → 向下游 Page 5 输送冠军标的"
 )
 
 # ─────────────────────────────────────────────────────────────────
-#  数据来源决策
+#  数据来源决策 + 自主分类
 # ─────────────────────────────────────────────────────────────────
 if demo_mode:
     all_assets: dict = _MOCK_ASSETS
-elif "abcd_classified_assets" in st.session_state:
-    all_assets = st.session_state["abcd_classified_assets"]
 else:
-    st.warning(
-        "**尚未获取到分拣数据。** 请先访问左侧导航栏中的 "
-        "**2 资产分拣与白盒初筛** 页面完成资产 ABCD 分拣，"
-        "或在左侧侧边栏开启**演示模式**以查看竞技场效果。",
-        icon="🏆",
-    )
-    st.stop()
+    _core_live = fetch_core_data()
+    _TIC_MAP = _core_live.get("TIC_MAP", {})
+    _USER_TICKERS = list(_TIC_MAP.keys())
+    _page1_picks = st.session_state.get("page1_macro_recommended", [])
+    _SCREEN_TICKERS = sorted(set(_USER_TICKERS + _page1_picks))
+    _DOWNLOAD_TICKERS = sorted(set(_SCREEN_TICKERS + ["SPY"]))
+
+    with st.spinner("⏳ 正在加载资产价格矩阵..."):
+        _price_df = get_global_data(_DOWNLOAD_TICKERS, years=3)
+
+    with st.spinner("⏳ 正在加载基本面元数据（市值/股息率）..."):
+        _meta_live = get_stock_metadata(_SCREEN_TICKERS)
+
+    if _price_df.empty or len(_price_df) < 30:
+        st.error("⚠️ 价格数据加载失败，请检查网络或清理缓存后重试。")
+        st.stop()
+
+    _prev_grades_map = _load_prev_classification()
+
+    with st.spinner("⚙️ 正在执行并行 ABCD 分类（含滞后带）…"):
+        _date_idx = len(_price_df) - 1
+        all_assets = classify_all_at_date(
+            _price_df, _date_idx, _SCREEN_TICKERS, _meta_live,
+            tic_map=_TIC_MAP, prev_grades_map=_prev_grades_map,
+        )
+
+    _new_grades_map = {
+        t: info.get("qualifying_grades", [])
+        for t, info in all_assets.items()
+    }
+    _save_prev_classification(_new_grades_map)
+
+    st.session_state["abcd_classified_assets"] = all_assets
 
 # ─────────────────────────────────────────────────────────────────
-#  构建全量 DataFrame
+#  分类概览（Expander）
+# ─────────────────────────────────────────────────────────────────
+if not demo_mode:
+    _GRADE_COLORS = {"A": "#3498DB", "B": "#F39C12", "C": "#2ECC71", "D": "#9B59B6"}
+    _GRADE_ICONS  = {"A": "⚓", "B": "🦍", "C": "👑", "D": "🚀"}
+    with st.expander("📋 分类概览 — 并行独立评估结果（点击展开）"):
+        _overview_cols = st.columns(5)
+        _grade_counts = {"A": 0, "B": 0, "C": 0, "D": 0, "?": 0}
+        for _t, _info in all_assets.items():
+            for _g in _info.get("qualifying_grades", []):
+                if _g in _grade_counts:
+                    _grade_counts[_g] += 1
+            if not _info.get("qualifying_grades"):
+                _grade_counts["?"] += 1
+
+        for _i, _g in enumerate(["A", "B", "C", "D", "?"]):
+            with _overview_cols[_i]:
+                _gc = _GRADE_COLORS.get(_g, "#888")
+                _gi = _GRADE_ICONS.get(_g, "❓")
+                _lbl = CLASS_META[_g]["label"] if _g in CLASS_META else "待分类"
+                st.markdown(
+                    f"<div style='text-align:center; padding:10px; "
+                    f"border:1px solid {_gc}44; border-radius:8px;'>"
+                    f"<div style='font-size:22px;'>{_gi}</div>"
+                    f"<div style='font-size:24px; font-weight:bold; color:{_gc};'>"
+                    f"{_grade_counts[_g]}</div>"
+                    f"<div style='font-size:13px; color:#bbb;'>{_lbl}</div></div>",
+                    unsafe_allow_html=True,
+                )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.caption(
+            "并行评估模式下同一资产可同时符合多个级别（如 B+C），"
+            "各赛道独立评分时将包含所有 qualifying 该级别的资产。"
+        )
+
+        _multi_grade = [
+            (t, info) for t, info in all_assets.items()
+            if len(info.get("qualifying_grades", [])) > 1
+        ]
+        if _multi_grade:
+            st.markdown("**多级别资产：**")
+            for _t, _info in sorted(_multi_grade, key=lambda x: x[0]):
+                _badges = " ".join(
+                    f"<span style='background:{_GRADE_COLORS.get(g, '#888')}22; "
+                    f"color:{_GRADE_COLORS.get(g, '#888')}; padding:2px 8px; "
+                    f"border-radius:10px; font-size:13px; border:1px solid "
+                    f"{_GRADE_COLORS.get(g, '#888')}55;'>{g}</span>"
+                    for g in _info["qualifying_grades"]
+                )
+                st.markdown(
+                    f"<span style='font-weight:bold; color:#eee;'>{_t}</span> "
+                    f"({_info.get('cn_name', _t)}) → {_badges}",
+                    unsafe_allow_html=True,
+                )
+
+    st.markdown("---")
+
+# ─────────────────────────────────────────────────────────────────
+#  构建全量 DataFrame（并行模式：每个 qualifying grade 一行）
 # ─────────────────────────────────────────────────────────────────
 rows = []
 for ticker, info in all_assets.items():
-    cls = info.get("cls", "?")
-    if not info.get("has_data", True) or cls not in CLASS_META:
+    if not info.get("has_data", True):
         continue
-    rows.append({
-        "Ticker":   ticker,
-        "名称":     info.get("cn_name", ticker),
-        "类别":     cls,
-        "Z-Score":  float(info.get("z_score", 0.0)),
-        "20日动量": float(info.get("mom20",   0.0)),
-        "趋势健康": bool(info.get("is_bullish", False)),
-    })
+    q_grades = info.get("qualifying_grades", [])
+    if not q_grades:
+        p_cls = info.get("cls", "?")
+        if p_cls in CLASS_META:
+            q_grades = [p_cls]
+        else:
+            continue
+    for g in q_grades:
+        if g not in CLASS_META:
+            continue
+        rows.append({
+            "Ticker":   ticker,
+            "名称":     info.get("cn_name", ticker),
+            "类别":     g,
+            "Z-Score":  float(info.get("z_score", 0.0)),
+            "20日动量": float(info.get("mom20",   0.0)),
+            "趋势健康": bool(info.get("is_bullish", False)),
+        })
 
 if not rows:
-    st.error("数据中无有效资产，请返回 Page 2 检查数据加载状态，或开启演示模式。")
+    st.error("数据中无有效资产，请检查数据加载状态或开启演示模式。")
     st.stop()
 
 df_all = pd.DataFrame(rows).astype({"Z-Score": float, "20日动量": float})
@@ -1756,7 +1923,7 @@ elif _sel4 == "B":
     """, unsafe_allow_html=True)
 
     if df_b.empty:
-        st.info("当前 B 级赛道暂无参赛资产。请先运行 **2 资产分拣** 或开启演示模式。")
+        st.info("当前 B 级赛道暂无参赛资产。请检查数据加载状态或开启演示模式。")
     else:
         with st.spinner("正在拉取 B 组底仓质量因子数据（股息率、最大回撤、夏普比率、市值）…"):
             _factors_b = get_arena_b_factors(tuple(df_b["Ticker"].tolist()))
@@ -1856,10 +2023,11 @@ elif _sel4 == "C":
         <div style='font-size:12px; color:#bbb; line-height:1.8;'>{cfg_c["logic"]}</div>
         <div style='margin-top:10px; font-size:11px; color:#666;'>
             评分权重 →
-            <span class='factor-pill' style='background:{meta["color"]}22; color:{meta["color"]}; border:1px solid {meta["color"]}55;'>Forward EPS Z-Score  50%</span>
+            <span class='factor-pill' style='background:{meta["color"]}22; color:{meta["color"]}; border:1px solid {meta["color"]}55;'>Forward EPS Z-Score  25%</span>
             <span class='factor-pill' style='background:#3498DB22; color:#3498DB; border:1px solid #3498DB55;'>log₁₀(MCap)  15%</span>
-            <span class='factor-pill' style='background:#9B59B622; color:#9B59B6; border:1px solid #9B59B655;'>RS₁₂₀ 中长线强度  15%</span>
+            <span class='factor-pill' style='background:#9B59B622; color:#9B59B6; border:1px solid #9B59B655;'>RS₁₂₀ 中长线强度  20%</span>
             <span class='factor-pill' style='background:#F39C1222; color:#F39C12; border:1px solid #F39C1255;'>宏观顺风  20%</span>
+            <span class='factor-pill' style='background:#2ECC7122; color:#2ECC71; border:1px solid #2ECC7155;'>RS₂₅₀ 年度超额  20%</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1869,12 +2037,13 @@ elif _sel4 == "C":
     <div class='formula-box' style='background:#1a1a1a; border-left:3px solid #E74C3C; padding:14px; margin-bottom:16px; font-size:13px; color:#ccc; border-radius:4px;'>
     <b>⚙️ ScorecardC 白盒公式（满分 100 分）— 慢变量霸权，拒绝短期噪音：</b><br><br>
     <span style='color:#E74C3C; font-weight:bold;'>Score<sub>C</sub></span> =
-    <span style='color:#E74C3C;'>(50 × Z<sub>ForwardEPS</sub>)</span> +
+    <span style='color:#E74C3C;'>(25 × Z<sub>ForwardEPS</sub>)</span> +
     <span style='color:#3498DB;'>(15 × log₁₀(MCap)<sub>norm</sub>)</span> +
-    <span style='color:#9B59B6;'>(15 × RS<sub>120d vs SPY</sub>)</span> +
-    <span style='color:#F39C12;'>(20 × Fit<sub>Macro</sub>)</span><br><br>
+    <span style='color:#9B59B6;'>(20 × RS<sub>120d vs SPY</sub>)</span> +
+    <span style='color:#F39C12;'>(20 × Fit<sub>Macro</sub>)</span> +
+    <span style='color:#2ECC71;'>(20 × RS<sub>250d vs SPY</sub>)</span><br><br>
     <span style='color:#888; font-size:13px;'>
-    各因子均经 Min-Max 归一化至 [0, 100] 后加权求和。RS₁₂₀ = 标的过去 120 日涨跌幅 − SPY 同期涨跌幅（半年超额收益）。<br>
+    各因子均经锚点归一化至 [0, 100] 后加权求和。RS₂₅₀ = 标的过去 250 日涨跌幅 − SPY 同期涨跌幅（年度超额收益，半年才显著变化）。<br>
     5日量能 Z-Score 与叙事热度已迁入 D 组短周期体系，不再参与 C 组定价。<br>
     当前宏观剧本（Macro Fit 判定基准）：<b style='color:#F39C12;'>{regime}</b>
     </span>
@@ -1882,9 +2051,9 @@ elif _sel4 == "C":
     """.format(regime=macro_regime), unsafe_allow_html=True)
 
     if df_c.empty:
-        st.info(f"当前 C 级赛道暂无参赛资产。请先运行 **2 资产分拣** 或开启演示模式。")
+        st.info(f"当前 C 级赛道暂无参赛资产。请检查数据或开启演示模式。")
     else:
-        with st.spinner("正在拉取 C 组基本面因子数据（EPS增速、RS₁₂₀中长线强度、市值）…"):
+        with st.spinner("正在拉取 C 组基本面因子数据（EPS增速、RS₁₂₀、RS₂₅₀、市值）…"):
             _meta_c    = get_stock_metadata(tuple(df_c["Ticker"].tolist()))
             _factors_c = get_arena_c_factors(tuple(df_c["Ticker"].tolist()))
 
@@ -1896,6 +2065,9 @@ elif _sel4 == "C":
         )
         df_c["RS120d"] = df_c["Ticker"].map(
             lambda t: float(_factors_c.get(t, {}).get("rs_120d", 0.0))
+        )
+        df_c["RS250d"] = df_c["Ticker"].map(
+            lambda t: float(_factors_c.get(t, {}).get("rs_250d", 0.0))
         )
 
         df_scored_c = compute_scorecard_c(df_c, macro_regime)
@@ -1938,14 +2110,16 @@ elif _sel4 == "C":
             champ_c = df_scored_c.iloc[0]
             trend_txt_c = "趋势健康 (MA20 > MA60)" if champ_c["趋势健康"] else "趋势走弱 (MA20 < MA60)"
             aligned_c = champ_c["Ticker"] in set(_MACRO_TAGS_MAP.get(macro_regime, []))
-            rs_c = float(champ_c.get("RS120d", 0.0))
+            rs120_c = float(champ_c.get("RS120d", 0.0))
+            rs250_c = float(champ_c.get("RS250d", 0.0))
             st.success(
                 f"**👑 赛道冠军深度解读 — {champ_c['Ticker']} ({champ_c['名称']})**\n\n"
                 f"在 C 级 {n_c} 位参赛标的中以 **慢变量霸权指数 {champ_c['竞技得分']:.0f} 分**夺冠。\n"
                 f"Forward EPS 增速贡献 = {champ_c['因子1_分']:.1f}，"
                 f"log₁₀(市值) 贡献 = {champ_c['因子2_分']:.1f}，"
-                f"RS₁₂₀ 中长线强度贡献 = {champ_c['因子3_分']:.1f}（半年超额收益 {rs_c:+.1f}%），"
-                f"宏观顺风 = {champ_c['因子4_分']:.1f}（{'✅ 顺风' if aligned_c else '❌ 逆风'}，剧本：{macro_regime}）。\n"
+                f"RS₁₂₀ 贡献 = {champ_c['因子3_分']:.1f}（半年超额 {rs120_c:+.1f}%），"
+                f"宏观顺风 = {champ_c['因子4_分']:.1f}（{'✅ 顺风' if aligned_c else '❌ 逆风'}，剧本：{macro_regime}），"
+                f"RS₂₅₀ 年度超额 = {champ_c['因子5_分']:.1f}（{rs250_c:+.1f}%）。\n"
                 f"趋势状态：{trend_txt_c}。"
             )
 
@@ -2007,7 +2181,7 @@ elif _sel4 == "D":
     """, unsafe_allow_html=True)
 
     if df_d.empty:
-        st.info("当前 D 级赛道暂无参赛资产。请先运行 **2 资产分拣** 或开启演示模式。")
+        st.info("当前 D 级赛道暂无参赛资产。请检查数据加载状态或开启演示模式。")
     else:
         with st.spinner("正在拉取 D 组爆点因子数据（Vol_Z、RS vs SPY、MA60 位置）…"):
             _factors_d = get_arena_d_factors(tuple(df_d["Ticker"].tolist()))

@@ -163,15 +163,15 @@ with st.sidebar:
 #  标题
 # ─────────────────────────────────────────────────────────────────
 st.title("📡 资产矩阵与雷达 (Asset Matrix & Radar)")
-st.caption("数据源：上游 Page 2「资产分拣与白盒初筛」ABCD 分类结果 → 四象限视觉映射 → 类别逻辑深挖")
+st.caption("数据源：上游 Page 4「同类资产竞技场」ABCD 分类结果 → 四象限视觉映射 → 类别逻辑深挖")
 
 # ─────────────────────────────────────────────────────────────────
-#  数据读取：依赖上游 Page 2 写入 session_state
+#  数据读取：依赖上游 Page 4 写入 session_state
 # ─────────────────────────────────────────────────────────────────
 if "abcd_classified_assets" not in st.session_state:
     st.warning(
         "**尚未获取到分拣数据。** 请先访问左侧导航栏中的 "
-        "**2 资产分拣与白盒初筛** 页面——系统完成资产 ABCD 分拣后，"
+        "**4 同类资产竞技场** 页面——系统完成资产 ABCD 分类后，"
         "结果将自动传入本视图。",
         icon="🗂️",
     )
@@ -200,7 +200,7 @@ for ticker, info in all_assets.items():
     })
 
 if not rows:
-    st.error("分拣数据中无可用技术指标，请返回 Page 2 检查数据加载状态。")
+    st.error("分拣数据中无可用技术指标，请返回 Page 4 检查数据加载状态。")
     st.stop()
 
 df_all = pd.DataFrame(rows).astype({"Z-Score": float, "20日动量": float})

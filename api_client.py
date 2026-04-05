@@ -240,22 +240,24 @@ def get_arena_b_factors(tickers: tuple) -> dict:
 
 @st.cache_data(ttl=3600*4)
 def get_arena_c_factors(tickers: tuple) -> dict:
-    """获取 C 组 ScorecardC 所需特殊因子：Forward EPS 增速 + 120日中长线相对强度 RS。
+    """获取 C 组 ScorecardC 所需特殊因子：
+    - earnings_growth: Forward EPS 增速
+    - rs_120d: 120日中长线相对强度 RS vs SPY
+    - rs_250d: 250日年度超额收益 RS vs SPY
     tickers 用 tuple 传入以保证 st.cache_data 可序列化。
     """
     from concurrent.futures import ThreadPoolExecutor
     import numpy as np
 
-    # 先取 SPY 基准 120 日收益（135d 确保拿满 121 根 bar）
+    # SPY 基准：120日 + 250日收益
     try:
-        spy_hist = yf.Ticker("SPY").history(period="135d")
-        if not spy_hist.empty and len(spy_hist) >= 121:
-            spy_prices = spy_hist["Close"].dropna().astype(float)
-            spy_ret120 = float((spy_prices.iloc[-1] / spy_prices.iloc[-121] - 1) * 100)
-        else:
-            spy_ret120 = 0.0
+        spy_hist = yf.Ticker("SPY").history(period="2y")
+        spy_prices = spy_hist["Close"].dropna().astype(float) if not spy_hist.empty else pd.Series(dtype=float)
+        spy_ret120 = float((spy_prices.iloc[-1] / spy_prices.iloc[-121] - 1) * 100) if len(spy_prices) >= 121 else 0.0
+        spy_ret250 = float((spy_prices.iloc[-1] / spy_prices.iloc[-251] - 1) * 100) if len(spy_prices) >= 251 else 0.0
     except Exception:
         spy_ret120 = 0.0
+        spy_ret250 = 0.0
 
     def _fetch_one(t):
         try:
@@ -265,21 +267,29 @@ def get_arena_c_factors(tickers: tuple) -> dict:
                 info = stock.info or {}
             except Exception:
                 pass
-            # earningsGrowth 为华尔街一致预期 YoY EPS 增速（小数形式）
             earnings_growth = info.get("earningsGrowth") or info.get("revenueGrowth") or 0.0
 
-            # 120 日中长线相对强度 RS（vs SPY 超额收益率）
-            hist = stock.history(period="135d")
-            if not hist.empty and len(hist) >= 121:
+            hist = stock.history(period="2y")
+            if not hist.empty:
                 prices = hist["Close"].dropna().astype(float)
+            else:
+                prices = pd.Series(dtype=float)
+
+            if len(prices) >= 121:
                 ret120 = float((prices.iloc[-1] / prices.iloc[-121] - 1) * 100)
                 rs_120d = ret120 - spy_ret120
             else:
                 rs_120d = 0.0
 
-            return t, {"earnings_growth": float(earnings_growth), "rs_120d": rs_120d}
+            if len(prices) >= 251:
+                ret250 = float((prices.iloc[-1] / prices.iloc[-251] - 1) * 100)
+                rs_250d = ret250 - spy_ret250
+            else:
+                rs_250d = 0.0
+
+            return t, {"earnings_growth": float(earnings_growth), "rs_120d": rs_120d, "rs_250d": rs_250d}
         except Exception:
-            return t, {"earnings_growth": 0.0, "rs_120d": 0.0}
+            return t, {"earnings_growth": 0.0, "rs_120d": 0.0, "rs_250d": 0.0}
 
     result = {}
     with ThreadPoolExecutor(max_workers=10) as executor:

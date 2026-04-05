@@ -1,8 +1,10 @@
 """
 Shared screener classification engine.
 
-Provides compute_metrics(), classify_asset(), and classify_all_at_date()
-for both real-time Page 2 classification and historical Point-in-Time backfill.
+Provides compute_metrics(), classify_asset_parallel(), and classify_all_at_date()
+for parallel independent ABCD evaluation with hysteresis bands.
+
+Legacy classify_asset() (cascade funnel) is retained but deprecated.
 """
 
 import math
@@ -84,6 +86,7 @@ def compute_metrics(ticker: str, df: pd.DataFrame, spy_col: str = "SPY") -> dict
         "ma200":        round(ma200_val, 2) if ma200_val is not None else None,
         "ma250":        round(ma250_val, 2) if ma250_val is not None else None,
         "is_bullish":   ma20 > ma60,
+        "slow_bullish": (ma200_val is not None and ma60 > ma200_val),
         "full_uptrend": (ma250_val is not None and ma20 > ma60 > ma250_val),
         "z_score":      z_score,
         "mom20":        mom20,
@@ -100,6 +103,130 @@ def compute_metrics(ticker: str, df: pd.DataFrame, spy_col: str = "SPY") -> dict
     }
 
 
+_GRADE_PRIORITY = {"A": 0, "B": 1, "C": 2, "D": 3}
+
+
+def classify_asset_parallel(
+    m: dict, div_yield: float, mcap: float,
+    prev_grades: list = None,
+) -> tuple:
+    """Parallel independent evaluation of all 4 grades with hysteresis.
+
+    Returns (qualifying_grades: list, all_details: dict).
+    Each grade is evaluated independently; an asset can qualify for multiple grades.
+    When ``prev_grades`` includes a grade, that grade uses relaxed exit thresholds
+    instead of strict entry thresholds (hysteresis band).
+    """
+    if not m.get("has_data"):
+        return [], {"error": "数据不足"}
+
+    prev = set(prev_grades or [])
+    grades = []
+    all_details = {}
+
+    # ── A: Anchor (defensive) ──
+    was_a = "A" in prev
+    a_income_enter = div_yield >= 1.0 or m.get("slow_bullish", False)
+    a_income_exit  = div_yield < 0.5 and not m.get("slow_bullish", False)
+    a_dd_enter     = m["max_dd"] < 15.0
+    a_dd_exit      = m["max_dd"] > 20.0
+    a_corr_enter   = m["spy_corr"] < 0.65
+    a_corr_exit    = m["spy_corr"] > 0.75
+
+    if was_a:
+        a_pass = not a_income_exit and not a_dd_exit and not a_corr_exit
+    else:
+        a_pass = a_income_enter and a_dd_enter and a_corr_enter
+
+    div_tag = f"股息 {div_yield:.1f}%" if div_yield >= 1.0 else ("慢趋势健康(MA60>MA200)" if m.get("slow_bullish") else "无收益来源")
+    all_details["A"] = {
+        "pass": a_pass,
+        "收益来源(股息/慢趋势)": (a_income_enter if not was_a else not a_income_exit,
+                               f"{div_tag}（进入需股息≥1%或MA60>MA200；退出需股息<0.5%且MA60<MA200）"),
+        "1年最大回撤": (a_dd_enter if not was_a else not a_dd_exit,
+                      f"{m['max_dd']:.1f}%（进入<15%，退出>20%）"),
+        "SPY相关性":   (a_corr_enter if not was_a else not a_corr_exit,
+                      f"{m['spy_corr']:.2f}（进入<0.65，退出>0.75）"),
+    }
+    if a_pass:
+        grades.append("A")
+
+    # ── B: Gorilla (blue-chip) ──
+    was_b = "B" in prev
+    b_mcap_enter    = mcap > 1e11
+    b_mcap_exit     = mcap < 8e10
+    b_dd3y_enter    = m.get("max_dd_3y", 99.0) < 40.0
+    b_dd3y_exit     = m.get("max_dd_3y", 99.0) > 50.0
+    _ma200          = m.get("ma200")
+    b_ma200_enter   = _ma200 is not None and m["curr"] > _ma200
+    b_ma200_exit    = _ma200 is not None and m["curr"] < _ma200 * 0.95
+
+    if was_b:
+        b_pass = not b_mcap_exit and not b_dd3y_exit and not b_ma200_exit
+    else:
+        b_pass = b_mcap_enter and b_dd3y_enter and b_ma200_enter
+
+    all_details["B"] = {
+        "pass": b_pass,
+        "市值":          (b_mcap_enter if not was_b else not b_mcap_exit,
+                         f"${mcap/1e9:.0f}B（进入>$1000亿，退出<$800亿）"),
+        "近3年最大回撤":  (b_dd3y_enter if not was_b else not b_dd3y_exit,
+                         f"{m.get('max_dd_3y', 0):.1f}%（进入<40%，退出>50%）"),
+        "价格vs MA200":  (b_ma200_enter if not was_b else not b_ma200_exit,
+                         f"{'>' if b_ma200_enter else '<'}MA200（退出需<MA200×0.95）"),
+    }
+    if b_pass:
+        grades.append("B")
+
+    # ── C: King (growth momentum) ──
+    was_c = "C" in prev
+    c_rs_enter      = m["rs_rank_pct"] <= 0.20
+    c_rs_exit       = m["rs_rank_pct"] > 0.35
+    _ma250          = m.get("ma250")
+    c_ma250_enter   = _ma250 is not None and m["curr"] > _ma250
+    c_ma250_exit    = _ma250 is not None and m["curr"] < _ma250 * 0.95
+
+    if was_c:
+        c_pass = not c_rs_exit and not c_ma250_exit
+    else:
+        c_pass = c_rs_enter and c_ma250_enter
+
+    all_details["C"] = {
+        "pass": c_pass,
+        "RS动量排名": (c_rs_enter if not was_c else not c_rs_exit,
+                      f"全域前 {m['rs_rank_pct']*100:.0f}%（进入≤20%，退出>35%）"),
+        "年线支撑":   (c_ma250_enter if not was_c else not c_ma250_exit,
+                      f"curr vs MA250（进入需站上年线，退出需<MA250×0.95）"),
+    }
+    if c_pass:
+        grades.append("C")
+
+    # ── D: Scout (speculative momentum, no hysteresis) ──
+    d_mom20 = m["mom20"] > 8.0
+    d_mom5  = m["mom5"] > 5.0
+    d_hv    = m.get("hv_60d", 0.0) > 0.25
+    d_pass  = (d_mom20 or d_mom5) and d_hv
+
+    all_details["D"] = {
+        "pass": d_pass,
+        "20日涨幅":       (d_mom20, f"{m['mom20']:+.1f}%（需>+8%）"),
+        "5日涨幅":        (d_mom5,  f"{m['mom5']:+.1f}%（需>+5%）"),
+        "60日年化波动率": (d_hv,    f"{m.get('hv_60d', 0.0)*100:.1f}%（需>25%）"),
+    }
+    if d_pass:
+        grades.append("D")
+
+    return grades, all_details
+
+
+def _primary_grade(grades: list) -> str:
+    """Return highest-priority grade from qualifying list, or '?' if empty."""
+    if not grades:
+        return "?"
+    return min(grades, key=lambda g: _GRADE_PRIORITY.get(g, 99))
+
+
+# ── Deprecated: original cascade funnel classifier ──
 def classify_asset(m: dict, div_yield: float, mcap: float) -> tuple:
     """Funnel classification: A -> B -> C -> D -> ?.
 
@@ -204,8 +331,9 @@ def classify_all_at_date(
     screen_tickers: list,
     meta_data: dict,
     tic_map: dict = None,
+    prev_grades_map: dict = None,
 ) -> dict:
-    """Run the full ABCD classification at a specific historical date.
+    """Run the full parallel ABCD classification at a specific historical date.
 
     Parameters
     ----------
@@ -216,13 +344,17 @@ def classify_all_at_date(
     meta_data : {ticker: {"mcap": float, "div_yield": float}} — current metadata
                 used as an approximation for all historical dates.
     tic_map : Optional {ticker: cn_name} for human-readable names.
+    prev_grades_map : Optional {ticker: [grade_list]} from previous period for hysteresis.
 
     Returns
     -------
-    {ticker: {"cls": str, "reason": str, "criteria": dict, "cn_name": str, ...}}
+    {ticker: {"cls": str, "qualifying_grades": list, "primary_cls": str,
+              "criteria": dict, "cn_name": str, ...}}
     """
     if tic_map is None:
         tic_map = {}
+    if prev_grades_map is None:
+        prev_grades_map = {}
 
     df_slice = price_df.iloc[: date_idx + 1]
 
@@ -251,7 +383,7 @@ def classify_all_at_date(
                 all_metrics[t]["rs_rank_pct"] = round(float(rs_ranks[t]), 3)
                 all_metrics[t]["rs_rel"]      = round(rs_values[t], 1)
 
-    # Pass 2: classify
+    # Pass 2: parallel classify with hysteresis
     all_assets: dict = {}
     for ticker in screen_tickers:
         m       = all_metrics[ticker]
@@ -259,26 +391,30 @@ def classify_all_at_date(
         mcap      = float(m_info.get("mcap", 0) or 0)
         div_yield = float(m_info.get("div_yield", 0.0) or 0.0)
         cn_name   = tic_map.get(ticker, ticker)
+        prev_g    = prev_grades_map.get(ticker, [])
 
-        cls, reason, criteria_detail = classify_asset(m, div_yield, mcap)
+        q_grades, details = classify_asset_parallel(m, div_yield, mcap, prev_grades=prev_g)
+        p_cls = _primary_grade(q_grades)
 
         all_assets[ticker] = {
-            "cls":         cls,
-            "reason":      reason,
-            "criteria":    criteria_detail,
-            "cn_name":     cn_name,
-            "has_data":    m.get("has_data", False),
-            "is_bullish":  m.get("is_bullish", False),
-            "z_score":     m.get("z_score", 0.0),
-            "mom20":       m.get("mom20", 0.0),
-            "trend_label": m.get("trend_label", "数据不足"),
-            "rs_rank_pct": m.get("rs_rank_pct", 1.0),
-            "rs_rel":      m.get("rs_rel", 0.0),
-            "sortino":     m.get("sortino", 0.0),
-            "max_dd":      m.get("max_dd", 0.0),
-            "spy_corr":    m.get("spy_corr", 0.0),
-            "div_yield":   div_yield,
-            "mcap":        mcap,
+            "cls":               p_cls,
+            "qualifying_grades": q_grades,
+            "primary_cls":       p_cls,
+            "criteria":          details,
+            "cn_name":           cn_name,
+            "has_data":          m.get("has_data", False),
+            "is_bullish":        m.get("is_bullish", False),
+            "slow_bullish":      m.get("slow_bullish", False),
+            "z_score":           m.get("z_score", 0.0),
+            "mom20":             m.get("mom20", 0.0),
+            "trend_label":       m.get("trend_label", "数据不足"),
+            "rs_rank_pct":       m.get("rs_rank_pct", 1.0),
+            "rs_rel":            m.get("rs_rel", 0.0),
+            "sortino":           m.get("sortino", 0.0),
+            "max_dd":            m.get("max_dd", 0.0),
+            "spy_corr":          m.get("spy_corr", 0.0),
+            "div_yield":         div_yield,
+            "mcap":              mcap,
         }
 
     return all_assets
