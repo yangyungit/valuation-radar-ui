@@ -158,7 +158,7 @@ def classify_asset_parallel(
     b_dd3y_enter    = m.get("max_dd_3y", 99.0) < 40.0
     b_dd3y_exit     = m.get("max_dd_3y", 99.0) > 50.0
     _ma200          = m.get("ma200")
-    b_ma200_enter   = _ma200 is not None and m["curr"] > _ma200
+    b_ma200_enter   = _ma200 is not None and m["curr"] > _ma200 * 1.03
     b_ma200_exit    = _ma200 is not None and m["curr"] < _ma200 * 0.95
 
     if was_b:
@@ -173,7 +173,7 @@ def classify_asset_parallel(
         "近3年最大回撤":  (b_dd3y_enter if not was_b else not b_dd3y_exit,
                          f"{m.get('max_dd_3y', 0):.1f}%（进入<40%，退出>50%）"),
         "价格vs MA200":  (b_ma200_enter if not was_b else not b_ma200_exit,
-                         f"{'>' if b_ma200_enter else '<'}MA200（退出需<MA200×0.95）"),
+                         f"{'>' if b_ma200_enter else '<'}MA200（进入需>MA200×1.03，退出需<MA200×0.95）"),
     }
     if b_pass:
         grades.append("B")

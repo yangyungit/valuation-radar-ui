@@ -1,4519 +1,28 @@
 {
-  "2026-03": {
-    "C": [
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 89.9
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 65.1
-      },
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 55.5
-      }
-    ],
-    "A": [
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 76.3
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 76.2
-      },
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 75.4
-      }
-    ],
-    "B": [
-      {
-        "ticker": "GOOGL",
-        "name": "谷歌",
-        "score": 68.9
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 68.8
-      },
-      {
-        "ticker": "XOM",
-        "name": "埃克森美孚",
-        "score": 67.3
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Hot"
-    },
-    "D": [
-      {
-        "ticker": "NFLX",
-        "name": "奈飞",
-        "score": 92.6
-      },
-      {
-        "ticker": "OXY",
-        "name": "西方石油",
-        "score": 89.3
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 87.3
-      }
-    ]
-  },
-  "2026-02": {
-    "A": [
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 76.3
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 76.1
-      },
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 75.6
-      }
-    ],
-    "B": [
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 70.6
-      },
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 66.7
-      },
-      {
-        "ticker": "LMT",
-        "name": "洛克希德",
-        "score": 64.0
-      }
-    ],
-    "C": [
-      {
-        "ticker": "AG",
-        "name": "First Majestic",
-        "score": 92.5
-      },
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 69.9
-      },
-      {
-        "ticker": "FCX",
-        "name": "自由港铜金",
-        "score": 62.6
-      }
-    ],
-    "D": [
-      {
-        "ticker": "IGV",
-        "name": "软件ETF",
-        "score": 67.3
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 62.2
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 48.0
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    }
-  },
-  "2026-01": {
-    "A": [
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 80.1
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 78.1
-      },
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 75.6
-      }
-    ],
-    "B": [
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 71.3
-      },
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 66.8
-      },
-      {
-        "ticker": "LMT",
-        "name": "洛克希德",
-        "score": 64.5
-      }
-    ],
-    "C": [
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 84.7
-      },
-      {
-        "ticker": "VALE",
-        "name": "淡水河谷",
-        "score": 58.1
-      },
-      {
-        "ticker": "FCX",
-        "name": "自由港铜金",
-        "score": 52.5
-      }
-    ],
-    "D": [
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 78.3
-      },
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 75.1
-      },
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 64.7
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    }
-  },
-  "2025-12": {
-    "A": [
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 81.7
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 79.4
-      },
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 78.0
-      }
-    ],
-    "B": [
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 72.2
-      },
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 70.4
-      },
-      {
-        "ticker": "RIO",
-        "name": "力拓",
-        "score": 65.8
-      }
-    ],
-    "C": [
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 81.5
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 69.2
-      },
-      {
-        "ticker": "HL",
-        "name": "赫克拉矿业",
-        "score": 64.4
-      }
-    ],
-    "D": [
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 71.8
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 70.8
-      },
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 66.8
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2025-11": {
-    "A": [
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 83.4
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 80.1
-      },
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 78.8
-      }
-    ],
-    "B": [
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 72.9
-      },
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 64.7
-      },
-      {
-        "ticker": "AEM",
-        "name": "伊格尔矿业",
-        "score": 62.0
-      }
-    ],
-    "C": [
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 82.8
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 74.2
-      },
-      {
-        "ticker": "HL",
-        "name": "赫克拉矿业",
-        "score": 71.2
-      }
-    ],
-    "D": [
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 78.4
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 67.0
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 66.4
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2025-10": {
-    "A": [
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 82.3
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 79.5
-      },
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 79.2
-      }
-    ],
-    "B": [
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 73.3
-      },
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 65.4
-      },
-      {
-        "ticker": "AEM",
-        "name": "伊格尔矿业",
-        "score": 60.4
-      }
-    ],
-    "C": [
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 87.2
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 82.3
-      },
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 70.6
-      }
-    ],
-    "D": [
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 64.8
-      },
-      {
-        "ticker": "NET",
-        "name": "Cloudflare",
-        "score": 61.3
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 59.6
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2025-09": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 83.7
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 79.2
-      },
-      {
-        "ticker": "BTI",
-        "name": "英美烟草",
-        "score": 74.7
-      }
-    ],
-    "B": [
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 78.6
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 69.5
-      },
-      {
-        "ticker": "AEM",
-        "name": "伊格尔矿业",
-        "score": 64.4
-      }
-    ],
-    "C": [
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 88.6
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 76.8
-      },
-      {
-        "ticker": "UUUU",
-        "name": "Energy Fuels",
-        "score": 64.1
-      }
-    ],
-    "D": [
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 84.0
-      },
-      {
-        "ticker": "ADBE",
-        "name": "Adobe",
-        "score": 73.4
-      },
-      {
-        "ticker": "CACI",
-        "name": "CACI国际",
-        "score": 73.2
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2025-08": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 82.9
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 79.3
-      },
-      {
-        "ticker": "BTI",
-        "name": "英美烟草",
-        "score": 75.6
-      }
-    ],
-    "B": [
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 81.1
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 71.7
-      },
-      {
-        "ticker": "LIN",
-        "name": "林德气体",
-        "score": 65.8
-      }
-    ],
-    "C": [
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 76.7
-      },
-      {
-        "ticker": "UUUU",
-        "name": "Energy Fuels",
-        "score": 69.6
-      },
-      {
-        "ticker": "HL",
-        "name": "赫克拉矿业",
-        "score": 63.3
-      }
-    ],
-    "D": [
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 75.0
-      },
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 64.0
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 62.4
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2025-07": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 81.8
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 79.2
-      },
-      {
-        "ticker": "BTI",
-        "name": "英美烟草",
-        "score": 75.0
-      }
-    ],
-    "B": [
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 81.1
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 75.3
-      },
-      {
-        "ticker": "LIN",
-        "name": "林德气体",
-        "score": 68.4
-      }
-    ],
-    "C": [
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 89.9
-      },
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 67.8
-      },
-      {
-        "ticker": "UUUU",
-        "name": "Energy Fuels",
-        "score": 65.5
-      }
-    ],
-    "D": [
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 76.9
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 63.9
-      },
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 63.0
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2025-06": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 81.2
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 79.6
-      },
-      {
-        "ticker": "BTI",
-        "name": "英美烟草",
-        "score": 76.0
-      }
-    ],
-    "B": [
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 82.9
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 75.6
-      },
-      {
-        "ticker": "LIN",
-        "name": "林德气体",
-        "score": 69.6
-      }
-    ],
-    "C": [
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 84.6
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 76.7
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 71.8
-      }
-    ],
-    "D": [
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 80.8
-      },
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 75.5
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 67.1
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2025-05": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 80.2
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 79.4
-      },
-      {
-        "ticker": "BTI",
-        "name": "英美烟草",
-        "score": 75.8
-      }
-    ],
-    "B": [
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 83.7
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 74.5
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 72.4
-      }
-    ],
-    "C": [
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 71.0
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 68.9
-      },
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 67.1
-      }
-    ],
-    "D": [
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 75.7
-      },
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 65.0
-      },
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 51.5
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2025-04": {
-    "A": [
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 78.8
-      },
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 78.0
-      },
-      {
-        "ticker": "BTI",
-        "name": "英美烟草",
-        "score": 75.4
-      }
-    ],
-    "B": [
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 84.8
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 77.5
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 71.2
-      }
-    ],
-    "C": [
-      {
-        "ticker": "PAAS",
-        "name": "泛美白银",
-        "score": 72.5
-      },
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 54.5
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 53.2
-      }
-    ],
-    "D": [
-      {
-        "ticker": "CACI",
-        "name": "CACI国际",
-        "score": 90.5
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 79.1
-      },
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 78.4
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2025-03": {
-    "A": [
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 77.5
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 77.1
-      },
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 75.0
-      }
-    ],
-    "B": [
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 80.2
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 72.1
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 67.4
-      }
-    ],
-    "C": [
-      {
-        "ticker": "PAAS",
-        "name": "泛美白银",
-        "score": 72.5
-      },
-      {
-        "ticker": "AG",
-        "name": "First Majestic",
-        "score": 54.1
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 48.6
-      }
-    ],
-    "D": [
-      {
-        "ticker": "CACI",
-        "name": "CACI国际",
-        "score": 100.0
-      },
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 82.8
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 78.0
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2025-02": {
-    "A": [
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 77.3
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 75.5
-      },
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 73.1
-      }
-    ],
-    "B": [
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 77.4
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 72.5
-      },
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 72.2
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 73.3
-      },
-      {
-        "ticker": "PAAS",
-        "name": "泛美白银",
-        "score": 71.9
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 61.7
-      }
-    ],
-    "D": [
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 76.6
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 75.7
-      },
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 72.5
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2025-01": {
-    "A": [
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 73.9
-      },
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 73.2
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 70.2
-      }
-    ],
-    "B": [
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 77.4
-      },
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 76.0
-      },
-      {
-        "ticker": "GS",
-        "name": "高盛",
-        "score": 71.9
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 91.7
-      },
-      {
-        "ticker": "PAAS",
-        "name": "泛美白银",
-        "score": 65.5
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 59.2
-      }
-    ],
-    "D": [
-      {
-        "ticker": "CACI",
-        "name": "CACI国际",
-        "score": 64.5
-      },
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 62.3
-      },
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 61.8
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Hot"
-    }
-  },
-  "2024-12": {
-    "A": [
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 76.8
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 73.3
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 72.0
-      }
-    ],
-    "B": [
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 77.8
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 76.5
-      },
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 75.2
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 92.5
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 57.9
-      },
-      {
-        "ticker": "PAAS",
-        "name": "泛美白银",
-        "score": 51.3
-      }
-    ],
-    "D": [
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 91.3
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 78.7
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 75.1
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2024-11": {
-    "A": [
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 77.2
-      },
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 77.0
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 75.6
-      }
-    ],
-    "B": [
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 78.4
-      },
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 76.6
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 74.8
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 88.6
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 66.1
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 64.7
-      }
-    ],
-    "D": [
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 70.2
-      },
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 65.4
-      },
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 65.0
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2024-10": {
-    "A": [
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 76.1
-      },
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 76.0
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 75.3
-      }
-    ],
-    "B": [
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 76.1
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 74.2
-      },
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 73.5
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 90.2
-      },
-      {
-        "ticker": "HL",
-        "name": "赫克拉矿业",
-        "score": 69.7
-      },
-      {
-        "ticker": "PAAS",
-        "name": "泛美白银",
-        "score": 69.2
-      }
-    ],
-    "D": [
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 100.0
-      },
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 82.0
-      },
-      {
-        "ticker": "CACI",
-        "name": "CACI国际",
-        "score": 68.4
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2024-09": {
-    "A": [
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 80.1
-      },
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 76.3
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 76.1
-      }
-    ],
-    "B": [
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 76.0
-      },
-      {
-        "ticker": "LMT",
-        "name": "洛克希德",
-        "score": 75.5
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 74.6
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 84.9
-      },
-      {
-        "ticker": "HL",
-        "name": "赫克拉矿业",
-        "score": 71.8
-      },
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 71.5
-      }
-    ],
-    "D": [
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 78.1
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 76.4
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 73.1
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2024-08": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 79.1
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 77.6
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 74.8
-      }
-    ],
-    "B": [
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 75.0
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 72.3
-      },
-      {
-        "ticker": "LIN",
-        "name": "林德气体",
-        "score": 69.2
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 75.8
-      },
-      {
-        "ticker": "HL",
-        "name": "赫克拉矿业",
-        "score": 70.9
-      },
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 70.5
-      }
-    ],
-    "D": [
-      {
-        "ticker": "CRM",
-        "name": "赛富时",
-        "score": 79.5
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 77.2
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 74.9
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2024-07": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 79.5
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 73.9
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 73.4
-      }
-    ],
-    "B": [
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 75.4
-      },
-      {
-        "ticker": "GE",
-        "name": "通用电气",
-        "score": 71.5
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 69.8
-      }
-    ],
-    "C": [
-      {
-        "ticker": "PAAS",
-        "name": "泛美白银",
-        "score": 72.5
-      },
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 67.2
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 66.0
-      }
-    ],
-    "D": [
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 70.9
-      },
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 67.1
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 65.6
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2024-06": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 81.9
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 76.1
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 75.9
-      }
-    ],
-    "B": [
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 76.6
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 73.4
-      },
-      {
-        "ticker": "GE",
-        "name": "通用电气",
-        "score": 68.5
-      }
-    ],
-    "C": [
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 88.5
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 86.1
-      },
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 85.2
-      }
-    ],
-    "D": [
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 90.4
-      },
-      {
-        "ticker": "ADBE",
-        "name": "Adobe",
-        "score": 72.6
-      },
-      {
-        "ticker": "CRM",
-        "name": "赛富时",
-        "score": 65.1
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2024-05": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 85.1
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 77.6
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 76.5
-      }
-    ],
-    "B": [
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 76.7
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 74.1
-      },
-      {
-        "ticker": "GE",
-        "name": "通用电气",
-        "score": 71.1
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 79.4
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 74.3
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 72.8
-      }
-    ],
-    "D": [
-      {
-        "ticker": "CRM",
-        "name": "赛富时",
-        "score": 66.4
-      },
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 66.2
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 60.5
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Hot"
-    }
-  },
-  "2024-04": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 82.7
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 75.5
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 72.9
-      }
-    ],
-    "B": [
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 72.8
-      },
-      {
-        "ticker": "LIN",
-        "name": "林德气体",
-        "score": 70.4
-      },
-      {
-        "ticker": "GE",
-        "name": "通用电气",
-        "score": 70.3
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 90.6
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 81.3
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 79.6
-      }
-    ],
-    "D": [
-      {
-        "ticker": "CACI",
-        "name": "CACI国际",
-        "score": 94.5
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 83.5
-      },
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 66.9
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Hot"
-    }
-  },
-  "2024-03": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 81.5
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 72.0
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 70.3
-      }
-    ],
-    "B": [
-      {
-        "ticker": "LIN",
-        "name": "林德气体",
-        "score": 75.4
-      },
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 72.8
-      },
-      {
-        "ticker": "GE",
-        "name": "通用电气",
-        "score": 71.7
-      }
-    ],
-    "C": [
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 87.6
-      },
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 78.3
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 73.3
-      }
-    ],
-    "D": [
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 74.7
-      },
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 70.4
-      },
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 60.0
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    }
-  },
-  "2024-02": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 81.1
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 70.9
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 66.7
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 79.9
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 72.4
-      },
-      {
-        "ticker": "GE",
-        "name": "通用电气",
-        "score": 70.4
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 91.8
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 87.2
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 85.3
-      }
-    ],
-    "D": [
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 58.6
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 56.3
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 50.2
-      }
-    ]
-  },
-  "2024-01": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 83.0
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 73.0
-      },
-      {
-        "ticker": "XLV",
-        "name": "医疗保健ETF",
-        "score": 67.8
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 75.6
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 74.4
-      },
-      {
-        "ticker": "GE",
-        "name": "通用电气",
-        "score": 71.9
-      }
-    ],
-    "C": [
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 87.7
-      },
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 85.8
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 81.3
-      }
-    ],
-    "D": [
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 76.7
-      },
-      {
-        "ticker": "URI",
-        "name": "联合租赁",
-        "score": 73.3
-      },
-      {
-        "ticker": "NFLX",
-        "name": "奈飞",
-        "score": 72.0
-      }
-    ]
-  },
-  "2023-12": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 82.8
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 71.3
-      },
-      {
-        "ticker": "XLV",
-        "name": "医疗保健ETF",
-        "score": 68.2
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 72.9
-      },
-      {
-        "ticker": "GE",
-        "name": "通用电气",
-        "score": 72.9
-      },
-      {
-        "ticker": "LIN",
-        "name": "林德气体",
-        "score": 68.1
-      }
-    ],
-    "C": [
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 84.8
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 80.5
-      },
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 77.5
-      }
-    ],
-    "D": [
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 82.6
-      },
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 67.3
-      },
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 63.6
-      }
-    ]
-  },
-  "2023-11": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 83.8
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 71.7
-      },
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 67.8
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "GE",
-        "name": "通用电气",
-        "score": 72.8
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 72.2
-      },
-      {
-        "ticker": "LIN",
-        "name": "林德气体",
-        "score": 69.7
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 84.3
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 78.3
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 75.9
-      }
-    ],
-    "D": [
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 85.1
-      },
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 82.1
-      },
-      {
-        "ticker": "CRM",
-        "name": "赛富时",
-        "score": 79.1
-      }
-    ]
-  },
-  "2023-10": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 83.5
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 73.6
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 69.8
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Stag",
-      "d_regime": "Stag"
-    },
-    "B": [
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 75.5
-      },
-      {
-        "ticker": "GE",
-        "name": "通用电气",
-        "score": 72.0
-      },
-      {
-        "ticker": "LIN",
-        "name": "林德气体",
-        "score": 70.8
-      }
-    ],
-    "C": [
-      {
-        "ticker": "NXE",
-        "name": "NexGen",
-        "score": 83.5
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 82.9
-      },
-      {
-        "ticker": "UUUU",
-        "name": "Energy Fuels",
-        "score": 76.7
-      }
-    ],
-    "D": [
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 92.9
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 78.2
-      },
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 75.5
-      }
-    ]
-  },
-  "2023-09": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 83.3
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 71.5
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 70.8
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "GE",
-        "name": "通用电气",
-        "score": 70.4
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 69.9
-      },
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 67.8
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 87.1
-      },
-      {
-        "ticker": "NXE",
-        "name": "NexGen",
-        "score": 84.1
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 81.0
-      }
-    ],
-    "D": [
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 100.0
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 76.3
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 54.8
-      }
-    ]
-  },
-  "2023-08": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 86.0
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 70.0
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 69.3
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 70.0
-      },
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 69.7
-      },
-      {
-        "ticker": "LIN",
-        "name": "林德气体",
-        "score": 67.5
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 92.5
-      },
-      {
-        "ticker": "WDC",
-        "name": "西部数据",
-        "score": 69.9
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 65.5
-      }
-    ],
-    "D": [
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 89.6
-      },
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 85.6
-      },
-      {
-        "ticker": "CRM",
-        "name": "赛富时",
-        "score": 76.5
-      }
-    ]
-  },
-  "2023-07": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 86.0
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 72.3
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 69.8
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 70.8
-      },
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 67.6
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 64.5
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 87.9
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 74.6
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 64.0
-      }
-    ],
-    "D": [
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 79.4
-      },
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 73.1
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 65.1
-      }
-    ]
-  },
-  "2023-06": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 86.0
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 70.9
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 70.0
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Soft",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 73.6
-      },
-      {
-        "ticker": "MO",
-        "name": "奥驰亚",
-        "score": 69.6
-      },
-      {
-        "ticker": "ETN",
-        "name": "伊顿电力",
-        "score": 63.5
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 92.5
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 59.5
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 53.3
-      }
-    ],
-    "D": [
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 82.8
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 81.1
-      },
-      {
-        "ticker": "URI",
-        "name": "联合租赁",
-        "score": 66.4
-      }
-    ]
-  },
-  "2023-05": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 80.6
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 72.8
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 71.0
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Stag",
-      "d_regime": "Stag"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 77.5
-      },
-      {
-        "ticker": "LLY",
-        "name": "礼来制药",
-        "score": 65.7
-      },
-      {
-        "ticker": "ETN",
-        "name": "伊顿电力",
-        "score": 64.4
-      }
-    ],
-    "C": [
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 72.7
-      },
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 72.5
-      },
-      {
-        "ticker": "MU",
-        "name": "美光科技",
-        "score": 61.8
-      }
-    ],
-    "D": [
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 65.6
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 58.7
-      },
-      {
-        "ticker": "NET",
-        "name": "Cloudflare",
-        "score": 53.6
-      }
-    ]
-  },
-  "2023-04": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 78.2
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 69.0
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 67.7
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Stag",
-      "d_regime": "Stag"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 76.6
-      },
-      {
-        "ticker": "LLY",
-        "name": "礼来制药",
-        "score": 68.4
-      },
-      {
-        "ticker": "LMT",
-        "name": "洛克希德",
-        "score": 66.4
-      }
-    ],
-    "C": [
-      {
-        "ticker": "HL",
-        "name": "赫克拉矿业",
-        "score": 77.5
-      },
-      {
-        "ticker": "TECK",
-        "name": "泰克资源",
-        "score": 72.5
-      },
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 71.6
-      }
-    ],
-    "D": [
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 72.4
-      },
-      {
-        "ticker": "CACI",
-        "name": "CACI国际",
-        "score": 68.3
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 63.4
-      }
-    ]
-  },
-  "2023-03": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 74.3
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 73.1
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 69.6
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Stag"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 80.9
-      },
-      {
-        "ticker": "LMT",
-        "name": "洛克希德",
-        "score": 70.7
-      },
-      {
-        "ticker": "LLY",
-        "name": "礼来制药",
-        "score": 70.5
-      }
-    ],
-    "C": [
-      {
-        "ticker": "HL",
-        "name": "赫克拉矿业",
-        "score": 92.5
-      },
-      {
-        "ticker": "FCX",
-        "name": "自由港铜金",
-        "score": 75.0
-      },
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 74.1
-      }
-    ],
-    "D": [
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 88.5
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 84.3
-      },
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 69.7
-      }
-    ]
-  },
-  "2023-02": {
-    "A": [
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 73.1
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 71.6
-      },
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 67.0
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 78.1
-      },
-      {
-        "ticker": "LLY",
-        "name": "礼来制药",
-        "score": 71.0
-      },
-      {
-        "ticker": "LMT",
-        "name": "洛克希德",
-        "score": 68.6
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 92.1
-      },
-      {
-        "ticker": "FCX",
-        "name": "自由港铜金",
-        "score": 71.6
-      },
-      {
-        "ticker": "TECK",
-        "name": "泰克资源",
-        "score": 68.3
-      }
-    ],
-    "D": [
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 91.0
-      },
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 74.8
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 63.8
-      }
-    ]
-  },
-  "2023-01": {
-    "A": [
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 77.8
-      },
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 66.7
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 65.5
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "LLY",
-        "name": "礼来制药",
-        "score": 76.6
-      },
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 71.8
-      },
-      {
-        "ticker": "LMT",
-        "name": "洛克希德",
-        "score": 68.3
-      }
-    ],
-    "C": [
-      {
-        "ticker": "TECK",
-        "name": "泰克资源",
-        "score": 90.1
-      },
-      {
-        "ticker": "VALE",
-        "name": "淡水河谷",
-        "score": 88.5
-      },
-      {
-        "ticker": "HAL",
-        "name": "哈里伯顿",
-        "score": 88.3
-      }
-    ],
-    "D": [
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 76.9
-      },
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 65.0
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 61.2
-      }
-    ]
-  },
-  "2022-12": {
-    "A": [
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 78.4
-      },
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 73.0
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 64.0
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 75.0
-      },
-      {
-        "ticker": "LMT",
-        "name": "洛克希德",
-        "score": 70.8
-      },
-      {
-        "ticker": "LLY",
-        "name": "礼来制药",
-        "score": 70.2
-      }
-    ],
-    "C": [
-      {
-        "ticker": "HAL",
-        "name": "哈里伯顿",
-        "score": 89.3
-      },
-      {
-        "ticker": "VALE",
-        "name": "淡水河谷",
-        "score": 82.1
-      },
-      {
-        "ticker": "TECK",
-        "name": "泰克资源",
-        "score": 78.7
-      }
-    ],
-    "D": [
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 100.0
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 62.9
-      },
-      {
-        "ticker": "NFLX",
-        "name": "奈飞",
-        "score": 55.8
-      }
-    ]
-  },
-  "2022-11": {
-    "A": [
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 78.5
-      },
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 73.0
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 63.9
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 77.1
-      },
-      {
-        "ticker": "LMT",
-        "name": "洛克希德",
-        "score": 72.4
-      },
-      {
-        "ticker": "NOC",
-        "name": "诺斯罗普",
-        "score": 70.6
-      }
-    ],
-    "C": [
-      {
-        "ticker": "HAL",
-        "name": "哈里伯顿",
-        "score": 83.1
-      },
-      {
-        "ticker": "VALE",
-        "name": "淡水河谷",
-        "score": 80.5
-      },
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 80.1
-      }
-    ],
-    "D": [
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 93.3
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 86.4
-      },
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 83.7
-      }
-    ]
-  },
-  "2022-10": {
-    "A": [
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 76.6
-      },
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 73.0
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 63.3
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Stag",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 78.6
-      },
-      {
-        "ticker": "LMT",
-        "name": "洛克希德",
-        "score": 74.8
-      },
-      {
-        "ticker": "NOC",
-        "name": "诺斯罗普",
-        "score": 74.2
-      }
-    ],
-    "C": [
-      {
-        "ticker": "UUUU",
-        "name": "Energy Fuels",
-        "score": 69.6
-      },
-      {
-        "ticker": "HAL",
-        "name": "哈里伯顿",
-        "score": 66.0
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 63.6
-      }
-    ],
-    "D": [
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 85.3
-      },
-      {
-        "ticker": "NFLX",
-        "name": "奈飞",
-        "score": 66.1
-      },
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 61.0
-      }
-    ]
-  },
-  "2022-09": {
-    "A": [
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 75.9
-      },
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 72.4
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 66.9
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Stag",
-      "d_regime": "Stag"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 78.7
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 75.2
-      },
-      {
-        "ticker": "LLY",
-        "name": "礼来制药",
-        "score": 71.1
-      }
-    ],
-    "C": [
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 92.5
-      },
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 61.4
-      },
-      {
-        "ticker": "UUUU",
-        "name": "Energy Fuels",
-        "score": 57.8
-      }
-    ],
-    "D": [
-      {
-        "ticker": "NFLX",
-        "name": "奈飞",
-        "score": 79.9
-      },
-      {
-        "ticker": "IGV",
-        "name": "软件ETF",
-        "score": 77.1
-      },
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 75.4
-      }
-    ]
-  },
-  "2022-08": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 76.1
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 72.7
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 70.6
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Stag",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 75.9
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 75.5
-      },
-      {
-        "ticker": "NOC",
-        "name": "诺斯罗普",
-        "score": 66.7
-      }
-    ],
-    "C": [
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 92.5
-      },
-      {
-        "ticker": "UUUU",
-        "name": "Energy Fuels",
-        "score": 70.6
-      },
-      {
-        "ticker": "NXE",
-        "name": "NexGen",
-        "score": 59.8
-      }
-    ],
-    "D": [
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 88.5
-      },
-      {
-        "ticker": "OXY",
-        "name": "西方石油",
-        "score": 63.0
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 62.1
-      }
-    ]
-  },
-  "2022-07": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 76.1
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 72.8
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 71.0
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Stag",
-      "d_regime": "Stag"
-    },
-    "B": [
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 77.8
-      },
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 77.3
-      },
-      {
-        "ticker": "NOC",
-        "name": "诺斯罗普",
-        "score": 67.5
-      }
-    ],
-    "C": [
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 92.5
-      },
-      {
-        "ticker": "UUUU",
-        "name": "Energy Fuels",
-        "score": 64.7
-      },
-      {
-        "ticker": "NXE",
-        "name": "NexGen",
-        "score": 61.0
-      }
-    ],
-    "D": [
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 100.0
-      },
-      {
-        "ticker": "NFLX",
-        "name": "奈飞",
-        "score": 70.6
-      },
-      {
-        "ticker": "URI",
-        "name": "联合租赁",
-        "score": 68.8
-      }
-    ]
-  },
-  "2022-06": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 84.5
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 71.7
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 70.3
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Stag",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 81.4
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 81.2
-      },
-      {
-        "ticker": "NOC",
-        "name": "诺斯罗普",
-        "score": 71.7
-      }
-    ],
-    "C": [
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 84.1
-      },
-      {
-        "ticker": "HAL",
-        "name": "哈里伯顿",
-        "score": 72.5
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 70.5
-      }
-    ],
-    "D": [
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 85.7
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 63.0
-      },
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 62.3
-      }
-    ]
-  },
-  "2022-05": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 82.4
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 76.4
-      },
-      {
-        "ticker": "XLU",
-        "name": "公用事业ETF",
-        "score": 74.2
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Stag",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 79.8
-      },
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 75.1
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 71.7
-      }
-    ],
-    "C": [
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 76.3
-      },
-      {
-        "ticker": "HAL",
-        "name": "哈里伯顿",
-        "score": 72.5
-      },
-      {
-        "ticker": "PICK",
-        "name": "矿业ETF",
-        "score": 68.2
-      }
-    ],
-    "D": [
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 85.4
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 77.1
-      },
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 64.6
-      }
-    ]
-  },
-  "2022-04": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 83.2
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 72.6
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 71.9
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 77.9
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 74.2
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 74.1
-      }
-    ],
-    "C": [
-      {
-        "ticker": "TECK",
-        "name": "泰克资源",
-        "score": 92.0
-      },
-      {
-        "ticker": "HAL",
-        "name": "哈里伯顿",
-        "score": 89.7
-      },
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 83.6
-      }
-    ],
-    "D": [
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 79.4
-      },
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 69.8
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 63.9
-      }
-    ]
-  },
-  "2022-03": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 80.7
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 71.0
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 69.9
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 73.6
-      },
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 73.5
-      },
-      {
-        "ticker": "COST",
-        "name": "好市多",
-        "score": 69.2
-      }
-    ],
-    "C": [
-      {
-        "ticker": "HAL",
-        "name": "哈里伯顿",
-        "score": 91.8
-      },
-      {
-        "ticker": "TECK",
-        "name": "泰克资源",
-        "score": 88.5
-      },
-      {
-        "ticker": "FCX",
-        "name": "自由港铜金",
-        "score": 88.0
-      }
-    ],
-    "D": [
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 95.5
-      },
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 70.0
-      },
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 69.1
-      }
-    ]
-  },
-  "2022-02": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 77.3
-      },
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 74.0
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 70.1
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Hot"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 80.8
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 78.1
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 71.7
-      }
-    ],
-    "C": [
-      {
-        "ticker": "HAL",
-        "name": "哈里伯顿",
-        "score": 92.5
-      },
-      {
-        "ticker": "FCX",
-        "name": "自由港铜金",
-        "score": 86.3
-      },
-      {
-        "ticker": "TECK",
-        "name": "泰克资源",
-        "score": 85.7
-      }
-    ],
-    "D": [
-      {
-        "ticker": "NET",
-        "name": "Cloudflare",
-        "score": 77.3
-      },
-      {
-        "ticker": "IGV",
-        "name": "软件ETF",
-        "score": 68.0
-      },
-      {
-        "ticker": "BAH",
-        "name": "博思艾伦",
-        "score": 65.3
-      }
-    ]
-  },
-  "2022-01": {
-    "A": [
-      {
-        "ticker": "GLD",
-        "name": "黄金ETF",
-        "score": 75.8
-      },
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 72.4
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 71.6
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 80.5
-      },
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 78.9
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 75.1
-      }
-    ],
-    "C": [
-      {
-        "ticker": "HAL",
-        "name": "哈里伯顿",
-        "score": 92.5
-      },
-      {
-        "ticker": "TECK",
-        "name": "泰克资源",
-        "score": 74.8
-      },
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 64.5
-      }
-    ],
-    "D": [
-      {
-        "ticker": "TDW",
-        "name": "泰德威特",
-        "score": 87.0
-      },
-      {
-        "ticker": "IGV",
-        "name": "软件ETF",
-        "score": 75.4
-      },
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 66.1
-      }
-    ]
-  },
-  "2021-12": {
-    "A": [
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 71.1
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 69.9
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 68.6
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 76.5
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 75.1
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 74.7
-      }
-    ],
-    "C": [
-      {
-        "ticker": "TECK",
-        "name": "泰克资源",
-        "score": 87.9
-      },
-      {
-        "ticker": "FCX",
-        "name": "自由港铜金",
-        "score": 81.7
-      },
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 76.4
-      }
-    ],
-    "D": [
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 73.3
-      },
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 67.4
-      },
-      {
-        "ticker": "IGV",
-        "name": "软件ETF",
-        "score": 66.2
-      }
-    ]
-  },
-  "2021-11": {
-    "A": [
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 69.8
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 68.7
-      },
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 67.7
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "HD",
-        "name": "家得宝",
-        "score": 71.3
-      },
-      {
-        "ticker": "GOOGL",
-        "name": "谷歌",
-        "score": 70.9
-      },
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 70.0
-      }
-    ],
-    "C": [
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 92.5
-      },
-      {
-        "ticker": "UUUU",
-        "name": "Energy Fuels",
-        "score": 87.7
-      },
-      {
-        "ticker": "TECK",
-        "name": "泰克资源",
-        "score": 80.7
-      }
-    ],
-    "D": [
-      {
-        "ticker": "IGV",
-        "name": "软件ETF",
-        "score": 87.0
-      },
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 86.6
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 69.4
-      }
-    ]
-  },
-  "2021-10": {
-    "A": [
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 71.2
-      },
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 68.6
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 66.4
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 72.9
-      },
-      {
-        "ticker": "GOOGL",
-        "name": "谷歌",
-        "score": 70.7
-      },
-      {
-        "ticker": "GS",
-        "name": "高盛",
-        "score": 68.5
-      }
-    ],
-    "C": [
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 92.5
-      },
-      {
-        "ticker": "TECK",
-        "name": "泰克资源",
-        "score": 72.4
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 72.0
-      }
-    ],
-    "D": [
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 71.7
-      },
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 61.7
-      },
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 50.7
-      }
-    ]
-  },
-  "2021-09": {
-    "A": [
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 69.6
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 68.0
-      },
-      {
-        "ticker": "XLV",
-        "name": "医疗保健ETF",
-        "score": 64.3
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "GOOGL",
-        "name": "谷歌",
-        "score": 71.6
-      },
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 69.5
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 68.9
-      }
-    ],
-    "C": [
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 92.5
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 78.6
-      },
-      {
-        "ticker": "TECK",
-        "name": "泰克资源",
-        "score": 76.8
-      }
-    ],
-    "D": [
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 85.8
-      },
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 70.3
-      },
-      {
-        "ticker": "EOG",
-        "name": "EOG能源",
-        "score": 69.5
-      }
-    ]
-  },
-  "2021-08": {
-    "A": [
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 69.2
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 66.9
-      },
-      {
-        "ticker": "XLV",
-        "name": "医疗保健ETF",
-        "score": 63.5
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 72.2
-      },
-      {
-        "ticker": "ETN",
-        "name": "伊顿电力",
-        "score": 69.5
-      },
-      {
-        "ticker": "GS",
-        "name": "高盛",
-        "score": 69.2
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 92.2
-      },
-      {
-        "ticker": "NXE",
-        "name": "NexGen",
-        "score": 87.4
-      },
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 85.0
-      }
-    ],
-    "D": [
-      {
-        "ticker": "FIGS",
-        "name": "Figs医疗服饰",
-        "score": 92.1
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 76.0
-      },
-      {
-        "ticker": "CRM",
-        "name": "赛富时",
-        "score": 66.1
-      }
-    ]
-  },
-  "2021-07": {
-    "A": [
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 69.0
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 67.9
-      },
-      {
-        "ticker": "XLV",
-        "name": "医疗保健ETF",
-        "score": 63.7
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "ETN",
-        "name": "伊顿电力",
-        "score": 71.6
-      },
-      {
-        "ticker": "HON",
-        "name": "霍尼韦尔",
-        "score": 71.3
-      },
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 69.3
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 90.0
-      },
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 88.2
-      },
-      {
-        "ticker": "PICK",
-        "name": "矿业ETF",
-        "score": 76.7
-      }
-    ],
-    "D": [
-      {
-        "ticker": "COIN",
-        "name": "Coinbase",
-        "score": 84.0
-      },
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 82.4
-      },
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 74.8
-      }
-    ]
-  },
-  "2021-06": {
-    "A": [
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 69.4
-      },
-      {
-        "ticker": "DUK",
-        "name": "杜克能源",
-        "score": 68.3
-      },
-      {
-        "ticker": "XLV",
-        "name": "医疗保健ETF",
-        "score": 63.7
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "ETN",
-        "name": "伊顿电力",
-        "score": 70.6
-      },
-      {
-        "ticker": "HON",
-        "name": "霍尼韦尔",
-        "score": 69.7
-      },
-      {
-        "ticker": "GS",
-        "name": "高盛",
-        "score": 67.1
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VRT",
-        "name": "维谛技术",
-        "score": 90.2
-      },
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 83.0
-      },
-      {
-        "ticker": "VALE",
-        "name": "淡水河谷",
-        "score": 80.7
-      }
-    ],
-    "D": [
-      {
-        "ticker": "CACI",
-        "name": "CACI国际",
-        "score": 79.2
-      },
-      {
-        "ticker": "PLTR",
-        "name": "Palantir",
-        "score": 76.4
-      },
-      {
-        "ticker": "NET",
-        "name": "Cloudflare",
-        "score": 70.0
-      }
-    ]
-  },
-  "2021-05": {
-    "A": [
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 68.9
-      },
-      {
-        "ticker": "XLV",
-        "name": "医疗保健ETF",
-        "score": 63.5
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 60.9
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "CAT",
-        "name": "卡特彼勒",
-        "score": 71.3
-      },
-      {
-        "ticker": "ETN",
-        "name": "伊顿电力",
-        "score": 70.5
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 70.1
-      }
-    ],
-    "C": [
-      {
-        "ticker": "GOLD",
-        "name": "巴里克黄金",
-        "score": 85.6
-      },
-      {
-        "ticker": "HL",
-        "name": "赫克拉矿业",
-        "score": 83.5
-      },
-      {
-        "ticker": "NXE",
-        "name": "NexGen",
-        "score": 70.6
-      }
-    ],
-    "D": [
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 94.6
-      },
-      {
-        "ticker": "INTU",
-        "name": "直觉软件",
-        "score": 78.3
-      },
-      {
-        "ticker": "CRM",
-        "name": "赛富时",
-        "score": 65.3
-      }
-    ]
-  },
-  "2021-04": {
-    "A": [
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 68.3
-      },
-      {
-        "ticker": "XLV",
-        "name": "医疗保健ETF",
-        "score": 63.7
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 60.9
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "HD",
-        "name": "家得宝",
-        "score": 72.2
-      },
-      {
-        "ticker": "CAT",
-        "name": "卡特彼勒",
-        "score": 70.8
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 69.2
-      }
-    ],
-    "C": [
-      {
-        "ticker": "VALE",
-        "name": "淡水河谷",
-        "score": 83.3
-      },
-      {
-        "ticker": "UUUU",
-        "name": "Energy Fuels",
-        "score": 79.6
-      },
-      {
-        "ticker": "FCX",
-        "name": "自由港铜金",
-        "score": 79.1
-      }
-    ],
-    "D": [
-      {
-        "ticker": "NET",
-        "name": "Cloudflare",
-        "score": 74.2
-      },
-      {
-        "ticker": "CACI",
-        "name": "CACI国际",
-        "score": 65.7
-      },
-      {
-        "ticker": "BKR",
-        "name": "贝克休斯",
-        "score": 65.0
-      }
-    ]
-  },
-  "2021-03": {
-    "A": [
-      {
-        "ticker": "XLP",
-        "name": "必选消费ETF",
-        "score": 68.7
-      },
-      {
-        "ticker": "XLV",
-        "name": "医疗保健ETF",
-        "score": 63.7
-      },
-      {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 62.6
-      }
-    ],
-    "_meta": {
-      "bc_regime": "Hot",
-      "d_regime": "Soft"
-    },
-    "B": [
-      {
-        "ticker": "HD",
-        "name": "家得宝",
-        "score": 73.6
-      },
-      {
-        "ticker": "PG",
-        "name": "宝洁",
-        "score": 71.1
-      },
-      {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 68.5
-      }
-    ],
-    "C": [
-      {
-        "ticker": "UUUU",
-        "name": "Energy Fuels",
-        "score": 91.1
-      },
-      {
-        "ticker": "CCJ",
-        "name": "Cameco铀矿",
-        "score": 82.5
-      },
-      {
-        "ticker": "NXE",
-        "name": "NexGen",
-        "score": 80.3
-      }
-    ],
-    "D": [
-      {
-        "ticker": "CACI",
-        "name": "CACI国际",
-        "score": 93.9
-      },
-      {
-        "ticker": "IGV",
-        "name": "软件ETF",
-        "score": 79.4
-      },
-      {
-        "ticker": "SPIR",
-        "name": "Spire Global",
-        "score": 78.2
-      }
-    ]
-  },
   "2026-04": {
+    "B": [
+      {
+        "ticker": "JNJ",
+        "name": "强生",
+        "score": 60.1,
+        "conviction": 65.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 50.6,
+        "conviction": 59.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "BTI",
+        "name": "英美烟草",
+        "score": 43.8,
+        "conviction": 52.2,
+        "status": "defending"
+      }
+    ],
     "A": [
       {
         "ticker": "JNJ",
@@ -4530,57 +39,4610 @@
         "name": "可口可乐",
         "score": 56.8
       }
+    ]
+  },
+  "2021-04": {
+    "A": [
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 52.5
+      },
+      {
+        "ticker": "CAT",
+        "name": "卡特彼勒",
+        "score": 50.3
+      },
+      {
+        "ticker": "MLM",
+        "name": "马丁玛丽埃塔",
+        "score": 50.2
+      }
     ],
     "B": [
       {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 61.6
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 46.3,
+        "conviction": 11.6,
+        "status": "cold_start"
       },
       {
-        "ticker": "TJX",
-        "name": "TJX百货",
-        "score": 51.3
+        "ticker": "HON",
+        "name": "霍尼韦尔",
+        "score": 43.5,
+        "conviction": 10.9,
+        "status": "cold_start"
       },
       {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 50.1
+        "ticker": "SO",
+        "name": "南方公司",
+        "score": 43.1,
+        "conviction": 10.8,
+        "status": "cold_start"
       }
     ],
     "C": [
       {
-        "ticker": "NEM",
-        "name": "纽蒙特",
-        "score": 77.3
+        "ticker": "ETH-USD",
+        "name": "以太坊",
+        "score": 78.4
       },
+      {
+        "ticker": "UEC",
+        "name": "铀能源公司",
+        "score": 75.0
+      },
+      {
+        "ticker": "EOG",
+        "name": "EOG能源",
+        "score": 74.7
+      }
+    ],
+    "D": [
+      {
+        "ticker": "ETH-USD",
+        "name": "以太坊",
+        "score": 63.2
+      },
+      {
+        "ticker": "NET",
+        "name": "Cloudflare",
+        "score": 54.7
+      },
+      {
+        "ticker": "VALE",
+        "name": "淡水河谷",
+        "score": 50.2
+      }
+    ]
+  },
+  "2021-05": {
+    "A": [
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 52.8
+      },
+      {
+        "ticker": "TSN",
+        "name": "泰森食品",
+        "score": 51.3
+      },
+      {
+        "ticker": "JNJ",
+        "name": "强生",
+        "score": 50.5
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 49.6,
+        "conviction": 21.7,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "HON",
+        "name": "霍尼韦尔",
+        "score": 44.4,
+        "conviction": 19.8,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "CAT",
+        "name": "卡特彼勒",
+        "score": 43.6,
+        "conviction": 19.5,
+        "status": "cold_start"
+      }
+    ],
+    "C": [
       {
         "ticker": "HL",
         "name": "赫克拉矿业",
-        "score": 77.1
+        "score": 81.2
+      },
+      {
+        "ticker": "GOLD",
+        "name": "巴里克黄金",
+        "score": 80.7
+      },
+      {
+        "ticker": "CCJ",
+        "name": "Cameco铀矿",
+        "score": 75.4
+      }
+    ],
+    "D": [
+      {
+        "ticker": "UUUU",
+        "name": "Energy Fuels",
+        "score": 64.4
+      },
+      {
+        "ticker": "GOLD",
+        "name": "巴里克黄金",
+        "score": 62.8
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 61.3
+      }
+    ]
+  },
+  "2021-06": {
+    "A": [
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 54.8
+      },
+      {
+        "ticker": "BTI",
+        "name": "英美烟草",
+        "score": 53.3
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 52.8
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 49.8,
+        "conviction": 29.8,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "GS",
+        "name": "高盛",
+        "score": 43.6,
+        "conviction": 26.5,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "HON",
+        "name": "霍尼韦尔",
+        "score": 40.4,
+        "conviction": 25.9,
+        "status": "cold_start"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "TRGP",
+        "name": "Targa资源",
+        "score": 74.3
+      },
+      {
+        "ticker": "VALE",
+        "name": "淡水河谷",
+        "score": 72.9
+      },
+      {
+        "ticker": "ETH-USD",
+        "name": "以太坊",
+        "score": 71.2
+      }
+    ],
+    "D": [
+      {
+        "ticker": "KTOS",
+        "name": "Kratos防务",
+        "score": 73.6
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 52.6
+      },
+      {
+        "ticker": "NET",
+        "name": "Cloudflare",
+        "score": 49.4
+      }
+    ]
+  },
+  "2021-07": {
+    "A": [
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 56.7
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 55.8
+      },
+      {
+        "ticker": "SO",
+        "name": "南方公司",
+        "score": 54.3
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 49.1,
+        "conviction": 36.1,
+        "status": "defending"
+      },
+      {
+        "ticker": "GS",
+        "name": "高盛",
+        "score": 44.0,
+        "conviction": 32.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "HON",
+        "name": "霍尼韦尔",
+        "score": 40.1,
+        "conviction": 30.7,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "GOLD",
+        "name": "巴里克黄金",
+        "score": 74.7
+      },
+      {
+        "ticker": "TRGP",
+        "name": "Targa资源",
+        "score": 69.7
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 68.2
+      }
+    ],
+    "D": [
+      {
+        "ticker": "AMD",
+        "name": "超威半导体",
+        "score": 82.3
+      },
+      {
+        "ticker": "BTC-USD",
+        "name": "比特币",
+        "score": 56.0
+      },
+      {
+        "ticker": "ETH-USD",
+        "name": "以太坊",
+        "score": 55.0
+      }
+    ]
+  },
+  "2021-08": {
+    "A": [
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 59.4
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 56.9
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 56.0
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 51.4,
+        "conviction": 41.7,
+        "status": "defending"
+      },
+      {
+        "ticker": "GS",
+        "name": "高盛",
+        "score": 44.2,
+        "conviction": 36.8,
+        "status": "defending"
+      },
+      {
+        "ticker": "HON",
+        "name": "霍尼韦尔",
+        "score": 39.1,
+        "conviction": 34.3,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "MS",
+        "name": "摩根士丹利",
+        "score": 69.6
+      },
+      {
+        "ticker": "GS",
+        "name": "高盛",
+        "score": 67.1
+      },
+      {
+        "ticker": "TRGP",
+        "name": "Targa资源",
+        "score": 66.8
+      }
+    ],
+    "D": [
+      {
+        "ticker": "FIGS",
+        "name": "Figs医疗服饰",
+        "score": 62.0
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 58.0
+      },
+      {
+        "ticker": "NXE",
+        "name": "NexGen",
+        "score": 54.9
+      }
+    ]
+  },
+  "2021-09": {
+    "A": [
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 55.9
+      },
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 55.1
+      },
+      {
+        "ticker": "SO",
+        "name": "南方公司",
+        "score": 54.5
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 47.0,
+        "conviction": 45.1,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 49.2,
+        "conviction": 41.7,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "GS",
+        "name": "高盛",
+        "score": 38.8,
+        "conviction": 39.1,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "COP",
+        "name": "康菲石油",
+        "score": 70.9
+      },
+      {
+        "ticker": "TRGP",
+        "name": "Targa资源",
+        "score": 70.5
+      },
+      {
+        "ticker": "GOLD",
+        "name": "巴里克黄金",
+        "score": 69.8
+      }
+    ],
+    "D": [
+      {
+        "ticker": "COP",
+        "name": "康菲石油",
+        "score": 72.3
+      },
+      {
+        "ticker": "SPIR",
+        "name": "Spire Global",
+        "score": 70.0
+      },
+      {
+        "ticker": "EOG",
+        "name": "EOG能源",
+        "score": 64.7
+      }
+    ]
+  },
+  "2021-10": {
+    "A": [
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 60.9
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 58.3
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 56.3
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 47.2,
+        "conviction": 47.9,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 51.3,
+        "conviction": 46.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "GS",
+        "name": "高盛",
+        "score": 39.1,
+        "conviction": 41.1,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "GOLD",
+        "name": "巴里克黄金",
+        "score": 78.9
+      },
+      {
+        "ticker": "ETH-USD",
+        "name": "以太坊",
+        "score": 77.0
+      },
+      {
+        "ticker": "UEC",
+        "name": "铀能源公司",
+        "score": 75.4
+      }
+    ],
+    "D": [
+      {
+        "ticker": "UEC",
+        "name": "铀能源公司",
+        "score": 65.2
+      },
+      {
+        "ticker": "URA",
+        "name": "铀矿ETF",
+        "score": 64.7
+      },
+      {
+        "ticker": "UUUU",
+        "name": "Energy Fuels",
+        "score": 60.2
+      }
+    ]
+  },
+  "2021-11": {
+    "A": [
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 60.4
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 58.1
+      },
+      {
+        "ticker": "RSG",
+        "name": "共和废品",
+        "score": 56.2
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 46.8,
+        "conviction": 50.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 49.1,
+        "conviction": 49.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "GS",
+        "name": "高盛",
+        "score": 35.4,
+        "conviction": 41.7,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "ETH-USD",
+        "name": "以太坊",
+        "score": 76.3
+      },
+      {
+        "ticker": "GOLD",
+        "name": "巴里克黄金",
+        "score": 74.4
+      },
+      {
+        "ticker": "UUUU",
+        "name": "Energy Fuels",
+        "score": 71.8
+      }
+    ],
+    "D": [
+      {
+        "ticker": "PFE",
+        "name": "辉瑞",
+        "score": 66.7
+      },
+      {
+        "ticker": "MU",
+        "name": "美光科技",
+        "score": 54.6
+      },
+      {
+        "ticker": "AMD",
+        "name": "超威半导体",
+        "score": 51.4
+      }
+    ]
+  },
+  "2021-12": {
+    "A": [
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 61.2
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 58.9
+      },
+      {
+        "ticker": "RSG",
+        "name": "共和废品",
+        "score": 56.7
+      }
+    ],
+    "B": [
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 50.9,
+        "conviction": 52.1,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 46.1,
+        "conviction": 51.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "GS",
+        "name": "高盛",
+        "score": 33.2,
+        "conviction": 41.7,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "COP",
+        "name": "康菲石油",
+        "score": 68.2
+      },
+      {
+        "ticker": "GOLD",
+        "name": "巴里克黄金",
+        "score": 67.4
+      },
+      {
+        "ticker": "EOG",
+        "name": "EOG能源",
+        "score": 65.4
+      }
+    ],
+    "D": [
+      {
+        "ticker": "APPS",
+        "name": "Digital Turbine",
+        "score": 60.6
+      },
+      {
+        "ticker": "FIGS",
+        "name": "Figs医疗服饰",
+        "score": 53.6
+      },
+      {
+        "ticker": "PFE",
+        "name": "辉瑞",
+        "score": 47.7
+      }
+    ]
+  },
+  "2022-01": {
+    "A": [
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 62.4
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 59.3
+      },
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 57.2
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 55.2,
+        "conviction": 55.7,
+        "status": "challenged"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 46.6,
+        "conviction": 53.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 45.5,
+        "conviction": 52.6,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "EOG",
+        "name": "EOG能源",
+        "score": 79.0
+      },
+      {
+        "ticker": "HAL",
+        "name": "哈里伯顿",
+        "score": 77.2
+      },
+      {
+        "ticker": "COP",
+        "name": "康菲石油",
+        "score": 74.8
+      }
+    ],
+    "D": [
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 78.3
+      },
+      {
+        "ticker": "V",
+        "name": "Visa",
+        "score": 75.7
+      },
+      {
+        "ticker": "NEE",
+        "name": "新纪元能源",
+        "score": 71.4
+      }
+    ]
+  },
+  "2022-02": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 65.9
+      },
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 58.1
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 57.0
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 47.8,
+        "conviction": 56.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 48.5,
+        "conviction": 54.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 41.0,
+        "conviction": 52.9,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "OXY",
+        "name": "西方石油",
+        "score": 78.7
+      },
+      {
+        "ticker": "HAL",
+        "name": "哈里伯顿",
+        "score": 78.0
+      },
+      {
+        "ticker": "CVX",
+        "name": "雪佛龙",
+        "score": 77.6
+      }
+    ],
+    "D": [
+      {
+        "ticker": "CCJ",
+        "name": "Cameco铀矿",
+        "score": 80.1
+      },
+      {
+        "ticker": "KTOS",
+        "name": "Kratos防务",
+        "score": 79.3
+      },
+      {
+        "ticker": "UEC",
+        "name": "铀能源公司",
+        "score": 77.3
+      }
+    ]
+  },
+  "2022-03": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 67.5
+      },
+      {
+        "ticker": "CVX",
+        "name": "雪佛龙",
+        "score": 59.7
+      },
+      {
+        "ticker": "SO",
+        "name": "南方公司",
+        "score": 57.5
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 51.9,
+        "conviction": 56.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 38.3,
+        "conviction": 54.8,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 28.2,
+        "conviction": 49.4,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 80.8
+      },
+      {
+        "ticker": "TRGP",
+        "name": "Targa资源",
+        "score": 78.7
+      },
+      {
+        "ticker": "BKR",
+        "name": "贝克休斯",
+        "score": 78.5
+      }
+    ],
+    "D": [
+      {
+        "ticker": "FIGS",
+        "name": "Figs医疗服饰",
+        "score": 66.7
+      },
+      {
+        "ticker": "NET",
+        "name": "Cloudflare",
+        "score": 65.3
+      },
+      {
+        "ticker": "TSLA",
+        "name": "特斯拉",
+        "score": 57.9
+      }
+    ]
+  },
+  "2022-04": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 64.7
+      },
+      {
+        "ticker": "SO",
+        "name": "南方公司",
+        "score": 56.6
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 55.5
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 40.7,
+        "conviction": 55.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 38.2,
+        "conviction": 53.4,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 28.9,
+        "conviction": 46.7,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "TRGP",
+        "name": "Targa资源",
+        "score": 74.7
+      },
+      {
+        "ticker": "XOM",
+        "name": "埃克森美孚",
+        "score": 74.5
+      },
+      {
+        "ticker": "OXY",
+        "name": "西方石油",
+        "score": 74.4
+      }
+    ],
+    "D": [
+      {
+        "ticker": "WDC",
+        "name": "西部数据",
+        "score": 64.1
+      },
+      {
+        "ticker": "META",
+        "name": "Meta",
+        "score": 60.9
+      },
+      {
+        "ticker": "TECK",
+        "name": "泰克资源",
+        "score": 55.6
+      }
+    ]
+  },
+  "2022-05": {
+    "A": [
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 59.3
+      },
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 58.2
+      },
+      {
+        "ticker": "SO",
+        "name": "南方公司",
+        "score": 56.4
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 34.1,
+        "conviction": 52.7,
+        "status": "defending"
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 35.3,
+        "conviction": 51.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 26.8,
+        "conviction": 44.1,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "XOM",
+        "name": "埃克森美孚",
+        "score": 76.5
+      },
+      {
+        "ticker": "CVX",
+        "name": "雪佛龙",
+        "score": 75.0
       },
       {
         "ticker": "PBR",
         "name": "巴西石油",
+        "score": 74.9
+      }
+    ],
+    "D": [
+      {
+        "ticker": "INTU",
+        "name": "直觉软件",
+        "score": 74.7
+      },
+      {
+        "ticker": "PWR",
+        "name": "广达服务",
+        "score": 73.3
+      },
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 72.4
+      }
+    ]
+  },
+  "2022-06": {
+    "A": [
+      {
+        "ticker": "JNJ",
+        "name": "强生",
+        "score": 53.5
+      },
+      {
+        "ticker": "LMT",
+        "name": "洛克希德",
+        "score": 50.6
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 49.1
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 33.4,
+        "conviction": 49.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "BRK-B",
+        "score": 0.0,
+        "conviction": 42.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 26.7,
+        "conviction": 42.0,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 68.2
+      },
+      {
+        "ticker": "BAH",
+        "name": "博思艾伦",
+        "score": 68.0
+      },
+      {
+        "ticker": "XOM",
+        "name": "埃克森美孚",
+        "score": 67.1
+      }
+    ],
+    "D": [
+      {
+        "ticker": "FIGS",
+        "name": "Figs医疗服饰",
+        "score": 79.4
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 52.2
+      },
+      {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 50.8
+      }
+    ]
+  },
+  "2022-07": {
+    "A": [
+      {
+        "ticker": "JNJ",
+        "name": "强生",
+        "score": 53.7
+      },
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 52.5
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 49.3
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 34.2,
+        "conviction": 48.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 26.6,
+        "conviction": 40.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "BRK-B",
+        "score": 0.0,
+        "conviction": 33.8,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "XOM",
+        "name": "埃克森美孚",
+        "score": 72.8
+      },
+      {
+        "ticker": "PBR",
+        "name": "巴西石油",
+        "score": 71.3
+      },
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 66.6
+      }
+    ],
+    "D": [
+      {
+        "ticker": "URI",
+        "name": "联合租赁",
+        "score": 71.5
+      },
+      {
+        "ticker": "UEC",
+        "name": "铀能源公司",
+        "score": 68.8
+      },
+      {
+        "ticker": "ETH-USD",
+        "name": "以太坊",
+        "score": 62.0
+      }
+    ]
+  },
+  "2022-08": {
+    "A": [
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 52.7
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 49.0
+      },
+      {
+        "ticker": "SO",
+        "name": "南方公司",
+        "score": 46.1
+      }
+    ],
+    "B": [
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 35.8,
+        "conviction": 49.6,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 32.3,
+        "conviction": 46.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 23.2,
+        "conviction": 38.0,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "PBR",
+        "name": "巴西石油",
+        "score": 78.7
+      },
+      {
+        "ticker": "CCJ",
+        "name": "Cameco铀矿",
+        "score": 69.8
+      },
+      {
+        "ticker": "BAH",
+        "name": "博思艾伦",
+        "score": 68.0
+      }
+    ],
+    "D": [
+      {
+        "ticker": "URA",
+        "name": "铀矿ETF",
+        "score": 71.8
+      },
+      {
+        "ticker": "CCJ",
+        "name": "Cameco铀矿",
+        "score": 71.3
+      },
+      {
+        "ticker": "UEC",
+        "name": "铀能源公司",
+        "score": 62.8
+      }
+    ]
+  },
+  "2022-09": {
+    "A": [
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 51.9
+      },
+      {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 47.6
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 44.4
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 28.8,
+        "conviction": 44.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "KO",
+        "score": 0.0,
+        "conviction": 39.7,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "MCD",
+        "score": 0.0,
+        "conviction": 30.4,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "PBR",
+        "name": "巴西石油",
+        "score": 68.4
+      },
+      {
+        "ticker": "CCJ",
+        "name": "Cameco铀矿",
+        "score": 65.0
+      },
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 63.2
+      }
+    ],
+    "D": [
+      {
+        "ticker": "AEM",
+        "name": "伊格尔矿业",
+        "score": 60.6
+      },
+      {
+        "ticker": "RIO",
+        "name": "力拓",
+        "score": 59.5
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 55.2
+      }
+    ]
+  },
+  "2022-10": {
+    "A": [
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 50.4
+      },
+      {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 47.8
+      },
+      {
+        "ticker": "BAH",
+        "name": "博思艾伦",
+        "score": 45.2
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 33.9,
+        "conviction": 44.1,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 31.7,
+        "conviction": 32.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "KO",
+        "score": 0.0,
+        "conviction": 31.8,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "XOM",
+        "name": "埃克森美孚",
+        "score": 77.9
+      },
+      {
+        "ticker": "ADM",
+        "name": "阿彻丹尼尔斯",
+        "score": 73.9
+      },
+      {
+        "ticker": "CVX",
+        "name": "雪佛龙",
+        "score": 73.7
+      }
+    ],
+    "D": [
+      {
+        "ticker": "ISRG",
+        "name": "直觉外科",
+        "score": 73.1
+      },
+      {
+        "ticker": "NFLX",
+        "name": "奈飞",
+        "score": 68.1
+      },
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 66.7
+      }
+    ]
+  },
+  "2022-11": {
+    "A": [
+      {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 48.8
+      },
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 48.0
+      },
+      {
+        "ticker": "BAH",
+        "name": "博思艾伦",
+        "score": 45.4
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 36.0,
+        "conviction": 44.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 35.0,
+        "conviction": 34.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 27.5,
+        "conviction": 32.3,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 75.0
+      },
+      {
+        "ticker": "XOM",
+        "name": "埃克森美孚",
+        "score": 71.9
+      },
+      {
+        "ticker": "EOG",
+        "name": "EOG能源",
+        "score": 71.7
+      }
+    ],
+    "D": [
+      {
+        "ticker": "FIGS",
+        "name": "Figs医疗服饰",
+        "score": 62.7
+      },
+      {
+        "ticker": "TSM",
+        "name": "台积电",
+        "score": 54.6
+      },
+      {
+        "ticker": "PBR",
+        "name": "巴西石油",
+        "score": 54.0
+      }
+    ]
+  },
+  "2022-12": {
+    "A": [
+      {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 48.4
+      },
+      {
+        "ticker": "BAH",
+        "name": "博思艾伦",
+        "score": 48.0
+      },
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 47.7
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 33.6,
+        "conviction": 43.8,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 32.2,
+        "conviction": 35.7,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 24.9,
+        "conviction": 32.1,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 78.2
+      },
+      {
+        "ticker": "SLB",
+        "name": "斯伦贝谢",
+        "score": 75.0
+      },
+      {
+        "ticker": "CAT",
+        "name": "卡特彼勒",
+        "score": 69.2
+      }
+    ],
+    "D": [
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 79.6
+      },
+      {
+        "ticker": "UEC",
+        "name": "铀能源公司",
+        "score": 54.9
+      },
+      {
+        "ticker": "NXE",
+        "name": "NexGen",
+        "score": 53.7
+      }
+    ]
+  },
+  "2023-01": {
+    "A": [
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 49.6
+      },
+      {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 48.9
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 47.2
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 35.8,
+        "conviction": 44.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 35.0,
+        "conviction": 37.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 26.3,
+        "conviction": 32.3,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "URI",
+        "name": "联合租赁",
+        "score": 79.9
+      },
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 78.4
+      },
+      {
+        "ticker": "GE",
+        "name": "通用电气",
+        "score": 75.7
+      }
+    ],
+    "D": [
+      {
+        "ticker": "TSLA",
+        "name": "特斯拉",
+        "score": 80.0
+      },
+      {
+        "ticker": "NET",
+        "name": "Cloudflare",
+        "score": 63.9
+      },
+      {
+        "ticker": "NVDA",
+        "name": "英伟达",
+        "score": 61.3
+      }
+    ]
+  },
+  "2023-02": {
+    "A": [
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 49.9
+      },
+      {
+        "ticker": "LMT",
+        "name": "洛克希德",
+        "score": 48.7
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 48.7
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 38.6,
+        "conviction": 44.9,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 35.0,
+        "conviction": 38.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 27.1,
+        "conviction": 32.6,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 77.9
+      },
+      {
+        "ticker": "URI",
+        "name": "联合租赁",
+        "score": 77.6
+      },
+      {
+        "ticker": "GE",
+        "name": "通用电气",
+        "score": 76.6
+      }
+    ],
+    "D": [
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 72.9
+      },
+      {
+        "ticker": "KTOS",
+        "name": "Kratos防务",
+        "score": 63.1
+      }
+    ]
+  },
+  "2023-03": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 51.8
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 48.7
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 48.2
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 39.1,
+        "conviction": 45.7,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 35.7,
+        "conviction": 39.8,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 29.4,
+        "conviction": 33.4,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "GE",
+        "name": "通用电气",
+        "score": 77.3
+      },
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 73.7
+      },
+      {
+        "ticker": "BTC-USD",
+        "name": "比特币",
+        "score": 72.5
+      }
+    ],
+    "D": [
+      {
+        "ticker": "PAAS",
+        "name": "泛美白银",
+        "score": 61.5
+      },
+      {
+        "ticker": "GOLD",
+        "name": "巴里克黄金",
+        "score": 59.8
+      },
+      {
+        "ticker": "BTC-USD",
+        "name": "比特币",
+        "score": 56.4
+      }
+    ]
+  },
+  "2023-04": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 55.9
+      },
+      {
+        "ticker": "MNST",
+        "name": "怪兽饮料",
+        "score": 50.4
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 49.3
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 39.6,
+        "conviction": 46.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 38.8,
+        "conviction": 41.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 30.2,
+        "conviction": 34.3,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "PHM",
+        "name": "普尔特房屋",
+        "score": 58.2
+      },
+      {
+        "ticker": "META",
+        "name": "Meta",
+        "score": 58.1
+      },
+      {
+        "ticker": "NVDA",
+        "name": "英伟达",
+        "score": 55.8
+      }
+    ],
+    "D": [
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 70.7
+      },
+      {
+        "ticker": "META",
+        "name": "Meta",
+        "score": 59.9
+      },
+      {
+        "ticker": "PNC",
+        "name": "PNC金融",
+        "score": 58.4
+      }
+    ]
+  },
+  "2023-05": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 57.9
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 54.7
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 54.3
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 41.2,
+        "conviction": 47.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 46.0,
+        "conviction": 44.7,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 38.8,
+        "conviction": 37.1,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 65.0
+      },
+      {
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 61.0
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 60.5
+      }
+    ],
+    "D": [
+      {
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 97.6
+      },
+      {
+        "ticker": "ANET",
+        "name": "Arista网络",
+        "score": 92.8
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 85.4
+      }
+    ]
+  },
+  "2023-06": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 60.1
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 57.3
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 56.0
+      }
+    ],
+    "B": [
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 43.8,
+        "conviction": 49.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 50.9,
+        "conviction": 48.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 44.1,
+        "conviction": 40.7,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 82.0
+      },
+      {
+        "ticker": "ADBE",
+        "name": "Adobe",
+        "score": 79.6
+      },
+      {
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 78.6
+      }
+    ],
+    "D": [
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 63.6
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 54.4
+      },
+      {
+        "ticker": "URI",
+        "name": "联合租赁",
+        "score": 49.1
+      }
+    ]
+  },
+  "2023-07": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 61.8
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 55.7
+      },
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 55.6
+      }
+    ],
+    "B": [
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 47.9,
+        "conviction": 50.8,
+        "status": "defending"
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 41.1,
+        "conviction": 49.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 41.6,
+        "conviction": 43.0,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 79.6
+      },
+      {
+        "ticker": "ADBE",
+        "name": "Adobe",
+        "score": 78.7
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 77.2
+      }
+    ],
+    "D": [
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 65.3
+      },
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 59.3
+      },
+      {
+        "ticker": "USB",
+        "name": "美国合众银行",
+        "score": 54.9
+      }
+    ]
+  },
+  "2023-08": {
+    "A": [
+      {
+        "ticker": "RSG",
+        "name": "共和废品",
+        "score": 58.3
+      },
+      {
+        "ticker": "GE",
+        "name": "通用电气",
+        "score": 57.3
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 55.5
+      }
+    ],
+    "B": [
+      {
+        "ticker": "MCD",
+        "name": "麦当劳",
+        "score": 46.9,
+        "conviction": 52.4,
+        "status": "defending"
+      },
+      {
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 37.7,
+        "conviction": 49.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 38.5,
+        "conviction": 44.0,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 79.7
+      },
+      {
+        "ticker": "ADBE",
+        "name": "Adobe",
+        "score": 76.9
+      },
+      {
+        "ticker": "AVGO",
+        "name": "博通",
         "score": 75.5
       }
     ],
     "D": [
       {
+        "ticker": "NVDA",
+        "name": "英伟达",
+        "score": 70.4
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 56.3
+      },
+      {
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 53.8
+      }
+    ]
+  },
+  "2023-09": {
+    "A": [
+      {
+        "ticker": "RSG",
+        "name": "共和废品",
+        "score": 58.4
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 56.8
+      },
+      {
+        "ticker": "GE",
+        "name": "通用电气",
+        "score": 55.7
+      }
+    ],
+    "B": [
+      {
+        "ticker": "MCD",
+        "name": "MCD",
+        "score": 0.0,
+        "conviction": 41.9,
+        "status": "defending"
+      },
+      {
+        "ticker": "PEP",
+        "name": "PEP",
+        "score": 0.0,
+        "conviction": 39.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "KO",
+        "name": "KO",
+        "score": 0.0,
+        "conviction": 35.2,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 77.0
+      },
+      {
+        "ticker": "CCJ",
+        "name": "Cameco铀矿",
+        "score": 76.9
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 75.2
+      }
+    ],
+    "D": [
+      {
+        "ticker": "NXE",
+        "name": "NexGen",
+        "score": 87.9
+      },
+      {
+        "ticker": "UEC",
+        "name": "铀能源公司",
+        "score": 64.0
+      },
+      {
+        "ticker": "UUUU",
+        "name": "Energy Fuels",
+        "score": 61.7
+      }
+    ]
+  },
+  "2023-10": {
+    "A": [
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 59.0
+      },
+      {
+        "ticker": "RSG",
+        "name": "共和废品",
+        "score": 55.8
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 51.9
+      }
+    ],
+    "B": [
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 53.4,
+        "conviction": 52.6,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "MCD",
+        "name": "MCD",
+        "score": 0.0,
+        "conviction": 33.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "PEP",
+        "name": "PEP",
+        "score": 0.0,
+        "conviction": 31.4,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "UEC",
+        "name": "铀能源公司",
+        "score": 78.3
+      },
+      {
+        "ticker": "CCJ",
+        "name": "Cameco铀矿",
+        "score": 76.2
+      },
+      {
+        "ticker": "NXE",
+        "name": "NexGen",
+        "score": 75.6
+      }
+    ],
+    "D": [
+      {
+        "ticker": "NEE",
+        "name": "新纪元能源",
+        "score": 61.6
+      },
+      {
+        "ticker": "ANET",
+        "name": "Arista网络",
+        "score": 59.0
+      },
+      {
+        "ticker": "UEC",
+        "name": "铀能源公司",
+        "score": 55.5
+      }
+    ]
+  },
+  "2023-11": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 56.7
+      },
+      {
+        "ticker": "RSG",
+        "name": "共和废品",
+        "score": 56.0
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 55.0
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 51.5,
+        "conviction": 52.7,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 42.2,
+        "conviction": 52.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 48.7,
+        "conviction": 51.0,
+        "status": "cold_start"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 73.1
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 72.3
+      },
+      {
+        "ticker": "BTC-USD",
+        "name": "比特币",
+        "score": 71.6
+      }
+    ],
+    "D": [
+      {
+        "ticker": "NEM",
+        "name": "纽蒙特",
+        "score": 68.4
+      },
+      {
+        "ticker": "NXE",
+        "name": "NexGen",
+        "score": 64.5
+      },
+      {
+        "ticker": "AG",
+        "name": "First Majestic",
+        "score": 63.5
+      }
+    ]
+  },
+  "2023-12": {
+    "A": [
+      {
+        "ticker": "RSG",
+        "name": "共和废品",
+        "score": 56.3
+      },
+      {
+        "ticker": "UNH",
+        "name": "联合健康",
+        "score": 55.6
+      },
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 55.2
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 44.9,
+        "conviction": 53.4,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 49.0,
+        "conviction": 53.1,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 36.8,
+        "conviction": 51.3,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "AMD",
+        "name": "超威半导体",
+        "score": 78.9
+      },
+      {
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 74.4
+      },
+      {
+        "ticker": "BTC-USD",
+        "name": "比特币",
+        "score": 74.0
+      }
+    ],
+    "D": [
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 69.0
+      },
+      {
+        "ticker": "PAAS",
+        "name": "泛美白银",
+        "score": 45.4
+      },
+      {
+        "ticker": "AMD",
+        "name": "超威半导体",
+        "score": 43.8
+      }
+    ]
+  },
+  "2024-01": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 58.1
+      },
+      {
+        "ticker": "UNH",
+        "name": "联合健康",
+        "score": 57.0
+      },
+      {
+        "ticker": "RSG",
+        "name": "共和废品",
+        "score": 55.6
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 51.2,
+        "conviction": 55.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 51.5,
+        "conviction": 55.4,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 41.2,
+        "conviction": 51.3,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "NVDA",
+        "name": "英伟达",
+        "score": 79.6
+      },
+      {
+        "ticker": "URI",
+        "name": "联合租赁",
+        "score": 78.7
+      },
+      {
+        "ticker": "NFLX",
+        "name": "奈飞",
+        "score": 78.3
+      }
+    ],
+    "D": [
+      {
+        "ticker": "WDC",
+        "name": "西部数据",
+        "score": 74.7
+      },
+      {
+        "ticker": "NXE",
+        "name": "NexGen",
+        "score": 65.5
+      },
+      {
+        "ticker": "AMD",
+        "name": "超威半导体",
+        "score": 64.9
+      }
+    ]
+  },
+  "2024-02": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 57.8
+      },
+      {
+        "ticker": "UNH",
+        "name": "联合健康",
+        "score": 57.0
+      },
+      {
+        "ticker": "RSG",
+        "name": "共和废品",
+        "score": 56.1
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 51.7,
+        "conviction": 57.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 50.4,
+        "conviction": 56.9,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 40.3,
+        "conviction": 51.1,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "ETH-USD",
+        "name": "以太坊",
+        "score": 82.5
+      },
+      {
+        "ticker": "SPIR",
+        "name": "Spire Global",
+        "score": 81.6
+      },
+      {
+        "ticker": "BTC-USD",
+        "name": "比特币",
+        "score": 81.3
+      }
+    ],
+    "D": [
+      {
+        "ticker": "BTC-USD",
+        "name": "比特币",
+        "score": 64.3
+      },
+      {
+        "ticker": "ETH-USD",
+        "name": "以太坊",
+        "score": 62.7
+      },
+      {
+        "ticker": "PWR",
+        "name": "广达服务",
+        "score": 55.0
+      }
+    ]
+  },
+  "2024-03": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 58.4
+      },
+      {
+        "ticker": "RSG",
+        "name": "共和废品",
+        "score": 55.9
+      },
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 55.3
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 50.7,
+        "conviction": 58.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 48.3,
+        "conviction": 57.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 41.0,
+        "conviction": 51.1,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "MU",
+        "name": "美光科技",
+        "score": 81.9
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 78.5
+      },
+      {
+        "ticker": "BTC-USD",
+        "name": "比特币",
+        "score": 78.2
+      }
+    ],
+    "D": [
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 62.7
+      },
+      {
+        "ticker": "MU",
+        "name": "美光科技",
+        "score": 62.0
+      },
+      {
+        "ticker": "SCCO",
+        "name": "南方铜业",
+        "score": 58.8
+      }
+    ]
+  },
+  "2024-04": {
+    "A": [
+      {
+        "ticker": "WM",
+        "name": "废物管理",
+        "score": 62.7
+      },
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 61.5
+      },
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 58.9
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 47.0,
+        "conviction": 58.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 40.1,
+        "conviction": 56.1,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 40.4,
+        "conviction": 51.0,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "GE",
+        "name": "通用电气",
+        "score": 78.1
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 78.0
+      },
+      {
+        "ticker": "WDC",
+        "name": "西部数据",
+        "score": 75.8
+      }
+    ],
+    "D": [
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 76.7
+      },
+      {
+        "ticker": "TSLA",
+        "name": "特斯拉",
+        "score": 50.8
+      },
+      {
+        "ticker": "FIGS",
+        "name": "Figs医疗服饰",
+        "score": 38.2
+      }
+    ]
+  },
+  "2024-05": {
+    "A": [
+      {
+        "ticker": "WM",
+        "name": "废物管理",
+        "score": 65.0
+      },
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 62.7
+      },
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 61.5
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 50.7,
+        "conviction": 59.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 44.5,
+        "conviction": 56.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 41.6,
+        "conviction": 51.2,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "NVDA",
+        "name": "英伟达",
+        "score": 77.1
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 75.6
+      },
+      {
+        "ticker": "MU",
+        "name": "美光科技",
+        "score": 75.4
+      }
+    ],
+    "D": [
+      {
+        "ticker": "ETH-USD",
+        "name": "以太坊",
+        "score": 65.0
+      },
+      {
+        "ticker": "NVDA",
+        "name": "英伟达",
+        "score": 63.3
+      },
+      {
+        "ticker": "NXE",
+        "name": "NexGen",
+        "score": 53.4
+      }
+    ]
+  },
+  "2024-06": {
+    "A": [
+      {
+        "ticker": "WM",
+        "name": "废物管理",
+        "score": 63.6
+      },
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 61.5
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 61.3
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 57.7,
+        "conviction": 62.1,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 48.2,
+        "conviction": 56.9,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 43.2,
+        "conviction": 51.8,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "NVDA",
+        "name": "英伟达",
+        "score": 76.0
+      },
+      {
+        "ticker": "MU",
+        "name": "美光科技",
+        "score": 74.2
+      },
+      {
+        "ticker": "TSM",
+        "name": "台积电",
+        "score": 73.4
+      }
+    ],
+    "D": [
+      {
+        "ticker": "SPIR",
+        "name": "Spire Global",
+        "score": 84.6
+      },
+      {
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 68.3
+      },
+      {
+        "ticker": "ADBE",
+        "name": "Adobe",
+        "score": 64.1
+      }
+    ]
+  },
+  "2024-07": {
+    "A": [
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 64.6
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 64.0
+      },
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 61.6
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 57.4,
+        "conviction": 64.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 49.5,
+        "conviction": 57.9,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 56.5,
+        "conviction": 55.6,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "NVDA",
+        "name": "英伟达",
+        "score": 70.7
+      },
+      {
+        "ticker": "GS",
+        "name": "高盛",
+        "score": 69.4
+      },
+      {
+        "ticker": "GE",
+        "name": "通用电气",
+        "score": 68.7
+      }
+    ],
+    "D": [
+      {
+        "ticker": "FIGS",
+        "name": "Figs医疗服饰",
+        "score": 62.1
+      },
+      {
+        "ticker": "SPIR",
+        "name": "Spire Global",
+        "score": 60.8
+      },
+      {
+        "ticker": "DHI",
+        "name": "霍顿房屋",
+        "score": 57.3
+      }
+    ]
+  },
+  "2024-08": {
+    "A": [
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 65.3
+      },
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 65.1
+      },
+      {
+        "ticker": "SO",
+        "name": "南方公司",
+        "score": 62.1
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 57.7,
+        "conviction": 65.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 55.1,
+        "conviction": 58.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 47.1,
+        "conviction": 58.1,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 73.9
+      },
+      {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 71.5
+      },
+      {
+        "ticker": "NVDA",
+        "name": "英伟达",
+        "score": 69.9
+      }
+    ],
+    "D": [
+      {
+        "ticker": "GOLD",
+        "name": "巴里克黄金",
+        "score": 64.7
+      },
+      {
+        "ticker": "FIGS",
+        "name": "Figs医疗服饰",
+        "score": 60.4
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 54.6
+      }
+    ]
+  },
+  "2024-09": {
+    "A": [
+      {
+        "ticker": "LMT",
+        "name": "洛克希德",
+        "score": 68.8
+      },
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 66.2
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 65.9
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 53.4,
+        "conviction": 65.8,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 54.7,
+        "conviction": 60.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 45.7,
+        "conviction": 57.9,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 78.3
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 67.4
+      },
+      {
+        "ticker": "ANET",
+        "name": "Arista网络",
+        "score": 67.4
+      }
+    ],
+    "D": [
+      {
+        "ticker": "MU",
+        "name": "美光科技",
+        "score": 89.5
+      },
+      {
+        "ticker": "VALE",
+        "name": "淡水河谷",
+        "score": 80.8
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 68.3
+      }
+    ]
+  },
+  "2024-10": {
+    "A": [
+      {
+        "ticker": "SO",
+        "name": "南方公司",
+        "score": 65.8
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 64.7
+      },
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 64.2
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 45.5,
+        "conviction": 64.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 53.8,
+        "conviction": 61.7,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 41.6,
+        "conviction": 56.7,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 76.4
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 68.2
+      },
+      {
+        "ticker": "MS",
+        "name": "摩根士丹利",
+        "score": 66.0
+      }
+    ],
+    "D": [
+      {
+        "ticker": "AG",
+        "name": "First Majestic",
+        "score": 62.3
+      },
+      {
+        "ticker": "BTC-USD",
+        "name": "比特币",
+        "score": 56.9
+      },
+      {
+        "ticker": "TSLA",
+        "name": "特斯拉",
+        "score": 52.6
+      }
+    ]
+  },
+  "2024-11": {
+    "A": [
+      {
+        "ticker": "SO",
+        "name": "南方公司",
+        "score": 62.9
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 61.9
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 61.8
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 47.3,
+        "conviction": 63.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 54.4,
+        "conviction": 63.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 46.4,
+        "conviction": 57.0,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 80.1
+      },
+      {
+        "ticker": "TSLA",
+        "name": "特斯拉",
+        "score": 79.1
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 76.7
+      }
+    ],
+    "D": [
+      {
+        "ticker": "BTC-USD",
+        "name": "比特币",
+        "score": 66.8
+      },
+      {
+        "ticker": "ETH-USD",
+        "name": "以太坊",
+        "score": 62.7
+      },
+      {
+        "ticker": "UUUU",
+        "name": "Energy Fuels",
+        "score": 59.7
+      }
+    ]
+  },
+  "2024-12": {
+    "A": [
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 61.7
+      },
+      {
+        "ticker": "PG",
+        "name": "宝洁",
+        "score": 61.0
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 60.6
+      }
+    ],
+    "B": [
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 54.0,
+        "conviction": 63.9,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 44.5,
+        "conviction": 61.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 49.2,
+        "conviction": 57.9,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 79.5
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 76.7
+      },
+      {
+        "ticker": "TSLA",
+        "name": "特斯拉",
+        "score": 76.6
+      }
+    ],
+    "D": [
+      {
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 63.3
+      },
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 63.2
+      },
+      {
+        "ticker": "APPS",
+        "name": "Digital Turbine",
+        "score": 58.7
+      }
+    ]
+  },
+  "2025-01": {
+    "A": [
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 60.7
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 59.5
+      },
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 56.8
+      }
+    ],
+    "B": [
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 55.0,
+        "conviction": 64.9,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 44.3,
+        "conviction": 60.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 48.5,
+        "conviction": 58.4,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "NET",
+        "name": "Cloudflare",
+        "score": 80.7
+      },
+      {
+        "ticker": "SPIR",
+        "name": "Spire Global",
+        "score": 76.1
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 76.0
+      }
+    ],
+    "D": [
+      {
+        "ticker": "SPIR",
+        "name": "Spire Global",
+        "score": 68.9
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 60.7
+      },
+      {
+        "ticker": "NET",
+        "name": "Cloudflare",
+        "score": 57.7
+      }
+    ]
+  },
+  "2025-02": {
+    "A": [
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 59.6
+      },
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 56.4
+      },
+      {
+        "ticker": "RSG",
+        "name": "共和废品",
+        "score": 56.0
+      }
+    ],
+    "B": [
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 46.0,
+        "conviction": 63.4,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 47.0,
+        "conviction": 60.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 44.8,
+        "conviction": 57.9,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "NET",
+        "name": "Cloudflare",
+        "score": 75.8
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 73.2
+      },
+      {
+        "ticker": "NFLX",
+        "name": "奈飞",
+        "score": 69.8
+      }
+    ],
+    "D": [
+      {
+        "ticker": "INTU",
+        "name": "直觉软件",
+        "score": 64.5
+      },
+      {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 47.3
+      }
+    ]
+  },
+  "2025-03": {
+    "A": [
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 60.0
+      },
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 57.7
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 57.5
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 45.7,
+        "conviction": 59.4,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 28.5,
+        "conviction": 57.8,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 36.1,
+        "conviction": 55.3,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 72.0
+      },
+      {
+        "ticker": "V",
+        "name": "Visa",
+        "score": 67.4
+      },
+      {
+        "ticker": "NET",
+        "name": "Cloudflare",
+        "score": 64.9
+      }
+    ],
+    "D": [
+      {
+        "ticker": "AG",
+        "name": "First Majestic",
+        "score": 70.0
+      },
+      {
+        "ticker": "NEM",
+        "name": "纽蒙特",
+        "score": 53.8
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 53.5
+      }
+    ]
+  },
+  "2025-04": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 58.3
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 57.2
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 55.3
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 40.6,
+        "conviction": 57.7,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 36.6,
+        "conviction": 53.4,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 24.8,
+        "conviction": 52.4,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "NFLX",
+        "name": "奈飞",
+        "score": 77.7
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 76.6
+      },
+      {
+        "ticker": "NET",
+        "name": "Cloudflare",
+        "score": 64.7
+      }
+    ],
+    "D": [
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 71.1
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 66.1
+      },
+      {
+        "ticker": "NXE",
+        "name": "NexGen",
+        "score": 64.9
+      }
+    ]
+  },
+  "2025-05": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 60.6
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 57.9
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 55.9
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 37.4,
+        "conviction": 55.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 35.8,
+        "conviction": 51.7,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 23.9,
+        "conviction": 47.9,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 76.5
+      },
+      {
+        "ticker": "APPS",
+        "name": "Digital Turbine",
+        "score": 75.0
+      },
+      {
+        "ticker": "NFLX",
+        "name": "奈飞",
+        "score": 75.0
+      }
+    ],
+    "D": [
+      {
+        "ticker": "URA",
+        "name": "铀矿ETF",
+        "score": 65.8
+      },
+      {
+        "ticker": "INTU",
+        "name": "直觉软件",
+        "score": 65.7
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 59.0
+      }
+    ]
+  },
+  "2025-06": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 60.9
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 58.2
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 56.2
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 33.7,
+        "conviction": 52.8,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 35.7,
+        "conviction": 50.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 22.5,
+        "conviction": 43.9,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "NFLX",
+        "name": "奈飞",
+        "score": 78.4
+      },
+      {
+        "ticker": "NET",
+        "name": "Cloudflare",
+        "score": 78.1
+      },
+      {
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 77.4
+      }
+    ],
+    "D": [
+      {
+        "ticker": "KTOS",
+        "name": "Kratos防务",
+        "score": 90.2
+      },
+      {
+        "ticker": "SPIR",
+        "name": "Spire Global",
+        "score": 64.4
+      },
+      {
+        "ticker": "NXE",
+        "name": "NexGen",
+        "score": 64.0
+      }
+    ]
+  },
+  "2025-07": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 62.6
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 60.2
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 58.3
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 29.0,
+        "conviction": 49.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 33.7,
+        "conviction": 48.7,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 19.7,
+        "conviction": 40.0,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "WDC",
+        "name": "西部数据",
+        "score": 81.4
+      },
+      {
+        "ticker": "NET",
+        "name": "Cloudflare",
+        "score": 77.1
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 76.6
+      }
+    ],
+    "D": [
+      {
+        "ticker": "UUUU",
+        "name": "Energy Fuels",
+        "score": 77.6
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 72.1
+      },
+      {
+        "ticker": "ETH-USD",
+        "name": "以太坊",
+        "score": 70.2
+      }
+    ]
+  },
+  "2025-08": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 63.1
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 62.2
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 59.7
+      }
+    ],
+    "B": [
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 38.0,
+        "conviction": 48.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 30.9,
+        "conviction": 47.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 19.2,
+        "conviction": 36.8,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "WDC",
+        "name": "西部数据",
+        "score": 77.3
+      },
+      {
+        "ticker": "NET",
+        "name": "Cloudflare",
+        "score": 75.1
+      },
+      {
+        "ticker": "URI",
+        "name": "联合租赁",
+        "score": 73.0
+      }
+    ],
+    "D": [
+      {
+        "ticker": "UUUU",
+        "name": "Energy Fuels",
+        "score": 78.1
+      },
+      {
+        "ticker": "NXE",
+        "name": "NexGen",
+        "score": 72.0
+      },
+      {
+        "ticker": "UNH",
+        "name": "联合健康",
+        "score": 69.9
+      }
+    ]
+  },
+  "2025-09": {
+    "A": [
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 63.1
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 62.5
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 59.8
+      }
+    ],
+    "B": [
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 49.0,
+        "conviction": 55.0,
+        "status": "challenged"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 40.4,
+        "conviction": 48.9,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 30.5,
+        "conviction": 45.5,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "WDC",
+        "name": "西部数据",
+        "score": 81.1
+      },
+      {
+        "ticker": "MU",
+        "name": "美光科技",
+        "score": 79.4
+      },
+      {
+        "ticker": "PLTR",
+        "name": "Palantir",
+        "score": 73.2
+      }
+    ],
+    "D": [
+      {
+        "ticker": "UUUU",
+        "name": "Energy Fuels",
+        "score": 88.5
+      },
+      {
+        "ticker": "AG",
+        "name": "First Majestic",
+        "score": 81.5
+      },
+      {
+        "ticker": "KTOS",
+        "name": "Kratos防务",
+        "score": 65.3
+      }
+    ]
+  },
+  "2025-10": {
+    "A": [
+      {
+        "ticker": "SO",
+        "name": "南方公司",
+        "score": 59.6
+      },
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 59.6
+      },
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 58.9
+      }
+    ],
+    "B": [
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 39.3,
+        "conviction": 48.9,
+        "status": "defending"
+      },
+      {
+        "ticker": "MO",
+        "name": "MO",
+        "score": 0.0,
+        "conviction": 44.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 27.0,
+        "conviction": 43.1,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "WDC",
+        "name": "西部数据",
+        "score": 80.0
+      },
+      {
+        "ticker": "MU",
+        "name": "美光科技",
+        "score": 79.7
+      },
+      {
+        "ticker": "AMD",
+        "name": "超威半导体",
+        "score": 79.5
+      }
+    ],
+    "D": [
+      {
+        "ticker": "WDC",
+        "name": "西部数据",
+        "score": 70.5
+      },
+      {
+        "ticker": "NXE",
+        "name": "NexGen",
+        "score": 67.2
+      },
+      {
+        "ticker": "CCJ",
+        "name": "Cameco铀矿",
+        "score": 65.5
+      }
+    ]
+  },
+  "2025-11": {
+    "A": [
+      {
+        "ticker": "DUK",
+        "name": "杜克能源",
+        "score": 59.7
+      },
+      {
+        "ticker": "GLD",
+        "name": "黄金ETF",
+        "score": 57.9
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 56.9
+      }
+    ],
+    "B": [
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 44.2,
+        "conviction": 50.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 26.7,
+        "conviction": 41.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "MO",
+        "name": "MO",
+        "score": 0.0,
+        "conviction": 35.2,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "GOOGL",
+        "name": "谷歌",
+        "score": 78.4
+      },
+      {
+        "ticker": "FIGS",
+        "name": "Figs医疗服饰",
+        "score": 77.7
+      },
+      {
+        "ticker": "WDC",
+        "name": "西部数据",
+        "score": 77.0
+      }
+    ],
+    "D": [
+      {
+        "ticker": "AG",
+        "name": "First Majestic",
+        "score": 78.0
+      },
+      {
+        "ticker": "PAAS",
+        "name": "泛美白银",
+        "score": 76.8
+      },
+      {
+        "ticker": "HL",
+        "name": "赫克拉矿业",
+        "score": 54.4
+      }
+    ]
+  },
+  "2025-12": {
+    "A": [
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 63.5
+      },
+      {
+        "ticker": "JNJ",
+        "name": "强生",
+        "score": 62.2
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 62.0
+      }
+    ],
+    "B": [
+      {
+        "ticker": "BTI",
+        "name": "英美烟草",
+        "score": 42.0,
+        "conviction": 53.5,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 45.8,
+        "conviction": 51.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 27.8,
+        "conviction": 39.9,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "MU",
+        "name": "美光科技",
+        "score": 77.2
+      },
+      {
+        "ticker": "FIGS",
+        "name": "Figs医疗服饰",
+        "score": 76.3
+      },
+      {
+        "ticker": "GOOGL",
+        "name": "谷歌",
+        "score": 75.1
+      }
+    ],
+    "D": [
+      {
+        "ticker": "GOLD",
+        "name": "巴里克黄金",
+        "score": 58.7
+      },
+      {
+        "ticker": "MU",
+        "name": "美光科技",
+        "score": 50.8
+      }
+    ]
+  },
+  "2026-01": {
+    "A": [
+      {
+        "ticker": "JNJ",
+        "name": "强生",
+        "score": 66.1
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 64.0
+      },
+      {
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 62.2
+      }
+    ],
+    "B": [
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 49.1,
+        "conviction": 53.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "BTI",
+        "name": "英美烟草",
+        "score": 42.6,
+        "conviction": 53.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 35.4,
+        "conviction": 40.8,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "GOLD",
+        "name": "巴里克黄金",
+        "score": 83.3
+      },
+      {
+        "ticker": "NXE",
+        "name": "NexGen",
+        "score": 79.1
+      },
+      {
+        "ticker": "CCJ",
+        "name": "Cameco铀矿",
+        "score": 79.1
+      }
+    ],
+    "D": [
+      {
+        "ticker": "GOLD",
+        "name": "巴里克黄金",
+        "score": 87.7
+      },
+      {
+        "ticker": "UUUU",
+        "name": "Energy Fuels",
+        "score": 87.4
+      },
+      {
+        "ticker": "SCCO",
+        "name": "南方铜业",
+        "score": 85.6
+      }
+    ]
+  },
+  "2026-02": {
+    "A": [
+      {
+        "ticker": "JNJ",
+        "name": "强生",
+        "score": 67.7
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 65.5
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 62.9
+      }
+    ],
+    "B": [
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 53.1,
+        "conviction": 56.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "JNJ",
+        "name": "强生",
+        "score": 57.3,
+        "conviction": 56.1,
+        "status": "challenged"
+      },
+      {
+        "ticker": "BTI",
+        "name": "英美烟草",
+        "score": 40.0,
+        "conviction": 52.8,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "TDW",
+        "name": "泰德威特",
+        "score": 82.4
+      },
+      {
+        "ticker": "AG",
+        "name": "First Majestic",
+        "score": 81.4
+      },
+      {
+        "ticker": "BHP",
+        "name": "必和必拓",
+        "score": 81.4
+      }
+    ],
+    "D": [
+      {
+        "ticker": "FIGS",
+        "name": "Figs医疗服饰",
+        "score": 89.2
+      },
+      {
+        "ticker": "PAAS",
+        "name": "泛美白银",
+        "score": 73.3
+      },
+      {
+        "ticker": "IGV",
+        "name": "软件ETF",
+        "score": 73.3
+      }
+    ]
+  },
+  "2026-03": {
+    "A": [
+      {
+        "ticker": "JNJ",
+        "name": "强生",
+        "score": 65.9
+      },
+      {
+        "ticker": "XOM",
+        "name": "埃克森美孚",
+        "score": 65.1
+      },
+      {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 64.3
+      }
+    ],
+    "B": [
+      {
+        "ticker": "JNJ",
+        "name": "强生",
+        "score": 57.6,
+        "conviction": 59.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 50.6,
+        "conviction": 57.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "BTI",
+        "name": "英美烟草",
+        "score": 33.8,
+        "conviction": 50.7,
+        "status": "defending"
+      }
+    ],
+    "C": [
+      {
+        "ticker": "PBR",
+        "name": "巴西石油",
+        "score": 81.0
+      },
+      {
+        "ticker": "XOM",
+        "name": "埃克森美孚",
+        "score": 78.9
+      },
+      {
+        "ticker": "CVX",
+        "name": "雪佛龙",
+        "score": 77.1
+      }
+    ],
+    "D": [
+      {
+        "ticker": "SPIR",
+        "name": "Spire Global",
+        "score": 63.8
+      },
+      {
         "ticker": "OXY",
         "name": "西方石油",
-        "score": 69.9
+        "score": 62.8
       },
       {
         "ticker": "PBR",
         "name": "巴西石油",
-        "score": 69.1
-      },
-      {
-        "ticker": "BG",
-        "name": "邦吉",
-        "score": 58.2
+        "score": 60.3
       }
     ]
-  }
+  },
+  "_conviction_B": {
+    "GE": 21.6,
+    "NOC": 42.0,
+    "LMT": 39.4,
+    "TSM": 45.1,
+    "LIN": 27.7,
+    "HON": 33.3,
+    "BHP": 36.3,
+    "MO": 33.9,
+    "PG": 12.1,
+    "JNJ": 65.0,
+    "RIO": 45.7,
+    "COST": 29.3,
+    "BLK": 15.8,
+    "SCCO": 33.2,
+    "V": 12.6,
+    "COP": 36.2,
+    "TJX": 59.6,
+    "PEP": 38.6,
+    "BTI": 52.2,
+    "HD": 4.3,
+    "PFE": 20.0,
+    "SO": 46.0,
+    "CAT": 47.5,
+    "NEE": 45.0,
+    "META": 4.5,
+    "AAPL": 39.9,
+    "NFLX": 5.8,
+    "LLY": 24.3,
+    "MS": 42.4,
+    "MSFT": 11.7,
+    "ISRG": 7.8,
+    "DUK": 52.4,
+    "ANET": 0.9,
+    "ETN": 25.6,
+    "GS": 42.5,
+    "AMZN": 9.8,
+    "MCD": 47.3,
+    "NEM": 35.9,
+    "BRK-B": 28.0,
+    "CRM": 1.9,
+    "CVX": 43.8,
+    "UNH": 0.6,
+    "NVDA": 13.4,
+    "KO": 52.1,
+    "INTU": 5.3,
+    "PBR": 35.3,
+    "WMT": 51.7,
+    "XOM": 48.7,
+    "PLTR": 7.5,
+    "AVGO": 0.9,
+    "GOOGL": 46.5,
+    "AEM": 38.9
+  },
+  "_holders_B": [
+    "JNJ",
+    "TJX",
+    "BTI"
+  ]
 }

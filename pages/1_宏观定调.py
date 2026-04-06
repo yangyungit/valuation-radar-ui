@@ -1534,7 +1534,9 @@ if not df.empty and len(df) > 750:
     st.caption("共振 (大家都一样) vs 分化 (只有少数人赢) — 结构性机会的早期预警")
 
     sector_disp_cols = [t for t in ['XLK', 'XLF', 'XLV', 'XLY', 'XLP', 'XLE', 'XLI', 'XLB', 'XLU', 'XLRE', 'XLC'] if t in df.columns]
-    if 'RSP' in df.columns and len(sector_disp_cols) >= 5:
+    _spy_valid = 'SPY' in df.columns and df['SPY'].dropna().shape[0] > 0
+    _rsp_valid = 'RSP' in df.columns and df['RSP'].dropna().shape[0] > 0
+    if _spy_valid and _rsp_valid and len(sector_disp_cols) >= 5:
         df_disp = df[['SPY', 'RSP'] + sector_disp_cols].dropna(how='all').copy()
         spy_base = df_disp['SPY'].dropna().iloc[0]
         rsp_base = df_disp['RSP'].dropna().iloc[0]

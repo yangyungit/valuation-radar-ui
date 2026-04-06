@@ -16,6 +16,15 @@ from screener_engine import (
     classify_all_at_date,
     _primary_grade,
 )
+from conviction_engine import (
+    CONVICTION_B_CONFIG,
+    update_convictions as _conv_update,
+    select_top_n as _conv_select,
+    explain_config_html as _conv_explain_html,
+    conviction_bar_html as _conv_bar_html,
+    decisions_html as _conv_decisions_html,
+    get_status_label as _conv_status_label,
+)
 
 _core_data = fetch_core_data()
 _MACRO_TAGS_MAP     = _core_data.get("MACRO_TAGS_MAP", {})
@@ -301,22 +310,49 @@ def _load_arena_history() -> dict:
 def _record_arena_history(cls: str, top3_records: list, month_key: str = None) -> None:
     """将某月某赛道的 Top 3 写入历史文件（自动覆盖同月同赛道旧数据）。
     month_key 为 None 时默认使用当前月份（YYYY-MM）。
+    top3_records 中若含 conviction/status 字段会一并保存。
     """
     if month_key is None:
         month_key = datetime.now().strftime("%Y-%m")
     history = _load_arena_history()
     if month_key not in history:
         history[month_key] = {}
-    history[month_key][cls] = [
-        {"ticker": r["ticker"], "name": r["name"], "score": r["score"]}
-        for r in top3_records
-    ]
+    rec_list = []
+    for r in top3_records:
+        entry = {"ticker": r["ticker"], "name": r["name"], "score": r.get("score", 0.0)}
+        if "conviction" in r:
+            entry["conviction"] = r["conviction"]
+        if "status" in r:
+            entry["status"] = r["status"]
+        rec_list.append(entry)
+    history[month_key][cls] = rec_list
     try:
         os.makedirs(os.path.dirname(_HISTORY_FILE), exist_ok=True)
         with open(_HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
+
+def _save_conviction_state(cls: str, state: dict, holders: list) -> None:
+    """将信念状态持久化到 arena_history.json 的 meta key 中。"""
+    history = _load_arena_history()
+    history[f"_conviction_{cls}"] = state
+    history[f"_holders_{cls}"] = holders
+    try:
+        os.makedirs(os.path.dirname(_HISTORY_FILE), exist_ok=True)
+        with open(_HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _load_conviction_state(cls: str) -> tuple[dict, list]:
+    """从 arena_history.json 加载信念状态。返回 (state_dict, holders_list)。"""
+    history = _load_arena_history()
+    state   = history.get(f"_conviction_{cls}", {})
+    holders = history.get(f"_holders_{cls}", [])
+    return state, holders
 
 
 @st.cache_data(ttl=3600 * 6, show_spinner=False)
@@ -386,6 +422,10 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
     spy_col = "SPY" if "SPY" in price_df.columns else None
     saved   = 0
     prev_grades_map: dict = {}
+
+    # B 组信念积累状态（回填时从头构建）
+    _bf_conv_state: dict  = {}
+    _bf_conv_holders: list = []
 
     for month_key, me_date in month_ends:
         loc = price_df.index.get_loc(me_date)
@@ -540,14 +580,38 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
             if df_scored.empty:
                 continue
 
-            top3 = [
-                {"ticker": r["Ticker"], "name": r["名称"], "score": float(r["竞技得分"])}
-                for _, r in df_scored.head(3).iterrows()
-            ]
+            if cls == "B":
+                # ── B 组：信念积累 + 冠军守擂 ──
+                _bf_factor_scores = {
+                    r["Ticker"]: float(r["竞技得分"])
+                    for _, r in df_scored.iterrows()
+                }
+                _bf_conv_state = _conv_update(_bf_conv_state, _bf_factor_scores)
+                _bf_names = {r["Ticker"]: r["名称"] for _, r in df_scored.iterrows()}
+                selected, _ = _conv_select(
+                    _bf_conv_state, _bf_conv_holders,
+                    ticker_names=_bf_names,
+                    factor_scores=_bf_factor_scores,
+                )
+                _bf_conv_holders = [s["ticker"] for s in selected]
+                top3 = [
+                    {"ticker": s["ticker"], "name": s["name"],
+                     "score": s.get("factor_score", 0.0),
+                     "conviction": s["conviction"], "status": s["status"]}
+                    for s in selected
+                ]
+            else:
+                top3 = [
+                    {"ticker": r["Ticker"], "name": r["名称"],
+                     "score": float(r["竞技得分"])}
+                    for _, r in df_scored.head(3).iterrows()
+                ]
             _record_arena_history(cls, top3, month_key=month_key)
 
         saved += 1
 
+    # 回填结束后持久化 B 组信念状态
+    _save_conviction_state("B", _bf_conv_state, _bf_conv_holders)
     return saved, ""
 
 
@@ -1348,7 +1412,7 @@ _B_FACTOR_COLORS = ["#F39C12", "#3498DB", "#2ECC71", "#9B59B6", "#E74C3C"]
 
 
 def _render_podium_b(top3: pd.DataFrame) -> None:
-    """B 组核心底仓质量指数专属 Top 3 颁奖台。"""
+    """B 组信念守擂制专属 Top 3 颁奖台（展示信念值 + 因子指标）。"""
     meta = CLASS_META["B"]
     cols = st.columns(3)
     for i, (medal, medal_color, css_class, title) in enumerate(_PODIUM_MEDALS):
@@ -1367,6 +1431,8 @@ def _render_podium_b(top3: pd.DataFrame) -> None:
         dy    = row.get("股息率", 0.0)
         dd    = row.get("最大回撤_raw", 0.0)
         sp    = row.get("夏普比率", 0.0)
+        conv  = row.get("信念值", 0.0)
+        status = row.get("守擂状态", "")
 
         dy_color = "#2ECC71" if dy > 2.0 else ("#F1C40F" if dy > 0.5 else "#888")
         dd_color = "#2ECC71" if abs(dd) < 0.15 else ("#F39C12" if abs(dd) < 0.25 else "#E74C3C")
@@ -1374,6 +1440,9 @@ def _render_podium_b(top3: pd.DataFrame) -> None:
 
         rev_g = row.get("Revenue增速", 0.0)
         rev_color = "#2ECC71" if rev_g >= 10 else ("#F1C40F" if rev_g >= 0 else "#E74C3C")
+
+        status_lbl, status_clr = _conv_status_label(status)
+        conv_pct = min(conv / 100 * 100, 100)
 
         factor_pills_html = ""
         for fi in range(1, 6):
@@ -1389,13 +1458,22 @@ def _render_podium_b(top3: pd.DataFrame) -> None:
             <div class='{css_class}'>
                 <div style='font-size:32px; margin-bottom:4px;'>{medal}</div>
                 <div style='font-size:13px; color:{medal_color}; font-weight:bold;
-                            letter-spacing:1px; margin-bottom:10px;'>{title}</div>
+                            letter-spacing:1px; margin-bottom:6px;'>{title}</div>
                 <div style='font-size:26px; font-weight:bold; color:#eee;'>{row['Ticker']}</div>
-                <div style='font-size:13px; color:#aaa; margin-bottom:10px;'>{row['名称']}</div>
-                <div style='font-size:34px; font-weight:bold; color:{medal_color}; margin-bottom:4px;'>
-                    {score:.0f}
+                <div style='font-size:13px; color:#aaa; margin-bottom:6px;'>{row['名称']}</div>
+                <div style='display:inline-block; background:{status_clr}22;
+                     border:1px solid {status_clr}55; border-radius:12px;
+                     padding:2px 10px; font-size:13px; color:{status_clr};
+                     font-weight:bold; margin-bottom:8px;'>{status_lbl}</div>
+                <div style='font-size:34px; font-weight:bold; color:{medal_color}; margin-bottom:2px;'>
+                    {conv:.0f}
                 </div>
-                <div style='font-size:13px; color:#888; margin-bottom:14px;'>核心底仓质量指数 / 100</div>
+                <div style='font-size:13px; color:#888; margin-bottom:4px;'>信念值 / 100</div>
+                <div style='background:#1e1e1e; border-radius:4px; height:6px; margin:0 20px 8px;'>
+                    <div style='width:{conv_pct:.0f}%; background:{status_clr};
+                         border-radius:4px; height:6px;'></div>
+                </div>
+                <div style='font-size:13px; color:#666; margin-bottom:10px;'>因子分 {score:.0f}/100</div>
                 <hr style='border-color:#333; margin:8px 0;'>
                 <div style='font-size:13px; text-align:left; line-height:2;'>
                     <span style='color:#888;'>股息率</span>
@@ -2044,23 +2122,23 @@ elif _sel4 == "B":
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("""
-    <div class='formula-box' style='background:#1a1a1a; border-left:3px solid #F39C12;
-         padding:14px; margin-bottom:16px; font-size:14px; color:#ccc; border-radius:4px;'>
-    <b>ScorecardB 白盒公式（满分 100 分）— 兼顾防御与成长弹性，拒绝短期动量：</b><br><br>
-    <span style='color:#F39C12; font-weight:bold;'>Score<sub>B</sub></span> =
-    <span style='color:#F39C12;'>(35 × RealQuality<sub>norm</sub>)</span> +
-    <span style='color:#3498DB;'>(25 × Resilience<sub>InvMaxDD</sub>)</span> +
-    <span style='color:#2ECC71;'>(20 × Sharpe<sub>1Y</sub>)</span> +
-    <span style='color:#9B59B6;'>(10 × MCap<sub>log10</sub>)</span> +
-    <span style='color:#E74C3C;'>(10 × RevenueGrowth<sub>TTM</sub>)</span><br><br>
-    <span style='color:#888; font-size:13px;'>
-    RealQuality = (DivYield<sub>norm</sub> + EPS_Stability<sub>norm</sub>) / 2 (股息率 + 年化波动率倒数 代理 FCF/ROIC)。<br>
-    Resilience = 近 252 日最大回撤取倒数，回撤越小得分越高。RevenueGrowth = TTM 收入增速（锚点 -5% ~ 25%）。<br>
-    所有因子均经锚点归一化至 [0, 100] 后加权求和。彻底剔除动量/均线等短线信号。
-    </span>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(_conv_explain_html(), unsafe_allow_html=True)
+
+    with st.expander("📐 底层因子公式（ScorecardB 满分 100）", expanded=False):
+        st.markdown("""
+        <div style='font-size:14px; color:#ccc; line-height:1.8;'>
+        <span style='color:#F39C12; font-weight:bold;'>Score<sub>B</sub></span> =
+        <span style='color:#F39C12;'>(35 × RealQuality<sub>norm</sub>)</span> +
+        <span style='color:#3498DB;'>(25 × Resilience<sub>InvMaxDD</sub>)</span> +
+        <span style='color:#2ECC71;'>(20 × Sharpe<sub>1Y</sub>)</span> +
+        <span style='color:#9B59B6;'>(10 × MCap<sub>log10</sub>)</span> +
+        <span style='color:#E74C3C;'>(10 × RevenueGrowth<sub>TTM</sub>)</span><br>
+        <span style='color:#888; font-size:13px;'>
+        此因子分数作为「信念积分的输入信号」，不再直接决定排名。
+        连续多月高分 → 信念积累 → 达标入选 → 守擂留任。
+        </span>
+        </div>
+        """, unsafe_allow_html=True)
 
     if df_b.empty:
         st.info("当前 B 级赛道暂无参赛资产。请检查数据加载状态或开启演示模式。")
@@ -2079,71 +2157,163 @@ elif _sel4 == "B":
 
         n_b = len(df_scored_b)
         if n_b > 0:
+            # ── 信念积累 + 冠军守擂 ──
+            _rt_factor_scores = {
+                row["Ticker"]: float(row["竞技得分"])
+                for _, row in df_scored_b.iterrows()
+            }
+            _rt_conv_state, _rt_conv_holders = _load_conviction_state("B")
+            _rt_conv_state = _conv_update(_rt_conv_state, _rt_factor_scores)
+            _rt_names = {row["Ticker"]: row["名称"] for _, row in df_scored_b.iterrows()}
+            _rt_selected, _rt_decisions = _conv_select(
+                _rt_conv_state, _rt_conv_holders,
+                ticker_names=_rt_names,
+                factor_scores=_rt_factor_scores,
+            )
+            _rt_new_holders = [s["ticker"] for s in _rt_selected]
+
             leaders = st.session_state.get("p4_arena_leaders", {})
             leaders["B"] = [
-                {"ticker": row["Ticker"], "name": row["名称"], "score": float(row["竞技得分"]), "cls": "B"}
-                for _, row in df_scored_b.head(3).iterrows()
+                {"ticker": s["ticker"], "name": s["name"],
+                 "score": s.get("factor_score", 0.0),
+                 "conviction": s["conviction"], "status": s["status"],
+                 "cls": "B"}
+                for s in _rt_selected
             ]
             st.session_state["p4_arena_leaders"] = leaders
             _record_arena_history("B", leaders["B"])
+            _save_conviction_state("B", _rt_conv_state, _rt_new_holders)
 
             _aw = st.session_state.get("arena_winners", {})
-            _aw["B"] = [row["Ticker"] for _, row in df_scored_b.head(3).iterrows()]
+            _aw["B"] = _rt_new_holders
             st.session_state["arena_winners"] = _aw
 
         top_score_b = df_scored_b["竞技得分"].iloc[0] if n_b > 0 else 0.0
         avg_score_b = df_scored_b["竞技得分"].mean()  if n_b > 0 else 0.0
         n_low_dd    = int((df_scored_b["最大回撤_raw"].abs() < 0.15).sum()) if n_b > 0 else 0
+        _top_conv   = max((s["conviction"] for s in _rt_selected), default=0.0) if n_b > 0 else 0.0
 
-        kpi_cols_b = st.columns(4)
+        kpi_cols_b = st.columns(5)
         for col_obj, (label, val, suffix) in zip(kpi_cols_b, [
             ("参赛资产",       f"{n_b}",            "只"),
             ("低回撤(<15%)",   f"{n_low_dd}",       f"/ {n_b}"),
-            ("赛道冠军分",     f"{top_score_b:.0f}", "/ 100"),
+            ("冠军信念值",     f"{_top_conv:.0f}",   "/ 100"),
+            ("冠军因子分",     f"{top_score_b:.0f}", "/ 100"),
             ("赛道平均分",     f"{avg_score_b:.0f}", "/ 100"),
         ]):
             with col_obj:
                 st.metric(label=label, value=val, delta=suffix)
 
         st.markdown("---")
-        st.markdown("#### 🏆 赛道翘楚 -- Top 3 高亮置顶")
-        _render_podium_b(df_scored_b.head(3))
+        st.markdown("#### 🛡️ 信念守擂 Top 3 — 高亮置顶")
 
         if n_b > 0:
-            champ_b  = df_scored_b.iloc[0]
-            dy_c     = champ_b.get("股息率", 0.0)
-            dd_c     = champ_b.get("最大回撤_raw", 0.0)
-            sp_c     = champ_b.get("夏普比率", 0.0)
-            rv_c     = champ_b.get("Revenue增速", 0.0)
+            # 用信念选出的 Top 3 匹配 df_scored_b 中的行来渲染 podium
+            _conv_top3_tickers = [s["ticker"] for s in _rt_selected]
+            _conv_top3_df = df_scored_b[df_scored_b["Ticker"].isin(_conv_top3_tickers)].copy()
+            _ticker_order = {tk: i for i, tk in enumerate(_conv_top3_tickers)}
+            _conv_top3_df["_conv_order"] = _conv_top3_df["Ticker"].map(_ticker_order)
+            _conv_top3_df = _conv_top3_df.sort_values("_conv_order").drop(columns=["_conv_order"])
+            _conv_map = {s["ticker"]: s for s in _rt_selected}
+            _conv_top3_df["信念值"] = _conv_top3_df["Ticker"].map(
+                lambda t: _conv_map.get(t, {}).get("conviction", 0.0))
+            _conv_top3_df["守擂状态"] = _conv_top3_df["Ticker"].map(
+                lambda t: _conv_map.get(t, {}).get("status", ""))
+            _render_podium_b(_conv_top3_df)
+        else:
+            _render_podium_b(df_scored_b.head(0))
 
-            if abs(dd_c) < 0.10:
-                dd_verdict = "极强抗跌韧性"
-            elif abs(dd_c) < 0.20:
-                dd_verdict = "回撤控制良好"
-            else:
-                dd_verdict = "回撤偏大，需警惕"
+        # ── 守擂决策日志（白盒） ──
+        if n_b > 0 and _rt_decisions:
+            st.markdown(_conv_decisions_html(_rt_decisions), unsafe_allow_html=True)
 
-            st.success(
-                f"**🦍 赛道冠军深度解读 — {champ_b['Ticker']} ({champ_b['名称']})**\n\n"
-                f"在 B 级 {n_b} 位参赛标的中以 **核心底仓质量指数 {champ_b['竞技得分']:.0f} 分**夺冠。\n"
-                f"真·护城河质量贡献 = {champ_b['因子1_分']:.1f}（股息率 {dy_c:.2f}%），"
-                f"抗跌韧性贡献 = {champ_b['因子2_分']:.1f}（最大回撤 {dd_c*100:.1f}% — {dd_verdict}），"
-                f"夏普比率贡献 = {champ_b['因子3_分']:.1f}（Sharpe {sp_c:.2f}），"
-                f"市值壁垒贡献 = {champ_b['因子4_分']:.1f}，"
-                f"成长弹性贡献 = {champ_b['因子5_分']:.1f}（Revenue 增速 {rv_c:+.1f}%）。"
-            )
+        if n_b > 0 and _rt_selected:
+            champ_s  = _rt_selected[0]
+            champ_tk = champ_s["ticker"]
+            _champ_row = df_scored_b[df_scored_b["Ticker"] == champ_tk]
+            if not _champ_row.empty:
+                champ_b  = _champ_row.iloc[0]
+                dy_c     = champ_b.get("股息率", 0.0)
+                dd_c     = champ_b.get("最大回撤_raw", 0.0)
+                sp_c     = champ_b.get("夏普比率", 0.0)
+                rv_c     = champ_b.get("Revenue增速", 0.0)
+
+                if abs(dd_c) < 0.10:
+                    dd_verdict = "极强抗跌韧性"
+                elif abs(dd_c) < 0.20:
+                    dd_verdict = "回撤控制良好"
+                else:
+                    dd_verdict = "回撤偏大，需警惕"
+
+                _status_lbl, _status_clr = _conv_status_label(champ_s["status"])
+                st.success(
+                    f"**🦍 赛道冠军深度解读 — {champ_tk} ({champ_b['名称']})** "
+                    f"｜信念值 {champ_s['conviction']:.0f} ｜{_status_lbl}\n\n"
+                    f"在 B 级 {n_b} 位参赛标的中，信念值最高"
+                    f"（因子分 {champ_b['竞技得分']:.0f}）。\n"
+                    f"真·护城河质量 = {champ_b['因子1_分']:.1f}（股息率 {dy_c:.2f}%），"
+                    f"抗跌韧性 = {champ_b['因子2_分']:.1f}（最大回撤 {dd_c*100:.1f}% — {dd_verdict}），"
+                    f"夏普比率 = {champ_b['因子3_分']:.1f}（Sharpe {sp_c:.2f}），"
+                    f"市值壁垒 = {champ_b['因子4_分']:.1f}，"
+                    f"成长弹性 = {champ_b['因子5_分']:.1f}（Revenue 增速 {rv_c:+.1f}%）。"
+                )
+
+        # ── 全候选池信念值一览（白盒展开区） ──
+        if n_b > 0:
+            with st.expander("📊 全候选池信念值一览", expanded=False):
+                _sorted_conv = sorted(
+                    _rt_conv_state.items(), key=lambda x: x[1], reverse=True)
+                _entry_th = CONVICTION_B_CONFIG["entry_threshold"]
+                _exit_th  = CONVICTION_B_CONFIG["exit_threshold"]
+                _conv_rows_html = ""
+                for _ck, _cv in _sorted_conv:
+                    _in_top3 = _ck in _conv_top3_tickers
+                    _nm = _rt_names.get(_ck, _ck)
+                    _fs = _rt_factor_scores.get(_ck, 0.0)
+                    _bar_color = "#F39C12" if _in_top3 else (
+                        "#2ECC71" if _cv >= _entry_th else (
+                            "#555" if _cv >= _exit_th else "#333"))
+                    _pct = min(_cv / 100 * 100, 100)
+                    _badge = "🛡️" if _in_top3 else ""
+                    _conv_rows_html += (
+                        f"<div style='display:flex; align-items:center; gap:8px; "
+                        f"padding:4px 0; border-bottom:1px solid #1a1a1a;'>"
+                        f"<span style='width:70px; font-size:14px; font-weight:bold; "
+                        f"color:{'#F39C12' if _in_top3 else '#ccc'};'>{_ck}</span>"
+                        f"<span style='width:100px; font-size:13px; color:#888; "
+                        f"overflow:hidden; text-overflow:ellipsis; "
+                        f"white-space:nowrap;'>{_nm}</span>"
+                        f"<div style='flex:1; background:#1e1e1e; border-radius:4px; "
+                        f"height:8px;'>"
+                        f"<div style='width:{_pct:.0f}%; background:{_bar_color}; "
+                        f"border-radius:4px; height:8px;'></div></div>"
+                        f"<span style='width:50px; font-size:13px; font-weight:bold; "
+                        f"color:{_bar_color}; text-align:right;'>{_cv:.0f}</span>"
+                        f"<span style='width:50px; font-size:13px; color:#666; "
+                        f"text-align:right;'>F:{_fs:.0f}</span>"
+                        f"<span style='width:24px;'>{_badge}</span>"
+                        f"</div>"
+                    )
+                st.markdown(
+                    f"<div style='font-size:13px; color:#888; margin-bottom:6px;'>"
+                    f"入选线 = {_entry_th:.0f} ｜退出线 = {_exit_th:.0f} ｜"
+                    f"🛡️ = 当前持仓</div>"
+                    f"<div style='background:#111; border-radius:6px; padding:8px;'>"
+                    f"{_conv_rows_html}</div>",
+                    unsafe_allow_html=True,
+                )
 
         st.markdown("---")
         _render_leaderboard_b(df_scored_b)
 
-        if n_b > 0:
-            champ_ticker_b = df_scored_b.iloc[0]["Ticker"]
-            champ_name_b   = df_scored_b.iloc[0]["名称"]
+        if n_b > 0 and _rt_selected:
+            champ_ticker_b = _rt_selected[0]["ticker"]
+            champ_name_b   = _rt_selected[0]["name"]
             col_hint_b, col_btn_b = st.columns([3, 1])
             with col_hint_b:
                 st.markdown(
                     f"<div style='font-size:13px; color:#888; margin-top:6px;'>"
-                    f"🏆 赛道冠军 <b style='color:#FFD700;'>{champ_ticker_b}</b>"
+                    f"🛡️ 信念冠军 <b style='color:#FFD700;'>{champ_ticker_b}</b>"
                     f" ({champ_name_b}) 已就绪，可一键送入深度猎杀模块进行单体精析。"
                     f"</div>",
                     unsafe_allow_html=True,
@@ -2637,6 +2807,14 @@ def _streak_badge_html(streak: int) -> str:
 
 def _hist_cell(rec: dict, medal_color: str, streak: int = 0) -> str:
     _streak_html = _streak_badge_html(streak) if streak >= 1 else ""
+    _conv = rec.get("conviction")
+    _conv_html = ""
+    if _conv is not None:
+        _conv_color = "#F39C12" if _conv >= 55 else ("#2ECC71" if _conv >= 30 else "#555")
+        _conv_html = (
+            f"<span style='font-size:13px; color:{_conv_color}; font-weight:bold; "
+            f"flex-shrink:0; margin-left:2px;'>C:{_conv:.0f}</span>"
+        )
     return (
         f"<div style='flex:1; display:flex; align-items:baseline; gap:5px; "
         f"min-width:0; padding-left:4px;'>"
@@ -2644,6 +2822,7 @@ def _hist_cell(rec: dict, medal_color: str, streak: int = 0) -> str:
         f"{rec['ticker']}</span>"
         f"<span style='font-size:13px; color:#888; overflow:hidden; "
         f"text-overflow:ellipsis; white-space:nowrap;'>{rec['name']}</span>"
+        f"{_conv_html}"
         f"{_streak_html}"
         f"</div>"
     )

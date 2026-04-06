@@ -71,12 +71,7 @@ if p4_routed:
 st.title("🎯 Layer 5: 个股择时")
 st.caption("竞技场择时回顾 ➡️ VCP 形态猎杀 ➡️ TWAP 最优建仓执行")
 
-# ═══════════════════════════════════════════════════════════════════
-#  Section 1: 竞技场持仓择时回顾 (Arena Timing Review)
-# ═══════════════════════════════════════════════════════════════════
-st.header("🕐 竞技场持仓择时回顾")
-st.caption("复盘各赛道历史选股 — 🟩 绿色区域 = 细筛入选 | ▲ 买入 ▼ 卖出 = MA 择时信号")
-
+# ── Load Arena History Data ──
 _ARENA_HIST_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "arena_history.json")
 _arena_data: dict = {}
 try:
@@ -86,15 +81,214 @@ try:
 except Exception:
     pass
 
-if _arena_data:
-    _CLS_CLR = {"A": "#2ECC71", "B": "#3498DB", "C": "#F39C12", "D": "#E74C3C"}
-    _CLS_LBL = {
-        "A": "🛡️ A 避风港", "B": "🏦 B 压舱石",
-        "C": "🚀 C 趋势动量", "D": "⚡ D 短线爆发",
-    }
-    _CLS_MA_WEEKS = {"A": 12, "B": 12, "C": 8, "D": 4}
-    _CLS_SLOW_MA = {"A": 60, "B": 60, "C": None, "D": None}
+_CLS_CLR = {"A": "#2ECC71", "B": "#3498DB", "C": "#F39C12", "D": "#E74C3C"}
+_CLS_LBL = {
+    "A": "🛡️ A 避风港", "B": "🏦 B 压舱石",
+    "C": "🚀 C 趋势动量", "D": "⚡ D 短线爆发",
+}
+_CLS_MA_WEEKS = {"A": 12, "B": 12, "C": 8, "D": 4}
+_CLS_SLOW_MA = {"A": 60, "B": 60, "C": None, "D": None}
 
+
+def _get_holding_periods(cls_map: dict, ticker: str) -> list:
+    periods: list = []
+    in_h, start, prev = False, None, None
+    for m in sorted(cls_map.keys()):
+        if ticker in cls_map[m]:
+            if not in_h:
+                start = m
+                in_h = True
+            prev = m
+        elif in_h:
+            periods.append((start, prev))
+            in_h = False
+    if in_h:
+        periods.append((start, prev))
+    return periods
+
+
+@st.cache_data(ttl=3600 * 4, show_spinner=False)
+def _fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
+    h = yf.Ticker(ticker).history(period="5y")
+    if h.empty:
+        return pd.DataFrame()
+    w = h.resample("W-FRI").agg({
+        "Open": "first", "High": "max", "Low": "min",
+        "Close": "last", "Volume": "sum",
+    }).dropna()
+    if w.index.tz is not None:
+        try:
+            w.index = w.index.tz_localize(None)
+        except TypeError:
+            w.index = w.index.tz_convert(None)
+    return w
+
+
+if _arena_data:
+    # ── 惰性换手持仓推算（宁缺毋滥版） ──
+    # B 赛道使用 conviction 门槛 + 空位回补 + 消极退出；其余赛道保持原逻辑
+    _B_MIN_CONV = 40   # 入选 / 回补最低信念
+    _B_FLOOR_CONV = 40  # 持仓中消极退出地板
+
+    _tm_months = sorted(k for k in _arena_data if not k.startswith("_"))
+    _tm_hold: dict = {}
+    _score_anomalies: list = []
+
+    for _c in ["A", "B", "C", "D"]:
+        _prev_h: set = set()
+        _cm: dict = {}
+        for _m in _tm_months:
+            _recs = _arena_data[_m].get(_c, [])
+            _t3 = {r["ticker"] for r in _recs[:3]}
+
+            if _c == "B":
+                _conv_map = {r["ticker"]: r.get("conviction", 0) for r in _recs}
+                _score_map = {r["ticker"]: r.get("score", 0) for r in _recs}
+
+                for _r in _recs[:3]:
+                    if _r.get("score", 999) == 0 or _r.get("score") is None:
+                        _score_anomalies.append({
+                            "month": _m, "ticker": _r["ticker"],
+                            "name": _r.get("name", _r["ticker"]),
+                            "rank": _recs.index(_r) + 1,
+                            "conviction": _r.get("conviction", "—"),
+                        })
+
+                _surviving = {tk for tk in _prev_h
+                              if tk in _t3
+                              and _conv_map.get(tk, 0) >= _B_FLOOR_CONV}
+                _hold: set = _surviving.copy()
+                for _r in _recs[:3]:
+                    if len(_hold) >= 2:
+                        break
+                    _tk = _r["ticker"]
+                    if (_tk not in _hold
+                            and _conv_map.get(_tk, 0) >= _B_MIN_CONV
+                            and _score_map.get(_tk, 0) > 0):
+                        _hold.add(_tk)
+            else:
+                _t2 = {r["ticker"] for r in _recs[:2]}
+                _hold = _prev_h if (_prev_h and _prev_h.issubset(_t3)) else _t2
+
+            _cm[_m] = _hold
+            _prev_h = _hold
+        _tm_hold[_c] = _cm
+
+    # ═══════════════════════════════════════════════════════════════════
+    #  Section 0: 资产细筛盈利统计
+    # ═══════════════════════════════════════════════════════════════════
+    st.header("📊 资产细筛盈利统计")
+    st.caption("汇总各赛道细筛入选标的的持有期盈亏 — 按退出时间倒序排列")
+
+    # ── B赛道分数归零异常告警 ──
+    if _score_anomalies:
+        with st.expander(f"⚠️ B赛道数据异常告警 — {len(_score_anomalies)} 条分数归零记录（点击展开）",
+                         expanded=False):
+            st.markdown("""
+<div style='background:rgba(231,76,60,0.08); border-left:4px solid #E74C3C;
+            padding:14px 18px; border-radius:0 8px 8px 0; margin-bottom:14px;
+            font-size:14px; color:#ddd; line-height:1.7;'>
+<b style='color:#E74C3C;'>分数归零 = 评分系统未能获取该标的当月数据</b><br>
+这会导致信念快速衰减、持仓被错误剔除。建议排查后端 <code>compute_scorecard_b()</code>
+对应月份的数据拉取是否正常，修复后重新回填历史。
+</div>""", unsafe_allow_html=True)
+            _anom_df = pd.DataFrame(_score_anomalies)
+            _anom_df.columns = ["月份", "标的", "名称", "排名", "信念"]
+            st.dataframe(_anom_df, use_container_width=True, hide_index=True)
+
+    _pf_cls_opts = {"全部": ["A", "B", "C", "D"], "A": ["A"], "B": ["B"], "C": ["C"], "D": ["D"]}
+    _pf_cls_sel = st.selectbox(
+        "筛选赛道", list(_pf_cls_opts.keys()),
+        format_func=lambda x: x if x == "全部" else _CLS_LBL[x],
+        key="pf_cls_sel",
+    )
+    _pf_classes = _pf_cls_opts[_pf_cls_sel]
+
+    _name_map: dict = {}
+    for _m in _tm_months:
+        for _c_nm in ["A", "B", "C", "D"]:
+            for _rec in _arena_data[_m].get(_c_nm, []):
+                _name_map[_rec["ticker"]] = _rec.get("name", _rec["ticker"])
+
+    _seen_tickers: set = set()
+    for _c_nm in _pf_classes:
+        _seen_tickers.update(tk for hset in _tm_hold[_c_nm].values() for tk in hset)
+
+    _profit_rows: list = []
+    with st.spinner("正在汇总持仓盈亏..."):
+        _price_cache: dict = {}
+        for _tk in sorted(_seen_tickers):
+            try:
+                _wk_data = _fetch_weekly_ohlcv(_tk)
+                if not _wk_data.empty:
+                    _price_cache[_tk] = _wk_data
+            except Exception:
+                pass
+
+        for _c_nm in _pf_classes:
+            _all_c_tickers = sorted({tk for hset in _tm_hold[_c_nm].values() for tk in hset})
+            for _tk in _all_c_tickers:
+                _pds = _get_holding_periods(_tm_hold[_c_nm], _tk)
+                _wk = _price_cache.get(_tk)
+                if _wk is None or _wk.empty:
+                    continue
+                for _sm, _em in _pds:
+                    _sd = pd.Timestamp(f"{_sm}-01")
+                    _ed = pd.Timestamp(f"{_em}-01") + pd.offsets.MonthEnd(1)
+                    _mask = (_wk.index >= _sd) & (_wk.index <= _ed)
+                    _seg = _wk[_mask]
+                    if _seg.empty:
+                        continue
+                    _ep = float(_seg["Open"].astype(float).iloc[0])
+                    _xp = float(_seg["Close"].astype(float).iloc[-1])
+                    if _ep <= 0:
+                        continue
+                    _pnl_pct = (_xp / _ep - 1) * 100
+                    _n_months = len([m for m in _tm_months if _sm <= m <= _em])
+                    _cn = _name_map.get(_tk, _tk)
+                    _profit_rows.append({
+                        "赛道": _c_nm,
+                        "标的": f"{_tk} ({_cn})",
+                        "入选月": _sm,
+                        "退选月": _em,
+                        "持有时长": f"{_n_months} 个月",
+                        "入选价": f"${_ep:.2f}",
+                        "退选价": f"${_xp:.2f}",
+                        "盈亏": f"{_pnl_pct:+.1f}%",
+                        "_sort_key": _em,
+                        "_pnl": _pnl_pct,
+                    })
+
+    if _profit_rows:
+        _profit_df = pd.DataFrame(_profit_rows)
+        _profit_df = _profit_df.sort_values("_sort_key", ascending=False).reset_index(drop=True)
+        _total = len(_profit_df)
+        _wins = len(_profit_df[_profit_df["_pnl"] > 0])
+        _avg_pnl = _profit_df["_pnl"].mean()
+
+        _mc1, _mc2, _mc3 = st.columns(3)
+        _mc1.metric("总交易段数", f"{_total}")
+        _mc2.metric("胜率", f"{_wins / _total * 100:.0f}%" if _total > 0 else "—")
+        _mc3.metric("平均盈亏", f"{_avg_pnl:+.1f}%")
+
+        _display_cols = ["赛道", "标的", "入选月", "退选月", "持有时长", "入选价", "退选价", "盈亏"]
+        st.dataframe(
+            _profit_df[_display_cols],
+            use_container_width=True, hide_index=True,
+            height=min(400, 35 * len(_profit_df) + 38),
+        )
+    else:
+        st.info("无法获取足够的价格数据来计算盈亏统计。")
+
+    st.markdown("---")
+
+# ═══════════════════════════════════════════════════════════════════
+#  Section 1: 竞技场持仓择时回顾 (Arena Timing Review)
+# ═══════════════════════════════════════════════════════════════════
+st.header("🕐 竞技场持仓择时回顾")
+st.caption("复盘各赛道历史选股 — 🟩 绿色区域 = 细筛入选 | ▲ 买入 ▼ 卖出 = MA 择时信号")
+
+if _arena_data:
     # ── 择时风控逻辑白盒 ──
     with st.expander("📐 择时风控逻辑白盒 — 点击展开", expanded=False):
         st.markdown("""
@@ -117,21 +311,6 @@ if _arena_data:
 </div>
 """, unsafe_allow_html=True)
 
-    # ── 惰性换手持仓推算 ──
-    _tm_months = sorted(k for k in _arena_data if not k.startswith("_"))
-    _tm_hold: dict = {}
-    for _c in ["A", "B", "C", "D"]:
-        _prev_h: set = set()
-        _cm: dict = {}
-        for _m in _tm_months:
-            _recs = _arena_data[_m].get(_c, [])
-            _t2 = {r["ticker"] for r in _recs[:2]}
-            _t3 = {r["ticker"] for r in _recs[:3]}
-            _hold = _prev_h if (_prev_h and _prev_h.issubset(_t3)) else _t2
-            _cm[_m] = _hold
-            _prev_h = _hold
-        _tm_hold[_c] = _cm
-
     # ── 用户控件 ──
     _cc1, _cc2 = st.columns([1, 3])
     with _cc1:
@@ -146,23 +325,6 @@ if _arena_data:
             default=_all_tk[:2] if len(_all_tk) >= 2 else _all_tk,
             key="tm_sel",
         )
-
-    # ── 工具函数 ──
-    def _get_holding_periods(cls_map: dict, ticker: str) -> list:
-        periods: list = []
-        in_h, start, prev = False, None, None
-        for m in sorted(cls_map.keys()):
-            if ticker in cls_map[m]:
-                if not in_h:
-                    start = m
-                    in_h = True
-                prev = m
-            elif in_h:
-                periods.append((start, prev))
-                in_h = False
-        if in_h:
-            periods.append((start, prev))
-        return periods
 
     def _compute_timing(wk_df: pd.DataFrame, roster_periods: list,
                         ma_weeks: int = 12, slow_ma_weeks: int = None) -> tuple:
@@ -262,22 +424,6 @@ if _arena_data:
             timed_rets.append((cum - 1) * 100)
 
         return signals, benched_zones, timed_rets, raw_rets, fast_ma, slow_ma
-
-    @st.cache_data(ttl=3600 * 4, show_spinner=False)
-    def _fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
-        h = yf.Ticker(ticker).history(period="5y")
-        if h.empty:
-            return pd.DataFrame()
-        w = h.resample("W-FRI").agg({
-            "Open": "first", "High": "max", "Low": "min",
-            "Close": "last", "Volume": "sum",
-        }).dropna()
-        if w.index.tz is not None:
-            try:
-                w.index = w.index.tz_localize(None)
-            except TypeError:
-                w.index = w.index.tz_convert(None)
-        return w
 
     # ── 逐标的绘制 ──
     if not _tm_sel:
