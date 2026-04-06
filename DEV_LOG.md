@@ -2,6 +2,134 @@
 
 ---
 
+## 2026-04-06 | B 组宏观适配评分重构 — 四档动态权重 + Macro Alignment
+
+### 背景
+
+B 赛道持仓碎片化严重：Page 5 盈利统计显示 33% 闪现率（<3月）、26% 空仓月、平均持仓仅 5.4 月。根因诊断发现 RS120d（120 日中期动量，15% 权重）是 B 组 6 因子中**唯一高波动因子**，月间波动 5-15 分，导致信念值在 40 门槛附近反复穿越。
+
+关键观察：现有架构**已预留**宏观剧本接口但 B 组从未连线 —— 侧边栏标注"平滑剧本供 B/C 组使用"，回填循环中已按月推导 `bc_regime` 并传给 C 组，唯独 `compute_scorecard_b()` 从未接收 `macro_regime` 参数。
+
+更深层洞察：2022-05 宏观剧本从 Hot(再通胀) 切换至 Stag(滞胀) 后，BRK-B、CVX 等标的的 RS120d 逐月恶化，信念被慢性侵蚀直至跌穿门槛。**问题不是剧本切换导致即时换手（信念制已吸收冲击），而是 RS120d 滞后反映新宏观环境 → 分数渐进下滑 → 信念缓慢穿越门槛**。
+
+### 设计方案：七因子动态权重 + Macro Alignment
+
+核心思路：不同宏观剧本下，"好的压舱石"的定义不同。进攻期保留 RS120d 作为辅助，防御期归零转向纯质量筛选。新增 MacroAlignment 因子（与 C 组同源）作为第 7 因子常驻 10%。
+
+四档权重表 (`B_REGIME_WEIGHTS`):
+
+| 因子 | Soft (复苏) | Hot (过热) | Stag (滞胀) | Rec (衰退) |
+|------|:-----------:|:---------:|:-----------:|:---------:|
+| F1 RealQuality (股息+EPS稳定性) | 20% | 20% | **25%** | **30%** |
+| F2 Resilience (MaxDD逆) | 20% | 15% | **25%** | **25%** |
+| F3 Sharpe1Y | 20% | 20% | 20% | 20% |
+| F4 RS120d | **10%** | **10%** | **0%** | **0%** |
+| F5 MCapPremium | 10% | 10% | 10% | 10% |
+| F6 RevenueGrowth | 10% | **15%** | 10% | 5% |
+| F7 MacroAlignment (NEW) | 10% | 10% | 10% | 10% |
+
+设计逻辑：
+- **Stag/Rec（防御期）**：RS120d 归零，Quality + Resilience 加码 — 消灭动量噪声导致的碎片化
+- **Soft/Hot（进攻期）**：RS120d 降至 10%（原 15%）— 动量仍可辅助选优，但权重降低以减少波动
+- **Hot 特化**：Revenue 提至 15% — 过热期成长性受追捧
+- **Rec 特化**：Quality 提至 30% — 衰退期现金流和股息最重要，Revenue 降至 5%
+- **MacroAlignment 常驻 10%**：标的在 `_MACRO_TAGS_MAP[regime]` 中得 100 分，否则 0 分
+
+### 改动
+
+**`pages/3_资产细筛.py`**
+
+- **新增 `B_REGIME_WEIGHTS` 常量**：四档权重元组 `(w_q, w_r, w_s, w_rs, w_m, w_rev, w_macro)`
+- **`compute_scorecard_b(df)` → `compute_scorecard_b(df, macro_regime="Soft")`**：
+  - 新增第 7 因子 MacroAlignment（复用 `_MACRO_TAGS_MAP`，与 C 组 line 782 同源逻辑）
+  - 按 `B_REGIME_WEIGHTS[macro_regime]` 查表取权重替代硬编码
+  - 更新 docstring 为 7 因子架构说明
+- **回填调用**（line ~576）：`compute_scorecard_b(df_cls, bc_regime)` — 终于连线！
+- **Pre-arena 调用**（line ~2050）：`compute_scorecard_b(_df_pre_b, macro_regime)`
+- **实时调用**（line ~2207）：`compute_scorecard_b(df_b, macro_regime)`
+- **`_B_FACTOR_COLORS`**：追加第 7 色 `#1ABC9C`
+- **`_render_podium_b` / `_render_leaderboard_b`**：因子循环从 `range(1,7)` 改为 `range(1,8)`
+- **冠军解读文案**：增加宏观适配因子说明、当前剧本档位显示、RS120d 权重百分比
+
+**`test_b_quality.py`**
+- 头部文档"可调旋钮一览"新增 `B_REGIME_WEIGHTS` 条目
+
+### 遗留与未来优化方向
+- [ ] 改动需重新「回填历史数据」（60 个月），生成新的 `arena_history.json` 后跑 `pytest test_b_quality.py -v -s` 验证效果
+- [ ] `_MACRO_TAGS_MAP` 在回填模式中使用的是当前映射（非历史快照），对大多数大盘蓝筹适用但不完美
+- [ ] 若 Stag/Rec 期间 MacroAlignment 的 binary 0/100 过于激进，可考虑引入 graded scoring（如按 regime 概率加权）
+
+---
+
+## 2026-04-06 | B 组信念引擎 — 在位者惯性衰减层 (Holder Decay Bonus)
+
+### 背景
+B 组评分引入 RS120d（120 日相对强度，权重 15%）后，捕捉机会成本的能力提升了，但持仓周期显著碎片化。**表现为：** 榜单（候选池）稳定，但 Top 3 名单反复进出，闪现 stint 增加。之前没有 RS120d 时持仓周期很长，但错过了一些显著机会成本更好的标的。
+
+### 根因分析
+
+B 组 6 因子的月间波动特性差异巨大：
+
+| 因子 | 权重 | 月间波动 |
+|------|------|---------|
+| RealQuality（股息率+EPS稳定性） | 25% | 极低 |
+| Resilience（最大回撤倒数） | 20% | 低 |
+| Sharpe1Y | 20% | 中等 |
+| **RS120d（中期动量）** | **15%** | **高** |
+| MCapPremium | 10% | 极低 |
+| RevenueGrowth | 10% | 低 |
+
+RS120d 是唯一高波动因子。120 天窗口每月滑动，相对强度月间波动 ±5~10 百分点，映射到 ±5~10 的归一化分。15% 的权重足以在质量相近的底仓标的间反复扰动排名。
+
+关键点：`update_convictions()` 对所有标的使用统一的 `decay_rate = 0.75`，不区分在位者和挑战者 —— RS120d 的月间噪声被无差别传导到信念值上。
+
+### 改动
+
+**`conviction_engine.py`**
+- **新增 `holder_decay_rate` 参数**：`CONVICTION_B_CONFIG` 新增 `holder_decay_rate = 0.78`，在位者使用慢衰减。
+- **`update_convictions()` 签名变更**：新增 `current_holders: list[str] | None = None` 参数。在位者使用 `holder_decay_rate`，非在位者使用标准 `decay_rate`。
+  ```
+  挑战者: C(t) = C(t-1) × 0.75 + Score × 0.25  （稳态 = Score × 1.0）
+  在位者: C(t) = C(t-1) × 0.78 + Score × 0.25  （稳态 = Score × 1.136）
+  ```
+- **模块文档更新**：架构说明从两层（积累 + 守擂）升级为三层（积累 + 在位者惯性 + 守擂）。
+- **`explain_config_html()` 更新**：白盒面板新增「② 在位者惯性层」说明，展示双衰减公式与稳态对比。
+
+**`pages/3_资产细筛.py`**
+- **回填调用**（line ~595）：`_conv_update(_bf_conv_state, _bf_factor_scores, current_holders=_bf_conv_holders)`
+- **实时调用**（line ~2195）：`_conv_update(_rt_conv_state, _rt_factor_scores, current_holders=_rt_conv_holders)`
+
+**`test_b_quality.py`**
+- 架构描述更新，可调旋钮表中碎片化/高换手修复方向更新为 `holder_decay_rate`。
+
+### ⚠️ 关键校准陷阱 —— holder_decay_rate 不可高于 0.786
+
+初始设计 `holder_decay_rate = 0.82`，但与之前「加快衰减让走弱标的更快退出」（`decay_rate` 降到 0.75）的设计意图冲突：
+
+| 情景 | 因子得分 | 标准 0.75 稳态 | 0.82 稳态 | 退出线 35 | 结论 |
+|------|---------|---------------|-----------|----------|------|
+| 真走弱 | 30 | 30.0 → 淘汰 | **41.7 → 赖着不走** | 35 | ❌ 冲突 |
+
+**约束推导**：`steady_state = Score × accum / (1 - holder_decay) < exit_threshold`
+当 Score = 30（真走弱）：`30 × 0.25 / (1 - d) < 35` → `d < 0.786`
+
+最终校准 `holder_decay_rate = 0.78`：
+
+| 情景 | 因子得分 | 标准 0.75 稳态 | 0.78 稳态 | 退出线 | 结论 |
+|------|---------|---------------|-----------|--------|------|
+| 真走弱 | 30 | 30.0 → 淘汰 | 34.1 → 淘汰 | 35 | ✅ |
+| 中度衰退 | 35 | 35.0 → 边界 | 39.8 → 缓冲 | 35 | ✅ 多一点容错 |
+| 动量噪声 | 45 | 45.0 → 安全 | 51.1 → 稳固 | 35 | ✅ 不会被误杀 |
+
+**记住：`holder_decay_rate` 的硬上限是 `1 - (min_exit_score × accum / exit_threshold)`。调 `exit_threshold` 或 `accumulate_rate` 时必须同步检查此约束。**
+
+### 遗留与未来优化方向
+- [ ] 改动需重新「回填历史数据」（Streamlit 页面按钮），生成新的 `arena_history.json` 后跑 `pytest test_b_quality.py -v -s` 验证效果
+- [ ] 若 0.78 仍碎片化，可小幅上调至 0.785（接近硬上限）；若持仓过粘错过机会，下调至 0.76
+- [ ] 长期考虑：如果 B 组引入更多高波动因子，可能需要将 holder inertia 从参数化（全局 holder_decay_rate）升级为因子级别的差异化衰减（对慢因子和快因子分别设 decay），但当前单参数已足够
+
+---
+
 ## 2026-02-28 | Page 1 宏观定调 — 全页统一度量衡重构 (3Y Z-Score 单一尺度)
 
 ### 背景

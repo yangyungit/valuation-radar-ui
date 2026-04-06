@@ -4,22 +4,22 @@
       {
         "ticker": "JNJ",
         "name": "强生",
-        "score": 60.1,
-        "conviction": 65.0,
+        "score": 68.7,
+        "conviction": 71.1,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 50.6,
-        "conviction": 59.6,
+        "score": 55.8,
+        "conviction": 58.0,
         "status": "defending"
       },
       {
         "ticker": "BTI",
         "name": "英美烟草",
-        "score": 43.8,
-        "conviction": 52.2,
+        "score": 50.1,
+        "conviction": 52.1,
         "status": "defending"
       }
     ],
@@ -61,24 +61,24 @@
     ],
     "B": [
       {
+        "ticker": "GS",
+        "name": "高盛",
+        "score": 50.2,
+        "conviction": 12.6,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "CAT",
+        "name": "卡特彼勒",
+        "score": 47.5,
+        "conviction": 11.9,
+        "status": "cold_start"
+      },
+      {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 46.3,
-        "conviction": 11.6,
-        "status": "cold_start"
-      },
-      {
-        "ticker": "HON",
-        "name": "霍尼韦尔",
-        "score": 43.5,
-        "conviction": 10.9,
-        "status": "cold_start"
-      },
-      {
-        "ticker": "SO",
-        "name": "南方公司",
-        "score": 43.1,
-        "conviction": 10.8,
+        "score": 46.8,
+        "conviction": 11.7,
         "status": "cold_start"
       }
     ],
@@ -137,24 +137,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 49.6,
-        "conviction": 21.7,
+        "ticker": "GS",
+        "name": "高盛",
+        "score": 51.6,
+        "conviction": 22.4,
         "status": "cold_start"
       },
       {
-        "ticker": "HON",
-        "name": "霍尼韦尔",
-        "score": 44.4,
-        "conviction": 19.8,
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 51.8,
+        "conviction": 21.7,
         "status": "cold_start"
       },
       {
         "ticker": "CAT",
         "name": "卡特彼勒",
-        "score": 43.6,
-        "conviction": 19.5,
+        "score": 49.6,
+        "conviction": 21.3,
         "status": "cold_start"
       }
     ],
@@ -215,22 +215,22 @@
       {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 49.8,
-        "conviction": 29.8,
+        "score": 47.4,
+        "conviction": 28.1,
         "status": "cold_start"
       },
       {
         "ticker": "GS",
         "name": "高盛",
-        "score": 43.6,
-        "conviction": 26.5,
+        "score": 44.8,
+        "conviction": 28.0,
         "status": "cold_start"
       },
       {
-        "ticker": "HON",
-        "name": "霍尼韦尔",
-        "score": 40.4,
-        "conviction": 25.9,
+        "ticker": "MS",
+        "name": "摩根士丹利",
+        "score": 43.8,
+        "conviction": 26.4,
         "status": "cold_start"
       }
     ],
@@ -289,25 +289,25 @@
     ],
     "B": [
       {
+        "ticker": "GOOGL",
+        "name": "谷歌",
+        "score": 51.4,
+        "conviction": 32.6,
+        "status": "cold_start"
+      },
+      {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 49.1,
-        "conviction": 36.1,
-        "status": "defending"
+        "score": 45.6,
+        "conviction": 32.5,
+        "status": "cold_start"
       },
       {
         "ticker": "GS",
         "name": "高盛",
-        "score": 44.0,
-        "conviction": 32.2,
-        "status": "defending"
-      },
-      {
-        "ticker": "HON",
-        "name": "霍尼韦尔",
-        "score": 40.1,
-        "conviction": 30.7,
-        "status": "defending"
+        "score": 45.6,
+        "conviction": 32.4,
+        "status": "cold_start"
       }
     ],
     "C": [
@@ -365,24 +365,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 51.4,
-        "conviction": 41.7,
+        "ticker": "GOOGL",
+        "name": "谷歌",
+        "score": 52.9,
+        "conviction": 37.7,
         "status": "defending"
       },
       {
         "ticker": "GS",
         "name": "高盛",
-        "score": 44.2,
-        "conviction": 36.8,
+        "score": 47.5,
+        "conviction": 36.2,
         "status": "defending"
       },
       {
-        "ticker": "HON",
-        "name": "霍尼韦尔",
-        "score": 39.1,
-        "conviction": 34.3,
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 46.6,
+        "conviction": 36.0,
         "status": "defending"
       }
     ],
@@ -441,24 +441,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 47.0,
-        "conviction": 45.1,
+        "ticker": "GOOGL",
+        "name": "谷歌",
+        "score": 47.1,
+        "conviction": 40.1,
         "status": "defending"
       },
       {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 49.2,
-        "conviction": 41.7,
-        "status": "cold_start"
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 41.3,
+        "conviction": 37.3,
+        "status": "defending"
       },
       {
         "ticker": "GS",
         "name": "高盛",
-        "score": 38.8,
-        "conviction": 39.1,
+        "score": 37.1,
+        "conviction": 36.4,
         "status": "defending"
       }
     ],
@@ -517,24 +517,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 47.2,
-        "conviction": 47.9,
+        "ticker": "GOOGL",
+        "name": "谷歌",
+        "score": 49.4,
+        "conviction": 42.4,
         "status": "defending"
       },
       {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 51.3,
-        "conviction": 46.2,
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 43.3,
+        "conviction": 38.8,
         "status": "defending"
       },
       {
         "ticker": "GS",
         "name": "高盛",
-        "score": 39.1,
-        "conviction": 41.1,
+        "score": 40.2,
+        "conviction": 37.3,
         "status": "defending"
       }
     ],
@@ -593,24 +593,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 46.8,
-        "conviction": 50.0,
+        "ticker": "GOOGL",
+        "name": "谷歌",
+        "score": 45.6,
+        "conviction": 43.2,
         "status": "defending"
       },
       {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 49.1,
-        "conviction": 49.2,
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 41.8,
+        "conviction": 39.5,
         "status": "defending"
       },
       {
         "ticker": "GS",
         "name": "高盛",
-        "score": 35.4,
-        "conviction": 41.7,
+        "score": 33.7,
+        "conviction": 36.4,
         "status": "defending"
       }
     ],
@@ -669,24 +669,24 @@
     ],
     "B": [
       {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 50.9,
-        "conviction": 52.1,
+        "ticker": "COST",
+        "name": "好市多",
+        "score": 57.6,
+        "conviction": 46.1,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "GOOGL",
+        "name": "谷歌",
+        "score": 40.2,
+        "conviction": 42.5,
         "status": "defending"
       },
       {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 46.1,
-        "conviction": 51.5,
-        "status": "defending"
-      },
-      {
-        "ticker": "GS",
-        "name": "高盛",
-        "score": 33.2,
-        "conviction": 41.7,
+        "score": 42.6,
+        "conviction": 40.3,
         "status": "defending"
       }
     ],
@@ -745,24 +745,24 @@
     ],
     "B": [
       {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 55.2,
-        "conviction": 55.7,
-        "status": "challenged"
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 46.6,
-        "conviction": 53.3,
+        "ticker": "COST",
+        "name": "好市多",
+        "score": 39.5,
+        "conviction": 44.5,
         "status": "defending"
       },
       {
         "ticker": "BRK-B",
         "name": "伯克希尔",
         "score": 45.5,
-        "conviction": 52.6,
+        "conviction": 41.6,
+        "status": "defending"
+      },
+      {
+        "ticker": "GOOGL",
+        "name": "谷歌",
+        "score": 29.6,
+        "conviction": 39.3,
         "status": "defending"
       }
     ],
@@ -821,24 +821,24 @@
     ],
     "B": [
       {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 47.8,
-        "conviction": 56.5,
-        "status": "defending"
-      },
-      {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 48.5,
-        "conviction": 54.2,
+        "score": 50.7,
+        "conviction": 43.9,
         "status": "defending"
       },
       {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 41.0,
-        "conviction": 52.9,
+        "ticker": "COST",
+        "name": "好市多",
+        "score": 39.9,
+        "conviction": 43.4,
+        "status": "defending"
+      },
+      {
+        "ticker": "GOOGL",
+        "name": "谷歌",
+        "score": 26.9,
+        "conviction": 36.2,
         "status": "defending"
       }
     ],
@@ -899,22 +899,22 @@
       {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 51.9,
-        "conviction": 56.3,
+        "score": 57.9,
+        "conviction": 47.4,
         "status": "defending"
       },
       {
         "ticker": "PEP",
         "name": "百事",
-        "score": 38.3,
-        "conviction": 54.8,
-        "status": "defending"
+        "score": 38.1,
+        "conviction": 44.2,
+        "status": "cold_start"
       },
       {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 28.2,
-        "conviction": 49.4,
+        "ticker": "COST",
+        "name": "好市多",
+        "score": 39.5,
+        "conviction": 42.4,
         "status": "defending"
       }
     ],
@@ -975,22 +975,22 @@
       {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 40.7,
-        "conviction": 55.2,
+        "score": 45.8,
+        "conviction": 47.0,
         "status": "defending"
       },
       {
         "ticker": "PEP",
         "name": "百事",
-        "score": 38.2,
-        "conviction": 53.4,
+        "score": 40.8,
+        "conviction": 43.4,
         "status": "defending"
       },
       {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 28.9,
-        "conviction": 46.7,
+        "ticker": "COST",
+        "name": "好市多",
+        "score": 32.0,
+        "conviction": 39.8,
         "status": "defending"
       }
     ],
@@ -1049,24 +1049,24 @@
     ],
     "B": [
       {
+        "ticker": "CVX",
+        "name": "雪佛龙",
+        "score": 55.3,
+        "conviction": 48.9,
+        "status": "cold_start"
+      },
+      {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 34.1,
-        "conviction": 52.7,
+        "score": 36.7,
+        "conviction": 44.4,
         "status": "defending"
       },
       {
         "ticker": "PEP",
         "name": "百事",
-        "score": 35.3,
-        "conviction": 51.5,
-        "status": "defending"
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 26.8,
-        "conviction": 44.1,
+        "score": 35.9,
+        "conviction": 41.5,
         "status": "defending"
       }
     ],
@@ -1125,24 +1125,24 @@
     ],
     "B": [
       {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 43.0,
+        "conviction": 44.0,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "CVX",
+        "name": "雪佛龙",
+        "score": 28.7,
+        "conviction": 43.8,
+        "status": "defending"
+      },
+      {
         "ticker": "PEP",
         "name": "百事",
-        "score": 33.4,
-        "conviction": 49.6,
-        "status": "defending"
-      },
-      {
-        "ticker": "BRK-B",
-        "name": "BRK-B",
-        "score": 0.0,
-        "conviction": 42.2,
-        "status": "defending"
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 26.7,
-        "conviction": 42.0,
+        "score": 37.8,
+        "conviction": 40.6,
         "status": "defending"
       }
     ],
@@ -1201,24 +1201,24 @@
     ],
     "B": [
       {
+        "ticker": "KO",
+        "name": "可口可乐",
+        "score": 41.3,
+        "conviction": 43.3,
+        "status": "defending"
+      },
+      {
         "ticker": "PEP",
         "name": "百事",
-        "score": 34.2,
-        "conviction": 48.2,
+        "score": 37.4,
+        "conviction": 39.8,
         "status": "defending"
       },
       {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 26.6,
-        "conviction": 40.2,
-        "status": "defending"
-      },
-      {
-        "ticker": "BRK-B",
-        "name": "BRK-B",
-        "score": 0.0,
-        "conviction": 33.8,
+        "ticker": "CVX",
+        "name": "雪佛龙",
+        "score": 27.6,
+        "conviction": 39.7,
         "status": "defending"
       }
     ],
@@ -1279,22 +1279,22 @@
       {
         "ticker": "KO",
         "name": "可口可乐",
-        "score": 35.8,
-        "conviction": 49.6,
-        "status": "cold_start"
+        "score": 35.6,
+        "conviction": 41.4,
+        "status": "defending"
       },
       {
         "ticker": "PEP",
         "name": "百事",
-        "score": 32.3,
-        "conviction": 46.6,
+        "score": 33.8,
+        "conviction": 38.3,
         "status": "defending"
       },
       {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 23.2,
-        "conviction": 38.0,
+        "ticker": "CVX",
+        "name": "雪佛龙",
+        "score": 24.3,
+        "conviction": 35.9,
         "status": "defending"
       }
     ],
@@ -1353,24 +1353,24 @@
     ],
     "B": [
       {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 37.5,
+        "conviction": 38.2,
+        "status": "cold_start"
+      },
+      {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 43.7,
+        "conviction": 37.2,
+        "status": "cold_start"
+      },
+      {
         "ticker": "PEP",
         "name": "百事",
-        "score": 28.8,
-        "conviction": 44.5,
-        "status": "defending"
-      },
-      {
-        "ticker": "KO",
-        "name": "KO",
-        "score": 0.0,
-        "conviction": 39.7,
-        "status": "defending"
-      },
-      {
-        "ticker": "MCD",
-        "name": "MCD",
-        "score": 0.0,
-        "conviction": 30.4,
+        "score": 32.0,
+        "conviction": 36.7,
         "status": "defending"
       }
     ],
@@ -1429,24 +1429,24 @@
     ],
     "B": [
       {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 43.8,
+        "conviction": 38.9,
+        "status": "defending"
+      },
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 40.3,
+        "conviction": 38.7,
+        "status": "defending"
+      },
+      {
         "ticker": "PEP",
         "name": "百事",
-        "score": 33.9,
-        "conviction": 44.1,
-        "status": "defending"
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 31.7,
-        "conviction": 32.2,
-        "status": "defending"
-      },
-      {
-        "ticker": "KO",
-        "name": "KO",
-        "score": 0.0,
-        "conviction": 31.8,
+        "score": 35.3,
+        "conviction": 36.4,
         "status": "defending"
       }
     ],
@@ -1505,24 +1505,24 @@
     ],
     "B": [
       {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 41.2,
+        "conviction": 39.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 35.5,
+        "conviction": 37.9,
+        "status": "defending"
+      },
+      {
         "ticker": "PEP",
         "name": "百事",
-        "score": 36.0,
-        "conviction": 44.3,
-        "status": "defending"
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 35.0,
-        "conviction": 34.5,
-        "status": "defending"
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 27.5,
-        "conviction": 32.3,
+        "score": 37.1,
+        "conviction": 36.6,
         "status": "defending"
       }
     ],
@@ -1581,24 +1581,24 @@
     ],
     "B": [
       {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 44.3,
+        "conviction": 40.7,
+        "status": "defending"
+      },
+      {
+        "ticker": "NOC",
+        "name": "诺斯罗普",
+        "score": 38.3,
+        "conviction": 38.0,
+        "status": "defending"
+      },
+      {
         "ticker": "PEP",
         "name": "百事",
-        "score": 33.6,
-        "conviction": 43.8,
-        "status": "defending"
-      },
-      {
-        "ticker": "MCD",
-        "name": "麦当劳",
-        "score": 32.2,
-        "conviction": 35.7,
-        "status": "defending"
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 24.9,
-        "conviction": 32.1,
+        "score": 35.4,
+        "conviction": 36.3,
         "status": "defending"
       }
     ],
@@ -1657,25 +1657,25 @@
     ],
     "B": [
       {
+        "ticker": "LLY",
+        "name": "礼来制药",
+        "score": 31.0,
+        "conviction": 38.3,
+        "status": "defending"
+      },
+      {
         "ticker": "PEP",
         "name": "百事",
-        "score": 35.8,
-        "conviction": 44.0,
+        "score": 31.6,
+        "conviction": 35.1,
         "status": "defending"
       },
       {
         "ticker": "MCD",
         "name": "麦当劳",
-        "score": 35.0,
-        "conviction": 37.3,
-        "status": "defending"
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 26.3,
-        "conviction": 32.3,
-        "status": "defending"
+        "score": 35.1,
+        "conviction": 31.3,
+        "status": "cold_start"
       }
     ],
     "C": [
@@ -1735,23 +1735,23 @@
       {
         "ticker": "PEP",
         "name": "百事",
-        "score": 38.6,
-        "conviction": 44.9,
-        "status": "defending"
+        "score": 34.3,
+        "conviction": 34.9,
+        "status": "cold_start"
       },
       {
         "ticker": "MCD",
         "name": "麦当劳",
-        "score": 35.0,
-        "conviction": 38.6,
-        "status": "defending"
+        "score": 32.3,
+        "conviction": 31.6,
+        "status": "cold_start"
       },
       {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 27.1,
-        "conviction": 32.6,
-        "status": "defending"
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 38.7,
+        "conviction": 30.6,
+        "status": "cold_start"
       }
     ],
     "C": [
@@ -1806,23 +1806,23 @@
       {
         "ticker": "PEP",
         "name": "百事",
-        "score": 39.1,
-        "conviction": 45.7,
+        "score": 36.3,
+        "conviction": 35.2,
         "status": "defending"
       },
       {
         "ticker": "MCD",
         "name": "麦当劳",
-        "score": 35.7,
-        "conviction": 39.8,
-        "status": "defending"
+        "score": 35.2,
+        "conviction": 32.5,
+        "status": "cold_start"
       },
       {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 29.4,
-        "conviction": 33.4,
-        "status": "defending"
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 34.6,
+        "conviction": 31.6,
+        "status": "cold_start"
       }
     ],
     "C": [
@@ -1882,23 +1882,23 @@
       {
         "ticker": "PEP",
         "name": "百事",
-        "score": 39.6,
-        "conviction": 46.5,
+        "score": 36.7,
+        "conviction": 35.6,
         "status": "defending"
       },
       {
         "ticker": "MCD",
         "name": "麦当劳",
-        "score": 38.8,
-        "conviction": 41.5,
-        "status": "defending"
+        "score": 38.5,
+        "conviction": 34.0,
+        "status": "cold_start"
       },
       {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 30.2,
-        "conviction": 34.3,
-        "status": "defending"
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 34.0,
+        "conviction": 32.2,
+        "status": "cold_start"
       }
     ],
     "C": [
@@ -1958,23 +1958,23 @@
       {
         "ticker": "PEP",
         "name": "百事",
-        "score": 41.2,
-        "conviction": 47.5,
+        "score": 40.2,
+        "conviction": 36.8,
         "status": "defending"
       },
       {
         "ticker": "MCD",
         "name": "麦当劳",
-        "score": 46.0,
-        "conviction": 44.7,
+        "score": 44.6,
+        "conviction": 36.6,
         "status": "defending"
       },
       {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 38.8,
-        "conviction": 37.1,
-        "status": "defending"
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 36.4,
+        "conviction": 33.2,
+        "status": "cold_start"
       }
     ],
     "C": [
@@ -2032,24 +2032,24 @@
     ],
     "B": [
       {
-        "ticker": "PEP",
-        "name": "百事",
-        "score": 43.8,
-        "conviction": 49.0,
-        "status": "defending"
-      },
-      {
         "ticker": "MCD",
         "name": "麦当劳",
-        "score": 50.9,
-        "conviction": 48.5,
+        "score": 47.3,
+        "conviction": 39.3,
         "status": "defending"
       },
       {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 44.1,
-        "conviction": 40.7,
+        "ticker": "PEP",
+        "name": "百事",
+        "score": 39.2,
+        "conviction": 37.4,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 40.9,
+        "conviction": 35.1,
         "status": "defending"
       }
     ],
@@ -2110,22 +2110,22 @@
       {
         "ticker": "MCD",
         "name": "麦当劳",
-        "score": 47.9,
-        "conviction": 50.8,
+        "score": 41.7,
+        "conviction": 39.9,
         "status": "defending"
       },
       {
         "ticker": "PEP",
         "name": "百事",
-        "score": 41.1,
-        "conviction": 49.5,
+        "score": 35.1,
+        "conviction": 36.8,
         "status": "defending"
       },
       {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 41.6,
-        "conviction": 43.0,
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 37.0,
+        "conviction": 35.6,
         "status": "defending"
       }
     ],
@@ -2186,22 +2186,22 @@
       {
         "ticker": "MCD",
         "name": "麦当劳",
-        "score": 46.9,
-        "conviction": 52.4,
+        "score": 38.2,
+        "conviction": 39.5,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 43.6,
+        "conviction": 37.6,
         "status": "defending"
       },
       {
         "ticker": "PEP",
         "name": "百事",
-        "score": 37.7,
-        "conviction": 49.0,
-        "status": "defending"
-      },
-      {
-        "ticker": "KO",
-        "name": "可口可乐",
-        "score": 38.5,
-        "conviction": 44.0,
+        "score": 29.9,
+        "conviction": 35.1,
         "status": "defending"
       }
     ],
@@ -2260,24 +2260,24 @@
     ],
     "B": [
       {
-        "ticker": "MCD",
-        "name": "MCD",
-        "score": 0.0,
-        "conviction": 41.9,
-        "status": "defending"
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 37.9,
+        "conviction": 42.2,
+        "status": "cold_start"
       },
       {
-        "ticker": "PEP",
-        "name": "PEP",
-        "score": 0.0,
-        "conviction": 39.2,
-        "status": "defending"
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 49.8,
+        "conviction": 39.9,
+        "status": "cold_start"
       },
       {
-        "ticker": "KO",
-        "name": "KO",
-        "score": 0.0,
-        "conviction": 35.2,
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 43.3,
+        "conviction": 39.0,
         "status": "defending"
       }
     ],
@@ -2338,22 +2338,22 @@
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 53.4,
-        "conviction": 52.6,
-        "status": "cold_start"
-      },
-      {
-        "ticker": "MCD",
-        "name": "MCD",
-        "score": 0.0,
-        "conviction": 33.5,
+        "score": 52.2,
+        "conviction": 43.0,
         "status": "defending"
       },
       {
-        "ticker": "PEP",
-        "name": "PEP",
-        "score": 0.0,
-        "conviction": 31.4,
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 37.5,
+        "conviction": 41.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 47.2,
+        "conviction": 41.0,
         "status": "defending"
       }
     ],
@@ -2412,25 +2412,25 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 51.5,
-        "conviction": 52.7,
-        "status": "cold_start"
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 46.3,
+        "conviction": 42.3,
+        "status": "defending"
       },
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 42.2,
-        "conviction": 52.6,
+        "score": 38.6,
+        "conviction": 41.9,
         "status": "defending"
       },
       {
-        "ticker": "TJX",
-        "name": "TJX百货",
-        "score": 48.7,
-        "conviction": 51.0,
-        "status": "cold_start"
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 37.4,
+        "conviction": 40.1,
+        "status": "defending"
       }
     ],
     "C": [
@@ -2488,24 +2488,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 44.9,
-        "conviction": 53.4,
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 44.7,
+        "conviction": 42.9,
         "status": "defending"
       },
       {
-        "ticker": "TJX",
-        "name": "TJX百货",
-        "score": 49.0,
-        "conviction": 53.1,
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 47.7,
+        "conviction": 42.0,
         "status": "defending"
       },
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 36.8,
-        "conviction": 51.3,
+        "score": 32.2,
+        "conviction": 39.5,
         "status": "defending"
       }
     ],
@@ -2564,24 +2564,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 51.2,
-        "conviction": 55.5,
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 46.4,
+        "conviction": 43.8,
         "status": "defending"
       },
       {
-        "ticker": "TJX",
-        "name": "TJX百货",
-        "score": 51.5,
-        "conviction": 55.4,
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 48.3,
+        "conviction": 43.6,
         "status": "defending"
       },
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 41.2,
-        "conviction": 51.3,
+        "score": 35.7,
+        "conviction": 38.5,
         "status": "defending"
       }
     ],
@@ -2640,24 +2640,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 51.7,
-        "conviction": 57.3,
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 49.0,
+        "conviction": 45.0,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 50.4,
-        "conviction": 56.9,
+        "score": 45.0,
+        "conviction": 44.1,
         "status": "defending"
       },
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 40.3,
-        "conviction": 51.1,
+        "score": 34.0,
+        "conviction": 37.4,
         "status": "defending"
       }
     ],
@@ -2716,24 +2716,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 50.7,
-        "conviction": 58.5,
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 45.3,
+        "conviction": 45.1,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 48.3,
-        "conviction": 57.6,
+        "score": 45.2,
+        "conviction": 44.4,
         "status": "defending"
       },
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 41.0,
-        "conviction": 51.1,
+        "score": 40.2,
+        "conviction": 38.1,
         "status": "defending"
       }
     ],
@@ -2792,24 +2792,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 47.0,
-        "conviction": 58.6,
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 37.6,
+        "conviction": 43.2,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 40.1,
-        "conviction": 56.1,
+        "score": 35.8,
+        "conviction": 42.2,
         "status": "defending"
       },
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 40.4,
-        "conviction": 51.0,
+        "score": 41.1,
+        "conviction": 38.9,
         "status": "defending"
       }
     ],
@@ -2868,24 +2868,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 50.7,
-        "conviction": 59.6,
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 41.8,
+        "conviction": 42.1,
         "status": "defending"
       },
       {
-        "ticker": "TJX",
-        "name": "TJX百货",
-        "score": 44.5,
-        "conviction": 56.0,
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 36.5,
+        "conviction": 41.5,
         "status": "defending"
       },
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 41.6,
-        "conviction": 51.2,
+        "score": 43.6,
+        "conviction": 40.1,
         "status": "defending"
       }
     ],
@@ -2944,24 +2944,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 57.7,
-        "conviction": 62.1,
-        "status": "defending"
-      },
-      {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 48.2,
-        "conviction": 56.9,
+        "score": 47.6,
+        "conviction": 43.5,
         "status": "defending"
       },
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 43.2,
-        "conviction": 51.8,
+        "score": 44.9,
+        "conviction": 41.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 40.0,
+        "conviction": 41.1,
         "status": "defending"
       }
     ],
@@ -3020,24 +3020,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 57.4,
-        "conviction": 64.0,
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 56.5,
+        "conviction": 45.1,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
         "score": 49.5,
-        "conviction": 57.9,
+        "conviction": 45.0,
         "status": "defending"
       },
       {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 56.5,
-        "conviction": 55.6,
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 31.4,
+        "conviction": 38.7,
         "status": "defending"
       }
     ],
@@ -3096,24 +3096,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 57.7,
-        "conviction": 65.6,
-        "status": "defending"
-      },
-      {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 55.1,
-        "conviction": 58.3,
+        "score": 58.9,
+        "conviction": 48.6,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 47.1,
-        "conviction": 58.1,
+        "score": 49.6,
+        "conviction": 46.1,
+        "status": "defending"
+      },
+      {
+        "ticker": "AVGO",
+        "name": "博通",
+        "score": 26.2,
+        "conviction": 35.6,
         "status": "defending"
       }
     ],
@@ -3172,24 +3172,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 53.4,
-        "conviction": 65.8,
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 56.8,
+        "conviction": 50.7,
         "status": "defending"
       },
       {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 54.7,
-        "conviction": 60.3,
-        "status": "defending"
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 50.5,
+        "conviction": 50.5,
+        "status": "cold_start"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 45.7,
-        "conviction": 57.9,
+        "score": 45.3,
+        "conviction": 45.9,
         "status": "defending"
       }
     ],
@@ -3248,24 +3248,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 45.5,
-        "conviction": 64.0,
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 57.0,
+        "conviction": 52.3,
         "status": "defending"
       },
       {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 53.8,
-        "conviction": 61.7,
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 44.7,
+        "conviction": 49.0,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 41.6,
-        "conviction": 56.7,
+        "score": 39.4,
+        "conviction": 44.3,
         "status": "defending"
       }
     ],
@@ -3324,24 +3324,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 47.3,
-        "conviction": 63.0,
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 59.4,
+        "conviction": 54.1,
         "status": "defending"
       },
       {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 54.4,
-        "conviction": 63.0,
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 44.2,
+        "conviction": 47.8,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 46.4,
-        "conviction": 57.0,
+        "score": 43.9,
+        "conviction": 44.2,
         "status": "defending"
       }
     ],
@@ -3402,22 +3402,22 @@
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 54.0,
-        "conviction": 63.9,
+        "score": 55.9,
+        "conviction": 54.6,
         "status": "defending"
       },
       {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 44.5,
-        "conviction": 61.5,
+        "score": 38.5,
+        "conviction": 45.5,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 49.2,
-        "conviction": 57.9,
+        "score": 46.3,
+        "conviction": 44.7,
         "status": "defending"
       }
     ],
@@ -3478,22 +3478,22 @@
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 55.0,
-        "conviction": 64.9,
-        "status": "defending"
-      },
-      {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 44.3,
-        "conviction": 60.3,
+        "score": 57.7,
+        "conviction": 55.4,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 48.5,
-        "conviction": 58.4,
+        "score": 46.6,
+        "conviction": 45.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 40.8,
+        "conviction": 44.3,
         "status": "defending"
       }
     ],
@@ -3554,22 +3554,22 @@
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 46.0,
-        "conviction": 63.4,
+        "score": 50.3,
+        "conviction": 54.1,
         "status": "defending"
       },
       {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 47.0,
-        "conviction": 60.0,
+        "score": 47.8,
+        "conviction": 45.2,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 44.8,
-        "conviction": 57.9,
+        "score": 44.1,
+        "conviction": 44.9,
         "status": "defending"
       }
     ],
@@ -3623,24 +3623,24 @@
     ],
     "B": [
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 45.7,
-        "conviction": 59.4,
+        "ticker": "WMT",
+        "name": "沃尔玛",
+        "score": 30.3,
+        "conviction": 48.2,
         "status": "defending"
       },
       {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 28.5,
-        "conviction": 57.8,
+        "ticker": "BRK-B",
+        "name": "伯克希尔",
+        "score": 49.1,
+        "conviction": 46.2,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
         "score": 36.1,
-        "conviction": 55.3,
+        "conviction": 42.7,
         "status": "defending"
       }
     ],
@@ -3701,22 +3701,22 @@
       {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 40.6,
-        "conviction": 57.7,
-        "status": "defending"
-      },
-      {
-        "ticker": "TJX",
-        "name": "TJX百货",
-        "score": 36.6,
-        "conviction": 53.4,
+        "score": 46.6,
+        "conviction": 46.3,
         "status": "defending"
       },
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 24.8,
-        "conviction": 52.4,
+        "score": 31.2,
+        "conviction": 44.0,
+        "status": "defending"
+      },
+      {
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 39.1,
+        "conviction": 41.8,
         "status": "defending"
       }
     ],
@@ -3777,22 +3777,22 @@
       {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 37.4,
-        "conviction": 55.5,
+        "score": 39.1,
+        "conviction": 44.5,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 35.8,
-        "conviction": 51.7,
+        "score": 35.9,
+        "conviction": 40.3,
         "status": "defending"
       },
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 23.9,
-        "conviction": 47.9,
+        "score": 27.0,
+        "conviction": 39.8,
         "status": "defending"
       }
     ],
@@ -3853,22 +3853,22 @@
       {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 33.7,
-        "conviction": 52.8,
+        "score": 29.2,
+        "conviction": 40.7,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 35.7,
-        "conviction": 50.3,
+        "score": 32.6,
+        "conviction": 38.4,
         "status": "defending"
       },
       {
         "ticker": "WMT",
         "name": "沃尔玛",
-        "score": 22.5,
-        "conviction": 43.9,
+        "score": 23.1,
+        "conviction": 35.6,
         "status": "defending"
       }
     ],
@@ -3927,24 +3927,24 @@
     ],
     "B": [
       {
+        "ticker": "BTI",
+        "name": "英美烟草",
+        "score": 52.1,
+        "conviction": 48.2,
+        "status": "cold_start"
+      },
+      {
         "ticker": "BRK-B",
         "name": "伯克希尔",
-        "score": 29.0,
-        "conviction": 49.5,
+        "score": 23.4,
+        "conviction": 36.4,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 33.7,
-        "conviction": 48.7,
-        "status": "defending"
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 19.7,
-        "conviction": 40.0,
+        "score": 28.3,
+        "conviction": 35.9,
         "status": "defending"
       }
     ],
@@ -4003,24 +4003,24 @@
     ],
     "B": [
       {
+        "ticker": "BTI",
+        "name": "英美烟草",
+        "score": 51.8,
+        "conviction": 49.1,
+        "status": "defending"
+      },
+      {
+        "ticker": "MO",
+        "name": "奥驰亚",
+        "score": 46.1,
+        "conviction": 43.2,
+        "status": "cold_start"
+      },
+      {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 38.0,
-        "conviction": 48.5,
-        "status": "defending"
-      },
-      {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 30.9,
-        "conviction": 47.3,
-        "status": "defending"
-      },
-      {
-        "ticker": "WMT",
-        "name": "沃尔玛",
-        "score": 19.2,
-        "conviction": 36.8,
+        "score": 34.1,
+        "conviction": 35.4,
         "status": "defending"
       }
     ],
@@ -4079,24 +4079,24 @@
     ],
     "B": [
       {
+        "ticker": "BTI",
+        "name": "英美烟草",
+        "score": 44.8,
+        "conviction": 48.0,
+        "status": "defending"
+      },
+      {
         "ticker": "MO",
         "name": "奥驰亚",
-        "score": 49.0,
-        "conviction": 55.0,
-        "status": "challenged"
+        "score": 46.9,
+        "conviction": 44.1,
+        "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 40.4,
-        "conviction": 48.9,
-        "status": "defending"
-      },
-      {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 30.5,
-        "conviction": 45.5,
+        "score": 39.0,
+        "conviction": 36.3,
         "status": "defending"
       }
     ],
@@ -4155,24 +4155,24 @@
     ],
     "B": [
       {
+        "ticker": "BTI",
+        "name": "英美烟草",
+        "score": 40.7,
+        "conviction": 46.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "AEM",
+        "name": "伊格尔矿业",
+        "score": 41.7,
+        "conviction": 41.2,
+        "status": "cold_start"
+      },
+      {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 39.3,
-        "conviction": 48.9,
-        "status": "defending"
-      },
-      {
-        "ticker": "MO",
-        "name": "MO",
-        "score": 0.0,
-        "conviction": 44.0,
-        "status": "defending"
-      },
-      {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 27.0,
-        "conviction": 43.1,
+        "score": 38.7,
+        "conviction": 36.9,
         "status": "defending"
       }
     ],
@@ -4231,24 +4231,24 @@
     ],
     "B": [
       {
+        "ticker": "BTI",
+        "name": "英美烟草",
+        "score": 42.8,
+        "conviction": 45.4,
+        "status": "defending"
+      },
+      {
+        "ticker": "AEM",
+        "name": "伊格尔矿业",
+        "score": 42.7,
+        "conviction": 41.6,
+        "status": "defending"
+      },
+      {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 44.2,
-        "conviction": 50.2,
-        "status": "defending"
-      },
-      {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 26.7,
-        "conviction": 41.2,
-        "status": "defending"
-      },
-      {
-        "ticker": "MO",
-        "name": "MO",
-        "score": 0.0,
-        "conviction": 35.2,
+        "score": 46.4,
+        "conviction": 39.3,
         "status": "defending"
       }
     ],
@@ -4309,22 +4309,22 @@
       {
         "ticker": "BTI",
         "name": "英美烟草",
-        "score": 42.0,
-        "conviction": 53.5,
-        "status": "cold_start"
+        "score": 40.9,
+        "conviction": 44.3,
+        "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 45.8,
-        "conviction": 51.6,
+        "score": 45.1,
+        "conviction": 40.8,
         "status": "defending"
       },
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 27.8,
-        "conviction": 39.9,
+        "ticker": "AEM",
+        "name": "伊格尔矿业",
+        "score": 32.6,
+        "conviction": 39.4,
         "status": "defending"
       }
     ],
@@ -4378,24 +4378,24 @@
     ],
     "B": [
       {
-        "ticker": "TJX",
-        "name": "TJX百货",
-        "score": 49.1,
-        "conviction": 53.6,
-        "status": "defending"
-      },
-      {
         "ticker": "BTI",
         "name": "英美烟草",
-        "score": 42.6,
-        "conviction": 53.5,
+        "score": 47.4,
+        "conviction": 45.1,
         "status": "defending"
       },
       {
-        "ticker": "BRK-B",
-        "name": "伯克希尔",
-        "score": 35.4,
-        "conviction": 40.8,
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 46.9,
+        "conviction": 42.3,
+        "status": "defending"
+      },
+      {
+        "ticker": "AEM",
+        "name": "伊格尔矿业",
+        "score": 35.5,
+        "conviction": 38.4,
         "status": "defending"
       }
     ],
@@ -4454,24 +4454,24 @@
     ],
     "B": [
       {
-        "ticker": "TJX",
-        "name": "TJX百货",
-        "score": 53.1,
-        "conviction": 56.2,
+        "ticker": "BTI",
+        "name": "英美烟草",
+        "score": 47.2,
+        "conviction": 45.6,
         "status": "defending"
       },
       {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 57.3,
-        "conviction": 56.1,
-        "status": "challenged"
+        "ticker": "TJX",
+        "name": "TJX百货",
+        "score": 55.2,
+        "conviction": 45.5,
+        "status": "defending"
       },
       {
-        "ticker": "BTI",
-        "name": "英美烟草",
-        "score": 40.0,
-        "conviction": 52.8,
+        "ticker": "AEM",
+        "name": "伊格尔矿业",
+        "score": 46.4,
+        "conviction": 40.4,
         "status": "defending"
       }
     ],
@@ -4530,24 +4530,24 @@
     ],
     "B": [
       {
-        "ticker": "JNJ",
-        "name": "强生",
-        "score": 57.6,
-        "conviction": 59.3,
-        "status": "defending"
-      },
-      {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 50.6,
-        "conviction": 57.6,
+        "score": 51.1,
+        "conviction": 46.9,
         "status": "defending"
       },
       {
         "ticker": "BTI",
         "name": "英美烟草",
-        "score": 33.8,
-        "conviction": 50.7,
+        "score": 35.9,
+        "conviction": 43.2,
+        "status": "defending"
+      },
+      {
+        "ticker": "AEM",
+        "name": "伊格尔矿业",
+        "score": 30.1,
+        "conviction": 37.8,
         "status": "defending"
       }
     ],
@@ -4587,58 +4587,50 @@
     ]
   },
   "_conviction_B": {
-    "GE": 21.6,
-    "NOC": 42.0,
-    "LMT": 39.4,
-    "TSM": 45.1,
-    "LIN": 27.7,
-    "HON": 33.3,
-    "BHP": 36.3,
-    "MO": 33.9,
-    "PG": 12.1,
-    "JNJ": 65.0,
-    "RIO": 45.7,
-    "COST": 29.3,
-    "BLK": 15.8,
-    "SCCO": 33.2,
-    "V": 12.6,
-    "COP": 36.2,
-    "TJX": 59.6,
-    "PEP": 38.6,
-    "BTI": 52.2,
-    "HD": 4.3,
-    "PFE": 20.0,
-    "SO": 46.0,
-    "CAT": 47.5,
-    "NEE": 45.0,
-    "META": 4.5,
-    "AAPL": 39.9,
-    "NFLX": 5.8,
-    "LLY": 24.3,
-    "MS": 42.4,
-    "MSFT": 11.7,
-    "ISRG": 7.8,
-    "DUK": 52.4,
-    "ANET": 0.9,
-    "ETN": 25.6,
-    "GS": 42.5,
-    "AMZN": 9.8,
-    "MCD": 47.3,
-    "NEM": 35.9,
-    "BRK-B": 28.0,
-    "CRM": 1.9,
-    "CVX": 43.8,
-    "UNH": 0.6,
-    "NVDA": 13.4,
-    "KO": 52.1,
-    "INTU": 5.3,
-    "PBR": 35.3,
-    "WMT": 51.7,
-    "XOM": 48.7,
-    "PLTR": 7.5,
-    "AVGO": 0.9,
-    "GOOGL": 46.5,
-    "AEM": 38.9
+    "GE": 2.1,
+    "NOC": 41.5,
+    "LMT": 48.0,
+    "TSM": 55.5,
+    "LIN": 35.4,
+    "HON": 43.4,
+    "BHP": 43.2,
+    "MO": 36.6,
+    "PG": 1.2,
+    "RIO": 54.1,
+    "JNJ": 71.1,
+    "COST": 35.7,
+    "BLK": 1.4,
+    "SCCO": 46.0,
+    "V": 0.8,
+    "COP": 49.2,
+    "TJX": 58.0,
+    "BTI": 52.1,
+    "PEP": 38.2,
+    "PFE": 2.2,
+    "SO": 40.6,
+    "CAT": 57.6,
+    "NEE": 49.1,
+    "AAPL": 41.1,
+    "LLY": 35.9,
+    "MS": 45.0,
+    "MSFT": 1.0,
+    "ISRG": 0.8,
+    "DUK": 45.7,
+    "ETN": 33.6,
+    "GS": 45.2,
+    "AMZN": 1.0,
+    "MCD": 39.2,
+    "NEM": 48.5,
+    "BRK-B": 2.4,
+    "CVX": 48.1,
+    "NVDA": 1.4,
+    "KO": 48.3,
+    "PBR": 47.8,
+    "WMT": 56.3,
+    "XOM": 54.2,
+    "PLTR": 0.9,
+    "GOOGL": 55.7,
+    "AEM": 47.2
   },
   "_holders_B": [
     "JNJ",

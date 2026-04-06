@@ -225,6 +225,13 @@ if _arena_data:
             except Exception:
                 pass
 
+        _spy_wk = _price_cache.get("SPY")
+        if _spy_wk is None:
+            try:
+                _spy_wk = _fetch_weekly_ohlcv("SPY")
+            except Exception:
+                _spy_wk = pd.DataFrame()
+
         for _c_nm in _pf_classes:
             _all_c_tickers = sorted({tk for hset in _tm_hold[_c_nm].values() for tk in hset})
             for _tk in _all_c_tickers:
@@ -246,6 +253,25 @@ if _arena_data:
                     _pnl_pct = (_xp / _ep - 1) * 100
                     _n_months = len([m for m in _tm_months if _sm <= m <= _em])
                     _cn = _name_map.get(_tk, _tk)
+
+                    _years = max(_n_months, 1) / 12.0
+                    _asset_ratio = _xp / _ep
+                    _cagr_str = "—"
+                    if _asset_ratio > 0:
+                        _cagr = (_asset_ratio ** (1.0 / _years) - 1) * 100
+                        _cagr_str = f"{_cagr:+.1f}%"
+
+                    _spy_ret_str = "—"
+                    _spy_ret_val = 0.0
+                    if _spy_wk is not None and not _spy_wk.empty:
+                        _spy_seg = _spy_wk[(_spy_wk.index >= _sd) & (_spy_wk.index <= _ed)]
+                        if not _spy_seg.empty:
+                            _spy_ep = float(_spy_seg["Open"].astype(float).iloc[0])
+                            _spy_xp = float(_spy_seg["Close"].astype(float).iloc[-1])
+                            if _spy_ep > 0:
+                                _spy_ret_val = (_spy_xp / _spy_ep - 1) * 100
+                                _spy_ret_str = f"{_spy_ret_val:+.1f}%"
+
                     _profit_rows.append({
                         "赛道": _c_nm,
                         "标的": f"{_tk} ({_cn})",
@@ -255,8 +281,11 @@ if _arena_data:
                         "入选价": f"${_ep:.2f}",
                         "退选价": f"${_xp:.2f}",
                         "盈亏": f"{_pnl_pct:+.1f}%",
+                        "复合年化": _cagr_str,
+                        "同期SPY": _spy_ret_str,
                         "_sort_key": _em,
                         "_pnl": _pnl_pct,
+                        "_spy_ret": _spy_ret_val,
                     })
 
     if _profit_rows:
@@ -271,9 +300,26 @@ if _arena_data:
         _mc2.metric("胜率", f"{_wins / _total * 100:.0f}%" if _total > 0 else "—")
         _mc3.metric("平均盈亏", f"{_avg_pnl:+.1f}%")
 
-        _display_cols = ["赛道", "标的", "入选月", "退选月", "持有时长", "入选价", "退选价", "盈亏"]
+        _display_cols = ["赛道", "标的", "入选月", "退选月", "持有时长", "入选价", "退选价", "盈亏", "复合年化", "同期SPY"]
+
+        def _style_pnl_vs_spy(s):
+            """盈亏列：跑赢同期 SPY → 绿；跑输 → 红；无 SPY 数据 → 不染色。"""
+            styles = []
+            for i in s.index:
+                _pnl_v = _profit_df.at[i, "_pnl"]
+                _spy_v = _profit_df.at[i, "_spy_ret"]
+                _spy_avail = _profit_df.at[i, "同期SPY"] != "—"
+                if not _spy_avail:
+                    styles.append("")
+                elif _pnl_v > _spy_v:
+                    styles.append("color: #27AE60; font-weight:600")
+                else:
+                    styles.append("color: #E74C3C; font-weight:600")
+            return styles
+
+        _styled_df = _profit_df[_display_cols].style.apply(_style_pnl_vs_spy, subset=["盈亏"])
         st.dataframe(
-            _profit_df[_display_cols],
+            _styled_df,
             use_container_width=True, hide_index=True,
             height=min(400, 35 * len(_profit_df) + 38),
         )

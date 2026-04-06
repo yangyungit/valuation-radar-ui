@@ -180,15 +180,20 @@ def get_arena_a_factors(tickers: tuple) -> dict:
 
 @st.cache_data(ttl=3600*4)
 def get_arena_b_factors(tickers: tuple) -> dict:
-    """获取 B 组 ScorecardB 所需四维慢变量因子：
-    - div_yield:      年化股息率 (%)
-    - max_dd_252:     近252日最大回撤 (负数)
-    - sharpe_252:     近252日年化夏普比率
-    - log_mcap:       log10(市值)
-    - eps_stability:  EPS稳定性代理 (年化波动率倒数)
+    """获取 B 组 ScorecardB 所需慢变量因子：
+    - div_yield:       年化股息率 (%)
+    - max_dd_252:      近252日最大回撤 (负数)
+    - sharpe_252:      近252日年化夏普比率
+    - rs_120d:         120日相对 SPY 超额收益 (%)
+    - log_mcap:        log10(市值)
+    - eps_stability:   EPS稳定性代理 (年化波动率倒数)
+    - revenue_growth:  Revenue 增速 (%)
     """
     from concurrent.futures import ThreadPoolExecutor
     import numpy as np
+
+    spy_hist = yf.Ticker("SPY").history(period="1y")
+    spy_prices = spy_hist["Close"].dropna().astype(float) if not spy_hist.empty else pd.Series(dtype=float)
 
     def _fetch_one(t):
         try:
@@ -204,7 +209,8 @@ def get_arena_b_factors(tickers: tuple) -> dict:
             hist = stock.history(period="1y")
             if hist.empty or len(hist) < 60:
                 return t, {"div_yield": div_yield, "max_dd_252": 0.0, "sharpe_252": 0.0,
-                           "log_mcap": float(np.log10(max(mcap, 1e6))), "eps_stability": 0.0}
+                           "rs_120d": 0.0, "log_mcap": float(np.log10(max(mcap, 1e6))),
+                           "eps_stability": 0.0, "revenue_growth": 0.0}
 
             prices = hist["Close"].dropna().astype(float)
             daily_ret = prices.pct_change().dropna()
@@ -220,7 +226,14 @@ def get_arena_b_factors(tickers: tuple) -> dict:
             ann_vol = vol * np.sqrt(252)
             eps_stab = 1.0 / max(ann_vol, 0.01)
 
-            # Revenue Growth: TTM vs prior year
+            rs_120d = 0.0
+            if len(prices) >= 121 and len(spy_prices) >= 121:
+                ret120 = float((prices.iloc[-1] / prices.iloc[-121] - 1) * 100)
+                spy_ret120 = float((spy_prices.iloc[-1] / spy_prices.iloc[-121] - 1) * 100)
+                rs_120d = ret120 - spy_ret120
+                if np.isnan(rs_120d) or np.isinf(rs_120d):
+                    rs_120d = 0.0
+
             try:
                 fin = stock.financials
                 if fin is not None and "Total Revenue" in fin.index and fin.shape[1] >= 2:
@@ -238,13 +251,15 @@ def get_arena_b_factors(tickers: tuple) -> dict:
                 "div_yield": div_yield,
                 "max_dd_252": max_dd,
                 "sharpe_252": sharpe,
+                "rs_120d": rs_120d,
                 "log_mcap": float(np.log10(max(mcap, 1e6))),
                 "eps_stability": eps_stab,
                 "revenue_growth": rev_growth,
             }
         except Exception:
             return t, {"div_yield": 0.0, "max_dd_252": 0.0, "sharpe_252": 0.0,
-                       "log_mcap": 9.0, "eps_stability": 0.0, "revenue_growth": 0.0}
+                       "rs_120d": 0.0, "log_mcap": 9.0, "eps_stability": 0.0,
+                       "revenue_growth": 0.0}
 
     result = {}
     with ThreadPoolExecutor(max_workers=10) as executor:

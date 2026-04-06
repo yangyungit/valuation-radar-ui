@@ -4,10 +4,11 @@ B组细筛质量 Harness Test
 
 目的：量化B组（大猩猩赛道）历史持仓质量，用 pytest 驱动 AI 自动迭代。
 
-当前架构：信念积累 + 冠军守擂制 (Conviction Accumulation + Champion Defends Title)
+当前架构：信念积累 + 在位者惯性 + 冠军守擂制
   - 因子分数不再直接决定 Top 3 排名
   - 因子分数作为信念积分的输入信号
   - 标的需连续多月表现好才能积累到入选门槛
+  - 在位者享有慢衰减（holder_decay_rate），动量噪声不轻易驱逐
   - 在位者享有守擂优势，挑战者必须显著超越才能替换
 
 工作流：
@@ -24,11 +25,13 @@ B组细筛质量 Harness Test
   │ 问题模式         │ 可能的修复方向                                    │
   ├─────────────────┼─────────────────────────────────────────────────┤
   │ 闪现(1-2月)      │ 提高 entry_threshold / 降低 accumulate_rate      │
-  │ 碎片化(反复进出)  │ 降低 exit_threshold / 加大 challenge_margin       │
-  │ 高换手           │ 加大 challenge_margin / 降低 decay_rate           │
+  │ 碎片化(反复进出)  │ 提高 holder_decay_rate / 加大 challenge_margin    │
+  │ 高换手           │ 提高 holder_decay_rate / 加大 challenge_margin    │
   │ 短stint亏损      │ 在 compute_scorecard_b 中加大抗跌韧性权重         │
   │ 长stint低效      │ 在 compute_scorecard_b 中加大夏普权重             │
   │ 严重亏损(>5%)    │ 加入 MA200 趋势健康门槛到分类阶段                  │
+  │ 宏观切换碎片化    │ 调整 B_REGIME_WEIGHTS 各剧本档位权重               │
+  │ 防御期动量噪声    │ B_REGIME_WEIGHTS Stag/Rec 的 RS120d 已归零        │
   └─────────────────┴─────────────────────────────────────────────────┘
 
 依赖: pip install pytest yfinance pandas numpy

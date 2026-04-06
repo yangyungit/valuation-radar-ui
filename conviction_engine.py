@@ -17,7 +17,12 @@ Conviction Accumulation + Champion Defends Title
      更新公式：C(t) = C(t-1) × decay + FactorScore(t) × accum_rate
      稳态信念：C_ss = Score × accum_rate / (1 - decay)
 
-  ② 冠军守擂 (Champion Defends Title)
+  ② 在位者惯性 (Holder Inertia)
+     RS120d 等高波动因子引入后，月间分数波动会导致碎片化换手。
+     在位者使用 holder_decay_rate（> decay_rate），信念衰减更慢。
+     效果：动量噪声不会轻易驱逐在位者，但持续走弱仍会被淘汰。
+
+  ③ 冠军守擂 (Champion Defends Title)
      在位者只需「不跌破退出线」即可留任，无需每月重新证明自己。
      挑战者必须比在位者高出 CHALLENGE_MARGIN 才能替换。
      这消灭了边界噪声导致的无效换手。
@@ -33,11 +38,12 @@ Conviction Accumulation + Champion Defends Title
 from __future__ import annotations
 
 CONVICTION_B_CONFIG: dict = {
-    "decay_rate":        0.80,   # 每月信念衰减系数
+    "decay_rate":        0.75,   # 非在位者每月信念衰减系数
+    "holder_decay_rate": 0.78,   # 在位者衰减系数（比标准 0.75 慢，但不高于 0.786 以保证走弱仍被淘汰）
     "accumulate_rate":   0.25,   # 因子分 → 信念的转化率
     "entry_threshold":   55.0,   # 入选门槛
-    "exit_threshold":    30.0,   # 退出门槛（低于此值才退出，宽容保护在位者）
-    "challenge_margin":  12.0,   # 守擂优势：挑战者必须高出在位者此分数
+    "exit_threshold":    35.0,   # 退出门槛（提高门槛，不允许低信念标的赖着不走）
+    "challenge_margin":   8.0,   # 守擂优势（降低，让优质挑战者更容易上位）
     "max_conviction":   100.0,   # 信念值上限
     "top_n":               3,    # 持仓席位数
 }
@@ -70,23 +76,31 @@ def get_status_label(status: str) -> tuple[str, str]:
 def update_convictions(
     prev_state: dict[str, float],
     factor_scores: dict[str, float],
+    current_holders: list[str] | None = None,
     config: dict | None = None,
 ) -> dict[str, float]:
     """
     更新所有标的的信念值。
 
+    在位者使用 holder_decay_rate（慢衰减），非在位者使用 decay_rate（标准衰减）。
+    这赋予当前持仓「惯性」——RS120d 等高波动因子的短期回调不会
+    立刻侵蚀在位者信念，但持续走弱仍会被淘汰。
+
     Args:
-        prev_state:    {ticker: conviction} 上月信念状态
-        factor_scores: {ticker: factor_score ∈ [0,100]} 本月因子得分
-        config:        引擎参数 (默认 CONVICTION_B_CONFIG)
+        prev_state:      {ticker: conviction} 上月信念状态
+        factor_scores:   {ticker: factor_score ∈ [0,100]} 本月因子得分
+        current_holders: 当前在位 ticker 列表（享受慢衰减）
+        config:          引擎参数 (默认 CONVICTION_B_CONFIG)
 
     Returns:
         {ticker: new_conviction} — 信念 < 0.5 的 ticker 会被清理
     """
     cfg = config or CONVICTION_B_CONFIG
-    decay = cfg["decay_rate"]
-    accum = cfg["accumulate_rate"]
-    cap   = cfg["max_conviction"]
+    decay        = cfg["decay_rate"]
+    holder_decay = cfg.get("holder_decay_rate", decay)
+    accum        = cfg["accumulate_rate"]
+    cap          = cfg["max_conviction"]
+    holders      = set(current_holders or [])
 
     new_state: dict[str, float] = {}
     all_tickers = set(prev_state) | set(factor_scores)
@@ -95,7 +109,8 @@ def update_convictions(
         old_conv = prev_state.get(tk, 0.0)
         score    = factor_scores.get(tk, 0.0)
 
-        new_conv = old_conv * decay + score * accum
+        d = holder_decay if tk in holders else decay
+        new_conv = old_conv * d + score * accum
         new_conv = max(0.0, min(cap, new_conv))
 
         if new_conv >= 0.5:
@@ -248,14 +263,16 @@ def select_top_n(
 def explain_config_html(config: dict | None = None) -> str:
     """生成信念守擂制的白盒公式 HTML（用于 Streamlit unsafe_allow_html）。"""
     cfg = config or CONVICTION_B_CONFIG
-    decay   = cfg["decay_rate"]
-    accum   = cfg["accumulate_rate"]
-    entry   = cfg["entry_threshold"]
-    exit_th = cfg["exit_threshold"]
-    margin  = cfg["challenge_margin"]
+    decay        = cfg["decay_rate"]
+    holder_decay = cfg.get("holder_decay_rate", decay)
+    accum        = cfg["accumulate_rate"]
+    entry        = cfg["entry_threshold"]
+    exit_th      = cfg["exit_threshold"]
+    margin       = cfg["challenge_margin"]
 
     steady_70 = round(70 * accum / (1 - decay), 0)
     steady_50 = round(50 * accum / (1 - decay), 0)
+    holder_steady_50 = round(50 * accum / (1 - holder_decay), 0)
 
     return f"""
     <div style='background:#1a1a1a; border-left:3px solid #F39C12;
@@ -264,22 +281,31 @@ def explain_config_html(config: dict | None = None) -> str:
 
     <span style='color:#aaa;'>
     传统「因子评分 → 取 Top 3」每月重排，分数接近的标的反复切换。<br>
-    信念守擂制引入两层防护，将因子分数降级为<b>「信念积分的输入信号」</b>：
+    信念守擂制引入三层防护，将因子分数降级为<b>「信念积分的输入信号」</b>：
     </span><br><br>
 
     <b style='color:#F39C12;'>① 信念积累层</b> —
     标的需<b>连续多月</b>表现好才能入选，偶尔失利不会被淘汰<br>
     <code style='color:#F39C12; background:#2a2000; padding:2px 8px; border-radius:3px;'>
-    C(t) = C(t-1) &times; {decay} + FactorScore(t) &times; {accum}
+    挑战者: C(t) = C(t-1) &times; {decay} + Score &times; {accum}
     </code><br>
     <span style='color:#888; font-size:13px;'>
     入选门槛 = <b>{entry:.0f}</b> &nbsp;|&nbsp;
     退出门槛 = <b>{exit_th:.0f}</b> &nbsp;|&nbsp;
-    稳态：70 分选手 → 信念 ≈ {steady_70:.0f}，
-    50 分选手 → 信念 ≈ {steady_50:.0f}
+    稳态：70 分 → {steady_70:.0f}，50 分 → {steady_50:.0f}
     </span><br><br>
 
-    <b style='color:#E74C3C;'>② 冠军守擂层</b> —
+    <b style='color:#3498DB;'>② 在位者惯性层</b> —
+    当前持仓享有<b>慢衰减</b>，RS₁₂₀ 等快因子的短期回调不会立刻侵蚀信念<br>
+    <code style='color:#3498DB; background:#001a2a; padding:2px 8px; border-radius:3px;'>
+    在位者: C(t) = C(t-1) &times; {holder_decay} + Score &times; {accum}
+    </code><br>
+    <span style='color:#888; font-size:13px;'>
+    在位者稳态：50 分 → {holder_steady_50:.0f}（vs 挑战者 {steady_50:.0f}）&nbsp;|&nbsp;
+    效果：动量噪声不导致换手，持续走弱仍会被淘汰
+    </span><br><br>
+
+    <b style='color:#E74C3C;'>③ 冠军守擂层</b> —
     在位者享有守擂优势，挑战者必须显著超越才能替换<br>
     <code style='color:#E74C3C; background:#2a0000; padding:2px 8px; border-radius:3px;'>
     替换条件：挑战者信念 &gt; 在位者信念 + {margin:.0f}
