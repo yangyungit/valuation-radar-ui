@@ -1549,6 +1549,7 @@ def _render_leaderboard_b(df_scored: pd.DataFrame) -> None:
         "中期相对强度 RS₁₂₀",
         "绝对体量 MCap",
         "成长弹性 Revenue",
+        "宏观适配",
     ]
     legend_html = (
         "<div style='display:flex; gap:16px; font-size:13px; color:#888; margin-bottom:8px; "
