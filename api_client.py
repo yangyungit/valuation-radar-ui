@@ -493,3 +493,334 @@ def clear_api_caches():
     fetch_macro_scores.clear()
     fetch_funnel_scores.clear()
     fetch_vcp_analysis.clear()
+
+
+# ==========================================
+# 3. 叙事引擎 API 客户端 (Narrative Engine)
+# ==========================================
+
+def _narrative_get(path, params=None):
+    """GET 叙事引擎端点，失败时返回 {"degraded": True, "error": ...}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}{path}", params=params, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"degraded": True, "error": str(e)}
+
+
+def _narrative_post(path, json=None, params=None):
+    """POST 叙事引擎端点，失败时返回 {"success": False, "error": ...}。"""
+    try:
+        r = requests.post(f"{API_BASE_URL}{path}", json=json, params=params, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def trigger_narrative_pipeline(target_date=None):
+    payload = {}
+    if target_date:
+        payload["target_date"] = str(target_date)
+    return _narrative_post("/api/v1/narrative/run_pipeline", json=payload)
+
+
+def fetch_narrative_status():
+    return _narrative_get("/api/v1/narrative/status")
+
+
+def fetch_crawler_status():
+    return _narrative_get("/api/v1/narrative/crawler_status")
+
+
+def fetch_narrative_inbox():
+    return _narrative_get("/api/v1/narrative/inbox")
+
+
+def fetch_pending_inbox(reason="", status="pending", limit=200):
+    params = {"status": status, "limit": limit}
+    if reason:
+        params["reason"] = reason
+    return _narrative_get("/api/v1/narrative/pending_inbox", params=params)
+
+
+def review_narrative_term(id, action, l2_sector=None):
+    payload = {"id": id, "action": action}
+    if l2_sector:
+        payload["l2_sector"] = l2_sector
+    return _narrative_post("/api/v1/narrative/review", json=payload)
+
+
+def review_narrative_batch(ids, action):
+    return _narrative_post("/api/v1/narrative/review_batch", json={"ids": ids, "action": action})
+
+
+def fetch_match_log(days=7, l2_sector="", source="", search="", page=1, page_size=50):
+    params = {"days": days, "page": page, "page_size": page_size}
+    if l2_sector:
+        params["l2_sector"] = l2_sector
+    if source:
+        params["source"] = source
+    if search:
+        params["search"] = search
+    return _narrative_get("/api/v1/narrative/match_log", params=params)
+
+
+def fetch_orphan_stats():
+    return _narrative_get("/api/v1/narrative/orphan_stats")
+
+
+def trigger_orphan_review(force=False):
+    return _narrative_post("/api/v1/narrative/orphan_review", params={"force": str(force).lower()})
+
+
+def fetch_orphan_review_status():
+    return _narrative_get("/api/v1/narrative/orphan_review_status")
+
+
+def fetch_theme_proposals(status="pending"):
+    return _narrative_get("/api/v1/narrative/theme_proposals", params={"status": status})
+
+
+def approve_theme_proposal(proposal_id, l2_override=None):
+    payload = {}
+    if l2_override:
+        payload["l2_override"] = l2_override
+    return _narrative_post(f"/api/v1/narrative/theme_proposals/{proposal_id}/approve", json=payload)
+
+
+def reject_theme_proposal(proposal_id):
+    return _narrative_post(f"/api/v1/narrative/theme_proposals/{proposal_id}/reject")
+
+
+def trigger_generate_seed_proposals():
+    return _narrative_post("/api/v1/narrative/generate_seed_proposals")
+
+
+def fetch_dictionary_stats():
+    return _narrative_get("/api/v1/narrative/dictionary_stats")
+
+
+def fetch_taxonomy():
+    return _narrative_get("/api/v1/narrative/taxonomy")
+
+
+def fetch_taxonomy_full():
+    return _narrative_get("/api/v1/narrative/taxonomy/full")
+
+
+def post_dictionary_add(l2_sector, l3_keyword):
+    return _narrative_post("/api/v1/narrative/dictionary/add",
+                           json={"l2_sector": l2_sector, "l3_keyword": l3_keyword})
+
+
+def post_dictionary_remove(l2_sector, l3_keyword):
+    return _narrative_post("/api/v1/narrative/dictionary/remove",
+                           json={"l2_sector": l2_sector, "l3_keyword": l3_keyword})
+
+
+def post_dictionary_batch_archive(items):
+    """items: list of {"l2_sector": str, "l3_keyword": str}"""
+    return _narrative_post("/api/v1/narrative/dictionary/batch_archive", json={"items": items})
+
+
+def post_dictionary_batch_restore(items):
+    """items: list of {"l2_sector": str, "l3_keyword": str}"""
+    return _narrative_post("/api/v1/narrative/dictionary/batch_restore", json={"items": items})
+
+
+def post_dictionary_batch_move(source_l2, target_l2, keywords):
+    """keywords: list of str"""
+    return _narrative_post("/api/v1/narrative/dictionary/batch_move",
+                           json={"source_l2": source_l2, "target_l2": target_l2, "keywords": keywords})
+
+
+def post_dictionary_batch_delete(items):
+    """items: list of {"l2_sector": str, "l3_keyword": str}"""
+    return _narrative_post("/api/v1/narrative/dictionary/batch_delete", json={"items": items})
+
+
+def post_dictionary_batch_mark_noise(items):
+    """items: list of {"l2_sector": str, "l3_keyword": str}"""
+    return _narrative_post("/api/v1/narrative/dictionary/batch_mark_noise", json={"items": items})
+
+
+def post_dictionary_rename_l2(old_name, new_name):
+    return _narrative_post("/api/v1/narrative/dictionary/rename_l2",
+                           json={"old_name": old_name, "new_name": new_name})
+
+
+def post_dictionary_delete_l2(l2_sector, mode="archive"):
+    return _narrative_post("/api/v1/narrative/dictionary/delete_l2",
+                           json={"l2_sector": l2_sector, "mode": mode})
+
+
+def fetch_uncategorized():
+    return _narrative_get("/api/v1/narrative/uncategorized")
+
+
+def migrate_uncategorized(min_confidence=0.4):
+    return _narrative_post("/api/v1/narrative/uncategorized/migrate",
+                           json={"min_confidence": min_confidence})
+
+
+def propose_uncategorized():
+    return _narrative_post("/api/v1/narrative/uncategorized/propose")
+
+
+def post_borderline_force_pass(term):
+    return _narrative_post("/api/v1/narrative/borderline/force_pass", params={"term": term})
+
+
+def post_borderline_mark_noise(term, ttl_days=90):
+    return _narrative_post("/api/v1/narrative/borderline/mark_noise",
+                           params={"term": term, "ttl_days": ttl_days})
+
+
+def fetch_term_trace(term):
+    return _narrative_get("/api/v1/narrative/term_trace", params={"term": term})
+
+
+def fetch_recently_promoted(days=7):
+    return _narrative_get("/api/v1/narrative/recently_promoted", params={"days": days})
+
+
+def fetch_new_terms(days=1, top_k=50):
+    return _narrative_get("/api/v1/narrative/new_terms", params={"days": days, "top_k": top_k})
+
+
+def fetch_borderline_terms(days=30, min_age_days=0):
+    return _narrative_get("/api/v1/narrative/borderline_terms",
+                          params={"days": days, "min_age_days": min_age_days})
+
+
+def fetch_l2_l3_detail(days=7):
+    return _narrative_get("/api/v1/narrative/l2_l3_detail", params={"days": days})
+
+
+def fetch_quadrant_history(days=30):
+    return _narrative_get("/api/v1/narrative/quadrant_history", params={"days": days})
+
+
+@st.cache_data(ttl=60)
+def fetch_tfidf_terms(days=7, top_k=50, show_all=False):
+    return _narrative_get("/api/v1/narrative/tfidf_terms",
+                          params={"days": days, "top_k": top_k, "show_all": show_all})
+
+
+def fetch_corpus_stats():
+    return _narrative_get("/api/v1/narrative/corpus_stats")
+
+
+def fetch_noise_words():
+    return _narrative_get("/api/v1/narrative/noise_words")
+
+
+def post_noise_word_add(term, ttl_days=90, reason="manual_cio"):
+    return _narrative_post("/api/v1/narrative/noise_words/add",
+                           params={"term": term, "ttl_days": ttl_days, "reason": reason})
+
+
+def post_noise_word_remove(term):
+    return _narrative_post("/api/v1/narrative/noise_words/remove", params={"term": term})
+
+
+def fetch_quality_log(days=3, per_day=50):
+    return _narrative_get("/api/v1/narrative/quality_log", params={"days": days, "per_day": per_day})
+
+
+def trigger_slow_clock():
+    return _narrative_post("/api/v1/narrative/run_slow_clock")
+
+
+def fetch_slow_clock_status():
+    return _narrative_get("/api/v1/narrative/slow_clock_status")
+
+
+@st.cache_data(ttl=60)
+def fetch_narrative_sector_heat(days=7):
+    return _narrative_get("/api/v1/narrative/sector_heat", params={"days": days})
+
+
+# ==========================================
+# 4. CIO 观察池 (Watchlist)
+# ==========================================
+
+@st.cache_data(ttl=30)
+def fetch_cio_watchlist():
+    return _narrative_get("/api/v1/arena/watchlist")
+
+
+def add_to_cio_watchlist(ticker, notes=""):
+    fetch_cio_watchlist.clear()
+    return _narrative_post("/api/v1/arena/watchlist/add",
+                           json={"ticker": ticker, "notes": notes})
+
+
+def remove_from_cio_watchlist(ticker):
+    fetch_cio_watchlist.clear()
+    return _narrative_post("/api/v1/arena/watchlist/remove", json={"ticker": ticker})
+
+
+def update_cio_watchlist_notes(ticker, notes):
+    fetch_cio_watchlist.clear()
+    return _narrative_post("/api/v1/arena/watchlist/update_notes",
+                           json={"ticker": ticker, "notes": notes})
+
+
+# ==========================================
+# 5. Alpaca 数据增强
+# ==========================================
+
+@st.cache_data(ttl=300)
+def get_alpaca_ticker_news(ticker, limit=5):
+    return _narrative_get("/api/v1/alpaca/ticker_news",
+                          params={"ticker": ticker, "limit": limit})
+
+
+@st.cache_data(ttl=60)
+def get_ticker_cooccurrence(ticker, days=7):
+    return _narrative_get("/api/v1/narrative/ticker_cooccurrence",
+                          params={"ticker": ticker, "days": days})
+
+
+@st.cache_data(ttl=60)
+def get_alpaca_snapshots(tickers_tuple):
+    """tickers_tuple: tuple of ticker strings (hashable for cache)。"""
+    symbols = ",".join(tickers_tuple)
+    return _narrative_get("/api/v1/alpaca/snapshots", params={"symbols": symbols})
+
+
+# ==========================================
+# 6. ETF 相对强度 (前端 yfinance 计算)
+# ==========================================
+
+@st.cache_data(ttl=3600)
+def get_etf_rs20d(tickers: tuple) -> dict:
+    """计算各 ETF 近 20 日相对 SPY 超额收益，用于 L2 板块偏离检测。"""
+    import numpy as np
+    try:
+        spy_hist = yf.Ticker("SPY").history(period="30d")
+        spy_prices = spy_hist["Close"].dropna().astype(float) if not spy_hist.empty else pd.Series(dtype=float)
+        spy_ret20 = float((spy_prices.iloc[-1] / spy_prices.iloc[-21] - 1) * 100) if len(spy_prices) >= 21 else 0.0
+    except Exception:
+        spy_ret20 = 0.0
+
+    result = {}
+    for t in tickers:
+        try:
+            hist = yf.Ticker(t).history(period="30d")
+            if hist.empty or len(hist) < 5:
+                result[t] = 0.0
+                continue
+            prices = hist["Close"].dropna().astype(float)
+            if len(prices) >= 21:
+                ret20 = float((prices.iloc[-1] / prices.iloc[-21] - 1) * 100)
+                rs = ret20 - spy_ret20
+            else:
+                rs = 0.0
+            result[t] = round(rs, 2) if not (np.isnan(rs) or np.isinf(rs)) else 0.0
+        except Exception:
+            result[t] = 0.0
+    return result

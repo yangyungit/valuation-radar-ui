@@ -4,22 +4,22 @@
       {
         "ticker": "JNJ",
         "name": "强生",
-        "score": 68.7,
-        "conviction": 71.1,
+        "score": 59.0,
+        "conviction": 70.2,
         "status": "defending"
       },
       {
         "ticker": "TJX",
         "name": "TJX百货",
-        "score": 55.8,
-        "conviction": 58.0,
+        "score": 50.4,
+        "conviction": 57.8,
         "status": "defending"
       },
       {
         "ticker": "BTI",
         "name": "英美烟草",
-        "score": 50.1,
-        "conviction": 52.1,
+        "score": 44.3,
+        "conviction": 51.7,
         "status": "defending"
       }
     ],
@@ -27,17 +27,34 @@
       {
         "ticker": "JNJ",
         "name": "强生",
-        "score": 58.1
+        "score": 61.4
       },
       {
         "ticker": "DUK",
         "name": "杜克能源",
-        "score": 57.0
+        "score": 58.8
       },
       {
         "ticker": "KO",
         "name": "可口可乐",
-        "score": 56.8
+        "score": 58.4
+      }
+    ],
+    "D": [
+      {
+        "ticker": "OXY",
+        "name": "西方石油",
+        "score": 64.8
+      },
+      {
+        "ticker": "WDC",
+        "name": "西部数据",
+        "score": 62.8
+      },
+      {
+        "ticker": "PBR",
+        "name": "巴西石油",
+        "score": 62.1
       }
     ]
   },
@@ -4587,50 +4604,50 @@
     ]
   },
   "_conviction_B": {
-    "GE": 2.1,
-    "NOC": 41.5,
-    "LMT": 48.0,
-    "TSM": 55.5,
-    "LIN": 35.4,
-    "HON": 43.4,
-    "BHP": 43.2,
-    "MO": 36.6,
-    "PG": 1.2,
-    "RIO": 54.1,
-    "JNJ": 71.1,
-    "COST": 35.7,
-    "BLK": 1.4,
-    "SCCO": 46.0,
-    "V": 0.8,
-    "COP": 49.2,
-    "TJX": 58.0,
-    "BTI": 52.1,
-    "PEP": 38.2,
-    "PFE": 2.2,
-    "SO": 40.6,
-    "CAT": 57.6,
-    "NEE": 49.1,
-    "AAPL": 41.1,
-    "LLY": 35.9,
-    "MS": 45.0,
-    "MSFT": 1.0,
-    "ISRG": 0.8,
-    "DUK": 45.7,
-    "ETN": 33.6,
-    "GS": 45.2,
-    "AMZN": 1.0,
-    "MCD": 39.2,
-    "NEM": 48.5,
-    "BRK-B": 2.4,
-    "CVX": 48.1,
-    "NVDA": 1.4,
-    "KO": 48.3,
-    "PBR": 47.8,
-    "WMT": 56.3,
-    "XOM": 54.2,
-    "PLTR": 0.9,
-    "GOOGL": 55.7,
-    "AEM": 47.2
+    "CAT": 54.8,
+    "AEM": 46.6,
+    "TSM": 54.1,
+    "AMZN": 0.8,
+    "BLK": 1.0,
+    "NOC": 42.7,
+    "DUK": 45.3,
+    "RIO": 51.7,
+    "MCD": 39.0,
+    "SO": 40.3,
+    "BRK-B": 1.8,
+    "COP": 47.3,
+    "PEP": 37.8,
+    "XOM": 55.8,
+    "MO": 36.1,
+    "PLTR": 0.7,
+    "COST": 34.9,
+    "GE": 1.6,
+    "NEM": 47.8,
+    "BHP": 40.6,
+    "V": 0.6,
+    "GS": 44.0,
+    "JNJ": 70.2,
+    "KO": 47.4,
+    "WMT": 54.4,
+    "ETN": 33.5,
+    "BTI": 51.7,
+    "MSFT": 0.8,
+    "TJX": 57.8,
+    "CVX": 50.3,
+    "PG": 0.9,
+    "MS": 44.1,
+    "GOOGL": 53.2,
+    "PFE": 1.7,
+    "PBR": 49.8,
+    "LIN": 37.2,
+    "HON": 41.9,
+    "NEE": 48.7,
+    "LMT": 48.4,
+    "LLY": 34.3,
+    "SCCO": 42.8,
+    "NVDA": 1.0,
+    "AAPL": 41.6,
+    "ISRG": 0.6
   },
   "_holders_B": [
     "JNJ",
