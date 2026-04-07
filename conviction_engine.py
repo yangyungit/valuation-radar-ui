@@ -48,6 +48,17 @@ CONVICTION_B_CONFIG: dict = {
     "top_n":               3,    # 持仓席位数
 }
 
+CONVICTION_A_CONFIG: dict = {
+    "decay_rate":        0.78,   # 比 B 组更慢衰减 → 压舱石追求极低换手
+    "holder_decay_rate": 0.80,   # 更强在位者惯性（上限: 30×0.22/(1-0.80)=33 < exit 35 ✓）
+    "accumulate_rate":   0.22,   # 比 B 组更慢积累 → 需要更持久的好表现才能入选
+    "entry_threshold":   55.0,   # 入选门槛（与 B 组相同）
+    "exit_threshold":    35.0,   # 退出门槛（与 B 组相同）
+    "challenge_margin":  10.0,   # 比 B 组更高守擂优势 → 压舱石应更难被挑战
+    "max_conviction":   100.0,   # 信念值上限
+    "top_n":               3,    # 持仓席位数
+}
+
 # Status constants
 STATUS_DEFENDING  = "defending"    # 卫冕留任
 STATUS_NEW_ENTRY  = "new_entry"    # 新晋入选（信念达标）

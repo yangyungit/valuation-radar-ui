@@ -17,6 +17,7 @@ from screener_engine import (
     _primary_grade,
 )
 from conviction_engine import (
+    CONVICTION_A_CONFIG,
     CONVICTION_B_CONFIG,
     update_convictions as _conv_update,
     select_top_n as _conv_select,
@@ -425,6 +426,10 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
     saved   = 0
     prev_grades_map: dict = {}
 
+    # A 组信念积累状态（回填时从头构建）
+    _bf_conv_state_a: dict  = {}
+    _bf_conv_holders_a: list = []
+
     # B 组信念积累状态（回填时从头构建）
     _bf_conv_state: dict  = {}
     _bf_conv_holders: list = []
@@ -586,7 +591,32 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
             if df_scored.empty:
                 continue
 
-            if cls == "B":
+            if cls == "A":
+                # ── A 组：信念积累 + 冠军守擂（压舱石版） ──
+                _bf_factor_scores_a = {
+                    r["Ticker"]: float(r["竞技得分"])
+                    for _, r in df_scored.iterrows()
+                }
+                _bf_conv_state_a = _conv_update(
+                    _bf_conv_state_a, _bf_factor_scores_a,
+                    current_holders=_bf_conv_holders_a,
+                    config=CONVICTION_A_CONFIG,
+                )
+                _bf_names_a = {r["Ticker"]: r["名称"] for _, r in df_scored.iterrows()}
+                selected_a, _ = _conv_select(
+                    _bf_conv_state_a, _bf_conv_holders_a,
+                    ticker_names=_bf_names_a,
+                    factor_scores=_bf_factor_scores_a,
+                    config=CONVICTION_A_CONFIG,
+                )
+                _bf_conv_holders_a = [s["ticker"] for s in selected_a]
+                top3 = [
+                    {"ticker": s["ticker"], "name": s["name"],
+                     "score": s.get("factor_score", 0.0),
+                     "conviction": s["conviction"], "status": s["status"]}
+                    for s in selected_a
+                ]
+            elif cls == "B":
                 # ── B 组：信念积累 + 冠军守擂 ──
                 _bf_factor_scores = {
                     r["Ticker"]: float(r["竞技得分"])
@@ -619,7 +649,8 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
 
         saved += 1
 
-    # 回填结束后持久化 B 组信念状态
+    # 回填结束后持久化 A/B 组信念状态
+    _save_conviction_state("A", _bf_conv_state_a, _bf_conv_holders_a)
     _save_conviction_state("B", _bf_conv_state, _bf_conv_holders)
     return saved, ""
 
@@ -1534,6 +1565,89 @@ def _render_podium_b(top3: pd.DataFrame) -> None:
             """, unsafe_allow_html=True)
 
 
+_A_FACTOR_COLORS = ["#2ECC71", "#3498DB", "#9B59B6", "#F39C12"]
+
+
+def _render_podium_a(top3: pd.DataFrame) -> None:
+    """A 组信念守擂制专属 Top 3 颁奖台（展示信念值 + 避风港因子指标）。"""
+    cols = st.columns(3)
+    for i, (medal, medal_color, css_class, title) in enumerate(_PODIUM_MEDALS):
+        if i >= len(top3):
+            with cols[i]:
+                st.markdown(
+                    "<div style='border:1px dashed #333; border-radius:12px; "
+                    "padding:20px; text-align:center; color:#555; font-size:13px;'>"
+                    "暂无数据</div>",
+                    unsafe_allow_html=True,
+                )
+            continue
+
+        row   = top3.iloc[i]
+        score = row["竞技得分"]
+        dy    = row.get("股息率", 0.0)
+        dd    = row.get("最大回撤_raw", 0.0)
+        corr_v = row.get("SPY相关性", 0.5)
+        vol_v = row.get("年化波动率", 0.3)
+        conv  = row.get("信念值", 0.0)
+        status = row.get("守擂状态", "")
+
+        dy_color   = "#2ECC71" if dy > 2.0 else ("#F1C40F" if dy > 0.5 else "#888")
+        dd_color   = "#2ECC71" if abs(dd) < 0.10 else ("#F39C12" if abs(dd) < 0.20 else "#E74C3C")
+        corr_color = "#2ECC71" if corr_v < 0.3 else ("#F1C40F" if corr_v < 0.6 else "#E74C3C")
+        vol_color  = "#2ECC71" if vol_v < 0.15 else ("#F1C40F" if vol_v < 0.25 else "#E74C3C")
+
+        status_lbl, status_clr = _conv_status_label(status)
+        conv_pct = min(conv / 100 * 100, 100)
+
+        factor_pills_html = ""
+        for fi in range(1, 5):
+            fc = _A_FACTOR_COLORS[fi - 1]
+            factor_pills_html += (
+                f"<span style='color:{fc}30; background:{fc}20; "
+                f"border-radius:3px; padding:1px 6px;'>"
+                f"F{fi} {row.get(f'因子{fi}_分', 0.0):.1f}</span> "
+            )
+
+        with cols[i]:
+            st.markdown(f"""
+            <div class='{css_class}'>
+                <div style='font-size:32px; margin-bottom:4px;'>{medal}</div>
+                <div style='font-size:13px; color:{medal_color}; font-weight:bold;
+                            letter-spacing:1px; margin-bottom:6px;'>{title}</div>
+                <div style='font-size:26px; font-weight:bold; color:#eee;'>{row['Ticker']}</div>
+                <div style='font-size:13px; color:#aaa; margin-bottom:6px;'>{row['名称']}</div>
+                <div style='display:inline-block; background:{status_clr}22;
+                     border:1px solid {status_clr}55; border-radius:12px;
+                     padding:2px 10px; font-size:13px; color:{status_clr};
+                     font-weight:bold; margin-bottom:8px;'>{status_lbl}</div>
+                <div style='font-size:34px; font-weight:bold; color:{medal_color}; margin-bottom:2px;'>
+                    {conv:.0f}
+                </div>
+                <div style='font-size:13px; color:#888; margin-bottom:4px;'>信念值 / 100</div>
+                <div style='background:#1e1e1e; border-radius:4px; height:6px; margin:0 20px 8px;'>
+                    <div style='width:{conv_pct:.0f}%; background:{status_clr};
+                         border-radius:4px; height:6px;'></div>
+                </div>
+                <div style='font-size:13px; color:#666; margin-bottom:10px;'>因子分 {score:.0f}/100</div>
+                <hr style='border-color:#333; margin:8px 0;'>
+                <div style='font-size:13px; text-align:left; line-height:2;'>
+                    <span style='color:#888;'>最大回撤(1Y)</span>
+                    <span style='color:{dd_color}; font-weight:bold; float:right;'>{dd*100:.1f}%</span><br>
+                    <span style='color:#888;'>股息率</span>
+                    <span style='color:{dy_color}; font-weight:bold; float:right;'>{dy:.2f}%</span><br>
+                    <span style='color:#888;'>SPY相关性</span>
+                    <span style='color:{corr_color}; font-weight:bold; float:right;'>{corr_v:.2f}</span><br>
+                    <span style='color:#888;'>年化波动率</span>
+                    <span style='color:{vol_color}; font-weight:bold; float:right;'>{vol_v*100:.1f}%</span>
+                </div>
+                <hr style='border-color:#333; margin:8px 0;'>
+                <div style='font-size:13px; color:#777; text-align:left; line-height:1.8; display:flex; flex-wrap:wrap; gap:4px;'>
+                    {factor_pills_html}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+
 def _render_leaderboard_b(df_scored: pd.DataFrame) -> None:
     """B 组核心底仓质量指数专属排行榜（DivYield / MaxDD / Sharpe 三维列）。"""
     meta = CLASS_META["B"]
@@ -2133,20 +2247,187 @@ st.markdown("<br>", unsafe_allow_html=True)
 _sel4 = st.session_state["page4_selected_group"]
 
 if _sel4 == "A":
-    df_a = df_all[df_all["类别"] == "A"].copy()
-    if not df_a.empty:
+    df_a  = df_all[df_all["类别"] == "A"].copy()
+    meta_a  = CLASS_META["A"]
+    cfg_a = ARENA_CONFIG["A"]
+
+    _a_pills_html = ""
+    for (_fn, _fl), _fc in zip(cfg_a["factor_labels"].items(), _A_FACTOR_COLORS):
+        _wv = cfg_a["weights"].get(_fn, 0.0)
+        _a_pills_html += (
+            f"<span class='factor-pill' style='background:{_fc}22; color:{_fc}; "
+            f"border:1px solid {_fc}55;'>{_fl}  {int(_wv*100)}%</span>"
+        )
+    st.markdown(f"""
+    <div class='arena-header' style='background:{meta_a["bg"]}; border:1px solid {meta_a["color"]}44;'>
+        <div style='font-size:18px; font-weight:bold; color:{meta_a["color"]}; margin-bottom:8px;'>
+            {meta_a["icon"]} {meta_a["label"]} -- {cfg_a["score_name"]}赛道
+        </div>
+        <div style='font-size:13px; color:#bbb; line-height:1.8;'>{cfg_a["logic"]}</div>
+        <div style='margin-top:10px; font-size:13px; color:#666;'>
+            评分权重 → {_a_pills_html}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown(_conv_explain_html(config=CONVICTION_A_CONFIG), unsafe_allow_html=True)
+
+    with st.expander("📐 底层因子公式（ScorecardA 满分 100）", expanded=False):
+        st.markdown("""
+        <div style='font-size:14px; color:#ccc; line-height:1.8;'>
+        <span style='color:#2ECC71; font-weight:bold;'>Score<sub>A</sub></span> =
+        <span style='color:#2ECC71;'>(35 &times; InvMaxDD<sub>norm</sub>)</span> +
+        <span style='color:#3498DB;'>(25 &times; DivYield<sub>norm</sub>)</span> +
+        <span style='color:#9B59B6;'>(20 &times; InvSPYCorr<sub>norm</sub>)</span> +
+        <span style='color:#F39C12;'>(20 &times; InvVol<sub>norm</sub>)</span><br>
+        <span style='color:#888; font-size:13px;'>
+        此因子分数作为「信念积分的输入信号」，不再直接决定排名。
+        连续多月高分 &rarr; 信念积累 &rarr; 达标入选 &rarr; 守擂留任。
+        四维纯统计指标同时达标方为真正避风港，拒绝一切短期噪音。
+        </span>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if df_a.empty:
+        st.info("当前 A 级赛道暂无参赛资产。请检查数据加载状态或开启演示模式。")
+    else:
         with st.spinner("正在拉取 A 组避风港因子数据（最大回撤、股息率、SPY相关性、年化波动率）…"):
             _factors_a = get_arena_a_factors(tuple(df_a["Ticker"].tolist()))
+
         df_a["股息率"]     = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("div_yield",   0.0)))
         df_a["最大回撤_raw"] = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("max_dd_252",  0.0)))
         df_a["SPY相关性"]   = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("spy_corr",    0.5)))
         df_a["年化波动率"]   = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("ann_vol",     0.30)))
-    else:
-        df_a["股息率"]     = 0.0
-        df_a["最大回撤_raw"] = 0.0
-        df_a["SPY相关性"]   = 0.5
-        df_a["年化波动率"]   = 0.30
-    _render_arena_tab(df_a, "A")
+
+        df_scored_a = compute_scorecard_a(df_a)
+
+        n_a = len(df_scored_a)
+        _rt_selected_a = []
+        _rt_decisions_a = []
+        if n_a > 0:
+            _rt_factor_scores_a = {
+                row["Ticker"]: float(row["竞技得分"])
+                for _, row in df_scored_a.iterrows()
+            }
+            _rt_conv_state_a, _rt_conv_holders_a = _load_conviction_state("A")
+            _rt_conv_state_a = _conv_update(
+                _rt_conv_state_a, _rt_factor_scores_a,
+                current_holders=_rt_conv_holders_a,
+                config=CONVICTION_A_CONFIG,
+            )
+            _rt_names_a = {row["Ticker"]: row["名称"] for _, row in df_scored_a.iterrows()}
+            _rt_selected_a, _rt_decisions_a = _conv_select(
+                _rt_conv_state_a, _rt_conv_holders_a,
+                ticker_names=_rt_names_a,
+                factor_scores=_rt_factor_scores_a,
+                config=CONVICTION_A_CONFIG,
+            )
+            _rt_new_holders_a = [s["ticker"] for s in _rt_selected_a]
+
+            leaders = st.session_state.get("p4_arena_leaders", {})
+            leaders["A"] = [
+                {"ticker": s["ticker"], "name": s["name"],
+                 "score": s.get("factor_score", 0.0),
+                 "conviction": s["conviction"], "status": s["status"],
+                 "cls": "A"}
+                for s in _rt_selected_a
+            ]
+            st.session_state["p4_arena_leaders"] = leaders
+            _record_arena_history("A", leaders["A"])
+            _save_conviction_state("A", _rt_conv_state_a, _rt_new_holders_a)
+
+            _aw = st.session_state.get("arena_winners", {})
+            _aw["A"] = _rt_new_holders_a
+            st.session_state["arena_winners"] = _aw
+
+        top_score_a = df_scored_a["竞技得分"].iloc[0] if n_a > 0 else 0.0
+        avg_score_a = df_scored_a["竞技得分"].mean()  if n_a > 0 else 0.0
+        n_low_dd    = int((df_scored_a["最大回撤_raw"].abs() < 0.15).sum()) if n_a > 0 else 0
+        _top_conv_a = max((s["conviction"] for s in _rt_selected_a), default=0.0) if n_a > 0 else 0.0
+
+        kpi_cols_a = st.columns(5)
+        for col_obj, (label, val, suffix) in zip(kpi_cols_a, [
+            ("参赛资产",       f"{n_a}",              "只"),
+            ("低回撤(<15%)",   f"{n_low_dd}",         f"/ {n_a}"),
+            ("冠军信念值",     f"{_top_conv_a:.0f}",   "/ 100"),
+            ("冠军因子分",     f"{top_score_a:.0f}",   "/ 100"),
+            ("赛道平均分",     f"{avg_score_a:.0f}",   "/ 100"),
+        ]):
+            with col_obj:
+                st.metric(label=label, value=val, delta=suffix)
+
+        st.markdown("---")
+        st.markdown("#### 🛡️ 信念守擂 Top 3 — 高亮置顶")
+
+        if n_a > 0 and _rt_selected_a:
+            _conv_top3_tickers_a = [s["ticker"] for s in _rt_selected_a]
+            _conv_top3_df_a = df_scored_a[df_scored_a["Ticker"].isin(_conv_top3_tickers_a)].copy()
+            _ticker_order_a = {tk: idx for idx, tk in enumerate(_conv_top3_tickers_a)}
+            _conv_top3_df_a["_conv_order"] = _conv_top3_df_a["Ticker"].map(_ticker_order_a)
+            _conv_top3_df_a = _conv_top3_df_a.sort_values("_conv_order").drop(columns=["_conv_order"])
+            _conv_map_a = {s["ticker"]: s for s in _rt_selected_a}
+            _conv_top3_df_a["信念值"] = _conv_top3_df_a["Ticker"].map(
+                lambda t: _conv_map_a.get(t, {}).get("conviction", 0.0))
+            _conv_top3_df_a["守擂状态"] = _conv_top3_df_a["Ticker"].map(
+                lambda t: _conv_map_a.get(t, {}).get("status", ""))
+            _render_podium_a(_conv_top3_df_a)
+        else:
+            _render_podium_a(df_scored_a.head(0))
+
+        if n_a > 0 and _rt_decisions_a:
+            st.markdown(_conv_decisions_html(_rt_decisions_a), unsafe_allow_html=True)
+
+        if n_a > 0 and _rt_selected_a:
+            champ_s_a  = _rt_selected_a[0]
+            champ_tk_a = champ_s_a["ticker"]
+            _champ_row_a = df_scored_a[df_scored_a["Ticker"] == champ_tk_a]
+            if not _champ_row_a.empty:
+                champ_a  = _champ_row_a.iloc[0]
+                dy_c     = champ_a.get("股息率", 0.0)
+                dd_c     = champ_a.get("最大回撤_raw", 0.0)
+                corr_c   = champ_a.get("SPY相关性", 0.5)
+                vol_c    = champ_a.get("年化波动率", 0.3)
+
+                dd_verdict = ("极强抗跌韧性" if abs(dd_c) < 0.10
+                              else ("回撤控制良好" if abs(dd_c) < 0.20 else "回撤偏大，需警惕"))
+                corr_verdict = ("强对冲属性" if corr_c < 0.3
+                                else ("中度对冲" if corr_c < 0.6 else "高度同步大盘"))
+
+                _status_lbl_a, _ = _conv_status_label(champ_s_a["status"])
+                st.success(
+                    f"**{meta_a['icon']} 赛道冠军深度解读 — {champ_tk_a} ({champ_a['名称']})** "
+                    f"｜信念值 {champ_s_a['conviction']:.0f} ｜{_status_lbl_a}\n\n"
+                    f"在 A 级 {n_a} 位参赛标的中，信念值最高"
+                    f"（因子分 {champ_a['竞技得分']:.0f}）。\n"
+                    f"最大回撤 = **{dd_c*100:.1f}%**（{dd_verdict}），"
+                    f"股息率 = **{dy_c:.2f}%**，"
+                    f"SPY 相关性 = **{corr_c:.2f}**（{corr_verdict}），"
+                    f"年化波动率 = **{vol_c*100:.1f}%**。\n"
+                    f"因子贡献：F1={champ_a.get('因子1_分', 0):.1f}，"
+                    f"F2={champ_a.get('因子2_分', 0):.1f}，"
+                    f"F3={champ_a.get('因子3_分', 0):.1f}，"
+                    f"F4={champ_a.get('因子4_分', 0):.1f}。"
+                )
+
+        st.markdown("---")
+        _render_leaderboard(df_scored_a, "A")
+
+        if n_a > 0:
+            champ_ticker_a = df_scored_a.iloc[0]["Ticker"]
+            champ_name_a   = df_scored_a.iloc[0]["名称"]
+            col_hint, col_btn = st.columns([3, 1])
+            with col_hint:
+                st.markdown(
+                    f"<div style='font-size:13px; color:#888; margin-top:6px;'>"
+                    f"🏆 赛道冠军 <b style='color:#FFD700;'>{champ_ticker_a}</b>"
+                    f" ({champ_name_a}) 已就绪，可一键送入深度猎杀模块进行单体精析。"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            with col_btn:
+                if st.button("🎯 深度猎杀", key="hunt_A"):
+                    st.session_state["p4_champion_ticker"] = champ_ticker_a
+                    st.success(f"已锁定 {champ_ticker_a}！请切换至 **5 个股深度猎杀** 页面。")
 
 elif _sel4 == "B":
     df_b  = df_all[df_all["类别"] == "B"].copy()
