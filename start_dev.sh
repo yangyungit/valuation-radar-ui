@@ -48,7 +48,20 @@ VENV_ACTIVATE=$(find_venv) || {
 echo "✔ 使用虚拟环境: $VENV_ACTIVATE"
 source "$VENV_ACTIVATE"
 
-# ── 2. 启动后端 ──────────────────────────────────────────────────────────────
+# ── 2. Python 版本检查 ────────────────────────────────────────────────────────
+PY_MAJOR=$(python3 -c "import sys; print(sys.version_info.major)")
+PY_MINOR=$(python3 -c "import sys; print(sys.version_info.minor)")
+PY_VER="$PY_MAJOR.$PY_MINOR"
+if [ "$PY_MAJOR" -lt 3 ] || ( [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ] ); then
+    echo ""
+    echo "❌ Python $PY_VER 不满足要求，请升级到 Python 3.11+"
+    echo "   推荐方式: brew install pyenv && pyenv install 3.11 && pyenv global 3.11"
+    echo "   然后重建虚拟环境后重试。"
+    exit 1
+fi
+echo "✔ Python $PY_VER OK"
+
+# ── 3. 启动后端 ──────────────────────────────────────────────────────────────
 if [ ! -d "$BACKEND_DIR" ]; then
     echo ""
     echo "ERROR: 找不到后端目录: $BACKEND_DIR"
@@ -65,10 +78,10 @@ echo "   后端进程 PID: $BACKEND_PID"
 # 等待后端初始化
 sleep 2
 
-# ── 3. 启动前端 ──────────────────────────────────────────────────────────────
+# ── 4. 启动前端 ──────────────────────────────────────────────────────────────
 echo "🌐 启动前端 Streamlit (http://localhost:8501) ..."
 cd "$SCRIPT_DIR"
 streamlit run app.py
 
-# ── 4. 退出时自动关闭后端 ─────────────────────────────────────────────────────
+# ── 5. 退出时自动关闭后端 ─────────────────────────────────────────────────────
 trap 'echo ""; echo "🛑 正在关闭后端 (PID $BACKEND_PID)..."; kill "$BACKEND_PID" 2>/dev/null; exit 0' EXIT INT TERM
