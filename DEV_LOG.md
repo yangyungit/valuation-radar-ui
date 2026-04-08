@@ -2,6 +2,38 @@
 
 ---
 
+## 2026-04-08 | Render Disk 冷启动修复 — 词典状态误判 + API 超时优化
+
+### 背景
+
+后端 Render 服务新挂 Persistent Disk 后，重部署导致 `narrative.db` 被写入临时路径，磁盘上的词典为空。同时发现前端在 Render 冷启动（30-60 秒）期间，15s 请求超时触发 `degraded` 错误，进而被误判为「词典为空」并渲染「快速建库」横幅，对用户产生误导。
+
+### 改动
+
+**`api_client.py`**
+- `_narrative_get` timeout：15s → **45s**（覆盖 Render 免费版冷启动窗口）
+- `_narrative_post` timeout：30s → **60s**（NLP 流水线触发等长操作留余量）
+
+**`pages/2_舆情监控.py`**
+- `has_active_library` 判断由 `active_non_seed_count > 0` 改为 `total_active_count > 0`：种子词典（312 条）就位即视为已建库，不再要求必须有人工批准的词条
+- 新增 `_dict_api_ok` 防御：`degraded=True`（API 超时/502）时跳过「快速建库」横幅，不将网络错误误判为词典为空
+
+### 根因总结
+
+| 层 | 原因 | 修复 |
+|---|---|---|
+| DB 层 | Render disk 新挂，`seed_dictionary()` 未在持久化路径运行 | 手动调用 `push_dict_to_render.py` 的 `force_seed` 接口补种 312 条 |
+| API 层 | `dictionary_stats` 只统计 `source != 'seed'`，种子词条被忽略 | 后端新增 `total_active_count` 字段（见后端 DEV_LOG）|
+| 前端层 | Render 冷启动超时 → `degraded` → 误触「快速建库」逻辑 | timeout 延长 + degraded 时直接跳过判断 |
+
+### 结果
+
+- Render 词典：22 个 L2 板块，312 条种子词条
+- 冷启动期间前端不再误显「词典为空」横幅
+- 词典管理（Tab 4）可正常展示完整 taxonomy
+
+---
+
 ## 2026-04-06 | B 组改进实验失败 → 全量回滚
 
 ### 背景
