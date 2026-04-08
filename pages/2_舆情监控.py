@@ -2201,6 +2201,7 @@ with tab5:
         if "sentiment_data_days" not in df_radar.columns:
             df_radar["sentiment_data_days"] = 7
 
+
         v5_sub1, v5_sub2, v5_sub3 = st.tabs(["🎯 四象限雷达", "🏆 板块热度榜", "⚡ 情绪异动榜"])
 
         # =====================================================================
@@ -2309,17 +2310,15 @@ with tab5:
 
                 border_color = "#E74C3C" if is_concentrated else "#3498DB"
 
-                heat_rank_val = int(row.get("heat_rank", 999))
-                show_label = heat_rank_val <= 12
                 fig_quad.add_trace(go.Scatter(
                     x=[float(row["composite_heat"])],
                     y=[float(row["sentiment_momentum"])],
-                    mode="markers+text" if show_label else "markers",
-                    text=[row["l2_sector"]] if show_label else [""],
+                    mode="markers+text",
+                    text=[row["l2_sector"]],
                     textposition="top center",
-                    textfont=dict(size=12, color="#eee"),
+                    textfont=dict(size=13, color="#eee"),
                     marker=dict(
-                        size=13,
+                        size=12,
                         symbol="circle",
                         color=border_color,
                         opacity=0.85,
