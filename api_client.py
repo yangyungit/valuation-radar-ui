@@ -502,7 +502,7 @@ def clear_api_caches():
 def _narrative_get(path, params=None):
     """GET 叙事引擎端点，失败时返回 {"degraded": True, "error": ...}。"""
     try:
-        r = requests.get(f"{API_BASE_URL}{path}", params=params, timeout=15)
+        r = requests.get(f"{API_BASE_URL}{path}", params=params, timeout=45)
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -512,7 +512,7 @@ def _narrative_get(path, params=None):
 def _narrative_post(path, json=None, params=None):
     """POST 叙事引擎端点，失败时返回 {"success": False, "error": ...}。"""
     try:
-        r = requests.post(f"{API_BASE_URL}{path}", json=json, params=params, timeout=30)
+        r = requests.post(f"{API_BASE_URL}{path}", json=json, params=params, timeout=60)
         r.raise_for_status()
         return r.json()
     except Exception as e:

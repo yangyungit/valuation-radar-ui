@@ -688,9 +688,13 @@ with tab2:
     _phase_header(2, "主题发现与归类中心", "AI 巡检未归类高频词 → 聚类提案新赛道 → 待归类词统一收纳")
 
     dict_stats = fetch_dictionary_stats()
-    has_active_library = dict_stats.get("active_non_seed_count", 0) > 0
+    # degraded（API 冷启动超时）时不误判为空；种子词典就位即视为已建库
+    _dict_api_ok = not dict_stats.get("degraded", False)
+    has_active_library = _dict_api_ok and (
+        dict_stats.get("total_active_count", dict_stats.get("active_non_seed_count", 0)) > 0
+    )
 
-    if not has_active_library:
+    if _dict_api_ok and not has_active_library:
         st.markdown("""
         <div style="background:#1a1a2e;border:2px solid #E67E22;border-radius:10px;
                     padding:22px 24px;margin-bottom:20px">
@@ -3269,13 +3273,17 @@ with tab6:
                                 _hl = _n.get("headline", "")
                                 _sm = _n.get("summary", "")
                                 _syms = ", ".join(_n.get("symbols", [])[:6])
+                                _hl_html = (
+                                    f'<a href="{_url}" target="_blank" style="color:#f0f6fc;text-decoration:none">{_hl}</a>'
+                                    if _url else _hl
+                                )
                                 st.markdown(
                                     f'<div style="background:#0d1117;border-radius:6px;'
                                     f'padding:10px 12px;margin-bottom:6px;'
                                     f'border-left:2px solid #F39C12">'
                                     f'<div style="font-size:14px;font-weight:600;color:#f0f6fc;'
                                     f'margin-bottom:4px">'
-                                    f'{"<a href=\"" + _url + "\" target=\"_blank\" style=\"color:#f0f6fc;text-decoration:none\">" + _hl + "</a>" if _url else _hl}'
+                                    f'{_hl_html}'
                                     f'</div>'
                                     f'<div style="font-size:13px;color:#8b949e;margin-bottom:4px">'
                                     f'{_sm}</div>'
@@ -3523,6 +3531,7 @@ with tab6:
                         )
 
                     _wl_c1, _wl_c2, _wl_c3 = st.columns([4, 3, 1])
+                    _upgraded_html = '<div style="font-size:13px;color:#2ECC71;margin-top:3px">🎉 已达目标信号！</div>' if _upgraded else ""
                     with _wl_c1:
                         st.markdown(
                             f'<div style="background:#161b22;border-radius:8px;'
@@ -3536,7 +3545,7 @@ with tab6:
                             f'当前信号: <span style="color:{_sig_color}">{_cur_sig}</span>'
                             f'</div>'
                             f'{_wl_price_row}'
-                            f'{"<div style=\"font-size:13px;color:#2ECC71;margin-top:3px\">🎉 已达目标信号！</div>" if _upgraded else ""}'
+                            f'{_upgraded_html}'
                             f'</div>',
                             unsafe_allow_html=True,
                         )
