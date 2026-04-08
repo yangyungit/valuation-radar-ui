@@ -294,7 +294,9 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-    if currently_running:
+    if status.get("degraded"):
+        st.error(f"后端不可达：{status.get('error', '未知错误')[:120]}")
+    elif currently_running:
         st.session_state["_pipeline_was_running"] = True
         st.markdown('<div class="pipeline-running">⏳ 流水线正在运行中，每 5 秒自动刷新…</div>',
                     unsafe_allow_html=True)
@@ -320,8 +322,10 @@ with st.sidebar:
         if result.get("status") == "started":
             st.session_state["_pipeline_was_running"] = True
             st.success("流水线已在后台启动，页面将自动轮询直到完成后刷新视图。")
+        elif result.get("error"):
+            st.error(f"触发失败：{result['error'][:200]}")
         else:
-            st.warning(result.get("message", "未知状态"))
+            st.warning(result.get("message", "服务器未返回有效状态，请稍后重试"))
         st.rerun()
 
     st.divider()
@@ -2305,13 +2309,15 @@ with tab5:
 
                 border_color = "#E74C3C" if is_concentrated else "#3498DB"
 
+                heat_rank_val = int(row.get("heat_rank", 999))
+                show_label = heat_rank_val <= 12
                 fig_quad.add_trace(go.Scatter(
                     x=[float(row["composite_heat"])],
                     y=[float(row["sentiment_momentum"])],
-                    mode="markers+text",
-                    text=[row["l2_sector"]],
+                    mode="markers+text" if show_label else "markers",
+                    text=[row["l2_sector"]] if show_label else [""],
                     textposition="top center",
-                    textfont=dict(size=13, color="#eee"),
+                    textfont=dict(size=12, color="#eee"),
                     marker=dict(
                         size=13,
                         symbol="circle",
@@ -2321,6 +2327,7 @@ with tab5:
                     ),
                     hovertext=hover_text,
                     hoverinfo="text",
+                    name=row["l2_sector"],
                     showlegend=False,
                 ))
 
