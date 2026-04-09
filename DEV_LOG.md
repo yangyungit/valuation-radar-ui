@@ -2,6 +2,19 @@
 
 ---
 
+## 2026-04-09 | 舆情监控：删除共振猎场（Phase 6）
+
+**变动**：
+- `pages/2_舆情监控.py`：完整移除 Phase 6「共振猎场」模块（约 760 行代码）。
+  - 删除了导航栏入口 `(6, "共振猎场")`，导航栏从 6 列改为 5 列。
+  - 删除 `PHASE_COLORS` 中 `6: "#E74C3C"` 配色项。
+  - 删除所有 Phase 6 专属 API 导入：`get_arena_d_factors`、`get_etf_rs20d`、`fetch_narrative_sector_heat`、`fetch_cio_watchlist`、`add_to_cio_watchlist`、`remove_from_cio_watchlist`、`update_cio_watchlist_notes`、`get_alpaca_ticker_news`、`get_ticker_cooccurrence`、`get_alpaca_snapshots`。
+  - 更新原理白盒介绍文字，移除对「共振猎场 Tab 6」的引用。
+
+**原因**：功能暂时下线，页面仅保留 Phase 1–5。
+
+---
+
 ## 2026-04-09 | 叙事四象限雷达：删除热度榜 Tab + 散点图分层显示重构
 
 **变动**：
