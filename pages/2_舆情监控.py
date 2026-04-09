@@ -305,7 +305,7 @@ with st.expander("🔬 引擎原理白盒 — NLP 流水线是怎么工作的？
       <b>TF-IDF</b> = 词频 × 逆文档频率，衡量一个词"在今天特别突出、但平时不常见"的程度。<br><br>
       · <b>TF（词频）</b>：这个词今天出现了多少次？<br>
       · <b>IDF（逆文档频率）</b>：这个词平时有多罕见？越罕见分越高<br>
-      · <b>热度系数</b> = 今日频率 ÷ 历史均值，> 2.0 视为放量<br><br>
+      · <b>温度</b> = 今日频率 ÷ 历史均值，> 2.0 视为放量<br><br>
       <span style="color:#888">目的：自动发现词典里没有、但市场正在热议的新兴词汇，作为"孤儿词"候选。</span>
     </div>
   </div>
@@ -1054,7 +1054,7 @@ with tab2:
                     sbl_rows.append({
                         "词条": bl["term"],
                         "最后检测日": bl.get("check_date", ""),
-                        "热度系数": round(bl.get("burst_ratio", 0) or 0, 2),
+                        "温度": round(bl.get("burst_ratio", 0) or 0, 2),
                         "主题关联度": round(bl.get("cooc_degree", 0) or 0, 3),
                         "文档数": bl.get("doc_count", 0) or 0,
                         "连续天数": bl.get("consecutive", 0) or 0,
@@ -1086,7 +1086,7 @@ with tab2:
 # Tab 3: TF-IDF Bottom-Up Discovery + Quality Inspector
 # =========================================================================
 with tab3:
-    _phase_header(1, "新词发现（TF-IDF 自下而上）", "对新词——发现、过滤、决定要不要晋升入词典；对旧词——持续监测在语料中的温度变化（热度系数）。<br><span style='font-weight:normal'><b>TF-IDF</b> = <b>词频（TF）× 逆文档频率（IDF）</b>。TF 衡量一个词在今日语料中出现的密度；IDF 惩罚那些在历史上随处可见的通用词——一个词越罕见，IDF 越高，信噪比越强。两者相乘，筛出的是<b>今天突然密集出现、但过去鲜少提及</b>的词，即市场叙事的早期涌现信号。</span>")
+    _phase_header(1, "新词发现（TF-IDF 自下而上）", "对新词——发现、过滤、决定要不要晋升入词典；对旧词——持续监测在语料中的温度变化。<br><span style='font-weight:normal'><b>TF-IDF</b> = <b>词频（TF）× 逆文档频率（IDF）</b>。TF 衡量一个词在今日语料中出现的密度；IDF 惩罚那些在历史上随处可见的通用词——一个词越罕见，IDF 越高，信噪比越强。两者相乘，筛出的是<b>今天突然密集出现、但过去鲜少提及</b>的词，即市场叙事的早期涌现信号。</span>")
 
     v3_sub3, v3_sub1, v3_sub2 = st.tabs(["🆕 今日新发现", "📊 TF-IDF 挖掘", "🤖 gemini质检"])
 
@@ -1124,17 +1124,17 @@ with tab3:
             if gate3_available:
                 st.caption(
                     f"以下 {len(tfidf_data)} 个词已通过 LLM 质检（Gemini Flash 审判），"
-                    f"噪音词已自动过滤。热度系数 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
+                    f"噪音词已自动过滤。温度 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
                 )
             elif quality_filtered:
                 st.caption(
                     f"以下 {len(tfidf_data)} 个词已通过统计质检（✅ 通过 / 🛡️ 旧词命中），"
-                    f"噪音、低热度、孤立词已自动过滤。热度系数 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
+                    f"噪音、低热度、孤立词已自动过滤。温度 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
                 )
             else:
                 st.caption(
                     f"以下 {len(tfidf_data)} 个词由 TF-IDF 引擎自动浮现（质检员尚未运行，显示全量候选词，含噪音）。"
-                    f"热度系数 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
+                    f"温度 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
                 )
 
             rows = []
@@ -1166,7 +1166,7 @@ with tab3:
                     "入库状态": promo,
                     "TF-IDF 分": round(item.get("tfidf_score", 0.0), 5),
                     "今日文档数": item.get("doc_count", 0),
-                    "热度系数": round(br, 2),
+                    "温度": round(br, 2),
                     "主题关联度": round(cd, 3),
                     "连续出现天": streak,
                     "归属 L2": l2_label,
@@ -1184,7 +1184,7 @@ with tab3:
                 column_config={
                     "TF-IDF 分": st.column_config.NumberColumn(format="%.5f"),
                     "今日文档数": st.column_config.NumberColumn(format="%d"),
-                    "热度系数": st.column_config.ProgressColumn(
+                    "温度": st.column_config.ProgressColumn(
                         min_value=0.0, max_value=10.0, format="%.1fx"
                     ),
                     "主题关联度": st.column_config.ProgressColumn(
@@ -1284,7 +1284,7 @@ with tab3:
                         f'border-radius:4px;font-size:13px;font-weight:600;">{gate_label}</span>'
                         f'&nbsp;&nbsp;<strong style="font-size:15px;">{html_lib.escape(bl_term)}</strong>'
                         f'<br><span style="font-size:13px;color:#aaa;">'
-                        f'热度系数: <b>{burst}</b> &nbsp;|&nbsp; '
+                        f'温度: <b>{burst}</b> &nbsp;|&nbsp; '
                         f'主题关联度: <b>{cooc}</b> &nbsp;|&nbsp; '
                         f'文档数: <b>{docs}</b> &nbsp;|&nbsp; '
                         f'连续天数: <b>{streak}</b></span>',
@@ -1341,7 +1341,7 @@ with tab3:
                 qlog_rows.append({
                     "日期": q.get("check_date", ""),
                     "词汇": q["term"],
-                    "热度系数": round(q.get("burst_ratio", 0), 2),
+                    "温度": round(q.get("burst_ratio", 0), 2),
                     "主题关联度": round(q.get("cooc_degree", 0), 3),
                     "连续天数": q.get("consecutive", 0),
                     "文档数": q.get("doc_count", 0),
@@ -1368,7 +1368,7 @@ with tab3:
                     "入库时间": p.get("created_at", ""),
                     "TF-IDF 分": round(p.get("tfidf_score", 0) or 0, 5),
                     "连续天数": p.get("consecutive_days", 0),
-                    "热度系数": round(p.get("burst_ratio", 0) or 0, 2),
+                    "温度": round(p.get("burst_ratio", 0) or 0, 2),
                     "主题关联度": round(p.get("cooc_degree", 0) or 0, 3),
                 })
             st.dataframe(pd.DataFrame(promo_rows), use_container_width=True, hide_index=True)
@@ -1477,7 +1477,7 @@ with tab3:
                         f"{badge}</span></div>"
                         f"<div style='font-size:13px; margin-top:6px; color:#aaa;'>"
                         f"TF-IDF: <b>{tfidf_s}</b> &nbsp;|&nbsp; "
-                        f"热度系数: <b>{burst}</b> &nbsp;|&nbsp; "
+                        f"温度: <b>{burst}</b> &nbsp;|&nbsp; "
                         f"板块: <b>{html_lib.escape(l2)}</b> &nbsp;|&nbsp; "
                         f"首现: <b>{first_seen}</b></div>"
                         f"<div style='font-size:13px; margin-top:4px; color:#aaa;'>"
@@ -2260,7 +2260,7 @@ with tab4:
 with tab5:
     _phase_header(
         5, "叙事四象限雷达",
-        "横轴 = 综合热力原始分 (0-1)，纵轴 = 热度动量（提及量环比变化率），颜色 = 热度集中类型",
+        "横轴 = 综合热力原始分 (0-1)，纵轴 = 词频动量（提及量环比变化率），颜色 = 热度集中类型",
     )
 
     # ---------- Fetch APIs ----------
@@ -2311,6 +2311,10 @@ with tab5:
 
     if l2l3_data:
         df_radar = pd.DataFrame(l2l3_data)
+        # #region agent log — show actual columns in UI for cloud diagnosis
+        _dbg_cols = sorted(df_radar.columns.tolist())
+        st.info(f"🔬 [DEBUG] df_radar columns ({len(_dbg_cols)}): `{_dbg_cols}`")
+        # #endregion
         df_radar["heat_percentile"] = df_radar["heat_percentile"].astype(float)
         df_radar["heat_momentum"] = df_radar["heat_momentum"].astype(float)
         df_radar["composite_heat"] = df_radar["composite_heat"].astype(float)
@@ -2340,7 +2344,7 @@ with tab5:
             with snap_col1:
                 st.caption(
                     "横轴 = 综合热力分 (0-1, 越右越热)"
-                    "　｜　纵轴 = 热度动量 (提及量环比变化率)"
+                    "　｜　纵轴 = 词频动量 (提及量环比变化率)"
                     "　｜　🔴 单词爆发型 / 🔵 多词共振型"
                 )
 
@@ -2416,7 +2420,7 @@ with tab5:
                     f"<b>{row['l2_sector']}</b><br>"
                     f"热力排名: #{int(row.get('heat_rank', 0))} "
                     f"(综合分 {float(row['composite_heat']):.3f})<br>"
-                    f"热度动量: {float(row['heat_momentum']):+.1%}<br>"
+                    f"词频动量: {float(row['heat_momentum']):+.1%}<br>"
                     f"提及量: {int(row.get('mention_count', 0))}<br>"
                     f"类型: {type_label}<br>"
                     f"象限停留: {dwell_d}天 | 上一象限: {prev_q}<br>"
@@ -2482,7 +2486,7 @@ with tab5:
                     gridcolor="rgba(80,80,80,0.3)",
                 ),
                 yaxis=dict(
-                    title="衰减 ← 热度动量 → 升温",
+                    title="衰减 ← 词频动量 → 升温",
                     zeroline=False,
                     range=[-1.0, 1.0],
                     tickvals=[-0.8, -0.5, -0.2, 0, 0.2, 0.5, 0.8],
@@ -2559,7 +2563,7 @@ with tab5:
                 sc1, sc2, sc3, sc4, sc5, sc6 = st.columns(6)
                 sc1.metric("热力排名", f"#{int(sr.get('heat_rank', 0))}")
                 sc2.metric("综合热力分", f"{float(sr['composite_heat']):.3f}")
-                sc3.metric("热度动量", f"{float(sr['heat_momentum']):+.1%}")
+                sc3.metric("词频动量", f"{float(sr['heat_momentum']):+.1%}")
                 type_label = "🔴 单词爆发" if sr.get("heat_type") == "concentrated" else "🔵 多词共振"
                 sc4.metric("热度类型", type_label)
                 sc5.metric("当前象限", cur_q)
@@ -2872,7 +2876,7 @@ with tab5:
                 )
                 _anom_hovers.append(
                     f"<b>{row['l2_sector']}</b><br>"
-                    f"热度动量: {sm:+.1%} ({direction})<br>"
+                    f"词频动量: {sm:+.1%} ({direction})<br>"
                     f"综合热力: {ch:.3f}<br>"
                     f"当前象限: {quad}<br>"
                     f"提及量: {mc}篇<br>"
@@ -2909,7 +2913,7 @@ with tab5:
                 paper_bgcolor="#111111",
                 font=dict(color="#ddd", size=13),
                 xaxis=dict(
-                    title="← 衰减　　　热度动量　　　升温 →",
+                    title="← 衰减　　　词频动量　　　升温 →",
                     range=[-_max_abs, _max_abs],
                     zeroline=False,
                     gridcolor="rgba(80,80,80,0.3)",
@@ -2920,7 +2924,7 @@ with tab5:
 
             st.markdown(
                 "<div style='font-size:13px;color:#888;margin-bottom:8px'>"
-                "按热度动量绝对值排序（变化最大在上方）· "
+                "按词频动量绝对值排序（变化最大在上方）· "
                 "🟢 正值 = 升温 · "
                 "🔴 负值 = 衰减 · "
                 "虚线 = ±10% 参考线"
@@ -3173,7 +3177,7 @@ with tab6:
                     f'<span style="font-size:14px;color:#F39C12;font-weight:600">'
                     f'热力: {ch_val:.2f}</span></div>'
                     f'<div style="font-size:13px;color:#8b949e;margin-bottom:10px">'
-                    f'热度动量: <span style="color:{sm_color}">{sm_val:+.1%}</span>'
+                    f'词频动量: <span style="color:{sm_color}">{sm_val:+.1%}</span>'
                     f'&nbsp; 叙事速度: {v_lbl}</div>'
                     f'<hr style="border-color:#30363d;margin:8px 0">'
                     f'<div style="font-size:13px;color:#8b949e">'
