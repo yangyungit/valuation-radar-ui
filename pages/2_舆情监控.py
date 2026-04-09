@@ -166,9 +166,6 @@ st.markdown("""
         color: #58a6ff; text-decoration: none; font-size: 13px;
     }
     .prov-headline a:hover { text-decoration: underline; }
-    .prov-sentiment-pos { color: #2ECC71; font-weight: bold; }
-    .prov-sentiment-neg { color: #E74C3C; font-weight: bold; }
-    .prov-sentiment-neu { color: #888; }
     .prov-page-info { font-size: 13px; color: #888; margin-top: 8px; }
     .prov-freq {
         display: inline-block; min-width: 24px; text-align: center;
@@ -178,6 +175,14 @@ st.markdown("""
     .prov-freq-hot { background: rgba(231,76,60,0.18); color: #E74C3C; }
     .prov-freq-warm { background: rgba(243,156,18,0.18); color: #F39C12; }
     .prov-freq-cool { background: rgba(136,136,136,0.15); color: #aaa; }
+    .prov-temp {
+        display: inline-block; min-width: 36px; text-align: center;
+        padding: 2px 6px; border-radius: 4px; font-weight: 700;
+        font-size: 13px;
+    }
+    .prov-temp-hot  { background: rgba(231,76,60,0.18);  color: #E74C3C; }
+    .prov-temp-warm { background: rgba(243,156,18,0.18); color: #F39C12; }
+    .prov-temp-cool { background: rgba(136,136,136,0.15); color: #888; }
     .prov-reason {
         display: inline-block; padding: 2px 8px; border-radius: 4px;
         font-size: 13px; font-weight: 600;
@@ -649,6 +654,14 @@ with tab1:
     log_data = log_resp.get("data", [])
     log_total = log_resp.get("total", 0)
 
+    # 构建关键词 → 温度（burst_ratio）映射，用于在表格中展示旧词热度
+    _tfidf_temp_resp = fetch_tfidf_terms(days=prov_days, top_k=500, show_all=True)
+    _temp_map: dict = {
+        item["term"]: item.get("burst_ratio", 0.0)
+        for item in _tfidf_temp_resp.get("data", [])
+        if item.get("term")
+    }
+
     if log_resp.get("degraded"):
         st.markdown(
             f'<div class="degraded-banner">⚠️ 溯源面板降级：{log_resp.get("error", "未知")}</div>',
@@ -691,18 +704,7 @@ with tab1:
             src_label = SOURCE_LABEL.get(src_raw, src_raw or "—")
             headline = row.get("headline", "") or "—"
             url = row.get("article_url", "")
-            sent = row.get("sentiment", 0.0) or 0.0
             m_date = row.get("match_date", "")
-
-            if sent > 0.05:
-                sent_cls = "prov-sentiment-pos"
-                sent_txt = f"+{sent:.2f}"
-            elif sent < -0.05:
-                sent_cls = "prov-sentiment-neg"
-                sent_txt = f"{sent:.2f}"
-            else:
-                sent_cls = "prov-sentiment-neu"
-                sent_txt = f"{sent:.2f}"
 
             headline_display = headline[:80] + "…" if len(headline) > 80 else headline
             headline_cell = (
@@ -731,6 +733,16 @@ with tab1:
             else:
                 freq_cls = "prov-freq prov-freq-cool"
 
+            br = _temp_map.get(kw)
+            if br is None:
+                temp_cell = '<span style="color:#555">—</span>'
+            elif br >= 2.0:
+                temp_cell = f'<span class="prov-temp prov-temp-hot">{br:.1f}x</span>'
+            elif br >= 1.0:
+                temp_cell = f'<span class="prov-temp prov-temp-warm">{br:.1f}x</span>'
+            else:
+                temp_cell = f'<span class="prov-temp prov-temp-cool">{br:.1f}x</span>'
+
             reason_map = {
                 "seed":       ("种子词",     "prov-reason prov-reason-seed"),
                 "approved":   ("人工审批",   "prov-reason prov-reason-manual"),
@@ -745,9 +757,9 @@ with tab1:
                 f'<td style="color:#666;white-space:nowrap">{m_date}</td>'
                 f"<td>{kw_badge}</td>"
                 f'<td><span class="{freq_cls}">{day_freq}</span></td>'
+                f"<td>{temp_cell}</td>"
                 f"<td>{l2_badge}</td>"
                 f'<td><span class="{reason_cls}">{reason_label}</span></td>'
-                f'<td class="{sent_cls}">{sent_txt}</td>'
                 f'<td class="prov-src">{src_label}</td>'
                 f'<td class="prov-headline">{headline_cell}</td>'
                 f"</tr>"
@@ -759,8 +771,8 @@ with tab1:
             f'<div style="max-height:{_table_h}px;overflow-y:auto;border:1px solid #222;border-radius:6px">'
             '<table class="prov-table">'
             "<thead><tr>"
-            "<th>日期</th><th>关键词</th><th>词频</th><th>L2 子行业</th>"
-            "<th>入库原因</th><th>情感</th><th>信息源</th><th>文章标题</th>"
+            "<th>日期</th><th>关键词</th><th>词频</th><th>温度</th><th>L2 子行业</th>"
+            "<th>入库原因</th><th>信息源</th><th>文章标题</th>"
             "</tr></thead><tbody>"
             + "\n".join(rows_html)
             + "</tbody></table></div>"
@@ -1129,18 +1141,17 @@ with tab3:
             elif quality_filtered:
                 st.caption(
                     f"以下 {len(tfidf_data)} 个词已通过统计质检（✅ 通过 / 🛡️ 旧词命中），"
-                    f"噪音、低热度、孤立词已自动过滤。温度 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
+                    f"噪音、低热度、孤立词已自动过滤。主题关联度 > 0.3 = 有主题归属。"
                 )
             else:
                 st.caption(
                     f"以下 {len(tfidf_data)} 个词由 TF-IDF 引擎自动浮现（质检员尚未运行，显示全量候选词，含噪音）。"
-                    f"温度 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
+                    f"主题关联度 > 0.3 = 有主题归属。"
                 )
 
             rows = []
             for item in tfidf_data:
                 streak = item.get("consecutive_days", 0)
-                br = item.get("burst_ratio", 0.0)
                 cd = item.get("cooc_degree", 0.0)
                 verdict = item.get("verdict", "unreviewed")
                 gate3_reason = item.get("gate3_reason", "")
@@ -1166,7 +1177,6 @@ with tab3:
                     "入库状态": promo,
                     "TF-IDF 分": round(item.get("tfidf_score", 0.0), 5),
                     "今日文档数": item.get("doc_count", 0),
-                    "温度": round(br, 2),
                     "主题关联度": round(cd, 3),
                     "连续出现天": streak,
                     "归属 L2": l2_label,
@@ -1184,9 +1194,6 @@ with tab3:
                 column_config={
                     "TF-IDF 分": st.column_config.NumberColumn(format="%.5f"),
                     "今日文档数": st.column_config.NumberColumn(format="%d"),
-                    "温度": st.column_config.ProgressColumn(
-                        min_value=0.0, max_value=10.0, format="%.1fx"
-                    ),
                     "主题关联度": st.column_config.ProgressColumn(
                         min_value=0.0, max_value=1.0, format="%.3f"
                     ),

@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-04-09 | 旧词统计表格：删除情感列，新增温度列；TF-IDF 表格删除温度列
+
+**变动**：
+- `pages/2_舆情监控.py` Tab1（旧词统计）表格：删除"情感"列（`sentiment` 字段，已无分析价值），在"词频"列后新增"温度"列（`burst_ratio`，格式为 `Nx`，≥2.0 红色 / 1.0–2.0 橙色 / <1.0 灰色）。
+- 温度数据来源：在 Tab1 加载时额外调用 `fetch_tfidf_terms(days=prov_days, top_k=500, show_all=True)`，构建关键词 → burst_ratio 查找表；若关键词未出现在 TF-IDF 结果中则显示"—"。
+- Tab3（新词发现 / TF-IDF）表格：删除"温度"列（`burst_ratio`），同步更新 column_config 及说明文字，表格更简洁。
+- CSS：删除不再使用的 `.prov-sentiment-*` 样式，新增 `.prov-temp` / `.prov-temp-hot` / `.prov-temp-warm` / `.prov-temp-cool` 样式。
+
+**影响范围**：`pages/2_舆情监控.py`。
+
 ## 2026-04-09 | Bug Fix：Tab5 兼容后端旧字段名 sentiment_momentum
 
 **问题**：Streamlit Cloud 上 Tab5（叙事雷达）报 `KeyError: heat_momentum`。  
