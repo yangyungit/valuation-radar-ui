@@ -1088,7 +1088,7 @@ with tab2:
 with tab3:
     _phase_header(1, "新词发现（TF-IDF 自下而上）", "对新词——发现、过滤、决定要不要晋升入词典；对旧词——持续监测在语料中的温度变化（热度系数）。<br><span style='font-weight:normal'><b>TF-IDF</b> = <b>词频（TF）× 逆文档频率（IDF）</b>。TF 衡量一个词在今日语料中出现的密度；IDF 惩罚那些在历史上随处可见的通用词——一个词越罕见，IDF 越高，信噪比越强。两者相乘，筛出的是<b>今天突然密集出现、但过去鲜少提及</b>的词，即市场叙事的早期涌现信号。</span>")
 
-    v3_sub1, v3_sub2, v3_sub3 = st.tabs(["📊 TF-IDF 挖掘", "🤖 gemini质检", "🆕 今日新发现"])
+    v3_sub3, v3_sub1, v3_sub2 = st.tabs(["🆕 今日新发现", "📊 TF-IDF 挖掘", "🤖 gemini质检"])
 
     # ----- Sub-tab: TF-IDF Signal Words -----
     with v3_sub1:
@@ -1395,6 +1395,39 @@ with tab3:
 
     # ----- Sub-tab: New Terms Discovery -----
     with v3_sub3:
+        # ----- Top-20 热度预览图（置顶） -----
+        _top20_resp = fetch_tfidf_terms(days=7, top_k=50)
+        _top20_data = _top20_resp.get("data", [])
+        if _top20_data and not _top20_resp.get("degraded"):
+            _top20_rows = [
+                {
+                    "词汇": _it["term"],
+                    "TF-IDF 分": round(float(_it.get("tfidf_score", 0.0)), 5),
+                    "今日文档数": _it.get("doc_count", 0),
+                }
+                for _it in _top20_data
+            ]
+            _top20_df = pd.DataFrame(_top20_rows).head(20)
+            if not _top20_df.empty:
+                _fig_top = go.Figure(go.Bar(
+                    x=_top20_df["词汇"].tolist(),
+                    y=_top20_df["TF-IDF 分"].astype(float).tolist(),
+                    marker_color="#3498DB",
+                    text=_top20_df["今日文档数"].astype(str).tolist(),
+                    textposition="outside",
+                ))
+                _fig_top.update_layout(
+                    title="质检通过词 Top-20 热度",
+                    xaxis_title="词汇",
+                    yaxis_title="TF-IDF 分",
+                    height=350,
+                    margin=dict(t=40, b=80, l=40, r=20),
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#ccc", size=13),
+                )
+                st.plotly_chart(_fig_top, use_container_width=True)
+
         NEW_TERM_WINDOWS = {"今日": 1, "近 3 日": 3, "近 7 日": 7}
         nt_window_label = st.selectbox(
             "时间窗", list(NEW_TERM_WINDOWS.keys()), index=0, key="nt_window"
