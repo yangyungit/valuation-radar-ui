@@ -530,6 +530,21 @@ def fetch_narrative_status():
     return _narrative_get("/api/v1/narrative/status")
 
 
+def trigger_batch_backfill(days: int = 180, start_date: str = None, end_date: str = None, force_missing: bool = False):
+    """触发 Render 服务端批量历史回填（非阻塞，服务端自主循环跑完所有日期）。"""
+    payload = {"days": days, "force_missing": force_missing}
+    if start_date:
+        payload["start_date"] = start_date
+    if end_date:
+        payload["end_date"] = end_date
+    return _narrative_post("/api/v1/narrative/batch_backfill", json=payload)
+
+
+def fetch_batch_backfill_status():
+    """轮询 Render 服务端批量回填进度。"""
+    return _narrative_get("/api/v1/narrative/batch_backfill_status")
+
+
 def fetch_crawler_status():
     return _narrative_get("/api/v1/narrative/crawler_status")
 

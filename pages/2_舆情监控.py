@@ -52,6 +52,8 @@ from api_client import (
     post_dictionary_delete_l2,
     fetch_crawler_status,
     fetch_core_data,
+    trigger_batch_backfill,
+    fetch_batch_backfill_status,
 )
 from datetime import date as _date, timedelta as _timedelta
 import math
@@ -425,6 +427,62 @@ with st.sidebar:
         else:
             st.warning(result.get("message", "服务器未返回有效状态，请稍后重试"))
         st.rerun()
+
+    st.divider()
+
+    # --- 批量历史回填 ---
+    st.markdown(
+        '<div style="display:flex;align-items:center;gap:8px;margin:8px 0">'
+        '<span style="font-size:14px;font-weight:700;color:#ccc">📦 历史批量回填</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    bf_status = fetch_batch_backfill_status()
+    bf_running = bf_status.get("running", False)
+    prev_bf_running = st.session_state.get("_backfill_was_running", False)
+
+    if prev_bf_running and not bf_running:
+        st.session_state["_backfill_was_running"] = False
+        st.cache_data.clear()
+        st.rerun()
+
+    if bf_running:
+        st.session_state["_backfill_was_running"] = True
+        _bf_done = bf_status.get("done", 0)
+        _bf_total = bf_status.get("total", 0)
+        _bf_cur = bf_status.get("current_date", "?")
+        _bf_pct = int(_bf_done / _bf_total * 100) if _bf_total > 0 else 0
+        st.progress(_bf_pct / 100, text=f"⏳ 回填中 {_bf_done}/{_bf_total} ({_bf_pct}%)")
+        st.caption(f"当前日期: {_bf_cur} | 跳过: {bf_status.get('skipped',0)} | 失败: {bf_status.get('failed',0)}")
+        time.sleep(15)
+        st.rerun()
+    else:
+        _bf_finished = bf_status.get("finished_at")
+        _bf_started = bf_status.get("started_at")
+        if _bf_finished:
+            _bf_done = bf_status.get("done", 0)
+            _bf_skip = bf_status.get("skipped", 0)
+            _bf_fail = bf_status.get("failed", 0)
+            st.success(f"上次完成 ✅ {_bf_done} 天 | ⏭️ {_bf_skip} 跳过 | ❌ {_bf_fail} 失败")
+            if bf_status.get("last_error"):
+                st.caption(f"最后错误: {bf_status['last_error'][:80]}")
+        elif _bf_started:
+            st.info("上次回填已启动但未完成（可能服务重启中断）")
+
+        _bf_days = st.slider("回填天数", min_value=30, max_value=365, value=180, step=30,
+                             key="bf_days_slider",
+                             help="从今天往前推算，回填这么多天（已有数据自动跳过）")
+        _bf_force = st.checkbox("重跑 DATA_MISSING 的日期", value=False, key="bf_force_missing")
+
+        if st.button("🚀 启动服务端回填", disabled=bf_running, use_container_width=True):
+            _bf_resp = trigger_batch_backfill(days=_bf_days, force_missing=_bf_force)
+            if _bf_resp.get("status") == "started":
+                st.session_state["_backfill_was_running"] = True
+                st.success(f"已触发！{_bf_resp.get('start_date')} → {_bf_resp.get('end_date')}")
+            else:
+                st.error(f"触发失败: {_bf_resp.get('message') or _bf_resp.get('error', '未知')}")
+            st.rerun()
 
     st.divider()
 
