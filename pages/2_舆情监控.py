@@ -357,12 +357,12 @@ for _pi, (_pnum, _plabel) in enumerate(_steps):
             )
         st.markdown(
             f"<style>"
-            f"div[data-testid='stMarkdownContainer']:has(#pnav-marker-{_pnum})"
-            f" ~ div[data-testid='stButton'] button{{"
+            f"div[data-testid='stColumn']:has(#pnav-marker-{_pnum})"
+            f" [data-testid='stButton'] button{{"
             f"  {_btn_style}"
             f"}}"
-            f"div[data-testid='stMarkdownContainer']:has(#pnav-marker-{_pnum})"
-            f" ~ div[data-testid='stButton'] button:hover{{"
+            f"div[data-testid='stColumn']:has(#pnav-marker-{_pnum})"
+            f" [data-testid='stButton'] button:hover{{"
             f"  filter:brightness(1.15) !important;"
             f"}}"
             f"</style>"
