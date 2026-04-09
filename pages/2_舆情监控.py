@@ -2209,7 +2209,7 @@ if active_phase == 5:
                 st.caption(
                     "横轴 = 综合热力分 (0-1, 越右越热)"
                     "　｜　纵轴 = 词频动量 (提及量环比变化率)"
-                    "　｜　🔴 L3单词 / 🔵 L2词典"
+                    "　｜　L3单词 / L2词典"
                 )
 
             # --- Build snapshot DataFrame ---
@@ -2265,8 +2265,8 @@ if active_phase == 5:
 
             # 分层显示：L3单词（concentrated）和 L2词典（distributed）各为独立 trace
             _layer_defs = [
-                ("concentrated", "🔴 L3单词", "#E74C3C"),
-                ("distributed",  "🔵 L2词典", "#3498DB"),
+                ("concentrated", "L3单词", "#E74C3C"),
+                ("distributed",  "L2词典", "#3498DB"),
             ]
             for _heat_type, _layer_name, _layer_color in _layer_defs:
                 _xs, _ys, _texts, _hovers = [], [], [], []
@@ -2378,15 +2378,6 @@ if active_phase == 5:
                 ),
                 margin=dict(l=80, r=30, t=50, b=70),
             )
-            st.markdown(
-                "<div style='display:flex;gap:24px;padding:6px 12px;"
-                "background:rgba(0,0,0,0.4);border-radius:6px;"
-                "font-size:13px;color:#ddd;margin-bottom:4px'>"
-                "<span>🔴 <b>L3单词</b>（集中度高，单词爆发型）</span>"
-                "<span>🔵 <b>L2词典</b>（集中度低，多词共振型）</span>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
             st.plotly_chart(fig_quad, use_container_width=True)
 
             # --- Quadrant attribution cards (v3) ---
@@ -2447,7 +2438,7 @@ if active_phase == 5:
                 sc1.metric("热力排名", f"#{int(sr.get('heat_rank', 0))}")
                 sc2.metric("综合热力分", f"{float(sr['composite_heat']):.3f}")
                 sc3.metric("词频动量", f"{float(sr['heat_momentum']):+.1%}")
-                type_label = "🔴 L3单词" if sr.get("heat_type") == "concentrated" else "🔵 L2词典"
+                type_label = "L3单词" if sr.get("heat_type") == "concentrated" else "L2词典"
                 sc4.metric("热度类型", type_label)
                 sc5.metric("当前象限", cur_q)
                 sc6.metric("象限停留", f"{dwell_d}天")
