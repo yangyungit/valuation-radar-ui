@@ -1098,7 +1098,7 @@ with tab2:
 # Tab 3: TF-IDF Bottom-Up Discovery + Quality Inspector
 # =========================================================================
 with tab3:
-    _phase_header(1, "新词发现（TF-IDF 自下而上）", "对新词——发现、过滤、决定要不要晋升入词典；对旧词——持续监测在语料中的温度变化。<br><span style='font-weight:normal'><b>TF-IDF</b> = <b>词频（TF）× 逆文档频率（IDF）</b>。TF 衡量一个词在今日语料中出现的密度；IDF 惩罚那些在历史上随处可见的通用词——一个词越罕见，IDF 越高，信噪比越强。两者相乘，筛出的是<b>今天突然密集出现、但过去鲜少提及</b>的词，即市场叙事的早期涌现信号。</span>")
+    _phase_header(1, "新词发现（TF-IDF 自下而上）", "对新词——发现、过滤、决定要不要晋升入词典；对旧词——持续监测在语料中的温度变化。<br><span style='font-weight:normal'><b>TF</b> = 今天含这个词的文章数 / 今日语料总篇数（出现有多普遍）；<b>IDF</b> = log( (语料总数+1) / (含该词文章数+1) ) + 1（这个词有多稀有）；<b>TF-IDF = TF × IDF</b>。IDF 自动压制每天都出现的泛词，筛出的是<b>今天突然密集出现、但平时鲜少提及</b>的词，即市场叙事的早期涌现信号。</span>")
 
     v3_sub3, v3_sub1, v3_sub2 = st.tabs(["🆕 今日新发现", "📊 TF-IDF 挖掘", "🤖 gemini质检"])
 
@@ -1155,7 +1155,6 @@ with tab3:
                 # 旧词（已在词典中）不在 TF-IDF 新词表展示，归属 tab4 旧词统计
                 if verdict == "protected_l3":
                     continue
-                streak = item.get("consecutive_days", 0)
                 br = item.get("burst_ratio", 0.0)
                 cd = item.get("cooc_degree", 0.0)
                 in_dict = item.get("in_dict", False)
@@ -1172,7 +1171,6 @@ with tab3:
                     "今日文档数": item.get("doc_count", 0),
                     "温度": round(br, 2),
                     "主题关联度": round(cd, 3),
-                    "连续出现天": streak,
                     "归属 L2": l2_label,
                     "首次发现": item.get("first_seen", ""),
                 })
@@ -1191,9 +1189,6 @@ with tab3:
                     ),
                     "主题关联度": st.column_config.ProgressColumn(
                         min_value=0.0, max_value=1.0, format="%.3f"
-                    ),
-                    "连续出现天": st.column_config.ProgressColumn(
-                        min_value=0, max_value=14, format="%d 天"
                     ),
                 },
             )
