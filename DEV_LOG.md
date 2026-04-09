@@ -2,6 +2,43 @@
 
 ---
 
+## 2026-04-09 | 舆情监控 Tab 顺序对调与命名优化
+
+在 `pages/2_舆情监控.py` 中对 Tab 1（原"信号溯源"）与 Tab 3（原"词汇热力"）进行位置对调，并统一优化命名，使界面展示顺序符合 NLP pipeline 的认知逻辑（先发现新词，再追踪旧词命中）。
+
+**具体变更：**
+- Tab 1（新）：**新词挖掘**（原 Tab 3 TF-IDF 自底向上发现），副标题更新为"对新词——发现、过滤、决定要不要晋升入词典；对旧词——持续监测在语料中的温度变化（爆发系数）"
+- Tab 3（新）：**旧词统计**（原 Tab 1 信号溯源），副标题更新为"追踪词典中已有关键词的文章命中记录"
+- `protected_l3` 质检标签：全文 5 处由"词典保护 / L3保护 / 受保护"统一改为 **旧词命中**
+- Pipeline Stepper 步进器标签同步更新
+
+**影响范围：** 纯前端展示层，无后端或 API 变更，不影响数据流逻辑。
+
+---
+
+## 2026-04-09 | 舆情监控页新增 NLP 流水线白盒科普面板
+
+在 `pages/2_舆情监控.py` Pipeline Stepper 下方新增一个默认折叠的 `st.expander` 科普模块，向用户白盒化展示 NLP 流水线五层工作原理（①新闻采集层 → ②关键词匹配 → ③TF-IDF 热词挖掘 → ④LLM语义过滤 → ⑤因子聚合共振信号），采用与页面色系一致的彩色卡片网格布局，纯前端 HTML/CSS，不涉及后端或 API 变更。
+
+---
+
+## 2026-04-09 | GDELT DOC API 改造为差异化渠道
+
+### 变动内容
+
+`narrative_engine.py` 中，`fetch_news_gdelt`（DOC API）的调用策略由"全关键词重复搜索"改为"差异化的估值分析语料补充"，解决其与 GKG CSV 高度重叠、净贡献接近零的问题。
+
+**具体变更：**
+1. 新增常量 `_GDELT_DOC_VALUATION_TERMS`：20 条估值分析专用短语（`price target`、`analyst upgrade`、`EV/EBITDA`、`earnings beat` 等），这些词常见于分析师报告，但不会被 GDELT NLP 打上 `ECON_/BUS_` 主题标签，因此与 GKG CSV 真正互补。
+2. 新增常量 `_GDELT_DOC_MIN_GKG_COUNT = 200`：GKG 阈值保护。
+3. 改造 `fetch_all_news()` Layer 1-B 路由逻辑：
+   - GKG ≥ 200 条时：DOC API 仅搜索 `_GDELT_DOC_VALUATION_TERMS`（差异化分析师语料）
+   - GKG < 200 条时：DOC API 退回全关键词兜底搜索（GKG 数据稀疏应急）
+
+**影响范围：** 仅 `valuation-radar/narrative_engine.py`，不涉及数据库结构或 API 接口变更。正常运营日 DOC API 请求次数大幅减少（从 `ceil(len(keywords)/10)` 批次降至 `ceil(20/10) = 2` 批次），节省约 8 秒/批次的限速等待。
+
+---
+
 ## 2026-04-09 | GDELT 主流水线改为每日自动触发
 
 ### 变动内容
