@@ -1217,7 +1217,7 @@ with tab3:
                     paper_bgcolor="rgba(0,0,0,0)",
                     font=dict(color="#ccc", size=13),
                 )
-                st.plotly_chart(fig_bar, use_container_width=True)
+                st.plotly_chart(fig_bar, use_container_width=True, key="tfidf_bar_v3sub1")
 
     # ----- Sub-tab: Quality Gate Log -----
     with v3_sub2:
@@ -1426,7 +1426,7 @@ with tab3:
                     paper_bgcolor="rgba(0,0,0,0)",
                     font=dict(color="#ccc", size=13),
                 )
-                st.plotly_chart(_fig_top, use_container_width=True)
+                st.plotly_chart(_fig_top, use_container_width=True, key="tfidf_bar_v3sub3_top20")
 
         NEW_TERM_WINDOWS = {"今日": 1, "近 3 日": 3, "近 7 日": 7}
         nt_window_label = st.selectbox(
@@ -1529,7 +1529,7 @@ with tab3:
                         height=max(250, len(l2_labels) * 32),
                         margin=dict(l=10, r=10, t=40, b=30),
                     )
-                    st.plotly_chart(fig_l2, use_container_width=True)
+                    st.plotly_chart(fig_l2, use_container_width=True, key="tfidf_l2_bar_v3sub3")
 
 
 # =========================================================================
