@@ -2,6 +2,14 @@
 
 ---
 
+## 2026-04-09 | GDELT 主流水线改为每日自动触发
+
+### 变动内容
+
+在 `valuation-radar/api_server.py` 新增 `DailyPipelineScheduler` 后台线程，随服务启动自动拉起。线程每 10 分钟检查一次当前 UTC 时间，在首次到达 UTC 08:00（北京时间 16:00）时自动触发一次 GDELT + Google News RSS 主流水线，确保当天语料完整落库后再运行，避免时差导致的 DATA_MISSING 错误。可通过环境变量 `DAILY_PIPELINE_UTC_HOUR` 调整触发时刻。调度线程的启动位置置于 `_run_narrative_pipeline_bg` 函数定义之后，规避启动期竞态风险。手动触发接口 `/api/v1/narrative/run_pipeline` 保持不变，两套机制共享同一个 `pipeline_status` 互斥锁，不会重复跑。
+
+---
+
 ## 2026-04-09 | 信号溯源面板信息源单一假象修复
 
 ### 问题描述
