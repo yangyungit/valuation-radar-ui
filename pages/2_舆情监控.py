@@ -246,35 +246,13 @@ st.title("📡 舆情监控")
 st.caption("NLP 驱动的双因子共振引擎 — 捕获 \"高价格动量 + 高舆情爆发\" 的大象起舞级交易机会")
 
 # ---------------------------------------------------------------------------
-# Pipeline Stepper (visual workflow indicator)
+# Session state for phase navigation
 # ---------------------------------------------------------------------------
-_steps = [
-    (1, "新词发现"),
-    (2, "主题归类"),
-    (3, "词典管理"),
-    (4, "旧词统计"),
-    (5, "叙事雷达"),
-    (6, "共振猎场"),
-]
-stepper_nodes = []
-for idx, (num, label) in enumerate(_steps):
-    c = PHASE_COLORS[num]
-    stepper_nodes.append(
-        f'<div class="step-node">'
-        f'<span class="step-num" style="background:{c}">{num}</span>'
-        f'<span class="step-label" style="color:{c}">{label}</span>'
-        f'</div>'
-    )
-    if idx < len(_steps) - 1:
-        stepper_nodes.append('<div class="step-connector"></div>')
-
-st.markdown(
-    '<div class="pipeline-stepper">' + "".join(stepper_nodes) + '</div>',
-    unsafe_allow_html=True,
-)
+if "active_phase" not in st.session_state:
+    st.session_state["active_phase"] = 1
 
 # ---------------------------------------------------------------------------
-# NLP Pipeline Explainer (collapsible white-box panel)
+# NLP Pipeline Explainer (collapsible white-box panel — 置顶)
 # ---------------------------------------------------------------------------
 with st.expander("🔬 引擎原理白盒 — NLP 流水线是怎么工作的？", expanded=False):
     st.markdown("""
@@ -347,6 +325,32 @@ with st.expander("🔬 引擎原理白盒 — NLP 流水线是怎么工作的？
 
 </div>
 """, unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
+# Phase Navigation (clickable colored stepper — replaces text tab bar)
+# ---------------------------------------------------------------------------
+_steps = [
+    (1, "新词发现"),
+    (2, "主题归类"),
+    (3, "词典管理"),
+    (4, "旧词统计"),
+    (5, "叙事雷达"),
+    (6, "共振猎场"),
+]
+_pnav_cols = st.columns(6)
+for _pi, (_pnum, _plabel) in enumerate(_steps):
+    _pc = PHASE_COLORS[_pnum]
+    _pactive = st.session_state["active_phase"] == _pnum
+    with _pnav_cols[_pi]:
+        _btn_label = f"● {_pnum} · {_plabel}" if _pactive else f"○ {_pnum} · {_plabel}"
+        if st.button(
+            _btn_label,
+            key=f"pnav_{_pnum}",
+            use_container_width=True,
+            type="primary" if _pactive else "secondary",
+        ):
+            st.session_state["active_phase"] = _pnum
+            st.rerun()
 
 # ---------------------------------------------------------------------------
 # Sidebar: controls
@@ -606,22 +610,15 @@ def _normalize_dict_source(src) -> str:
 
 
 # =========================================================================
-# Top-level Tabs (unified workflow navigation)
+# Phase Content (session-state driven navigation)
 # =========================================================================
-tab3, tab2, tab4, tab1, tab5, tab6 = st.tabs([
-    "🔍 1 · 新词发现",
-    "💡 2 · 主题归类",
-    "🗂️ 3 · 词典管理",
-    "📡 4 · 旧词统计",
-    "🎯 5 · 叙事雷达",
-    "⚡ 6 · 共振猎场",
-])
+active_phase = st.session_state["active_phase"]
 
 
 # =========================================================================
-# Tab 1: NLP Signal Provenance Panel
+# Phase 4: NLP Signal Provenance Panel
 # =========================================================================
-with tab1:
+if active_phase == 4:
     _phase_header(3, "旧词统计", "追踪词典中已有关键词的文章命中记录，支持按信息源、日期、关键词多维度筛选")
 
     prov_col1, prov_col2, prov_col3, prov_col4 = st.columns([1, 1, 1, 2])
@@ -802,9 +799,9 @@ with tab1:
 
 
 # =========================================================================
-# Tab 2: Orphanage & Bottom-Up Theme Discovery
+# Phase 2: Orphanage & Bottom-Up Theme Discovery
 # =========================================================================
-with tab2:
+if active_phase == 2:
     _phase_header(2, "主题发现与归类中心", "AI 巡检未归类高频词 → 聚类提案新赛道 → 待归类词统一收纳")
 
     dict_stats = fetch_dictionary_stats()
@@ -1095,9 +1092,9 @@ with tab2:
 
 
 # =========================================================================
-# Tab 3: TF-IDF Bottom-Up Discovery + Quality Inspector
+# Phase 1: TF-IDF Bottom-Up Discovery + Quality Inspector
 # =========================================================================
-with tab3:
+if active_phase == 1:
     _phase_header(1, "新词发现（TF-IDF 自下而上）", "对新词——发现、过滤、决定要不要晋升入词典；对旧词——持续监测在语料中的温度变化。<br><span style='font-weight:normal'><b>TF</b> = 今天含这个词的文章数 / 今日语料总篇数（出现有多普遍）；<b>IDF</b> = log( (语料总数+1) / (含该词文章数+1) ) + 1（这个词有多稀有）；<b>TF-IDF = TF × IDF</b>。IDF 自动压制每天都出现的泛词，筛出的是<b>今天突然密集出现、但平时鲜少提及</b>的词，即市场叙事的早期涌现信号。</span>")
 
     v3_sub3, v3_sub1, v3_sub2 = st.tabs(["🆕 今日新发现", "📊 TF-IDF 挖掘", "🤖 gemini质检"])
@@ -1507,9 +1504,9 @@ with tab3:
 
 
 # =========================================================================
-# Tab 4: L2/L3 Taxonomy Panorama & CIO Management
+# Phase 3: L2/L3 Taxonomy Panorama & CIO Management
 # =========================================================================
-with tab4:
+if active_phase == 3:
     _phase_header(4, "L2/L3 词典全景 & CIO 管理", "浏览完整词典树与词汇档案，CIO 可添加、归档、恢复词条")
 
     taxonomy_full_resp = fetch_taxonomy_full()
@@ -1524,7 +1521,7 @@ with tab4:
     elif not taxonomy_full_data:
         st.info("叙事词典为空。请先在「主题发现」中生成并批准种子提案以建库。")
     else:
-        v4_sub1, v4_sub2, v4_sub3, v4_sub4 = st.tabs(["📂 词典全景", "📋 批量操作", "🔇 噪音词管理", "📋 词汇档案"])
+        v4_sub1, v4_sub2 = st.tabs(["📂 词典全景", "🔇 噪音词管理"])
 
         # ----- Sub-tab: Taxonomy Panorama -----
         with v4_sub1:
@@ -1996,273 +1993,8 @@ with tab4:
             </div>
             """, unsafe_allow_html=True)
 
-        # ----- Sub-tab: Batch Operations (redirect notice) -----
-        with v4_sub2:
-            all_l2_names = sorted(set(item["l2"] for item in taxonomy_full_data))
-
-            st.markdown("""
-<div style="background:rgba(52,152,219,0.08);border:1px solid rgba(52,152,219,0.3);
-            border-radius:10px;padding:20px 24px;margin:16px 0">
-    <div style="font-size:16px;font-weight:bold;color:#3498DB;margin-bottom:10px">
-        📋 批量操作已整合至「词典全景」
-    </div>
-    <div style="font-size:13px;color:#ccc;line-height:2">
-        所有 L3 关键词的批量操作（添加、归档、恢复、迁移、标噪）以及板块管理（重命名、归档整板、删除板块）现在均已内嵌至
-        <b style="color:#fff">「📂 词典全景」</b> 中每个 L2 板块卡片下方的展开区。<br>
-        在全景视图里找到目标板块，点击
-        <b style="color:#fff">「⊕ 添加 · 📋 批量操作 · ✏ 管理」</b>
-        即可直接操作，无需再跳转到本 tab 重新选板块。
-    </div>
-    <div style="font-size:13px;color:#888;margin-top:12px">
-        提示：本 tab 保留做向后兼容，以下为原有全局入口（仍可使用）。
-    </div>
-</div>
-""", unsafe_allow_html=True)
-            st.markdown("#### 🔑 L3 关键词批量操作（全局入口）")
-            bt_add, bt_arc, bt_res, bt_mv, bt_noise = st.tabs([
-                "➕ 批量添加", "🗄️ 批量归档", "♻️ 批量恢复", "📦 批量迁移", "🚫 批量标噪"
-            ])
-
-            with bt_add:
-                st.markdown("""
-<div style="background:rgba(46,204,113,0.08);border:1px solid rgba(46,204,113,0.3);
-            border-radius:8px;padding:14px 18px;margin-bottom:14px">
-    <div style="font-size:15px;font-weight:bold;color:#2ECC71;margin-bottom:8px">
-        📋 批量添加格式说明
-    </div>
-    <div style="font-size:13px;color:#ccc;line-height:1.9">
-        在下方文本框中粘贴要添加的 L3 关键词，<b>每行一个词</b>，纯文字即可，无需引号或逗号。<br>
-        系统会自动跳过空行与已存在的活跃词，重复词不会报错。<br>
-        所有通过此入口添加的词来源均标记为 <span style="background:rgba(155,89,182,0.18);
-        color:#9B59B6;padding:1px 7px;border-radius:3px;font-size:13px">approved（人工审批）</span>。
-    </div>
-    <div style="font-size:13px;color:#888;margin-top:10px">
-        <b>示例输入：</b>
-    </div>
-    <div style="font-family:monospace;font-size:13px;color:#aaa;background:#0d0d0d;
-                border-radius:4px;padding:8px 12px;margin-top:4px;line-height:1.8">
-        GPU cluster<br>AI chip<br>LLM inference<br>sovereign debt ceiling
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-                ba_add_l2 = st.selectbox(
-                    "选择目标 L2 板块", all_l2_names, key="batch_add_l2"
-                ) if all_l2_names else None
-
-                if ba_add_l2:
-                    ba_add_raw = st.text_area(
-                        "粘贴 L3 关键词（每行一个）",
-                        key="batch_add_raw",
-                        height=160,
-                        placeholder="GPU cluster\nAI chip\nLLM inference\n...",
-                    )
-                    ba_add_lines = [ln.strip() for ln in ba_add_raw.splitlines() if ln.strip()]
-                    st.caption(f"已识别 {len(ba_add_lines)} 个词条待提交")
-
-                    if st.button(
-                        f"➕ 批量添加 ({len(ba_add_lines)} 条) → {ba_add_l2}",
-                        key="batch_add_btn",
-                        use_container_width=True,
-                        disabled=len(ba_add_lines) == 0,
-                    ):
-                        added, skipped, failed = 0, 0, []
-                        for kw in ba_add_lines:
-                            res = post_dictionary_add(ba_add_l2, kw)
-                            if res.get("success"):
-                                action = res.get("action", "added")
-                                if action == "already_active":
-                                    skipped += 1
-                                else:
-                                    added += 1
-                            else:
-                                failed.append(f"{kw}（{res.get('error', '未知错误')}）")
-                        st.success(f"批量添加完成：新增 {added} 条，跳过重复 {skipped} 条，失败 {len(failed)} 条")
-                        if failed:
-                            st.warning("以下词条添加失败：\n" + "\n".join(failed))
-                        st.cache_data.clear()
-                        st.rerun()
-                else:
-                    st.caption("暂无 L2 板块，请先在上方创建")
-
-            with bt_arc:
-                st.markdown("将选中词条软删除（归档），可通过批量恢复还原。")
-                ba_l2 = st.selectbox("选择 L2 板块", all_l2_names, key="batch_arc_l2") if all_l2_names else None
-                if ba_l2:
-                    ba_terms = []
-                    for item in taxonomy_full_data:
-                        if item["l2"] == ba_l2:
-                            for t in item["terms"]:
-                                if t.get("status") in ("active", "dormant"):
-                                    ba_terms.append(t["term"])
-                            break
-                    if ba_terms:
-                        ba_selected = st.multiselect(
-                            "勾选要归档的词条", sorted(ba_terms), key="batch_arc_sel",
-                            placeholder="可多选..."
-                        )
-                        if st.button(
-                            f"🗄️ 批量归档 ({len(ba_selected)} 条)",
-                            key="batch_arc_btn", use_container_width=True,
-                            disabled=len(ba_selected) == 0,
-                        ):
-                            items = [{"l2_sector": ba_l2, "l3_keyword": kw} for kw in ba_selected]
-                            res = post_dictionary_batch_archive(items)
-                            if res.get("success"):
-                                st.success(f"批量归档完成：成功 {res.get('processed', 0)}/{res.get('total', 0)} 条")
-                                failed = [d for d in res.get("details", []) if not d.get("ok")]
-                                if failed:
-                                    for f in failed:
-                                        st.warning(f"[{f.get('term')}] 失败: {f.get('reason')}")
-                                st.cache_data.clear()
-                                st.rerun()
-                            else:
-                                st.error(f"批量归档失败: {res.get('error')}")
-                    else:
-                        st.caption("该板块下无可归档的词条")
-
-            with bt_res:
-                st.markdown("将休眠或归档词条批量恢复为活跃状态。")
-                br_l2_options = []
-                for item in taxonomy_full_data:
-                    for t in item["terms"]:
-                        if t.get("status") in ("dormant", "archived"):
-                            br_l2_options.append(item["l2"])
-                            break
-                if br_l2_options:
-                    br_l2 = st.selectbox("选择 L2 板块", sorted(br_l2_options), key="batch_res_l2")
-                    br_terms = []
-                    for item in taxonomy_full_data:
-                        if item["l2"] == br_l2:
-                            for t in item["terms"]:
-                                if t.get("status") in ("dormant", "archived"):
-                                    status_label = "休眠" if t["status"] == "dormant" else "归档"
-                                    br_terms.append((t["term"], status_label))
-                            break
-                    if br_terms:
-                        br_labels = [f"{term} ({label})" for term, label in br_terms]
-                        br_selected = st.multiselect(
-                            "勾选要恢复的词条", sorted(br_labels), key="batch_res_sel",
-                            placeholder="可多选..."
-                        )
-                        if st.button(
-                            f"♻️ 批量恢复 ({len(br_selected)} 条)",
-                            key="batch_res_btn", use_container_width=True,
-                            disabled=len(br_selected) == 0,
-                        ):
-                            items = [
-                                {"l2_sector": br_l2, "l3_keyword": lbl.rsplit(" (", 1)[0]}
-                                for lbl in br_selected
-                            ]
-                            res = post_dictionary_batch_restore(items)
-                            if res.get("success"):
-                                st.success(f"批量恢复完成：成功 {res.get('processed', 0)}/{res.get('total', 0)} 条")
-                                failed = [d for d in res.get("details", []) if not d.get("ok")]
-                                if failed:
-                                    for f in failed:
-                                        st.warning(f"[{f.get('term')}] 失败: {f.get('reason')}")
-                                st.cache_data.clear()
-                                st.rerun()
-                            else:
-                                st.error(f"批量恢复失败: {res.get('error')}")
-                    else:
-                        st.caption("该板块下无可恢复的词条")
-                else:
-                    st.caption("当前没有休眠或归档状态的词条")
-
-            with bt_mv:
-                st.markdown("将词条从一个 L2 板块批量迁移到另一个板块。")
-                if len(all_l2_names) >= 2:
-                    mv_src_l2 = st.selectbox("源 L2 板块", all_l2_names, key="batch_mv_src")
-                    mv_terms = []
-                    for item in taxonomy_full_data:
-                        if item["l2"] == mv_src_l2:
-                            for t in item["terms"]:
-                                if t.get("status") in ("active", "dormant"):
-                                    mv_terms.append(t["term"])
-                            break
-                    if mv_terms:
-                        mv_selected = st.multiselect(
-                            "勾选要迁移的词条", sorted(mv_terms), key="batch_mv_sel",
-                            placeholder="可多选..."
-                        )
-                        mv_tgt_options = [n for n in all_l2_names if n != mv_src_l2]
-                        mv_tgt_l2 = st.selectbox("目标 L2 板块", mv_tgt_options, key="batch_mv_tgt")
-                        if st.button(
-                            f"📦 批量迁移 ({len(mv_selected)} 条) → {mv_tgt_l2}",
-                            key="batch_mv_btn", use_container_width=True,
-                            disabled=len(mv_selected) == 0,
-                        ):
-                            res = post_dictionary_batch_move(mv_src_l2, mv_tgt_l2, mv_selected)
-                            if res.get("success"):
-                                st.success(f"批量迁移完成：成功 {res.get('processed', 0)}/{res.get('total', 0)} 条")
-                                failed = [d for d in res.get("details", []) if not d.get("ok")]
-                                if failed:
-                                    for f in failed:
-                                        st.warning(f"[{f.get('term')}] 失败: {f.get('reason')}")
-                                st.cache_data.clear()
-                                st.rerun()
-                            else:
-                                st.error(f"批量迁移失败: {res.get('error')}")
-                    else:
-                        st.caption("该板块下无可迁移的词条")
-                else:
-                    st.caption("至少需要 2 个 L2 板块才能使用迁移功能")
-
-            with bt_noise:
-                st.markdown("从词典中彻底移除词条，可选择是否同时加入噪音黑名单。")
-                bn_l2 = st.selectbox("选择 L2 板块", all_l2_names, key="batch_noise_l2") if all_l2_names else None
-                if bn_l2:
-                    bn_terms = []
-                    for item in taxonomy_full_data:
-                        if item["l2"] == bn_l2:
-                            for t in item["terms"]:
-                                if t.get("status") in ("active", "dormant", "archived"):
-                                    bn_terms.append(t["term"])
-                            break
-                    if bn_terms:
-                        bn_selected = st.multiselect(
-                            "勾选要删除的词条", sorted(bn_terms), key="batch_noise_sel",
-                            placeholder="可多选..."
-                        )
-                        bn_mode = st.radio(
-                            "操作类型",
-                            ["🗑️ 仅从词典删除（不加入噪音黑名单）", "🚫 删除 + 标记为噪音（不可撤销）"],
-                            key="batch_del_mode",
-                            horizontal=False,
-                        )
-                        if bn_mode.startswith("🗑️"):
-                            st.caption("词条将从词典永久移除，但不会进入噪音黑名单。")
-                            bn_btn_label = f"🗑️ 批量删除 ({len(bn_selected)} 条)"
-                        else:
-                            st.caption("⚠️ 词条将从词典删除并加入噪音黑名单，不可通过恢复功能撤销。")
-                            bn_btn_label = f"🚫 批量删除并标噪 ({len(bn_selected)} 条)"
-                        if st.button(
-                            bn_btn_label,
-                            key="batch_noise_btn", use_container_width=True,
-                            disabled=len(bn_selected) == 0,
-                            type="secondary",
-                        ):
-                            items = [{"l2_sector": bn_l2, "l3_keyword": kw} for kw in bn_selected]
-                            if bn_mode.startswith("🗑️"):
-                                res = post_dictionary_batch_delete(items)
-                                if res.get("success"):
-                                    st.success(f"批量删除完成：{res.get('processed', 0)}/{res.get('total', 0)} 条已从词典移除")
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                else:
-                                    st.error(f"批量删除失败: {res.get('error')}")
-                            else:
-                                res = post_dictionary_batch_mark_noise(items)
-                                if res.get("success"):
-                                    st.success(f"标噪完成：{res.get('processed', 0)}/{res.get('total', 0)} 条已移入噪音黑名单")
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                else:
-                                    st.error(f"标噪失败: {res.get('error')}")
-
         # ----- Sub-tab: Noise Words Management (enhanced) -----
-        with v4_sub3:
+        with v4_sub2:
             noise_resp = fetch_noise_words()
             noise_data = noise_resp.get("data", [])
 
@@ -2360,105 +2092,12 @@ with tab4:
                         else:
                             st.caption("未匹配到任何噪音词")
 
-        # ----- Sub-tab: Vocabulary Archive -----
-        with v4_sub4:
-            st.caption("按 L2 板块浏览词汇档案，选择词条查看完整四阶段生命轨迹。")
-
-            _TIMELINE_CSS = """
-            <style>
-            .tl-card{position:relative;padding:12px 16px 12px 28px;margin-left:16px;
-                     border-left:3px solid #333;margin-bottom:0}
-            .tl-card:last-child{border-left-color:transparent}
-            .tl-dot{position:absolute;left:-9px;top:14px;width:14px;height:14px;
-                    border-radius:50%;border:2px solid #222}
-            .tl-stage{font-size:14px;font-weight:600;margin-bottom:4px}
-            .tl-detail{font-size:13px;color:#aaa;line-height:1.6}
-            </style>
-            """
-            st.markdown(_TIMELINE_CSS, unsafe_allow_html=True)
-
-            for l2_item in taxonomy_full_data:
-                l2_name = l2_item["l2"]
-                terms = l2_item["terms"]
-                active_n = sum(1 for t in terms if t.get("status") == "active")
-                with st.expander(f"📂 {l2_name}  ({active_n} 活跃 / {len(terms)} 总计)"):
-                    arch_rows = []
-                    for t in terms:
-                        arch_rows.append({
-                            "L3 关键词": t["term"],
-                            "状态": t.get("status", ""),
-                            "来源": _narrative_source_label(t.get("source", "")),
-                        })
-                    st.dataframe(pd.DataFrame(arch_rows), use_container_width=True, hide_index=True)
-
-                    term_names = [t["term"] for t in terms]
-                    sel_term = st.selectbox(
-                        "选择词条查看档案", term_names,
-                        key=f"v4arch_sel_{l2_name}",
-                    )
-                    if st.button("📜 展开生命轨迹", key=f"v4arch_btn_{l2_name}"):
-                        trace_resp = fetch_term_trace(sel_term)
-                        if not trace_resp.get("found"):
-                            st.info(f"未找到 [{sel_term}] 的生命轨迹记录。")
-                        else:
-                            timeline = trace_resp.get("timeline", [])
-                            _STAGE_STYLE = {
-                                "TF-IDF 候选": ("#3498DB", "🔵"),
-                                "质检记录":    ("#F39C12", "🔬"),
-                                "词典入库":    ("#2ECC71", "📗"),
-                                "噪音黑名单":  ("#E74C3C", "🚫"),
-                            }
-                            cards_html = ""
-                            for entry in timeline:
-                                stage = entry.get("stage", "")
-                                color, icon = _STAGE_STYLE.get(stage, ("#888", "❓"))
-                                detail = ""
-                                if stage == "TF-IDF 候选":
-                                    s_icon = {"candidate": "🔵", "promoted": "✅", "noise_rejected": "🚫", "expired": "⏰"}.get(entry.get("status", ""), "❓")
-                                    detail = (
-                                        f"状态: {s_icon} {entry.get('status')} · "
-                                        f"首次: {entry.get('first_seen')} · 最后: {entry.get('last_seen')} · "
-                                        f"连续 {entry.get('consecutive_days')} 天<br>"
-                                        f"TF-IDF: {entry.get('tfidf_score')} · "
-                                        f"热度: {entry.get('burst_ratio')}x · "
-                                        f"主题关联度: {entry.get('cooc_degree')} · "
-                                        f"Gate3: {'通过' if entry.get('gate3_pass') else '未通过'}"
-                                    )
-                                elif stage == "质检记录":
-                                    v_map = {"pass": "✅ 通过", "borderline": "⚠️ 待人工", "noise_auto": "🚫 自动噪音",
-                                             "noise_auto_stale": "🚫 超时自动噪音", "escalated": "📤 已升级归类",
-                                             "noise_llm": "🤖 LLM拒绝", "noise_cio": "🚫 CIO拒绝",
-                                             "protected_l3": "🛡️ 旧词命中", "low_burst": "📉 低爆发", "isolated": "🔇 孤立"}
-                                    v_label = v_map.get(entry.get("verdict", ""), entry.get("verdict", ""))
-                                    detail = f"日期: {entry.get('date')} · 判决: {v_label}"
-                                elif stage == "词典入库":
-                                    hint = entry.get('promoted_l2_hint') or '—'
-                                    conf = entry.get('promoted_confidence', 0) * 100
-                                    detail = (
-                                        f"L2: {entry.get('l2_sector')} · 状态: {entry.get('status')} · "
-                                        f"来源: {entry.get('source')}<br>"
-                                        f"入库时间: {entry.get('created_at')} · 推荐: {hint} ({conf:.0f}%)"
-                                    )
-                                elif stage == "噪音黑名单":
-                                    detail = (
-                                        f"加入: {entry.get('added_date')} · 过期: {entry.get('expires_date')}<br>"
-                                        f"来源: {entry.get('source')} · 置信度: {entry.get('confidence')} · "
-                                        f"原因: {entry.get('reason', '')}"
-                                    )
-                                cards_html += (
-                                    f"<div class='tl-card'>"
-                                    f"<div class='tl-dot' style='background:{color}'></div>"
-                                    f"<div class='tl-stage' style='color:{color}'>{icon} {stage}</div>"
-                                    f"<div class='tl-detail'>{detail}</div>"
-                                    f"</div>"
-                                )
-                            st.markdown(cards_html, unsafe_allow_html=True)
 
 
 # =========================================================================
-# Tab 5: Narrative Quadrant Radar (v2 — cross-sector heat ranking + L3 drill-down)
+# Phase 5: Narrative Quadrant Radar (v2 — cross-sector heat ranking + L3 drill-down)
 # =========================================================================
-with tab5:
+if active_phase == 5:
     _phase_header(
         5, "叙事四象限雷达",
         "横轴 = 综合热力原始分 (0-1)，纵轴 = 词频动量（提及量环比变化率），颜色 = 热度集中类型",
@@ -3138,9 +2777,9 @@ with tab5:
 
 
 # =========================================================================
-# Tab 6: ⚡ 共振猎场 (Resonance Arena)
+# Phase 6: ⚡ 共振猎场 (Resonance Arena)
 # =========================================================================
-with tab6:
+if active_phase == 6:
     _phase_header(
         6, "共振猎场",
         "D级高动量标的 × 叙事热力 — 双因子共振扫描、裸奔隔离、风口追踪",
