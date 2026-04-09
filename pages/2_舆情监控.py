@@ -75,8 +75,8 @@ st.set_page_config(page_title="舆情监控", layout="wide")
 PHASE_COLORS = {
     1: "#3498DB",
     2: "#2ECC71",
-    3: "#1ABC9C",
-    4: "#9B59B6",
+    3: "#9B59B6",
+    4: "#1ABC9C",
     5: "#F39C12",
     6: "#E74C3C",
 }
