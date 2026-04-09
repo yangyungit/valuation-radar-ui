@@ -1723,32 +1723,219 @@ with tab4:
                     """, unsafe_allow_html=True)
 
                     _l2_safe = l2_name.replace(" ", "_").replace("/", "_")
-                    with st.expander(f"⊕ 添加词条  ·  ✏ 管理  —  {l2_name}", expanded=False):
-                        ea_col, em_col = st.columns([1, 1])
+                    with st.expander(f"⊕ 添加  ·  📋 批量操作  ·  ✏ 管理  —  {l2_name}", expanded=False):
+                        (
+                            il_add_tab, il_arc_tab, il_res_tab,
+                            il_mv_tab, il_noise_tab, il_mgr_tab
+                        ) = st.tabs([
+                            "➕ 添加", "🗄️ 归档", "♻️ 恢复",
+                            "📦 迁移", "🚫 标噪", "✏️ 管理"
+                        ])
 
-                        with ea_col:
-                            st.markdown("**快速添加 L3 词条**")
-                            ea_term = st.text_input(
-                                "词条", key=f"ea_term_{_l2_safe}", placeholder="输入词条..."
+                        # ── 添加 ──────────────────────────────────────────────
+                        with il_add_tab:
+                            add_mode = st.radio(
+                                "添加方式",
+                                ["快速添加（单个）", "批量添加（粘贴）"],
+                                key=f"il_addmode_{_l2_safe}",
+                                horizontal=True,
                             )
-                            if st.button("➕ 添加", key=f"ea_btn_{_l2_safe}", use_container_width=True):
-                                if ea_term.strip():
-                                    res = post_dictionary_add(l2_name, ea_term.strip())
-                                    if res.get("success"):
-                                        action = res.get("action", "added")
-                                        if action == "already_active":
-                                            st.warning(f"词条 [{ea_term.strip()}] 已存在且处于活跃状态")
+                            if add_mode == "快速添加（单个）":
+                                ea_term = st.text_input(
+                                    "词条", key=f"ea_term_{_l2_safe}", placeholder="输入词条..."
+                                )
+                                if st.button("➕ 添加", key=f"ea_btn_{_l2_safe}", use_container_width=True):
+                                    if ea_term.strip():
+                                        res = post_dictionary_add(l2_name, ea_term.strip())
+                                        if res.get("success"):
+                                            action = res.get("action", "added")
+                                            if action == "already_active":
+                                                st.warning(f"词条 [{ea_term.strip()}] 已存在且处于活跃状态")
+                                            else:
+                                                st.success(f"已添加 [{ea_term.strip()}] → {l2_name}")
+                                                st.cache_data.clear()
+                                                st.rerun()
                                         else:
-                                            st.success(f"已添加 [{ea_term.strip()}] → {l2_name}")
+                                            st.error(f"添加失败: {res.get('error')}")
+                                    else:
+                                        st.warning("词条不可为空")
+                            else:
+                                ba_add_raw = st.text_area(
+                                    "粘贴 L3 关键词（每行一个）",
+                                    key=f"il_baadd_{_l2_safe}",
+                                    height=130,
+                                    placeholder="GPU cluster\nAI chip\nLLM inference\n...",
+                                )
+                                ba_add_lines = [ln.strip() for ln in ba_add_raw.splitlines() if ln.strip()]
+                                st.caption(f"已识别 {len(ba_add_lines)} 个词条待提交")
+                                if st.button(
+                                    f"➕ 批量添加 ({len(ba_add_lines)} 条) → {l2_name}",
+                                    key=f"il_baadd_btn_{_l2_safe}",
+                                    use_container_width=True,
+                                    disabled=len(ba_add_lines) == 0,
+                                ):
+                                    added, skipped, failed_kws = 0, 0, []
+                                    for kw in ba_add_lines:
+                                        res = post_dictionary_add(l2_name, kw)
+                                        if res.get("success"):
+                                            if res.get("action") == "already_active":
+                                                skipped += 1
+                                            else:
+                                                added += 1
+                                        else:
+                                            failed_kws.append(f"{kw}（{res.get('error', '未知错误')}）")
+                                    st.success(f"批量添加完成：新增 {added} 条，跳过重复 {skipped} 条，失败 {len(failed_kws)} 条")
+                                    if failed_kws:
+                                        st.warning("以下词条添加失败：\n" + "\n".join(failed_kws))
+                                    st.cache_data.clear()
+                                    st.rerun()
+
+                        # ── 归档 ──────────────────────────────────────────────
+                        with il_arc_tab:
+                            st.caption("将选中词条软删除（归档），可通过"恢复"操作还原。")
+                            arc_terms = [t["term"] for t in terms if t.get("status") in ("active", "dormant")]
+                            if arc_terms:
+                                arc_selected = st.multiselect(
+                                    "勾选要归档的词条", sorted(arc_terms),
+                                    key=f"il_arc_sel_{_l2_safe}", placeholder="可多选..."
+                                )
+                                if st.button(
+                                    f"🗄️ 批量归档 ({len(arc_selected)} 条)",
+                                    key=f"il_arc_btn_{_l2_safe}", use_container_width=True,
+                                    disabled=len(arc_selected) == 0,
+                                ):
+                                    items = [{"l2_sector": l2_name, "l3_keyword": kw} for kw in arc_selected]
+                                    res = post_dictionary_batch_archive(items)
+                                    if res.get("success"):
+                                        st.success(f"批量归档完成：成功 {res.get('processed', 0)}/{res.get('total', 0)} 条")
+                                        for fd in [d for d in res.get("details", []) if not d.get("ok")]:
+                                            st.warning(f"[{fd.get('term')}] 失败: {fd.get('reason')}")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error(f"批量归档失败: {res.get('error')}")
+                            else:
+                                st.caption("该板块下无可归档的词条（活跃 / 休眠）")
+
+                        # ── 恢复 ──────────────────────────────────────────────
+                        with il_res_tab:
+                            st.caption("将休眠或归档词条批量恢复为活跃状态。")
+                            res_terms_raw = [
+                                (t["term"], "休眠" if t["status"] == "dormant" else "归档")
+                                for t in terms if t.get("status") in ("dormant", "archived")
+                            ]
+                            if res_terms_raw:
+                                res_labels = [f"{term} ({label})" for term, label in res_terms_raw]
+                                res_selected = st.multiselect(
+                                    "勾选要恢复的词条", sorted(res_labels),
+                                    key=f"il_res_sel_{_l2_safe}", placeholder="可多选..."
+                                )
+                                if st.button(
+                                    f"♻️ 批量恢复 ({len(res_selected)} 条)",
+                                    key=f"il_res_btn_{_l2_safe}", use_container_width=True,
+                                    disabled=len(res_selected) == 0,
+                                ):
+                                    items = [
+                                        {"l2_sector": l2_name, "l3_keyword": lbl.rsplit(" (", 1)[0]}
+                                        for lbl in res_selected
+                                    ]
+                                    res = post_dictionary_batch_restore(items)
+                                    if res.get("success"):
+                                        st.success(f"批量恢复完成：成功 {res.get('processed', 0)}/{res.get('total', 0)} 条")
+                                        for fd in [d for d in res.get("details", []) if not d.get("ok")]:
+                                            st.warning(f"[{fd.get('term')}] 失败: {fd.get('reason')}")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error(f"批量恢复失败: {res.get('error')}")
+                            else:
+                                st.caption("该板块下无可恢复的词条（休眠 / 归档）")
+
+                        # ── 迁移 ──────────────────────────────────────────────
+                        with il_mv_tab:
+                            st.caption(f"将 {l2_name} 中的词条批量迁移到另一个板块。")
+                            mv_terms_il = [t["term"] for t in terms if t.get("status") in ("active", "dormant")]
+                            all_l2_names_il = sorted(set(item["l2"] for item in taxonomy_full_data))
+                            mv_tgt_options_il = [n for n in all_l2_names_il if n != l2_name]
+                            if mv_terms_il and mv_tgt_options_il:
+                                mv_selected_il = st.multiselect(
+                                    "勾选要迁移的词条", sorted(mv_terms_il),
+                                    key=f"il_mv_sel_{_l2_safe}", placeholder="可多选..."
+                                )
+                                mv_tgt_il = st.selectbox(
+                                    "目标 L2 板块", mv_tgt_options_il, key=f"il_mv_tgt_{_l2_safe}"
+                                )
+                                if st.button(
+                                    f"📦 批量迁移 ({len(mv_selected_il)} 条) → {mv_tgt_il}",
+                                    key=f"il_mv_btn_{_l2_safe}", use_container_width=True,
+                                    disabled=len(mv_selected_il) == 0,
+                                ):
+                                    res = post_dictionary_batch_move(l2_name, mv_tgt_il, mv_selected_il)
+                                    if res.get("success"):
+                                        st.success(f"批量迁移完成：成功 {res.get('processed', 0)}/{res.get('total', 0)} 条")
+                                        for fd in [d for d in res.get("details", []) if not d.get("ok")]:
+                                            st.warning(f"[{fd.get('term')}] 失败: {fd.get('reason')}")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error(f"批量迁移失败: {res.get('error')}")
+                            elif not mv_tgt_options_il:
+                                st.caption("至少需要 2 个 L2 板块才能使用迁移功能")
+                            else:
+                                st.caption("该板块下无可迁移的词条（活跃 / 休眠）")
+
+                        # ── 标噪 ──────────────────────────────────────────────
+                        with il_noise_tab:
+                            st.caption("从词典中彻底移除词条，可选择是否同时加入噪音黑名单。")
+                            noise_terms_il = [
+                                t["term"] for t in terms
+                                if t.get("status") in ("active", "dormant", "archived")
+                            ]
+                            if noise_terms_il:
+                                noise_sel_il = st.multiselect(
+                                    "勾选要删除的词条", sorted(noise_terms_il),
+                                    key=f"il_noise_sel_{_l2_safe}", placeholder="可多选..."
+                                )
+                                noise_mode_il = st.radio(
+                                    "操作类型",
+                                    ["🗑️ 仅从词典删除", "🚫 删除 + 标记为噪音（不可撤销）"],
+                                    key=f"il_noise_mode_{_l2_safe}",
+                                    horizontal=False,
+                                )
+                                if noise_mode_il.startswith("🗑️"):
+                                    st.caption("词条将从词典永久移除，但不会进入噪音黑名单。")
+                                    noise_btn_label = f"🗑️ 批量删除 ({len(noise_sel_il)} 条)"
+                                else:
+                                    st.caption("⚠️ 词条将从词典删除并加入噪音黑名单，不可通过恢复功能撤销。")
+                                    noise_btn_label = f"🚫 批量删除并标噪 ({len(noise_sel_il)} 条)"
+                                if st.button(
+                                    noise_btn_label,
+                                    key=f"il_noise_btn_{_l2_safe}", use_container_width=True,
+                                    disabled=len(noise_sel_il) == 0,
+                                    type="secondary",
+                                ):
+                                    items = [{"l2_sector": l2_name, "l3_keyword": kw} for kw in noise_sel_il]
+                                    if noise_mode_il.startswith("🗑️"):
+                                        res = post_dictionary_batch_delete(items)
+                                        if res.get("success"):
+                                            st.success(f"批量删除完成：{res.get('processed', 0)}/{res.get('total', 0)} 条已从词典移除")
                                             st.cache_data.clear()
                                             st.rerun()
+                                        else:
+                                            st.error(f"批量删除失败: {res.get('error')}")
                                     else:
-                                        st.error(f"添加失败: {res.get('error')}")
-                                else:
-                                    st.warning("词条不可为空")
+                                        res = post_dictionary_batch_mark_noise(items)
+                                        if res.get("success"):
+                                            st.success(f"标噪完成：{res.get('processed', 0)}/{res.get('total', 0)} 条已移入噪音黑名单")
+                                            st.cache_data.clear()
+                                            st.rerun()
+                                        else:
+                                            st.error(f"标噪失败: {res.get('error')}")
+                            else:
+                                st.caption("该板块下暂无词条")
 
-                        with em_col:
-                            st.markdown("**板块管理**")
+                        # ── 管理 ──────────────────────────────────────────────
+                        with il_mgr_tab:
                             em_action = st.radio(
                                 "操作",
                                 ["重命名", "归档板块（可恢复）", "彻底删除（不可恢复）"],
@@ -1809,12 +1996,29 @@ with tab4:
             </div>
             """, unsafe_allow_html=True)
 
-        # ----- Sub-tab: Batch Operations -----
+        # ----- Sub-tab: Batch Operations (redirect notice) -----
         with v4_sub2:
             all_l2_names = sorted(set(item["l2"] for item in taxonomy_full_data))
 
-            st.caption("针对 L3 词条的批量操作。如需新建板块或管理单个板块，请在「词典全景」中展开各板块的 ⊕ / ✏ 快捷入口。")
-            st.markdown("#### 🔑 L3 关键词批量操作")
+            st.markdown("""
+<div style="background:rgba(52,152,219,0.08);border:1px solid rgba(52,152,219,0.3);
+            border-radius:10px;padding:20px 24px;margin:16px 0">
+    <div style="font-size:16px;font-weight:bold;color:#3498DB;margin-bottom:10px">
+        📋 批量操作已整合至「词典全景」
+    </div>
+    <div style="font-size:13px;color:#ccc;line-height:2">
+        所有 L3 关键词的批量操作（添加、归档、恢复、迁移、标噪）以及板块管理（重命名、归档整板、删除板块）现在均已内嵌至
+        <b style="color:#fff">「📂 词典全景」</b> 中每个 L2 板块卡片下方的展开区。<br>
+        在全景视图里找到目标板块，点击
+        <b style="color:#fff">「⊕ 添加 · 📋 批量操作 · ✏ 管理」</b>
+        即可直接操作，无需再跳转到本 tab 重新选板块。
+    </div>
+    <div style="font-size:13px;color:#888;margin-top:12px">
+        提示：本 tab 保留做向后兼容，以下为原有全局入口（仍可使用）。
+    </div>
+</div>
+""", unsafe_allow_html=True)
+            st.markdown("#### 🔑 L3 关键词批量操作（全局入口）")
             bt_add, bt_arc, bt_res, bt_mv, bt_noise = st.tabs([
                 "➕ 批量添加", "🗄️ 批量归档", "♻️ 批量恢复", "📦 批量迁移", "🚫 批量标噪"
             ])
