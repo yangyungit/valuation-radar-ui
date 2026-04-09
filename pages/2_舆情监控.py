@@ -1180,6 +1180,7 @@ with tab3:
                 tfidf_df,
                 use_container_width=True,
                 hide_index=True,
+                height=600,
                 column_config={
                     "TF-IDF 分": st.column_config.NumberColumn(format="%.5f"),
                     "今日文档数": st.column_config.NumberColumn(format="%d"),
@@ -1197,27 +1198,6 @@ with tab3:
                     ),
                 },
             )
-
-            top20 = tfidf_df.head(20)
-            if not top20.empty:
-                fig_bar = go.Figure(go.Bar(
-                    x=top20["词汇"].tolist(),
-                    y=top20["TF-IDF 分"].astype(float).tolist(),
-                    marker_color="#3498DB",
-                    text=top20["今日文档数"].astype(str).tolist(),
-                    textposition="outside",
-                ))
-                fig_bar.update_layout(
-                    title="质检通过词 Top-20 热度",
-                    xaxis_title="词汇",
-                    yaxis_title="TF-IDF 分",
-                    height=350,
-                    margin=dict(t=40, b=80, l=40, r=20),
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#ccc", size=13),
-                )
-                st.plotly_chart(fig_bar, use_container_width=True, key="tfidf_bar_v3sub1")
 
     # ----- Sub-tab: Quality Gate Log -----
     with v3_sub2:
