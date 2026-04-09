@@ -2235,6 +2235,30 @@ if active_phase == 5:
                     )
                     df_snap = df_radar.copy()
 
+            # L2 sector English → Chinese display name map
+            _L2_ZH: dict[str, str] = {
+                "Aerospace_&_Defense":        "航空航天与国防",
+                "Agri_&_Agriculture":         "农业与农产品",
+                "Biopharma_Ecosystem":        "生物医药生态",
+                "Commodities":                "大宗商品",
+                "Consumer_&_Retail":          "消费与零售",
+                "Critical_Minerals_&_Metals": "关键矿产与金属",
+                "Crypto_Assets":              "加密资产",
+                "Cybersecurity_&_Data":       "网络安全与数据",
+                "Energy_&_Power":             "能源与电力",
+                "Event_&_Earnings_Catalysts": "事件与业绩催化",
+                "Financials_&_Private_Credit":"金融与私募信贷",
+                "Future_Mobility_&_Space":    "未来出行与航天",
+                "Healthcare_Services_&_MedTech": "医疗服务与医疗科技",
+                "Heavy_Industry":             "重工业",
+                "Housing_&_Homebuilders":     "住房与地产",
+                "Macro_Liquidity":            "宏观流动性",
+                "Nuclear_&_AI_Power":         "核能与AI电力",
+                "Semi_Memory_&_Cycles":       "半导体存储与周期",
+                "Trade_&_Geopolitics":        "贸易与地缘政治",
+                "US_Industrial_Reshoring":    "美国制造业回流",
+            }
+
             # --- Build scatter plot ---
             fig_quad = go.Figure()
 
@@ -2274,8 +2298,9 @@ if active_phase == 5:
                                 )
                     if not kw_lines:
                         kw_lines = "  (无活跃 L3 词)<br>"
+                    _zh_name = _L2_ZH.get(row["l2_sector"], row["l2_sector"])
                     hover_text = (
-                        f"<b>{row['l2_sector']}</b><br>"
+                        f"<b>{_zh_name}</b><br>"
                         f"热力排名: #{int(row.get('heat_rank', 0))} "
                         f"(综合分 {float(row['composite_heat']):.3f})<br>"
                         f"词频动量: {float(row['heat_momentum']):+.1%}<br>"
@@ -2286,7 +2311,7 @@ if active_phase == 5:
                     )
                     _xs.append(float(row["composite_heat"]))
                     _ys.append(float(row["heat_momentum"]))
-                    _texts.append(row["l2_sector"])
+                    _texts.append(_zh_name)
                     _hovers.append(hover_text)
                 if _xs:
                     fig_quad.add_trace(go.Scatter(
@@ -2312,27 +2337,27 @@ if active_phase == 5:
             # Quadrant label annotations
             fig_quad.add_annotation(
                 x=0.85, y=0.38,
-                text="🔥 风口正劲<br><span style='font-size:13px'>(热度高+加速升温)</span>",
-                showarrow=False, font=dict(color="#E74C3C", size=14),
+                text="🔥 风口正劲",
+                showarrow=False, font=dict(color="#E74C3C", size=15),
             )
             fig_quad.add_annotation(
                 x=0.15, y=-0.38,
-                text="❄️ 无人问津<br><span style='font-size:13px'>(热度低+持续衰减)</span>",
-                showarrow=False, font=dict(color="#3498DB", size=14),
+                text="❄️ 无人问津",
+                showarrow=False, font=dict(color="#3498DB", size=15),
             )
             fig_quad.add_annotation(
                 x=0.15, y=0.38,
-                text="🌱 暗流涌动<br><span style='font-size:13px'>(热度低+加速升温)</span>",
-                showarrow=False, font=dict(color="#2ECC71", size=14),
+                text="🌱 暗流涌动",
+                showarrow=False, font=dict(color="#2ECC71", size=15),
             )
             fig_quad.add_annotation(
                 x=0.85, y=-0.38,
-                text="⚠️ 见顶预警<br><span style='font-size:13px'>(热度高+开始衰减)</span>",
-                showarrow=False, font=dict(color="#E67E22", size=14),
+                text="⚠️ 见顶预警",
+                showarrow=False, font=dict(color="#E67E22", size=15),
             )
 
             fig_quad.update_layout(
-                height=600,
+                height=660,
                 plot_bgcolor="#111111",
                 paper_bgcolor="#111111",
                 font=dict(color="#ddd", size=13),
@@ -2413,7 +2438,7 @@ if active_phase == 5:
             _narr_rank_rows.sort(key=lambda x: -x["score"])
 
             # Horizontal bar chart
-            _bar_sectors = [r["l2_sector"] for r in _narr_rank_rows]
+            _bar_sectors = [_L2_ZH.get(r["l2_sector"], r["l2_sector"]) for r in _narr_rank_rows]
             _bar_scores = [r["score"] for r in _narr_rank_rows]
             _bar_colors = [
                 "#E74C3C" if r["heat_type"] == "concentrated" else "#3498DB"
