@@ -1140,49 +1140,41 @@ with tab3:
                 )
             elif quality_filtered:
                 st.caption(
-                    f"以下 {len(tfidf_data)} 个词已通过统计质检（✅ 通过 / 🛡️ 旧词命中），"
-                    f"噪音、低热度、孤立词已自动过滤。主题关联度 > 0.3 = 有主题归属。"
+                    f"以下 {len(tfidf_data)} 个词已通过统计质检（✅ 通过），旧词已过滤至旧词统计。"
+                    f"噪音、低热度、孤立词已自动过滤。温度 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
                 )
             else:
                 st.caption(
                     f"以下 {len(tfidf_data)} 个词由 TF-IDF 引擎自动浮现（质检员尚未运行，显示全量候选词，含噪音）。"
-                    f"主题关联度 > 0.3 = 有主题归属。"
+                    f"温度 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
                 )
 
             rows = []
             for item in tfidf_data:
-                streak = item.get("consecutive_days", 0)
-                cd = item.get("cooc_degree", 0.0)
                 verdict = item.get("verdict", "unreviewed")
-                gate3_reason = item.get("gate3_reason", "")
+                # 旧词（已在词典中）不在 TF-IDF 新词表展示，归属 tab4 旧词统计
                 if verdict == "protected_l3":
-                    verdict_tag = "🛡️ 旧词命中"
-                elif gate3_reason:
-                    verdict_tag = f"✅ {gate3_reason}"
-                elif quality_filtered:
-                    verdict_tag = "✅ 统计通过"
-                else:
-                    verdict_tag = "—"
+                    continue
+                streak = item.get("consecutive_days", 0)
+                br = item.get("burst_ratio", 0.0)
+                cd = item.get("cooc_degree", 0.0)
                 in_dict = item.get("in_dict", False)
                 if in_dict:
                     l2_label = item.get("dict_l2") or "—"
-                    l2_conf_pct = None
                 else:
                     l2_aff = item.get("l2_affinity", "Uncategorized")
                     l2_label = l2_aff if l2_aff != "Uncategorized" else "🟠 未归类"
-                    l2_conf_pct = round(item.get("l2_confidence", 0.0) * 100, 1)
                 promo = item.get("promo_status", "候选中")
                 rows.append({
                     "词汇": item["term"],
                     "入库状态": promo,
                     "TF-IDF 分": round(item.get("tfidf_score", 0.0), 5),
                     "今日文档数": item.get("doc_count", 0),
+                    "温度": round(br, 2),
                     "主题关联度": round(cd, 3),
                     "连续出现天": streak,
                     "归属 L2": l2_label,
-                    "亲和置信度": l2_conf_pct,
                     "首次发现": item.get("first_seen", ""),
-                    "质检": verdict_tag,
                 })
 
             tfidf_df = pd.DataFrame(rows)
@@ -1194,14 +1186,14 @@ with tab3:
                 column_config={
                     "TF-IDF 分": st.column_config.NumberColumn(format="%.5f"),
                     "今日文档数": st.column_config.NumberColumn(format="%d"),
+                    "温度": st.column_config.ProgressColumn(
+                        min_value=0.0, max_value=10.0, format="%.1fx"
+                    ),
                     "主题关联度": st.column_config.ProgressColumn(
                         min_value=0.0, max_value=1.0, format="%.3f"
                     ),
                     "连续出现天": st.column_config.ProgressColumn(
                         min_value=0, max_value=14, format="%d 天"
-                    ),
-                    "亲和置信度": st.column_config.ProgressColumn(
-                        "亲和置信度 %", min_value=0, max_value=100, format="%.0f%%"
                     ),
                 },
             )
