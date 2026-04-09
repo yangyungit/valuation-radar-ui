@@ -2,6 +2,32 @@
 
 ---
 
+## 2026-04-09 | 信号溯源面板信息源单一假象修复
+
+### 问题描述
+
+用户在「1·信号溯源」面板看到第一页结果几乎全是 Google RSS，误以为其他信息源（GDELT GKG、Finnhub、Alpaca、Polygon.io）没有数据。
+
+### 根因
+
+`keyword_match_log` 中，各信息源的 ID 由插入顺序决定：
+- 守护进程源（Finnhub/Alpaca/Polygon）连续运行，早于 NLP 流水线写入，ID 较低
+- GDELT GKG 在流水线中第一步 batch 插入，ID 居中
+- **Google RSS 在流水线最末尾插入，ID 最高**
+
+原 `get_match_log` 使用 `ORDER BY id DESC`，第一页 50 条几乎全是 Google RSS，其他源需翻到后面几页才能看到。本地验证：`ORDER BY id DESC LIMIT 50` → google_rss=34 + polygon=16，其余三源完全不可见。
+
+### 修复
+
+**`valuation-radar/narrative_engine.py` — `get_match_log`**
+- 排序改为 `ORDER BY match_date DESC, _rn, news_source`，其中 `_rn = ROW_NUMBER() OVER (PARTITION BY match_date, news_source ORDER BY id DESC)`。轮询交替保证每页包含各源等比例文章（5源时每页各取10条），单源筛选时退化为正常时间倒序。
+- 响应新增 `source_counts` 字段（`{source_key: count}`），供前端展示各源总量。
+
+**`pages/2_舆情监控.py` — Tab 1**
+- 表格上方新增「信息源覆盖」彩色徽章行，显示当前筛选条件下各信息源的文章匹配总数，让用户一眼确认全部信息源均有数据。
+
+---
+
 ## 2026-04-08 | Render Disk 冷启动修复 — 词典状态误判 + API 超时优化
 
 ### 背景

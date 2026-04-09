@@ -580,6 +580,33 @@ with tab1:
             unsafe_allow_html=True,
         )
 
+    # Source count badges — show all sources so users aren't misled by page-1 ordering
+    _src_counts = log_resp.get("source_counts", {})
+    if _src_counts:
+        _badge_parts = []
+        _src_color_map = {
+            "gdelt_gkg":       ("#1a6e3c", "#2ecc71"),
+            "google_rss":      ("#1a4a7a", "#3498db"),
+            "finnhub_general": ("#6b3a1a", "#e67e22"),
+            "alpaca":          ("#3d1a6e", "#9b59b6"),
+            "polygon":         ("#1a5c5c", "#1abc9c"),
+        }
+        for _src_key, _src_cnt in _src_counts.items():
+            _src_disp = SOURCE_LABEL.get(_src_key, _src_key)
+            _bg, _fg = _src_color_map.get(_src_key, ("#333", "#aaa"))
+            _badge_parts.append(
+                f'<span style="background:{_bg};color:{_fg};border:1px solid {_fg}33;'
+                f'padding:3px 10px;border-radius:12px;font-size:13px;font-weight:600;'
+                f'margin-right:6px">{_src_disp} <span style="opacity:0.8">{_src_cnt:,}</span></span>'
+            )
+        st.markdown(
+            '<div style="margin:8px 0 12px 0;display:flex;flex-wrap:wrap;gap:4px;align-items:center">'
+            '<span style="font-size:13px;color:#888;margin-right:4px">信息源覆盖：</span>'
+            + "".join(_badge_parts)
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+
     if log_data:
         rows_html = []
         for row in log_data:
