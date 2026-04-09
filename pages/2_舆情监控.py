@@ -2197,7 +2197,7 @@ if active_phase == 5:
                 st.caption(
                     "横轴 = 综合热力分 (0-1, 越右越热)"
                     "　｜　纵轴 = 词频动量 (提及量环比变化率)"
-                    "　｜　L3单词 / L2词典"
+                    "　｜　集中式L2 / 分布式L2"
                 )
 
             # --- Build snapshot DataFrame ---
@@ -2275,10 +2275,10 @@ if active_phase == 5:
             fig_quad.add_hline(y=-0.2, line_color="#666", opacity=0.4, line_width=1)
             fig_quad.add_vline(x=0.5, line_dash="dash", line_color="#FFFFFF", opacity=0.3)
 
-            # 分层显示：L3单词（concentrated）和 L2词典（distributed）各为独立 trace
+            # 分层显示：集中式L2（concentrated）和 分布式L2（distributed）各为独立 trace
             _layer_defs = [
-                ("concentrated", "L3单词", "#E74C3C"),
-                ("distributed",  "L2词典", "#3498DB"),
+                ("concentrated", "集中式L2", "#E74C3C"),
+                ("distributed",  "分布式L2", "#3498DB"),
             ]
             for _heat_type, _layer_name, _layer_color in _layer_defs:
                 _xs, _ys, _texts, _hovers = [], [], [], []
