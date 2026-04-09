@@ -1792,7 +1792,7 @@ with tab4:
 
                         # ── 归档 ──────────────────────────────────────────────
                         with il_arc_tab:
-                            st.caption("将选中词条软删除（归档），可通过"恢复"操作还原。")
+                            st.caption("将选中词条软删除（归档），可通过「恢复」操作还原。")
                             arc_terms = [t["term"] for t in terms if t.get("status") in ("active", "dormant")]
                             if arc_terms:
                                 arc_selected = st.multiselect(
