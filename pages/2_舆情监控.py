@@ -2185,7 +2185,7 @@ if active_phase == 5:
         df_radar["mention_count"] = pd.to_numeric(df_radar["mention_count"], errors="coerce").fillna(0)
 
 
-        v5_sub1, v5_sub2, v5_sub3 = st.tabs(["🎯 四象限雷达", "🏆 板块热度榜", "⚡ 热度异动榜"])
+        (v5_sub1,) = st.tabs(["🎯 四象限雷达"])
 
         # =====================================================================
         # Sub-tab 1: Quadrant Radar (rewritten v3)
@@ -2209,7 +2209,7 @@ if active_phase == 5:
                 st.caption(
                     "横轴 = 综合热力分 (0-1, 越右越热)"
                     "　｜　纵轴 = 词频动量 (提及量环比变化率)"
-                    "　｜　🔴 单词爆发型 / 🔵 多词共振型"
+                    "　｜　🔴 L3单词 / 🔵 L2词典"
                 )
 
             # --- Build snapshot DataFrame ---
@@ -2263,57 +2263,63 @@ if active_phase == 5:
             fig_quad.add_hline(y=-0.2, line_color="#666", opacity=0.4, line_width=1)
             fig_quad.add_vline(x=0.5, line_dash="dash", line_color="#FFFFFF", opacity=0.3)
 
-            for _, row in df_snap.iterrows():
-                is_concentrated = row.get("heat_type") == "concentrated"
-                type_label = "单词爆发" if is_concentrated else "多词共振"
-
-                dwell_d, prev_q = _compute_dwell(row["l2_sector"], selected_snap_date)
-
-                top_kws = row.get("top_l3_keywords", [])
-                kw_lines = ""
-                if isinstance(top_kws, list):
-                    for kw in top_kws[:3]:
-                        if isinstance(kw, dict):
-                            kw_lines += (
-                                f"  {kw['keyword']}: {kw['doc_count']}篇, "
-                                f"burst {kw['burst_ratio']:.1f}x, "
-                                f"{kw['consecutive_days']}天<br>"
-                            )
-                if not kw_lines:
-                    kw_lines = "  (无活跃 L3 词)<br>"
-
-                hover_text = (
-                    f"<b>{row['l2_sector']}</b><br>"
-                    f"热力排名: #{int(row.get('heat_rank', 0))} "
-                    f"(综合分 {float(row['composite_heat']):.3f})<br>"
-                    f"词频动量: {float(row['heat_momentum']):+.1%}<br>"
-                    f"提及量: {int(row.get('mention_count', 0))}<br>"
-                    f"类型: {type_label}<br>"
-                    f"象限停留: {dwell_d}天 | 上一象限: {prev_q}<br>"
-                    f"--- Top L3 ---<br>{kw_lines}"
-                )
-
-                border_color = "#E74C3C" if is_concentrated else "#3498DB"
-
-                fig_quad.add_trace(go.Scatter(
-                    x=[float(row["composite_heat"])],
-                    y=[float(row["heat_momentum"])],
-                    mode="markers+text",
-                    text=[row["l2_sector"]],
-                    textposition="top center",
-                    textfont=dict(size=13, color="#eee"),
-                    marker=dict(
-                        size=12,
-                        symbol="circle",
-                        color=border_color,
-                        opacity=0.85,
-                        line=dict(width=1, color=border_color),
-                    ),
-                    hovertext=hover_text,
-                    hoverinfo="text",
-                    name=row["l2_sector"],
-                    showlegend=False,
-                ))
+            # 分层显示：L3单词（concentrated）和 L2词典（distributed）各为独立 trace
+            _layer_defs = [
+                ("concentrated", "🔴 L3单词", "#E74C3C"),
+                ("distributed",  "🔵 L2词典", "#3498DB"),
+            ]
+            for _heat_type, _layer_name, _layer_color in _layer_defs:
+                _xs, _ys, _texts, _hovers = [], [], [], []
+                for _, row in df_snap.iterrows():
+                    if row.get("heat_type", "distributed") != _heat_type:
+                        continue
+                    dwell_d, prev_q = _compute_dwell(row["l2_sector"], selected_snap_date)
+                    top_kws = row.get("top_l3_keywords", [])
+                    kw_lines = ""
+                    if isinstance(top_kws, list):
+                        for kw in top_kws[:3]:
+                            if isinstance(kw, dict):
+                                kw_lines += (
+                                    f"  {kw['keyword']}: {kw['doc_count']}篇, "
+                                    f"burst {kw['burst_ratio']:.1f}x, "
+                                    f"{kw['consecutive_days']}天<br>"
+                                )
+                    if not kw_lines:
+                        kw_lines = "  (无活跃 L3 词)<br>"
+                    hover_text = (
+                        f"<b>{row['l2_sector']}</b><br>"
+                        f"热力排名: #{int(row.get('heat_rank', 0))} "
+                        f"(综合分 {float(row['composite_heat']):.3f})<br>"
+                        f"词频动量: {float(row['heat_momentum']):+.1%}<br>"
+                        f"提及量: {int(row.get('mention_count', 0))}<br>"
+                        f"类型: {_layer_name}<br>"
+                        f"象限停留: {dwell_d}天 | 上一象限: {prev_q}<br>"
+                        f"--- Top L3 ---<br>{kw_lines}"
+                    )
+                    _xs.append(float(row["composite_heat"]))
+                    _ys.append(float(row["heat_momentum"]))
+                    _texts.append(row["l2_sector"])
+                    _hovers.append(hover_text)
+                if _xs:
+                    fig_quad.add_trace(go.Scatter(
+                        x=_xs,
+                        y=_ys,
+                        mode="markers+text",
+                        text=_texts,
+                        textposition="top center",
+                        textfont=dict(size=13, color="#eee"),
+                        marker=dict(
+                            size=12,
+                            symbol="circle",
+                            color=_layer_color,
+                            opacity=0.85,
+                            line=dict(width=1, color=_layer_color),
+                        ),
+                        hovertext=_hovers,
+                        hoverinfo="text",
+                        name=_layer_name,
+                        showlegend=True,
+                    ))
 
             # Quadrant label annotations
             fig_quad.add_annotation(
@@ -2342,7 +2348,18 @@ if active_phase == 5:
                 plot_bgcolor="#111111",
                 paper_bgcolor="#111111",
                 font=dict(color="#ddd", size=13),
-                showlegend=False,
+                showlegend=True,
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="left",
+                    x=0,
+                    font=dict(size=14, color="#ddd"),
+                    bgcolor="rgba(0,0,0,0.3)",
+                    bordercolor="rgba(255,255,255,0.1)",
+                    borderwidth=1,
+                ),
                 xaxis=dict(
                     title="冷门 ← 综合热力分 → 爆发",
                     zeroline=False,
@@ -2365,8 +2382,8 @@ if active_phase == 5:
                 "<div style='display:flex;gap:24px;padding:6px 12px;"
                 "background:rgba(0,0,0,0.4);border-radius:6px;"
                 "font-size:13px;color:#ddd;margin-bottom:4px'>"
-                "<span>🔴 单词爆发型（集中度高）</span>"
-                "<span>🔵 多词共振型（集中度低）</span>"
+                "<span>🔴 <b>L3单词</b>（集中度高，单词爆发型）</span>"
+                "<span>🔵 <b>L2词典</b>（集中度低，多词共振型）</span>"
                 "</div>",
                 unsafe_allow_html=True,
             )
@@ -2430,7 +2447,7 @@ if active_phase == 5:
                 sc1.metric("热力排名", f"#{int(sr.get('heat_rank', 0))}")
                 sc2.metric("综合热力分", f"{float(sr['composite_heat']):.3f}")
                 sc3.metric("词频动量", f"{float(sr['heat_momentum']):+.1%}")
-                type_label = "🔴 单词爆发" if sr.get("heat_type") == "concentrated" else "🔵 多词共振"
+                type_label = "🔴 L3单词" if sr.get("heat_type") == "concentrated" else "🔵 L2词典"
                 sc4.metric("热度类型", type_label)
                 sc5.metric("当前象限", cur_q)
                 sc6.metric("象限停留", f"{dwell_d}天")
@@ -2536,268 +2553,6 @@ if active_phase == 5:
                 else:
                     st.info("该板块暂无活跃 L3 关键词（TF-IDF 候选表中无近期匹配）。")
 
-        # =====================================================================
-        # Sub-tab 2: Heat Leaderboard (table with date comparison)
-        # =====================================================================
-        with v5_sub2:
-            _lb_today = _date.today()
-            _lb_today_iso = _lb_today.isoformat()
-
-            _compare_opts = {
-                "1\u5929\u524d": 1, "3\u5929\u524d": 3,
-                "7\u5929\u524d": 7, "14\u5929\u524d": 14,
-                "30\u5929\u524d": 30,
-            }
-            _cmp_label = st.radio(
-                "\u5bf9\u6bd4\u57fa\u51c6",
-                list(_compare_opts.keys()),
-                horizontal=True,
-                key="lb_compare_days",
-            )
-            _cmp_days = _compare_opts[_cmp_label]
-
-            _target_iso = (_lb_today - _timedelta(days=_cmp_days)).isoformat()
-            _avail = [d for d in _hist_dates_set if d <= _target_iso]
-            _base_date = _avail[-1] if _avail else None
-
-            _base_rank: dict[str, int] = {}
-            _base_score: dict[str, float] = {}
-            if _base_date:
-                _bsnaps = [
-                    (r["l2_sector"], float(r["composite_heat"]))
-                    for r in qh_data if r["date"] == _base_date
-                ]
-                _bsnaps.sort(key=lambda x: x[1], reverse=True)
-                for _ri, (_sec, _sc) in enumerate(_bsnaps):
-                    _base_rank[_sec] = _ri + 1
-                    _base_score[_sec] = _sc
-
-            if _base_date:
-                _real_gap = (_lb_today - _date.fromisoformat(_base_date)).days
-                if _real_gap != _cmp_days:
-                    st.caption(
-                        f"\u5386\u53f2\u6570\u636e\u6700\u8fd1\u53ef\u7528"
-                        f"\u65e5\u671f: {_base_date}"
-                        f"\uff08\u5b9e\u9645\u76f8\u8ddd {_real_gap} \u5929\uff09"
-                    )
-
-            df_lb = df_radar.sort_values(
-                "composite_heat", ascending=False,
-            ).reset_index(drop=True)
-
-            _hdr = f"\u8f83{_cmp_label}"
-            _th = (
-                'padding:10px 8px;font-weight:600;color:#888;'
-                'border-bottom:2px solid #444'
-            )
-            _tbl = (
-                '<table style="width:100%;border-collapse:collapse;'
-                'font-size:14px;color:#ddd">'
-                '<thead><tr>'
-                f'<th style="{_th};text-align:left">\u6392\u540d</th>'
-                f'<th style="{_th};text-align:left">\u677f\u5757</th>'
-                f'<th style="{_th};text-align:right">\u70ed\u5ea6\u5206</th>'
-                f'<th style="{_th};text-align:right">{_hdr}</th>'
-                f'<th style="{_th};text-align:right">\u52a8\u91cf</th>'
-                '</tr></thead><tbody>'
-            )
-
-            for idx, row in df_lb.iterrows():
-                rank = idx + 1
-                sector = row["l2_sector"]
-                ch = float(row["composite_heat"])
-                sm = float(row["heat_momentum"])
-                score = ch * 100
-
-                prev_r = _base_rank.get(sector)
-                if prev_r is not None:
-                    rd = prev_r - rank
-                    if rd > 0:
-                        rank_html = (
-                            f'{rank} <span style="color:#2ECC71;'
-                            f'font-weight:bold">\u2191{rd}</span>'
-                        )
-                    elif rd < 0:
-                        rank_html = (
-                            f'{rank} <span style="color:#E74C3C;'
-                            f'font-weight:bold">\u2193{abs(rd)}</span>'
-                        )
-                    else:
-                        rank_html = (
-                            f'{rank} <span style="color:#666">\u2192</span>'
-                        )
-                else:
-                    rd = 0
-                    rank_html = (
-                        f'{rank} <span style="color:#F39C12;'
-                        f'font-weight:bold">NEW</span>'
-                    )
-
-                bs = _base_score.get(sector)
-                if bs is not None:
-                    sd = (ch - bs) * 100
-                    if sd > 0.05:
-                        delta_html = (
-                            f'<span style="color:#2ECC71">+{sd:.1f}</span>'
-                        )
-                    elif sd < -0.05:
-                        delta_html = (
-                            f'<span style="color:#E74C3C">{sd:.1f}</span>'
-                        )
-                    else:
-                        delta_html = '<span style="color:#666">0.0</span>'
-                else:
-                    delta_html = '<span style="color:#666">\u2014</span>'
-
-                if sm > 0.05:
-                    sent_html = (
-                        f'<span style="color:#2ECC71">{sm:+.1%}</span>'
-                    )
-                elif sm < -0.05:
-                    sent_html = (
-                        f'<span style="color:#E74C3C">{sm:+.1%}</span>'
-                    )
-                else:
-                    sent_html = (
-                        f'<span style="color:#888">{sm:+.1%}</span>'
-                    )
-
-                is_anom = prev_r is not None and abs(rd) >= 3
-                row_border = (
-                    'border-left:3px solid #F39C12;' if is_anom else ''
-                )
-                anom_tag = (
-                    ' <span style="color:#F39C12;font-size:13px;'
-                    'font-weight:bold">\u5f02\u52a8</span>'
-                    if is_anom else ''
-                )
-
-                _tbl += (
-                    f'<tr style="border-bottom:1px solid #333;{row_border}">'
-                    f'<td style="padding:10px 8px;white-space:nowrap">'
-                    f'{rank_html}</td>'
-                    f'<td style="padding:10px 8px;font-weight:bold">'
-                    f'{sector}{anom_tag}</td>'
-                    f'<td style="padding:10px 8px;text-align:right;'
-                    f'font-weight:bold">{score:.1f}</td>'
-                    f'<td style="padding:10px 8px;text-align:right">'
-                    f'{delta_html}</td>'
-                    f'<td style="padding:10px 8px;text-align:right">'
-                    f'{sent_html}</td>'
-                    f'</tr>'
-                )
-
-            _tbl += '</tbody></table>'
-            st.markdown(_tbl, unsafe_allow_html=True)
-            st.caption(
-                "\u6392\u540d\u6309\u7efc\u5408\u70ed\u5ea6\u5206\u964d\u5e8f"
-                " \u00b7 \u5f02\u52a8 = \u6392\u540d\u53d8\u5316 \u2265 3 \u4f4d"
-            )
-
-        # =====================================================================
-        # Sub-tab 3: Sentiment Anomaly Ranking (diverging bar chart)
-        # =====================================================================
-        with v5_sub3:
-            df_anom = df_radar.copy()
-            df_anom["abs_momentum"] = df_anom["heat_momentum"].abs()
-            df_anom = df_anom.sort_values(
-                "abs_momentum", ascending=True,
-            ).reset_index(drop=True)
-
-            _anom_colors = []
-            _anom_hovers = []
-            _anom_texts = []
-            for _, row in df_anom.iterrows():
-                sm = float(row["heat_momentum"])
-                ch = float(row["composite_heat"])
-                mc = int(row.get("mention_count", 0))
-                quad = _assign_quadrant(ch, sm)
-
-                if sm > 0:
-                    _anom_colors.append("#2ECC71")
-                elif sm < 0:
-                    _anom_colors.append("#E74C3C")
-                else:
-                    _anom_colors.append("#666")
-
-                _anom_texts.append(f"{sm:+.1%}")
-
-                kw_lines = ""
-                top_kws = row.get("top_l3_keywords", [])
-                if isinstance(top_kws, list):
-                    for kw in top_kws[:5]:
-                        if isinstance(kw, dict):
-                            kw_lines += (
-                                f"  \u00b7 {kw['keyword']} "
-                                f"({kw['doc_count']}\u7bc7, "
-                                f"burst {kw['burst_ratio']:.1f}x)<br>"
-                            )
-                if not kw_lines:
-                    kw_lines = "  (\u65e0\u6d3b\u8dc3\u5173\u952e\u8bcd)<br>"
-
-                direction = (
-                    "升温 ↑" if sm > 0
-                    else "衰减 ↓" if sm < 0
-                    else "持平"
-                )
-                _anom_hovers.append(
-                    f"<b>{row['l2_sector']}</b><br>"
-                    f"词频动量: {sm:+.1%} ({direction})<br>"
-                    f"综合热力: {ch:.3f}<br>"
-                    f"当前象限: {quad}<br>"
-                    f"提及量: {mc}篇<br>"
-                    f"---<br>"
-                    f"<b>活跃关键词:</b><br>{kw_lines}"
-                )
-
-            fig_anom = go.Figure()
-            fig_anom.add_trace(go.Bar(
-                y=df_anom["l2_sector"].tolist(),
-                x=df_anom["heat_momentum"].astype(float).tolist(),
-                orientation="h",
-                marker_color=_anom_colors,
-                text=_anom_texts,
-                textposition="outside",
-                textfont=dict(size=13, color="#ddd"),
-                hovertext=_anom_hovers,
-                hoverinfo="text",
-            ))
-
-            fig_anom.add_vline(x=0, line_color="#555", line_width=1)
-            fig_anom.add_vline(
-                x=0.1, line_dash="dot", line_color="#2ECC71", opacity=0.3,
-            )
-            fig_anom.add_vline(
-                x=-0.1, line_dash="dot", line_color="#E74C3C", opacity=0.3,
-            )
-
-            _max_abs = float(max(df_anom["abs_momentum"].max(), 0.15)) * 1.4
-
-            fig_anom.update_layout(
-                height=max(400, len(df_anom) * 35),
-                plot_bgcolor="#111111",
-                paper_bgcolor="#111111",
-                font=dict(color="#ddd", size=13),
-                xaxis=dict(
-                    title="← 衰减　　　词频动量　　　升温 →",
-                    range=[-_max_abs, _max_abs],
-                    zeroline=False,
-                    gridcolor="rgba(80,80,80,0.3)",
-                ),
-                yaxis=dict(title=""),
-                margin=dict(l=150, r=80, t=30, b=50),
-            )
-
-            st.markdown(
-                "<div style='font-size:13px;color:#888;margin-bottom:8px'>"
-                "按词频动量绝对值排序（变化最大在上方）· "
-                "🟢 正值 = 升温 · "
-                "🔴 负值 = 衰减 · "
-                "虚线 = ±10% 参考线"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-            st.plotly_chart(fig_anom, use_container_width=True)
     else:
         st.info("暂无数据。请先在侧边栏触发 NLP 流水线，待数据采集完成后刷新。")
 
