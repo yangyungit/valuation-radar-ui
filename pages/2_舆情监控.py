@@ -2315,6 +2315,8 @@ with tab5:
         _dbg_cols = sorted(df_radar.columns.tolist())
         st.info(f"🔬 [DEBUG] df_radar columns ({len(_dbg_cols)}): `{_dbg_cols}`")
         # #endregion
+        if "sentiment_momentum" in df_radar.columns and "heat_momentum" not in df_radar.columns:
+            df_radar = df_radar.rename(columns={"sentiment_momentum": "heat_momentum"})
         df_radar["heat_percentile"] = df_radar["heat_percentile"].astype(float)
         df_radar["heat_momentum"] = df_radar["heat_momentum"].astype(float)
         df_radar["composite_heat"] = df_radar["composite_heat"].astype(float)
@@ -2356,6 +2358,8 @@ with tab5:
                 snap_rows = [r for r in qh_data if r["date"] == selected_snap_date]
                 if snap_rows:
                     df_snap = pd.DataFrame(snap_rows)
+                    if "sentiment_momentum" in df_snap.columns and "heat_momentum" not in df_snap.columns:
+                        df_snap = df_snap.rename(columns={"sentiment_momentum": "heat_momentum"})
                     df_snap["mention_count"] = 0
                     df_snap["heat_type"] = "distributed"
                     df_snap["heat_concentration"] = 0.0
