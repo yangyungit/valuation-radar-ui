@@ -645,7 +645,7 @@ active_phase = st.session_state["active_phase"]
 # Phase 4: NLP Signal Provenance Panel
 # =========================================================================
 if active_phase == 4:
-    _phase_header(3, "旧词统计", "追踪词典中已有关键词的文章命中记录，支持按信息源、日期、关键词多维度筛选")
+    _phase_header(4, "旧词统计", "追踪词典中已有关键词的文章命中记录，支持按信息源、日期、关键词多维度筛选")
 
     prov_col1, prov_col2, prov_col3, prov_col4 = st.columns([1, 1, 1, 2])
     with prov_col1:
@@ -1533,7 +1533,7 @@ if active_phase == 1:
 # Phase 3: L2/L3 Taxonomy Panorama & CIO Management
 # =========================================================================
 if active_phase == 3:
-    _phase_header(4, "L2/L3 词典全景 & CIO 管理", "浏览完整词典树与词汇档案，CIO 可添加、归档、恢复词条")
+    _phase_header(3, "L2/L3 词典全景 & CIO 管理", "浏览完整词典树与词汇档案，CIO 可添加、归档、恢复词条")
 
     taxonomy_full_resp = fetch_taxonomy_full()
     taxonomy_full_data = taxonomy_full_resp.get("data", [])
