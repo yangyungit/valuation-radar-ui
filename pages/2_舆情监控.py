@@ -342,9 +342,35 @@ for _pi, (_pnum, _plabel) in enumerate(_steps):
     _pc = PHASE_COLORS[_pnum]
     _pactive = st.session_state["active_phase"] == _pnum
     with _pnav_cols[_pi]:
-        _btn_label = f"● {_pnum} · {_plabel}" if _pactive else f"○ {_pnum} · {_plabel}"
+        # Inject per-phase color CSS: active = solid fill, inactive = outline style
+        if _pactive:
+            _btn_style = (
+                f"background-color:{_pc} !important;"
+                f"border-color:{_pc} !important;"
+                f"color:#fff !important;"
+            )
+        else:
+            _btn_style = (
+                f"background-color:transparent !important;"
+                f"border:1px solid {_pc} !important;"
+                f"color:{_pc} !important;"
+            )
+        st.markdown(
+            f"<style>"
+            f"div[data-testid='stMarkdownContainer']:has(#pnav-marker-{_pnum})"
+            f" ~ div[data-testid='stButton'] button{{"
+            f"  {_btn_style}"
+            f"}}"
+            f"div[data-testid='stMarkdownContainer']:has(#pnav-marker-{_pnum})"
+            f" ~ div[data-testid='stButton'] button:hover{{"
+            f"  filter:brightness(1.15) !important;"
+            f"}}"
+            f"</style>"
+            f"<span id='pnav-marker-{_pnum}' style='display:none'></span>",
+            unsafe_allow_html=True,
+        )
         if st.button(
-            _btn_label,
+            f"{_pnum} · {_plabel}",
             key=f"pnav_{_pnum}",
             use_container_width=True,
             type="primary" if _pactive else "secondary",
