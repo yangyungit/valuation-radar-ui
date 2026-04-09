@@ -2,6 +2,28 @@
 
 ---
 
+## 2026-04-09 | 四象限雷达 Y 轴：情感动量 → 热度动量
+
+将 Tab 5 四象限雷达的纵轴从「情感动量 (VADER sentiment momentum)」替换为「热度动量 (heat momentum)」——即提及量环比变化率 `(近N日日均提及量 - 前7日日均提及量) / max(前7日日均提及量, 1)`。
+
+**动因：** VADER 对中英混合金融标题的情感打分噪声大、不稳定，且"文章标题的平均情绪"与用户关心的"板块热度升降"并不对应。改用提及量环比后，数据源为确定性整数（文章数），信号直观可操作。
+
+**改动范围：**
+- **后端 `narrative_engine.py`**
+  - `get_l2_l3_detail()` — 查询改为聚合 `mention_count` 日均值及其前置 7 天日均值，输出字段 `heat_momentum` 替代 `sentiment_momentum`
+  - `get_quadrant_history()` — 历史快照 Y 轴同步改为提及量环比变化率
+  - 四象限名称更新：舆论风口 → **风口正劲**、静默潜伏 → **暗流涌动**、舆论恐慌 → **见顶预警**、冷淡低迷 → **无人问津**
+- **后端 `api_server.py`** — docstring 更新
+- **前端 `pages/2_舆情监控.py`**
+  - Tab 5 Sub-tab 1 (四象限雷达)：Y 轴标签、象限标注、hover tooltip、归因卡、drill-down metrics 全量更新
+  - Tab 5 Sub-tab 2 (板块热度榜)：列标题和数值格式改为百分比
+  - Tab 5 Sub-tab 3 (情绪异动榜 → **热度异动榜**)：标签、hover、x 轴标题全量更新
+  - Tab 6 (共振猎场)：`sentiment_momentum` → `heat_momentum`，风口摘要卡片、信号分类、叙事预热卡片同步更新
+
+**数据兼容：** `daily_cluster_stats.avg_sentiment` 字段保留不删，`calc_sentiment()` / `keyword_match_log` 仍正常写入文章级情感，仅前端展示维度切换。
+
+---
+
 ## 2026-04-09 | 质检员系统 (Health Inspector Dashboard)
 
 新增 `health_checker.py` 模块及首页质检面板，打开系统即可一目了然看到所有故障和隐患。

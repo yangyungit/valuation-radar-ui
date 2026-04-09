@@ -2260,7 +2260,7 @@ with tab4:
 with tab5:
     _phase_header(
         5, "叙事四象限雷达",
-        "横轴 = 综合热力原始分 (0-1)，纵轴 = 情感动量，颜色 = 热度集中类型",
+        "横轴 = 综合热力原始分 (0-1)，纵轴 = 热度动量（提及量环比变化率），颜色 = 热度集中类型",
     )
 
     # ---------- Fetch APIs ----------
@@ -2312,14 +2312,12 @@ with tab5:
     if l2l3_data:
         df_radar = pd.DataFrame(l2l3_data)
         df_radar["heat_percentile"] = df_radar["heat_percentile"].astype(float)
-        df_radar["sentiment_momentum"] = df_radar["sentiment_momentum"].astype(float)
+        df_radar["heat_momentum"] = df_radar["heat_momentum"].astype(float)
         df_radar["composite_heat"] = df_radar["composite_heat"].astype(float)
         df_radar["mention_count"] = pd.to_numeric(df_radar["mention_count"], errors="coerce").fillna(0)
-        if "sentiment_data_days" not in df_radar.columns:
-            df_radar["sentiment_data_days"] = 7
 
 
-        v5_sub1, v5_sub2, v5_sub3 = st.tabs(["🎯 四象限雷达", "🏆 板块热度榜", "⚡ 情绪异动榜"])
+        v5_sub1, v5_sub2, v5_sub3 = st.tabs(["🎯 四象限雷达", "🏆 板块热度榜", "⚡ 热度异动榜"])
 
         # =====================================================================
         # Sub-tab 1: Quadrant Radar (rewritten v3)
@@ -2342,7 +2340,7 @@ with tab5:
             with snap_col1:
                 st.caption(
                     "横轴 = 综合热力分 (0-1, 越右越热)"
-                    "　｜　纵轴 = 情感动量 (固定 ±0.5)"
+                    "　｜　纵轴 = 热度动量 (提及量环比变化率)"
                     "　｜　🔴 单词爆发型 / 🔵 多词共振型"
                 )
 
@@ -2364,7 +2362,7 @@ with tab5:
                     df_snap["top_l3_keywords"] = [[] for _ in range(len(df_snap))]
                     df_snap["heat_factor_breakdown"] = [None for _ in range(len(df_snap))]
                     df_snap["composite_heat"] = df_snap["composite_heat"].astype(float)
-                    df_snap["sentiment_momentum"] = df_snap["sentiment_momentum"].astype(float)
+                    df_snap["heat_momentum"] = df_snap["heat_momentum"].astype(float)
                     df_snap = df_snap.sort_values("composite_heat", ascending=False).reset_index(drop=True)
                     for ri in range(len(df_snap)):
                         df_snap.loc[df_snap.index[ri], "heat_rank"] = ri + 1
@@ -2418,7 +2416,7 @@ with tab5:
                     f"<b>{row['l2_sector']}</b><br>"
                     f"热力排名: #{int(row.get('heat_rank', 0))} "
                     f"(综合分 {float(row['composite_heat']):.3f})<br>"
-                    f"情感动量: {float(row['sentiment_momentum']):+.3f}<br>"
+                    f"热度动量: {float(row['heat_momentum']):+.1%}<br>"
                     f"提及量: {int(row.get('mention_count', 0))}<br>"
                     f"类型: {type_label}<br>"
                     f"象限停留: {dwell_d}天 | 上一象限: {prev_q}<br>"
@@ -2429,7 +2427,7 @@ with tab5:
 
                 fig_quad.add_trace(go.Scatter(
                     x=[float(row["composite_heat"])],
-                    y=[float(row["sentiment_momentum"])],
+                    y=[float(row["heat_momentum"])],
                     mode="markers+text",
                     text=[row["l2_sector"]],
                     textposition="top center",
@@ -2450,22 +2448,22 @@ with tab5:
             # Quadrant label annotations
             fig_quad.add_annotation(
                 x=0.85, y=0.38,
-                text="🔥 舆论风口<br><span style='font-size:13px'>(热度高+情感升温)</span>",
+                text="🔥 风口正劲<br><span style='font-size:13px'>(热度高+加速升温)</span>",
                 showarrow=False, font=dict(color="#E74C3C", size=14),
             )
             fig_quad.add_annotation(
                 x=0.15, y=-0.38,
-                text="❄️ 冷淡低迷<br><span style='font-size:13px'>(热度低+情感降温)</span>",
+                text="❄️ 无人问津<br><span style='font-size:13px'>(热度低+持续衰减)</span>",
                 showarrow=False, font=dict(color="#3498DB", size=14),
             )
             fig_quad.add_annotation(
                 x=0.15, y=0.38,
-                text="🌱 静默潜伏<br><span style='font-size:13px'>(热度低+情感升温)</span>",
+                text="🌱 暗流涌动<br><span style='font-size:13px'>(热度低+加速升温)</span>",
                 showarrow=False, font=dict(color="#2ECC71", size=14),
             )
             fig_quad.add_annotation(
                 x=0.85, y=-0.38,
-                text="⚠️ 舆论恐慌<br><span style='font-size:13px'>(热度高+情感降温)</span>",
+                text="⚠️ 见顶预警<br><span style='font-size:13px'>(热度高+开始衰减)</span>",
                 showarrow=False, font=dict(color="#E67E22", size=14),
             )
 
@@ -2484,10 +2482,11 @@ with tab5:
                     gridcolor="rgba(80,80,80,0.3)",
                 ),
                 yaxis=dict(
-                    title="情感降温 ← 情感动量 → 情感升温",
+                    title="衰减 ← 热度动量 → 升温",
                     zeroline=False,
-                    range=[-0.5, 0.5],
-                    tickvals=[-0.4, -0.2, -0.1, 0, 0.1, 0.2, 0.4],
+                    range=[-1.0, 1.0],
+                    tickvals=[-0.8, -0.5, -0.2, 0, 0.2, 0.5, 0.8],
+                    ticktext=["-80%", "-50%", "-20%", "0", "+20%", "+50%", "+80%"],
                     gridcolor="rgba(80,80,80,0.3)",
                 ),
                 margin=dict(l=80, r=30, t=50, b=70),
@@ -2504,18 +2503,18 @@ with tab5:
             st.plotly_chart(fig_quad, use_container_width=True)
 
             # --- Quadrant attribution cards (v3) ---
-            def _assign_quadrant(ch, sm):
-                if ch > 0.5 and sm > 0:
-                    return "舆论风口"
-                elif ch <= 0.5 and sm > 0:
-                    return "静默潜伏"
-                elif ch > 0.5 and sm <= 0:
-                    return "舆论恐慌"
-                return "冷淡低迷"
+            def _assign_quadrant(ch, hm):
+                if ch > 0.5 and hm > 0:
+                    return "风口正劲"
+                elif ch <= 0.5 and hm > 0:
+                    return "暗流涌动"
+                elif ch > 0.5 and hm <= 0:
+                    return "见顶预警"
+                return "无人问津"
 
-            _q_map = {"舆论风口": [], "静默潜伏": [], "舆论恐慌": [], "冷淡低迷": []}
+            _q_map = {"风口正劲": [], "暗流涌动": [], "见顶预警": [], "无人问津": []}
             for _, row in df_snap.iterrows():
-                q_label = _assign_quadrant(float(row["composite_heat"]), float(row["sentiment_momentum"]))
+                q_label = _assign_quadrant(float(row["composite_heat"]), float(row["heat_momentum"]))
                 _q_map[q_label].append(
                     f"<span style='font-size:13px'><b>{row['l2_sector']}</b></span>"
                 )
@@ -2530,10 +2529,10 @@ with tab5:
         四象限归因
     </div>
     <div style="display:flex;flex-direction:column;gap:6px;font-size:14px;color:#ddd">
-        <div>🔥 <b style="color:#E74C3C">舆论风口</b> ({len(_q_map['舆论风口'])}): {_fmt_q_tags(_q_map['舆论风口'])}</div>
-        <div>🌱 <b style="color:#2ECC71">静默潜伏</b> ({len(_q_map['静默潜伏'])}): {_fmt_q_tags(_q_map['静默潜伏'])}</div>
-        <div>⚠️ <b style="color:#E67E22">舆论恐慌</b> ({len(_q_map['舆论恐慌'])}): {_fmt_q_tags(_q_map['舆论恐慌'])}</div>
-        <div>❄️ <b style="color:#3498DB">冷淡低迷</b> ({len(_q_map['冷淡低迷'])}): {_fmt_q_tags(_q_map['冷淡低迷'])}</div>
+        <div>🔥 <b style="color:#E74C3C">风口正劲</b> ({len(_q_map['风口正劲'])}): {_fmt_q_tags(_q_map['风口正劲'])}</div>
+        <div>🌱 <b style="color:#2ECC71">暗流涌动</b> ({len(_q_map['暗流涌动'])}): {_fmt_q_tags(_q_map['暗流涌动'])}</div>
+        <div>⚠️ <b style="color:#E67E22">见顶预警</b> ({len(_q_map['见顶预警'])}): {_fmt_q_tags(_q_map['见顶预警'])}</div>
+        <div>❄️ <b style="color:#3498DB">无人问津</b> ({len(_q_map['无人问津'])}): {_fmt_q_tags(_q_map['无人问津'])}</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2555,12 +2554,12 @@ with tab5:
             if not sel_row.empty:
                 sr = sel_row.iloc[0]
                 dwell_d, prev_q = _compute_dwell(selected_sector, selected_snap_date)
-                cur_q = _assign_quadrant(float(sr["composite_heat"]), float(sr["sentiment_momentum"]))
+                cur_q = _assign_quadrant(float(sr["composite_heat"]), float(sr["heat_momentum"]))
 
                 sc1, sc2, sc3, sc4, sc5, sc6 = st.columns(6)
                 sc1.metric("热力排名", f"#{int(sr.get('heat_rank', 0))}")
                 sc2.metric("综合热力分", f"{float(sr['composite_heat']):.3f}")
-                sc3.metric("情感动量", f"{float(sr['sentiment_momentum']):+.3f}")
+                sc3.metric("热度动量", f"{float(sr['heat_momentum']):+.1%}")
                 type_label = "🔴 单词爆发" if sr.get("heat_type") == "concentrated" else "🔵 多词共振"
                 sc4.metric("热度类型", type_label)
                 sc5.metric("当前象限", cur_q)
@@ -2729,7 +2728,7 @@ with tab5:
                 f'<th style="{_th};text-align:left">\u677f\u5757</th>'
                 f'<th style="{_th};text-align:right">\u70ed\u5ea6\u5206</th>'
                 f'<th style="{_th};text-align:right">{_hdr}</th>'
-                f'<th style="{_th};text-align:right">\u60c5\u7eea</th>'
+                f'<th style="{_th};text-align:right">\u52a8\u91cf</th>'
                 '</tr></thead><tbody>'
             )
 
@@ -2737,7 +2736,7 @@ with tab5:
                 rank = idx + 1
                 sector = row["l2_sector"]
                 ch = float(row["composite_heat"])
-                sm = float(row["sentiment_momentum"])
+                sm = float(row["heat_momentum"])
                 score = ch * 100
 
                 prev_r = _base_rank.get(sector)
@@ -2782,15 +2781,15 @@ with tab5:
 
                 if sm > 0.05:
                     sent_html = (
-                        f'<span style="color:#2ECC71">{sm:+.2f}</span>'
+                        f'<span style="color:#2ECC71">{sm:+.1%}</span>'
                     )
                 elif sm < -0.05:
                     sent_html = (
-                        f'<span style="color:#E74C3C">{sm:+.2f}</span>'
+                        f'<span style="color:#E74C3C">{sm:+.1%}</span>'
                     )
                 else:
                     sent_html = (
-                        f'<span style="color:#888">{sm:+.2f}</span>'
+                        f'<span style="color:#888">{sm:+.1%}</span>'
                     )
 
                 is_anom = prev_r is not None and abs(rd) >= 3
@@ -2830,7 +2829,7 @@ with tab5:
         # =====================================================================
         with v5_sub3:
             df_anom = df_radar.copy()
-            df_anom["abs_momentum"] = df_anom["sentiment_momentum"].abs()
+            df_anom["abs_momentum"] = df_anom["heat_momentum"].abs()
             df_anom = df_anom.sort_values(
                 "abs_momentum", ascending=True,
             ).reset_index(drop=True)
@@ -2839,7 +2838,7 @@ with tab5:
             _anom_hovers = []
             _anom_texts = []
             for _, row in df_anom.iterrows():
-                sm = float(row["sentiment_momentum"])
+                sm = float(row["heat_momentum"])
                 ch = float(row["composite_heat"])
                 mc = int(row.get("mention_count", 0))
                 quad = _assign_quadrant(ch, sm)
@@ -2851,7 +2850,7 @@ with tab5:
                 else:
                     _anom_colors.append("#666")
 
-                _anom_texts.append(f"{sm:+.3f}")
+                _anom_texts.append(f"{sm:+.1%}")
 
                 kw_lines = ""
                 top_kws = row.get("top_l3_keywords", [])
@@ -2867,24 +2866,24 @@ with tab5:
                     kw_lines = "  (\u65e0\u6d3b\u8dc3\u5173\u952e\u8bcd)<br>"
 
                 direction = (
-                    "\u60c5\u611f\u8f6c\u6696 \u2191" if sm > 0
-                    else "\u60c5\u611f\u8f6c\u51b7 \u2193" if sm < 0
-                    else "\u6301\u5e73"
+                    "升温 ↑" if sm > 0
+                    else "衰减 ↓" if sm < 0
+                    else "持平"
                 )
                 _anom_hovers.append(
                     f"<b>{row['l2_sector']}</b><br>"
-                    f"\u60c5\u611f\u52a8\u91cf: {sm:+.3f} ({direction})<br>"
-                    f"\u7efc\u5408\u70ed\u529b: {ch:.3f}<br>"
-                    f"\u5f53\u524d\u8c61\u9650: {quad}<br>"
-                    f"\u63d0\u53ca\u91cf: {mc}\u7bc7<br>"
+                    f"热度动量: {sm:+.1%} ({direction})<br>"
+                    f"综合热力: {ch:.3f}<br>"
+                    f"当前象限: {quad}<br>"
+                    f"提及量: {mc}篇<br>"
                     f"---<br>"
-                    f"<b>\u6d3b\u8dc3\u5173\u952e\u8bcd:</b><br>{kw_lines}"
+                    f"<b>活跃关键词:</b><br>{kw_lines}"
                 )
 
             fig_anom = go.Figure()
             fig_anom.add_trace(go.Bar(
                 y=df_anom["l2_sector"].tolist(),
-                x=df_anom["sentiment_momentum"].astype(float).tolist(),
+                x=df_anom["heat_momentum"].astype(float).tolist(),
                 orientation="h",
                 marker_color=_anom_colors,
                 text=_anom_texts,
@@ -2910,11 +2909,7 @@ with tab5:
                 paper_bgcolor="#111111",
                 font=dict(color="#ddd", size=13),
                 xaxis=dict(
-                    title=(
-                        "\u2190 \u60c5\u611f\u8f6c\u51b7\u3000\u3000\u3000"
-                        "\u60c5\u611f\u52a8\u91cf\u3000\u3000\u3000"
-                        "\u60c5\u611f\u8f6c\u6696 \u2192"
-                    ),
+                    title="← 衰减　　　热度动量　　　升温 →",
                     range=[-_max_abs, _max_abs],
                     zeroline=False,
                     gridcolor="rgba(80,80,80,0.3)",
@@ -2925,11 +2920,10 @@ with tab5:
 
             st.markdown(
                 "<div style='font-size:13px;color:#888;margin-bottom:8px'>"
-                "\u6309\u60c5\u611f\u52a8\u91cf\u7edd\u5bf9\u503c\u6392\u5e8f"
-                "\uff08\u53d8\u5316\u6700\u5927\u5728\u4e0a\u65b9\uff09\u00b7 "
-                "\U0001f7e2 \u6b63\u503c = \u60c5\u611f\u8f6c\u6696 \u00b7 "
-                "\U0001f534 \u8d1f\u503c = \u60c5\u611f\u8f6c\u51b7 \u00b7 "
-                "\u865a\u7ebf = \u00b10.1 \u663e\u8457\u6027\u53c2\u8003\u7ebf"
+                "按热度动量绝对值排序（变化最大在上方）· "
+                "🟢 正值 = 升温 · "
+                "🔴 负值 = 衰减 · "
+                "虚线 = ±10% 参考线"
                 "</div>",
                 unsafe_allow_html=True,
             )
@@ -2991,7 +2985,7 @@ with tab6:
             _n = _item.get("l2_sector", "")
             _l2_heat[_n] = float(_item.get("composite_heat", 0))
             _l2_quad[_n] = _item.get("quadrant", "")
-            _l2_sent[_n] = float(_item.get("sentiment_momentum", 0))
+            _l2_sent[_n] = float(_item.get("heat_momentum", 0))
 
         _sector_z: dict[str, float] = {}
         for _sh in _sh_data:
@@ -3062,7 +3056,7 @@ with tab6:
                 "ticker": _t, "cn_name": _tic.get(_t, _t),
                 "narr_label": _label, "l2_name": _l2n,
                 "narrative_score": _ch, "quadrant": _qd,
-                "sentiment_momentum": _sm,
+                "heat_momentum": _sm,
                 "d_score": _ds, "vol_z": vz, "rs_20d": rs, "ma60_dist": m60,
                 "vel_label": vel_lbl, "vel_value": vel_val,
                 "narr_mult": _narr_mult,
@@ -3083,7 +3077,7 @@ with tab6:
             m60 = _r["ma60_dist"]
             qm = 1.0 if -10 <= m60 <= 20 else (0.9 if m60 <= 50 else 0.75)
             qv = 1.0 if _r["vol_z"] >= 1.5 else 0.9
-            qs = 1.0 if _r["sentiment_momentum"] >= 0 else 0.85
+            qs = 1.0 if _r["heat_momentum"] >= 0 else 0.85
             quality = (qm + qv + qs) / 3.0
             adj = round(raw * quality, 1)
             if adj >= 85:
@@ -3125,10 +3119,10 @@ with tab6:
             ds = _r["d_score"]
             ma = _r["ma60_dist"]
             qd = _r["quadrant"]
-            sm = _r["sentiment_momentum"]
+            sm = _r["heat_momentum"]
             if _r["is_naked"]:
                 _r["signal"] = "⚠️ 裸奔"
-            elif ns >= 0.5 and ds >= 60 and -10 <= ma <= 20 and "舆论风口" in qd:
+            elif ns >= 0.5 and ds >= 60 and -10 <= ma <= 20 and "风口正劲" in qd:
                 _r["signal"] = "🔥 双高共振"
             elif ns >= 0.4 and sm > 0 and ds < 60:
                 _r["signal"] = "📰 叙事预热"
@@ -3144,7 +3138,7 @@ with tab6:
         _wind_sectors = [
             item for item in l2l3_data
             if float(item.get("composite_heat", 0)) >= 0.5
-            and float(item.get("sentiment_momentum", 0)) >= 0.1
+            and float(item.get("heat_momentum", 0)) >= 0.1
         ]
         _wind_sectors.sort(key=lambda x: float(x.get("composite_heat", 0)), reverse=True)
         _wind_top3 = _wind_sectors[:3]
@@ -3154,7 +3148,7 @@ with tab6:
             for ci, ws in enumerate(_wind_top3):
                 sec_name = ws.get("l2_sector", "")
                 ch_val = float(ws.get("composite_heat", 0))
-                sm_val = float(ws.get("sentiment_momentum", 0))
+                sm_val = float(ws.get("heat_momentum", 0))
                 v_lbl, _ = _calc_vel(sec_name)
                 related = sorted(
                     [r for r in _recs if r["l2_name"] == sec_name],
@@ -3179,7 +3173,7 @@ with tab6:
                     f'<span style="font-size:14px;color:#F39C12;font-weight:600">'
                     f'热力: {ch_val:.2f}</span></div>'
                     f'<div style="font-size:13px;color:#8b949e;margin-bottom:10px">'
-                    f'情感动量: <span style="color:{sm_color}">{sm_val:+.2f}</span>'
+                    f'热度动量: <span style="color:{sm_color}">{sm_val:+.1%}</span>'
                     f'&nbsp; 叙事速度: {v_lbl}</div>'
                     f'<hr style="border-color:#30363d;margin:8px 0">'
                     f'<div style="font-size:13px;color:#8b949e">'
@@ -3192,7 +3186,7 @@ with tab6:
         else:
             st.info(
                 "📭 今日暂无达到风口阈值的板块"
-                "（composite_heat ≥ 0.5 且 sentiment_momentum ≥ 0.1）"
+                "（composite_heat ≥ 0.5 且 heat_momentum ≥ 10%）"
             )
 
         st.markdown("")
@@ -3427,7 +3421,7 @@ with tab6:
                     if not _np_list:
                         st.caption("暂无叙事预热标的")
                     for _r in _np_list:
-                        smc = "#2ECC71" if _r["sentiment_momentum"] > 0 else "#E74C3C"
+                        smc = "#2ECC71" if _r["heat_momentum"] > 0 else "#E74C3C"
                         _np_col1, _np_col2 = st.columns([5, 1])
                         with _np_col1:
                             _snap2 = _snap_data.get(_r["ticker"], {})
@@ -3459,8 +3453,8 @@ with tab6:
                                 f'<div style="font-size:13px;color:#8b949e">'
                                 f'{_r["cn_name"]} · {_r["narr_label"]}</div>'
                                 f'<div style="font-size:13px;color:#8b949e;margin-top:2px">'
-                                f'情感 <span style="color:{smc}">'
-                                f'{_r["sentiment_momentum"]:+.2f}</span> · '
+                                f'热度 <span style="color:{smc}">'
+                                f'{_r["heat_momentum"]:+.1%}</span> · '
                                 f'{_r["vel_label"]} · 动量 {_r["d_score"]:.0f}'
                                 f'</div></div>',
                                 unsafe_allow_html=True,
@@ -3547,9 +3541,9 @@ with tab6:
             for sec, vals in _trend_map.items():
                 y_vals = [vals.get(d, None) for d in _5d_dates]
                 qd = _l2_quad.get(sec, "")
-                if "舆论风口" in qd:
+                if "风口正劲" in qd:
                     lc = "#E74C3C"
-                elif "静默潜伏" in qd:
+                elif "暗流涌动" in qd:
                     lc = "#2ECC71"
                 else:
                     lc = "#888"
