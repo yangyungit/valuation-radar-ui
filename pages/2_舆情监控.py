@@ -305,7 +305,7 @@ with st.expander("🔬 引擎原理白盒 — NLP 流水线是怎么工作的？
       <b>TF-IDF</b> = 词频 × 逆文档频率，衡量一个词"在今天特别突出、但平时不常见"的程度。<br><br>
       · <b>TF（词频）</b>：这个词今天出现了多少次？<br>
       · <b>IDF（逆文档频率）</b>：这个词平时有多罕见？越罕见分越高<br>
-      · <b>爆发系数</b> = 今日频率 ÷ 历史均值，> 2.0 视为放量<br><br>
+      · <b>热度系数</b> = 今日频率 ÷ 历史均值，> 2.0 视为放量<br><br>
       <span style="color:#888">目的：自动发现词典里没有、但市场正在热议的新兴词汇，作为"孤儿词"候选。</span>
     </div>
   </div>
@@ -1054,8 +1054,8 @@ with tab2:
                     sbl_rows.append({
                         "词条": bl["term"],
                         "最后检测日": bl.get("check_date", ""),
-                        "爆发系数": round(bl.get("burst_ratio", 0) or 0, 2),
-                        "共现度": round(bl.get("cooc_degree", 0) or 0, 3),
+                        "热度系数": round(bl.get("burst_ratio", 0) or 0, 2),
+                        "主题关联度": round(bl.get("cooc_degree", 0) or 0, 3),
                         "文档数": bl.get("doc_count", 0) or 0,
                         "连续天数": bl.get("consecutive", 0) or 0,
                     })
@@ -1086,7 +1086,18 @@ with tab2:
 # Tab 3: TF-IDF Bottom-Up Discovery + Quality Inspector
 # =========================================================================
 with tab3:
-    _phase_header(1, "新词挖掘（TF-IDF 自底向上）", "对新词——发现、过滤、决定要不要晋升入词典；对旧词——持续监测在语料中的温度变化（爆发系数）")
+    _phase_header(1, "新词挖掘（TF-IDF 自下而上）", "对新词——发现、过滤、决定要不要晋升入词典；对旧词——持续监测在语料中的温度变化（热度系数）")
+    st.markdown(
+        '<div style="font-size:13px;color:#aaa;line-height:1.9;'
+        'background:rgba(255,255,255,0.04);border-radius:6px;padding:10px 16px;margin-bottom:4px">'
+        '<b>TF-IDF</b> = <b>词频（TF）× 逆文档频率（IDF）</b>。'
+        'TF 衡量一个词在今日语料中出现的密度；IDF 惩罚那些在历史上随处可见的通用词——'
+        '一个词越罕见，IDF 越高，信噪比越强。'
+        '两者相乘，筛出的是<b>今天突然密集出现、但过去鲜少提及</b>的词，'
+        '即市场叙事的早期涌现信号。'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     v3_sub1, v3_sub2, v3_sub3 = st.tabs(["📊 TF-IDF 信号词", "📋 质检日志", "🆕 今日新发现"])
 
@@ -1124,17 +1135,17 @@ with tab3:
             if gate3_available:
                 st.caption(
                     f"以下 {len(tfidf_data)} 个词已通过 LLM 质检（Gemini Flash 审判），"
-                    f"噪音词已自动过滤。爆发系数 > 2.0 = 放量信号，共现度 > 0.3 = 有主题归属。"
+                    f"噪音词已自动过滤。热度系数 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
                 )
             elif quality_filtered:
                 st.caption(
                     f"以下 {len(tfidf_data)} 个词已通过统计质检（✅ 通过 / 🛡️ 旧词命中），"
-                    f"噪音、低爆发、孤立词已自动过滤。爆发系数 > 2.0 = 放量信号，共现度 > 0.3 = 有主题归属。"
+                    f"噪音、低热度、孤立词已自动过滤。热度系数 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
                 )
             else:
                 st.caption(
                     f"以下 {len(tfidf_data)} 个词由 TF-IDF 引擎自动浮现（质检员尚未运行，显示全量候选词，含噪音）。"
-                    f"爆发系数 > 2.0 = 放量信号，共现度 > 0.3 = 有主题归属。"
+                    f"热度系数 > 2.0 = 放量信号，主题关联度 > 0.3 = 有主题归属。"
                 )
 
             rows = []
@@ -1166,8 +1177,8 @@ with tab3:
                     "入库状态": promo,
                     "TF-IDF 分": round(item.get("tfidf_score", 0.0), 5),
                     "今日文档数": item.get("doc_count", 0),
-                    "爆发系数": round(br, 2),
-                    "共现度": round(cd, 3),
+                    "热度系数": round(br, 2),
+                    "主题关联度": round(cd, 3),
                     "连续出现天": streak,
                     "归属 L2": l2_label,
                     "亲和置信度": l2_conf_pct,
@@ -1183,10 +1194,10 @@ with tab3:
                 column_config={
                     "TF-IDF 分": st.column_config.NumberColumn(format="%.5f"),
                     "今日文档数": st.column_config.NumberColumn(format="%d"),
-                    "爆发系数": st.column_config.ProgressColumn(
+                    "热度系数": st.column_config.ProgressColumn(
                         min_value=0.0, max_value=10.0, format="%.1fx"
                     ),
-                    "共现度": st.column_config.ProgressColumn(
+                    "主题关联度": st.column_config.ProgressColumn(
                         min_value=0.0, max_value=1.0, format="%.3f"
                     ),
                     "连续出现天": st.column_config.ProgressColumn(
@@ -1304,8 +1315,8 @@ with tab3:
                         f'border-radius:4px;font-size:13px;font-weight:600;">{gate_label}</span>'
                         f'&nbsp;&nbsp;<strong style="font-size:15px;">{html_lib.escape(bl_term)}</strong>'
                         f'<br><span style="font-size:13px;color:#aaa;">'
-                        f'爆发系数: <b>{burst}</b> &nbsp;|&nbsp; '
-                        f'共现度: <b>{cooc}</b> &nbsp;|&nbsp; '
+                        f'热度系数: <b>{burst}</b> &nbsp;|&nbsp; '
+                        f'主题关联度: <b>{cooc}</b> &nbsp;|&nbsp; '
                         f'文档数: <b>{docs}</b> &nbsp;|&nbsp; '
                         f'连续天数: <b>{streak}</b></span>',
                         unsafe_allow_html=True,
@@ -1361,8 +1372,8 @@ with tab3:
                 qlog_rows.append({
                     "日期": q.get("check_date", ""),
                     "词汇": q["term"],
-                    "爆发系数": round(q.get("burst_ratio", 0), 2),
-                    "共现度": round(q.get("cooc_degree", 0), 3),
+                    "热度系数": round(q.get("burst_ratio", 0), 2),
+                    "主题关联度": round(q.get("cooc_degree", 0), 3),
                     "连续天数": q.get("consecutive", 0),
                     "文档数": q.get("doc_count", 0),
                     "判决": verdict_map.get(verdict, verdict),
@@ -1388,8 +1399,8 @@ with tab3:
                     "入库时间": p.get("created_at", ""),
                     "TF-IDF 分": round(p.get("tfidf_score", 0) or 0, 5),
                     "连续天数": p.get("consecutive_days", 0),
-                    "爆发系数": round(p.get("burst_ratio", 0) or 0, 2),
-                    "共现度": round(p.get("cooc_degree", 0) or 0, 3),
+                    "热度系数": round(p.get("burst_ratio", 0) or 0, 2),
+                    "主题关联度": round(p.get("cooc_degree", 0) or 0, 3),
                 })
             st.dataframe(pd.DataFrame(promo_rows), use_container_width=True, hide_index=True)
 
@@ -1464,7 +1475,7 @@ with tab3:
                         f"{badge}</span></div>"
                         f"<div style='font-size:13px; margin-top:6px; color:#aaa;'>"
                         f"TF-IDF: <b>{tfidf_s}</b> &nbsp;|&nbsp; "
-                        f"爆发系数: <b>{burst}</b> &nbsp;|&nbsp; "
+                        f"热度系数: <b>{burst}</b> &nbsp;|&nbsp; "
                         f"板块: <b>{html_lib.escape(l2)}</b> &nbsp;|&nbsp; "
                         f"首现: <b>{first_seen}</b></div>"
                         f"<div style='font-size:13px; margin-top:4px; color:#aaa;'>"
@@ -2206,8 +2217,8 @@ with tab4:
                                         f"首次: {entry.get('first_seen')} · 最后: {entry.get('last_seen')} · "
                                         f"连续 {entry.get('consecutive_days')} 天<br>"
                                         f"TF-IDF: {entry.get('tfidf_score')} · "
-                                        f"爆发: {entry.get('burst_ratio')}x · "
-                                        f"共现度: {entry.get('cooc_degree')} · "
+                                        f"热度: {entry.get('burst_ratio')}x · "
+                                        f"主题关联度: {entry.get('cooc_degree')} · "
                                         f"Gate3: {'通过' if entry.get('gate3_pass') else '未通过'}"
                                     )
                                 elif stage == "质检记录":
