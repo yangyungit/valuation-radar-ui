@@ -594,6 +594,11 @@ def fetch_orphan_review_status():
     return _narrative_get("/api/v1/narrative/orphan_review_status")
 
 
+def purge_junk_orphans():
+    """Archive existing orphan terms that contain non-finance/entertainment trigger words."""
+    return _narrative_post("/api/v1/narrative/orphan_purge_junk")
+
+
 def fetch_theme_proposals(status="pending"):
     return _narrative_get("/api/v1/narrative/theme_proposals", params={"status": status})
 

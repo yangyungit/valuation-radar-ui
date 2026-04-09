@@ -13,6 +13,7 @@ from api_client import (
     fetch_orphan_stats,
     trigger_orphan_review,
     fetch_orphan_review_status,
+    purge_junk_orphans,
     fetch_theme_proposals,
     approve_theme_proposal,
     reject_theme_proposal,
@@ -553,6 +554,14 @@ with st.sidebar:
             st.info("巡检已在运行中，请等待完成。")
         else:
             st.warning(result.get("message", "未知状态"))
+        st.rerun()
+
+    if st.button("🧹 清除垃圾孤儿词", help="扫描孤儿院，自动归档含娱乐/明星/生活类词的非金融条目"):
+        purge_res = purge_junk_orphans()
+        if purge_res.get("success"):
+            st.success(purge_res.get("message", "清除完成"))
+        else:
+            st.error(f"清除失败：{purge_res.get('error', '未知错误')}")
         st.rerun()
 
     st.divider()
