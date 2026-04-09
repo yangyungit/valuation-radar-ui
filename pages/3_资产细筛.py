@@ -9,7 +9,8 @@ import yfinance as yf
 from datetime import datetime, timedelta
 from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         get_arena_a_factors, get_arena_b_factors,
-                        get_arena_c_factors, get_arena_d_factors)
+                        get_arena_c_factors, get_arena_d_factors,
+                        fetch_l2_l3_detail, get_batch_ticker_cooccurrence)
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
     classify_asset_parallel,
@@ -3035,6 +3036,245 @@ elif _sel4 == "D":
 
         # ── 完整排行榜 ─────────────────────────────────────────────
         _render_leaderboard_d(df_scored_d)
+
+        # ── 共振猎场 — 叙事动量 × 价格动量 交叉验证 ──────────────
+        st.markdown("---")
+        st.markdown("#### 🔗 共振猎场 — 叙事 × 动量 交叉验证")
+        st.caption(
+            "共振分 = ScorecardD 动量分 × 叙事热度分 / 100。"
+            "叙事热度分 = L2 板块热力分 × L3 关键词匹配度。"
+            "仅当价格动量与叙事热度同时拉满时才会排名靠前，"
+            "过滤掉\"有动量无故事\"或\"有故事无动量\"的噪音。"
+        )
+
+        # White-box formula
+        st.markdown("""
+        <div style='background:#1a1a1a; border-left:3px solid #E67E22;
+             padding:14px; margin-bottom:16px; font-size:14px; color:#ccc; border-radius:4px;'>
+        <b>共振公式（白盒）：</b><br><br>
+        <span style='color:#E67E22; font-weight:bold;'>共振分</span> =
+        <span style='color:#9B59B6;'>ScorecardD</span> ×
+        <span style='color:#2ECC71;'>叙事热度分</span> / 100<br><br>
+        <span style='color:#2ECC71;'>叙事热度分</span> =
+        <span style='color:#3498DB;'>L2 板块热力分</span> ×
+        <span style='color:#F1C40F;'>L3 匹配度</span><br><br>
+        <span style='color:#888; font-size:13px;'>
+        L3 匹配度 = 共现命中 L3 词的温度总和 / 该 L2 全部 L3 词温度总和。<br>
+        通过新闻共现（co-occurrence）动态关联 Ticker 与关键词，无需硬编码映射。
+        </span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if n_d > 0:
+            # --- Fetch narrative heat ranking (prefer session_state, fallback to direct API) ---
+            _narr_ranking = st.session_state.get("narrative_heat_ranking")
+            _narr_l2l3_raw = None
+            if not _narr_ranking:
+                with st.spinner("正在拉取叙事雷达数据（Page 2 尚未访问，直接获取）…"):
+                    _narr_resp = fetch_l2_l3_detail(days=7)
+                    _narr_l2l3_raw = _narr_resp.get("data", [])
+                if _narr_l2l3_raw:
+                    _max_pos_m = max(
+                        (float(r.get("heat_momentum", 0)) for r in _narr_l2l3_raw
+                         if float(r.get("heat_momentum", 0)) > 0),
+                        default=1.0,
+                    )
+                    _narr_ranking = {}
+                    for _nr in _narr_l2l3_raw:
+                        _ch = float(_nr.get("composite_heat", 0))
+                        _hm = float(_nr.get("heat_momentum", 0))
+                        _mb = max(0.0, _hm) / max(_max_pos_m, 0.01)
+                        _ns = round((0.6 * _ch + 0.4 * _mb) * 100, 1)
+                        _tl3 = _nr.get("top_l3_keywords", [])
+                        _narr_ranking[_nr.get("l2_sector", "")] = {
+                            "score": _ns,
+                            "heat": _ch,
+                            "momentum": _hm,
+                            "top_l3": [kw.get("keyword", "") for kw in (_tl3 or [])[:3] if isinstance(kw, dict)],
+                            "top_l3_full": _tl3 if isinstance(_tl3, list) else [],
+                        }
+
+            if _narr_ranking:
+                # --- Batch fetch co-occurrence for all D-group tickers ---
+                _d_tickers = df_scored_d["Ticker"].tolist()
+                with st.spinner(f"正在查询 {len(_d_tickers)} 个 D 组标的的新闻共现关键词…"):
+                    _cooc_batch = get_batch_ticker_cooccurrence(_d_tickers, days=7)
+
+                # --- Compute resonance for each ticker ---
+                _resonance_rows = []
+                for _, _row in df_scored_d.iterrows():
+                    _tk = _row["Ticker"]
+                    _d_score = float(_row["竞技得分"])
+
+                    # Extract co-occurring keywords for this ticker
+                    _cooc_resp = _cooc_batch.get(_tk, {})
+                    _cooc_data = _cooc_resp.get("data", [])
+                    if isinstance(_cooc_data, dict):
+                        _cooc_data = _cooc_data.get("keywords", [])
+                    _cooc_kws = set()
+                    if isinstance(_cooc_data, list):
+                        for _ck in _cooc_data:
+                            if isinstance(_ck, dict):
+                                _cooc_kws.add(_ck.get("keyword", "").strip().lower())
+                            elif isinstance(_ck, str):
+                                _cooc_kws.add(_ck.strip().lower())
+
+                    # Match against each L2 sector's L3 keywords
+                    _best_l2 = ""
+                    _best_narr_score = 0.0
+                    _best_match_quality = 0.0
+                    _best_matched_kws = []
+                    _best_l2_score = 0.0
+
+                    for _l2_name, _l2_info in _narr_ranking.items():
+                        _l2_score = _l2_info["score"]
+                        _l3_full = _l2_info.get("top_l3_full", [])
+                        if not _l3_full:
+                            continue
+
+                        _total_burst = 0.0
+                        _matched_burst = 0.0
+                        _matched_words = []
+                        for _l3 in _l3_full:
+                            if not isinstance(_l3, dict):
+                                continue
+                            _kw = _l3.get("keyword", "").strip().lower()
+                            _br = float(_l3.get("burst_ratio", 0.0))
+                            _total_burst += max(_br, 0.01)
+                            if _kw and _kw in _cooc_kws:
+                                _matched_burst += max(_br, 0.01)
+                                _matched_words.append(_l3.get("keyword", ""))
+
+                        _mq = (_matched_burst / _total_burst) if _total_burst > 0 else 0.0
+                        _candidate_score = _l2_score * _mq
+
+                        if _candidate_score > _best_narr_score:
+                            _best_narr_score = _candidate_score
+                            _best_l2 = _l2_name
+                            _best_match_quality = _mq
+                            _best_matched_kws = _matched_words
+                            _best_l2_score = _l2_score
+
+                    _resonance = round(_d_score * _best_narr_score / 100, 1) if _best_narr_score > 0 else 0.0
+
+                    _resonance_rows.append({
+                        "Ticker": _tk,
+                        "名称": _row["名称"],
+                        "D组动量分": round(_d_score, 1),
+                        "匹配L2板块": _best_l2 or "—",
+                        "L2热力分": round(_best_l2_score, 1),
+                        "L3匹配度": round(_best_match_quality * 100, 1),
+                        "叙事热度分": round(_best_narr_score, 1),
+                        "共振分": _resonance,
+                        "_matched_kws": _best_matched_kws,
+                    })
+
+                _resonance_rows.sort(key=lambda x: -x["共振分"])
+                df_resonance = pd.DataFrame(_resonance_rows)
+
+                # --- Display: metric cards for top resonance ---
+                _has_resonance = any(r["共振分"] > 0 for r in _resonance_rows)
+                if _has_resonance:
+                    _top3_res = [r for r in _resonance_rows if r["共振分"] > 0][:3]
+                    _medal_res = ["🥇", "🥈", "🥉"]
+                    _medal_clr_res = ["#FFD700", "#C0C0C0", "#CD7F32"]
+                    _cols_res = st.columns(min(3, len(_top3_res)))
+                    for _ri, _rr in enumerate(_top3_res):
+                        with _cols_res[_ri]:
+                            _kw_display = ", ".join(_rr["_matched_kws"][:4]) if _rr["_matched_kws"] else "—"
+                            st.markdown(f"""
+                            <div style='background:#1a1200; border:1px solid {_medal_clr_res[_ri]}44;
+                                 border-radius:10px; padding:16px; text-align:center;'>
+                                <div style='font-size:28px;'>{_medal_res[_ri]}</div>
+                                <div style='font-size:22px; font-weight:bold; color:#eee;'>{_rr['Ticker']}</div>
+                                <div style='font-size:13px; color:#aaa;'>{_rr['名称']}</div>
+                                <div style='font-size:30px; font-weight:bold; color:#E67E22;
+                                     margin:8px 0 4px 0;'>{_rr['共振分']:.0f}</div>
+                                <div style='font-size:13px; color:#888;'>共振分</div>
+                                <hr style='border-color:#333; margin:10px 0;'>
+                                <div style='font-size:13px; text-align:left; line-height:2; color:#bbb;'>
+                                    <span style='color:#888;'>D组动量分</span>
+                                    <span style='color:#9B59B6; font-weight:bold; float:right;'>{_rr['D组动量分']:.0f}</span><br>
+                                    <span style='color:#888;'>匹配板块</span>
+                                    <span style='color:#3498DB; float:right;'>{_rr['匹配L2板块']}</span><br>
+                                    <span style='color:#888;'>L2热力分</span>
+                                    <span style='color:#2ECC71; float:right;'>{_rr['L2热力分']:.0f}</span><br>
+                                    <span style='color:#888;'>L3匹配度</span>
+                                    <span style='color:#F1C40F; float:right;'>{_rr['L3匹配度']:.0f}%</span><br>
+                                    <span style='color:#888;'>叙事热度分</span>
+                                    <span style='color:#2ECC71; font-weight:bold; float:right;'>{_rr['叙事热度分']:.1f}</span><br>
+                                </div>
+                                <hr style='border-color:#333; margin:10px 0;'>
+                                <div style='font-size:13px; color:#E67E22;'>
+                                    命中词: {_kw_display}
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    # --- Full resonance table ---
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown("##### 完整共振排行")
+                    _display_cols = ["Ticker", "名称", "D组动量分", "匹配L2板块",
+                                     "L2热力分", "L3匹配度", "叙事热度分", "共振分"]
+                    st.dataframe(
+                        df_resonance[_display_cols].style.format({
+                            "D组动量分": "{:.0f}",
+                            "L2热力分": "{:.0f}",
+                            "L3匹配度": "{:.0f}%",
+                            "叙事热度分": "{:.1f}",
+                            "共振分": "{:.1f}",
+                        }).background_gradient(
+                            subset=["共振分"], cmap="YlOrRd", vmin=0
+                        ),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                    # --- Per-ticker white-box attribution ---
+                    with st.expander("🔍 逐标的共振归因明细（白盒化）"):
+                        for _rr in _resonance_rows:
+                            if _rr["共振分"] <= 0:
+                                continue
+                            _kw_list = _rr["_matched_kws"]
+                            _kw_html = " ".join(
+                                f"<span style='background:#E67E2222; color:#E67E22; "
+                                f"border:1px solid #E67E2255; border-radius:3px; "
+                                f"padding:1px 6px; font-size:13px;'>{w}</span>"
+                                for w in _kw_list
+                            ) if _kw_list else "<span style='color:#666;'>无命中</span>"
+                            st.markdown(f"""
+                            <div style='background:#1a1a1a; border-left:3px solid #E67E22;
+                                 padding:12px; margin-bottom:10px; border-radius:4px;'>
+                                <b style='color:#eee; font-size:15px;'>{_rr['Ticker']}</b>
+                                <span style='color:#888; font-size:13px;'>({_rr['名称']})</span>
+                                <span style='color:#E67E22; font-weight:bold; float:right;
+                                       font-size:15px;'>共振分 {_rr['共振分']:.1f}</span>
+                                <div style='margin-top:8px; font-size:13px; color:#bbb; line-height:1.8;'>
+                                    D组动量分 <b style='color:#9B59B6;'>{_rr['D组动量分']:.0f}</b>
+                                    × 叙事热度分 <b style='color:#2ECC71;'>{_rr['叙事热度分']:.1f}</b>
+                                    / 100
+                                    = <b style='color:#E67E22;'>{_rr['共振分']:.1f}</b><br>
+                                    叙事热度分 = L2「{_rr['匹配L2板块']}」热力分 <b style='color:#3498DB;'>{_rr['L2热力分']:.0f}</b>
+                                    × L3 匹配度 <b style='color:#F1C40F;'>{_rr['L3匹配度']:.0f}%</b>
+                                </div>
+                                <div style='margin-top:6px;'>共现命中 L3 词: {_kw_html}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                else:
+                    st.info(
+                        "当前 D 组标的与叙事雷达热词无共振命中。"
+                        "可能原因：1) 新闻共现数据尚未覆盖这些标的；"
+                        "2) D 组标的与当前热点叙事主题暂无交集。"
+                        "D 组 ScorecardD 纯动量排名仍然有效。"
+                    )
+            else:
+                st.warning(
+                    "叙事雷达数据不可用（API 可能未就绪）。"
+                    "共振排行暂时跳过，D 组 ScorecardD 排名不受影响。"
+                )
+
+        st.markdown("---")
 
         # ── 快捷跳转 ──────────────────────────────────────────────
         if n_d > 0:

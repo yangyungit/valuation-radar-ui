@@ -2,6 +2,40 @@
 
 ---
 
+## 2026-04-09 | 叙事-动量共振排行榜：Page 2 叙事热度排名 + Page 3 D组共振猎场
+
+**变动**：
+
+1. `api_client.py`：新增 `get_batch_ticker_cooccurrence(tickers, days)` 批量共现查询函数，包装逐 ticker 调用并容错。
+
+2. `pages/2_舆情监控.py`，Phase 5「叙事四象限雷达」：
+   - 在四象限散点图下方新增「叙事热度排行榜」，以水平条形图展示全部 L2 板块的叙事动量分（综合热力 × 动量加速因子），按分数降序排列。
+   - 叙事动量分公式：`(0.6 × composite_heat + 0.4 × momentum_boost) × 100`，仅正动量参与加速。
+   - 条形图附标各 L2 的 Top 3 L3 关键词，颜色区分 concentrated / distributed。
+   - 将排行结果写入 `session_state["narrative_heat_ranking"]`，供 Page 3 D 组共振计算消费。
+
+3. `pages/3_资产细筛.py`，D 组赛道：
+   - 新增 `fetch_l2_l3_detail` 和 `get_batch_ticker_cooccurrence` 导入。
+   - 在 D 组排行榜下方新增「共振猎场」面板，实现叙事 × 动量交叉验证：
+     - 白盒公式展示：共振分 = ScorecardD × 叙事热度分 / 100。
+     - 叙事热度分 = L2 板块热力分 × L3 匹配度（匹配度 = 共现命中 L3 词温度之和 / 全部 L3 词温度之和）。
+     - 通过 `get_batch_ticker_cooccurrence()` 动态获取各 ticker 的新闻共现关键词，与 L2 下辖 L3 词做匹配，自动选取得分最高的 L2 板块。
+   - Top 3 共振标的以金银铜颁奖卡片呈现，展示 D 组动量分、匹配板块、L2 热力分、L3 匹配度、叙事热度分、命中词。
+   - 完整共振排行榜以 dataframe 呈现，共振分列用 YlOrRd 色阶渐变。
+   - 可展开「逐标的共振归因明细」：对每个有效共振标的白盒展示完整计算链路和命中的 L3 关键词。
+   - 降级方案：session_state 无数据时直接调用 `fetch_l2_l3_detail` 自行计算；叙事 API 不可用时跳过共振、ScorecardD 排名不受影响。
+
+**设计哲学**：
+- ScorecardD 三因子不变（45/35/20），共振分是独立的乘法叠加层。
+- 词与标的通过新闻共现动态关联（政教分离原则），不硬编码映射。
+- L2 层面打分（有完整热力指标），L3 层面匹配（提供精度系数），两层各司其职。
+
+**跨页面数据流**：
+- Page 2 写入 `session_state["narrative_heat_ranking"]` → Page 3 D 组读取。
+- Page 3 具备独立降级能力，不依赖 Page 2 必须先访问。
+
+---
+
 ## 2026-04-09 | 舆情监控：删除共振猎场（Phase 6）
 
 **变动**：

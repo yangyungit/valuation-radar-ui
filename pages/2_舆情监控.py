@@ -2368,6 +2368,105 @@ if active_phase == 5:
             )
             st.plotly_chart(fig_quad, use_container_width=True)
 
+            # ===========================================================
+            # 叙事热度排行榜 — L2 板块按叙事动量分降序排列
+            # ===========================================================
+            st.markdown("---")
+            st.markdown("#### 📊 叙事热度排行榜")
+            st.caption(
+                "叙事动量分 = 综合热力 × 动量加速因子，"
+                "用于与 D 组价格动量做共振匹配。"
+                "仅正动量参与加速，衰减板块自然排名靠后。"
+            )
+
+            _max_pos_mom = max(
+                (float(r.get("heat_momentum", 0)) for r in l2l3_data
+                 if float(r.get("heat_momentum", 0)) > 0),
+                default=1.0,
+            )
+
+            _narr_rank_rows = []
+            for row in l2l3_data:
+                ch = float(row.get("composite_heat", 0))
+                hm = float(row.get("heat_momentum", 0))
+                mom_boost = max(0.0, hm) / max(_max_pos_mom, 0.01)
+                narr_score = round((0.6 * ch + 0.4 * mom_boost) * 100, 1)
+
+                top_kws = row.get("top_l3_keywords", [])
+                kw_tags = []
+                if isinstance(top_kws, list):
+                    for kw in top_kws[:3]:
+                        if isinstance(kw, dict):
+                            kw_tags.append(kw.get("keyword", ""))
+
+                _narr_rank_rows.append({
+                    "l2_sector": row.get("l2_sector", ""),
+                    "score": narr_score,
+                    "composite_heat": ch,
+                    "heat_momentum": hm,
+                    "mention_count": int(row.get("mention_count", 0)),
+                    "heat_type": row.get("heat_type", "distributed"),
+                    "top_l3": kw_tags,
+                    "top_l3_full": top_kws if isinstance(top_kws, list) else [],
+                })
+
+            _narr_rank_rows.sort(key=lambda x: -x["score"])
+
+            # Horizontal bar chart
+            _bar_sectors = [r["l2_sector"] for r in _narr_rank_rows]
+            _bar_scores = [r["score"] for r in _narr_rank_rows]
+            _bar_colors = [
+                "#E74C3C" if r["heat_type"] == "concentrated" else "#3498DB"
+                for r in _narr_rank_rows
+            ]
+            _bar_kw_txt = [
+                "  ".join(r["top_l3"][:3]) if r["top_l3"] else ""
+                for r in _narr_rank_rows
+            ]
+
+            fig_bar = go.Figure()
+            fig_bar.add_trace(go.Bar(
+                y=list(reversed(_bar_sectors)),
+                x=list(reversed(_bar_scores)),
+                orientation="h",
+                marker_color=list(reversed(_bar_colors)),
+                text=list(reversed(_bar_kw_txt)),
+                textposition="auto",
+                textfont=dict(size=13, color="#eee"),
+                hovertemplate=(
+                    "<b>%{y}</b><br>"
+                    "叙事动量分: %{x:.1f}<br>"
+                    "<extra></extra>"
+                ),
+            ))
+            fig_bar.update_layout(
+                height=max(350, len(_bar_sectors) * 36),
+                plot_bgcolor="#111111",
+                paper_bgcolor="#111111",
+                font=dict(color="#ddd", size=13),
+                xaxis=dict(
+                    title="叙事动量分 (0-100)",
+                    range=[0, 105],
+                    gridcolor="rgba(80,80,80,0.3)",
+                ),
+                yaxis=dict(tickfont=dict(size=13)),
+                margin=dict(l=140, r=30, t=20, b=40),
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+            # Write ranking to session_state for Page 3 D-group resonance
+            _narr_ranking_dict = {}
+            for r in _narr_rank_rows:
+                _narr_ranking_dict[r["l2_sector"]] = {
+                    "score": r["score"],
+                    "heat": r["composite_heat"],
+                    "momentum": r["heat_momentum"],
+                    "mention_count": r["mention_count"],
+                    "top_l3": r["top_l3"],
+                    "top_l3_full": r["top_l3_full"],
+                }
+            st.session_state["narrative_heat_ranking"] = _narr_ranking_dict
+
 
     else:
         st.info("暂无数据。请先在侧边栏触发 NLP 流水线，待数据采集完成后刷新。")

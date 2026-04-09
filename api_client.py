@@ -785,6 +785,17 @@ def get_ticker_cooccurrence(ticker, days=7):
                           params={"ticker": ticker, "days": days})
 
 
+def get_batch_ticker_cooccurrence(tickers: list, days: int = 7) -> dict:
+    """Batch wrapper: {ticker: cooccurrence_resp} for resonance matching."""
+    result = {}
+    for t in tickers:
+        try:
+            result[t] = get_ticker_cooccurrence(t, days=days)
+        except Exception:
+            result[t] = {"data": []}
+    return result
+
+
 @st.cache_data(ttl=60)
 def get_alpaca_snapshots(tickers_tuple):
     """tickers_tuple: tuple of ticker strings (hashable for cache)。"""
