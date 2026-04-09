@@ -1524,10 +1524,29 @@ with tab4:
     elif not taxonomy_full_data:
         st.info("叙事词典为空。请先在「主题发现」中生成并批准种子提案以建库。")
     else:
-        v4_sub1, v4_sub2, v4_sub3, v4_sub4 = st.tabs(["📂 词典全景", "🛠️ CIO 词库管理", "🔇 噪音词管理", "📋 词汇档案"])
+        v4_sub1, v4_sub2, v4_sub3, v4_sub4 = st.tabs(["📂 词典全景", "📋 批量操作", "🔇 噪音词管理", "📋 词汇档案"])
 
         # ----- Sub-tab: Taxonomy Panorama -----
         with v4_sub1:
+            with st.expander("＋ 新建 L2 板块", expanded=False):
+                nb_col1, nb_col2 = st.columns(2)
+                with nb_col1:
+                    nb_name = st.text_input("板块名称", key="nb_l2_name", placeholder="例: AI_Infrastructure")
+                with nb_col2:
+                    nb_seed = st.text_input("首个 L3 关键词（必填）", key="nb_l2_seed", placeholder="例: GPU cluster")
+                st.caption("新建板块必须附带至少一个关键词，来源自动标记为 approved（人工审批）")
+                if st.button("➕ 创建板块", key="nb_btn", use_container_width=False):
+                    if nb_name.strip() and nb_seed.strip():
+                        res = post_dictionary_add(nb_name.strip(), nb_seed.strip())
+                        if res.get("success"):
+                            st.success(f"已创建板块 [{nb_name.strip()}] 并添加首词 [{nb_seed.strip()}]")
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(f"创建失败: {res.get('error')}")
+                    else:
+                        st.warning("板块名称和首个关键词均不可为空")
+
             sm_c1, sm_c2, sm_c3, sm_c4 = st.columns(4)
             sm_c1.metric("L2 板块总数", taxonomy_summary.get("total_l2", 0))
             sm_c2.metric("L3 关键词总数", taxonomy_summary.get("total_terms", 0))
@@ -1691,7 +1710,7 @@ with tab4:
 
                     st.markdown(f"""
                     <div style="background:#111;border:1px solid #2a2a2a;border-radius:8px;
-                                padding:14px 18px;margin-bottom:10px">
+                                padding:14px 18px;margin-bottom:4px">
                         <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
                             <span title="{l2_tooltip}" style="font-size:15px;font-weight:bold;color:{l2_color};cursor:default">
                                 📂 {l2_name}
@@ -1702,6 +1721,79 @@ with tab4:
                         <div style="line-height:1.8">{badges_html}</div>
                     </div>
                     """, unsafe_allow_html=True)
+
+                    _l2_safe = l2_name.replace(" ", "_").replace("/", "_")
+                    with st.expander(f"⊕ 添加词条  ·  ✏ 管理  —  {l2_name}", expanded=False):
+                        ea_col, em_col = st.columns([1, 1])
+
+                        with ea_col:
+                            st.markdown("**快速添加 L3 词条**")
+                            ea_term = st.text_input(
+                                "词条", key=f"ea_term_{_l2_safe}", placeholder="输入词条..."
+                            )
+                            if st.button("➕ 添加", key=f"ea_btn_{_l2_safe}", use_container_width=True):
+                                if ea_term.strip():
+                                    res = post_dictionary_add(l2_name, ea_term.strip())
+                                    if res.get("success"):
+                                        action = res.get("action", "added")
+                                        if action == "already_active":
+                                            st.warning(f"词条 [{ea_term.strip()}] 已存在且处于活跃状态")
+                                        else:
+                                            st.success(f"已添加 [{ea_term.strip()}] → {l2_name}")
+                                            st.cache_data.clear()
+                                            st.rerun()
+                                    else:
+                                        st.error(f"添加失败: {res.get('error')}")
+                                else:
+                                    st.warning("词条不可为空")
+
+                        with em_col:
+                            st.markdown("**板块管理**")
+                            em_action = st.radio(
+                                "操作",
+                                ["重命名", "归档板块（可恢复）", "彻底删除（不可恢复）"],
+                                key=f"em_act_{_l2_safe}",
+                                horizontal=False,
+                            )
+                            if em_action == "重命名":
+                                em_new_name = st.text_input(
+                                    "新板块名", key=f"em_rename_{_l2_safe}", placeholder="输入新名称..."
+                                )
+                                if st.button("✏️ 确认重命名", key=f"em_rename_btn_{_l2_safe}", use_container_width=True):
+                                    if em_new_name.strip():
+                                        res = post_dictionary_rename_l2(l2_name, em_new_name.strip())
+                                        if res.get("success"):
+                                            n = res.get("terms_updated", 0)
+                                            st.success(f"已将 [{l2_name}] 重命名为 [{em_new_name.strip()}]，涉及 {n} 条词条")
+                                            st.cache_data.clear()
+                                            st.rerun()
+                                        else:
+                                            st.error(f"重命名失败: {res.get('error')}")
+                                    else:
+                                        st.warning("新名称不可为空")
+                            elif em_action == "归档板块（可恢复）":
+                                st.caption("将该板块所有词条标记为归档，可通过批量恢复还原。")
+                                if st.button("🗄️ 归档整个板块", key=f"em_archive_btn_{_l2_safe}", use_container_width=True):
+                                    res = post_dictionary_delete_l2(l2_name, mode="archive")
+                                    if res.get("success"):
+                                        n = res.get("terms_affected", 0)
+                                        st.success(f"已归档板块 [{l2_name}]，涉及 {n} 条词条")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error(f"操作失败: {res.get('error')}")
+                            else:
+                                st.warning("⚠️ 彻底删除后无法恢复，请谨慎操作")
+                                if st.button("🗑️ 彻底删除板块", key=f"em_purge_btn_{_l2_safe}", use_container_width=True, type="primary"):
+                                    res = post_dictionary_delete_l2(l2_name, mode="purge")
+                                    if res.get("success"):
+                                        n = res.get("terms_affected", 0)
+                                        st.success(f"已彻底删除板块 [{l2_name}]，涉及 {n} 条词条")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error(f"操作失败: {res.get('error')}")
+                    st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
 
             st.markdown("""
             <div style="font-size:13px;color:#888;margin-top:12px;padding:6px 0">
@@ -1717,101 +1809,12 @@ with tab4:
             </div>
             """, unsafe_allow_html=True)
 
-        # ----- Sub-tab: CIO Dictionary Management (redesigned) -----
+        # ----- Sub-tab: Batch Operations -----
         with v4_sub2:
             all_l2_names = sorted(set(item["l2"] for item in taxonomy_full_data))
 
-            # ================================================================
-            # ZONE 1: L2 板块级管理（新建 / 重命名 / 删除）
-            # ================================================================
-            st.markdown("#### 🗂️ L2 板块管理")
-            z1_new_col, z1_rename_col, z1_del_col = st.columns(3)
-
-            with z1_new_col:
-                st.markdown("**新建 L2 板块**")
-                new_l2_name = st.text_input(
-                    "板块名称", key="z1_new_l2_name", placeholder="例: AI_Infrastructure"
-                )
-                new_l2_seed = st.text_input(
-                    "首个 L3 关键词（必填）", key="z1_new_l2_seed", placeholder="例: GPU cluster"
-                )
-                st.caption("新建板块必须附带至少一个关键词")
-                if st.button("➕ 创建板块", key="z1_new_btn", use_container_width=True):
-                    if new_l2_name.strip() and new_l2_seed.strip():
-                        res = post_dictionary_add(new_l2_name.strip(), new_l2_seed.strip())
-                        if res.get("success"):
-                            st.success(f"已创建板块 [{new_l2_name.strip()}] 并添加首词 [{new_l2_seed.strip()}]")
-                            st.cache_data.clear()
-                            st.rerun()
-                        else:
-                            st.error(f"创建失败: {res.get('error')}")
-                    else:
-                        st.warning("板块名称和首个关键词均不可为空")
-
-            with z1_rename_col:
-                st.markdown("**重命名 L2 板块**")
-                if all_l2_names:
-                    rename_src = st.selectbox("选择要重命名的板块", all_l2_names, key="z1_rename_src")
-                    rename_dst = st.text_input(
-                        "新名称", key="z1_rename_dst", placeholder="输入新板块名..."
-                    )
-                    st.caption("重命名将同步更新所有历史匹配记录")
-                    if st.button("✏️ 确认重命名", key="z1_rename_btn", use_container_width=True):
-                        if rename_dst.strip():
-                            res = post_dictionary_rename_l2(rename_src, rename_dst.strip())
-                            if res.get("success"):
-                                n = res.get("terms_updated", 0)
-                                st.success(f"已将 [{rename_src}] 重命名为 [{rename_dst.strip()}]，涉及 {n} 条词条")
-                                st.cache_data.clear()
-                                st.rerun()
-                            else:
-                                st.error(f"重命名失败: {res.get('error')}")
-                        else:
-                            st.warning("新名称不可为空")
-                else:
-                    st.caption("暂无 L2 板块")
-
-            with z1_del_col:
-                st.markdown("**删除 L2 板块**")
-                if all_l2_names:
-                    del_l2 = st.selectbox("选择要删除的板块", all_l2_names, key="z1_del_l2")
-                    st.caption("归档或删除后，种子词将同步压制，不再重新出现")
-                    del_mode = st.radio(
-                        "删除模式",
-                        ["归档（可恢复）", "彻底删除（不可恢复）"],
-                        key="z1_del_mode",
-                        help="归档：将该板块所有词条标记为 archived；彻底删除：从数据库中永久删除",
-                    )
-                    mode_val = "archive" if del_mode == "归档（可恢复）" else "purge"
-                    btn_label = "🗄️ 归档整个板块" if mode_val == "archive" else "🗑️ 彻底删除板块"
-                    btn_type = "secondary" if mode_val == "archive" else "primary"
-                    if mode_val == "purge":
-                        st.warning("⚠️ 彻底删除后无法恢复，请谨慎操作")
-                    if st.button(btn_label, key="z1_del_btn", use_container_width=True, type=btn_type):
-                        res = post_dictionary_delete_l2(del_l2, mode=mode_val)
-                        if res.get("success"):
-                            n = res.get("terms_affected", 0)
-                            action = res.get("action", "")
-                            if action == "suppressed_seed":
-                                action_label = "已永久压制（纯蓝图种子词板块）"
-                            elif action == "archived":
-                                action_label = "已归档"
-                            else:
-                                action_label = "已彻底删除"
-                            st.success(f"{action_label}板块 [{del_l2}]，涉及 {n} 条词条")
-                            st.cache_data.clear()
-                            st.rerun()
-                        else:
-                            st.error(f"操作失败: {res.get('error')}")
-                else:
-                    st.caption("暂无 L2 板块")
-
-            st.divider()
-
-            # ================================================================
-            # ZONE 2: 批量操作
-            # ================================================================
-            st.markdown("#### 🔑 L3 关键词管理")
+            st.caption("针对 L3 词条的批量操作。如需新建板块或管理单个板块，请在「词典全景」中展开各板块的 ⊕ / ✏ 快捷入口。")
+            st.markdown("#### 🔑 L3 关键词批量操作")
             bt_add, bt_arc, bt_res, bt_mv, bt_noise = st.tabs([
                 "➕ 批量添加", "🗄️ 批量归档", "♻️ 批量恢复", "📦 批量迁移", "🚫 批量标噪"
             ])
