@@ -946,8 +946,30 @@ if active_phase == 2:
                 prop_id = prop["id"]
                 terms_data = prop.get("terms_data", {})
                 l2_display = terms_data.get("l2_display") or prop["proposed_l2"]
+                l2_display_zh = terms_data.get("l2_display_zh", "")
                 all_terms = terms_data.get("terms", [])
                 reasoning = prop.get("llm_reasoning", "")
+                reasoning_zh = terms_data.get("reasoning_zh", "")
+
+                # Build bilingual title
+                if l2_display_zh:
+                    title_html = (
+                        f"<span style='color:#2ECC71'>{l2_display_zh}</span>"
+                        f"<span style='color:#888;font-size:14px;margin-left:8px'>/ {l2_display}</span>"
+                    )
+                else:
+                    title_html = f"<span style='color:#2ECC71'>{l2_display}</span>"
+
+                # Build bilingual reasoning block
+                if reasoning_zh:
+                    reasoning_html = (
+                        f"<div style='margin-bottom:4px;font-size:14px;color:#ddd'>📝 {reasoning_zh}</div>"
+                        f"<div style='font-size:13px;color:#888;font-style:italic'>{reasoning}</div>"
+                    )
+                elif reasoning and not reasoning.startswith("Gemini call failed"):
+                    reasoning_html = f"<div style='font-size:13px;color:#aaa'>📝 {reasoning}</div>"
+                else:
+                    reasoning_html = ""
 
                 terms_preview = " · ".join(f"<code style='font-size:13px'>{t}</code>" for t in all_terms[:8])
                 if len(all_terms) > 8:
@@ -957,17 +979,15 @@ if active_phase == 2:
                 <div style="background:#111;border:1px solid #2ECC71;border-radius:8px;
                             padding:18px 20px;margin-bottom:12px">
                     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-                        <span style="font-size:18px;font-weight:bold;color:#2ECC71">
-                            📦 新建 L2: {l2_display}
+                        <span style="font-size:18px;font-weight:bold">
+                            📦 新建 L2: {title_html}
                         </span>
                         <span style="color:#888;font-size:13px;margin-left:auto">
                             {prop.get('total_mentions',0)} 次提及 · {prop.get('days_active',0)} 天
                         </span>
                     </div>
-                    <div style="margin-bottom:10px;font-size:13px;color:#aaa">
-                        📝 {reasoning}
-                    </div>
-                    <div style="font-size:13px;color:#ddd">
+                    {reasoning_html}
+                    <div style="font-size:13px;color:#ddd;margin-top:8px">
                         🔑 集群词条：{terms_preview}
                     </div>
                 </div>
@@ -998,7 +1018,8 @@ if active_phase == 2:
                                  use_container_width=True):
                         result = reject_theme_proposal(prop_id)
                         if result.get("success"):
-                            st.info("已驳回该提案")
+                            n = result.get("noise_added", 0)
+                            st.info(f"已驳回该提案，{n} 个集群词已加入噪音黑名单（365天）")
                         else:
                             st.error(result.get("error", "操作失败"))
                         st.rerun()
