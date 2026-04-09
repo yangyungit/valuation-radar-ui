@@ -2311,10 +2311,6 @@ with tab5:
 
     if l2l3_data:
         df_radar = pd.DataFrame(l2l3_data)
-        # #region agent log — show actual columns in UI for cloud diagnosis
-        _dbg_cols = sorted(df_radar.columns.tolist())
-        st.info(f"🔬 [DEBUG] df_radar columns ({len(_dbg_cols)}): `{_dbg_cols}`")
-        # #endregion
         if "sentiment_momentum" in df_radar.columns and "heat_momentum" not in df_radar.columns:
             df_radar = df_radar.rename(columns={"sentiment_momentum": "heat_momentum"})
         df_radar["heat_percentile"] = df_radar["heat_percentile"].astype(float)

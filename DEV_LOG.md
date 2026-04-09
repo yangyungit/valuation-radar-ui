@@ -2,6 +2,15 @@
 
 ---
 
+## 2026-04-09 | Bug Fix：Tab5 兼容后端旧字段名 sentiment_momentum
+
+**问题**：Streamlit Cloud 上 Tab5（叙事雷达）报 `KeyError: heat_momentum`。  
+**根因**：后端生产环境 `/api/v1/narrative/l2_l3_detail` 和历史快照接口仍返回旧字段名 `sentiment_momentum`，而前端已改用 `heat_momentum`，导致 DataFrame 中该列不存在。  
+**修复**：在 `df_radar` 和 `df_snap` 创建后各加一行兼容 rename shim：若检测到 `sentiment_momentum` 且缺少 `heat_momentum`，自动重命名，后端部署更新后 shim 自动失效（条件不成立即跳过）。  
+**影响范围**：`pages/2_舆情监控.py` Tab5 数据加载段。
+
+---
+
 ## 2026-04-09 | UI 术语统一：热度系数 → 温度，热度动量 → 词频动量
 
 将 `pages/2_舆情监控.py` 中所有显示标签统一：
