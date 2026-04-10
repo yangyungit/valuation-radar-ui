@@ -995,13 +995,22 @@ if active_phase == 2:
                 </div>
                 """, unsafe_allow_html=True)
 
-                col_l2_input, col_approve, col_reject = st.columns([3, 1, 1])
+                col_l2_input, col_zh_input, col_approve, col_reject = st.columns([3, 2, 1, 1])
                 with col_l2_input:
                     custom_l2 = st.text_input(
-                        "L2 名称（可改）", value=l2_display,
+                        "L2 英文键", value=l2_display,
                         key=f"l2_input_{prop_id}",
-                        help="格式: Sector_Name，留空使用 AI 建议值",
+                        help="系统内部英文键，格式: Sector_Name",
                         label_visibility="collapsed",
+                        placeholder="英文板块名 (Sector_Name)",
+                    )
+                with col_zh_input:
+                    custom_zh = st.text_input(
+                        "中文显示名", value=l2_display_zh,
+                        key=f"l2_zh_{prop_id}",
+                        help="中文显示名，仅供 UI 展示，可留空",
+                        label_visibility="collapsed",
+                        placeholder="中文板块名（可选）",
                     )
                 with col_approve:
                     if st.button("✅ 批准建库", key=f"approve_prop_{prop_id}", type="primary",
@@ -1009,6 +1018,7 @@ if active_phase == 2:
                         result = approve_theme_proposal(
                             prop_id,
                             l2_override=custom_l2 or None,
+                            zh_override=custom_zh or None,
                         )
                         if result.get("success"):
                             st.success(f"已建库 {result.get('l2')}，导入 {result.get('terms_added')} 个词")

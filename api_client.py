@@ -603,10 +603,12 @@ def fetch_theme_proposals(status="pending"):
     return _narrative_get("/api/v1/narrative/theme_proposals", params={"status": status})
 
 
-def approve_theme_proposal(proposal_id, l2_override=None):
+def approve_theme_proposal(proposal_id, l2_override=None, zh_override=None):
     payload = {}
     if l2_override:
         payload["l2_override"] = l2_override
+    if zh_override:
+        payload["zh_override"] = zh_override
     return _narrative_post(f"/api/v1/narrative/theme_proposals/{proposal_id}/approve", json=payload)
 
 
