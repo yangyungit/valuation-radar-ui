@@ -509,10 +509,10 @@ def _narrative_get(path, params=None):
         return {"degraded": True, "error": str(e)}
 
 
-def _narrative_post(path, json=None, params=None):
+def _narrative_post(path, json=None, params=None, timeout=60):
     """POST 叙事引擎端点，失败时返回 {"success": False, "error": ...}。"""
     try:
-        r = requests.post(f"{API_BASE_URL}{path}", json=json, params=params, timeout=60)
+        r = requests.post(f"{API_BASE_URL}{path}", json=json, params=params, timeout=timeout)
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -617,7 +617,8 @@ def reject_theme_proposal(proposal_id):
 
 
 def backfill_proposals_terms_zh():
-    return _narrative_post("/api/v1/narrative/theme_proposals/backfill_terms_zh")
+    # 每个提案调用 Gemini/Google Translate，重试等待上限 10+20s；20 个提案最长约 7 分钟
+    return _narrative_post("/api/v1/narrative/theme_proposals/backfill_terms_zh", timeout=420)
 
 
 def trigger_generate_seed_proposals():
