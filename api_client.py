@@ -616,6 +616,10 @@ def reject_theme_proposal(proposal_id):
     return _narrative_post(f"/api/v1/narrative/theme_proposals/{proposal_id}/reject")
 
 
+def backfill_proposals_terms_zh():
+    return _narrative_post("/api/v1/narrative/theme_proposals/backfill_terms_zh")
+
+
 def trigger_generate_seed_proposals():
     return _narrative_post("/api/v1/narrative/generate_seed_proposals")
 

@@ -17,6 +17,7 @@ from api_client import (
     fetch_theme_proposals,
     approve_theme_proposal,
     reject_theme_proposal,
+    backfill_proposals_terms_zh,
     fetch_match_log,
     fetch_tfidf_terms,
     fetch_corpus_stats,
@@ -555,6 +556,22 @@ with st.sidebar:
         else:
             st.warning(result.get("message", "未知状态"))
         st.rerun()
+
+    st.divider()
+    st.caption("🌐 旧提案集群词汉化")
+    if st.button("🀄 补填集群词中文", help="对已有提案中缺少中文释义的集群词，调用 Gemini 批量翻译补填"):
+        with st.spinner("Gemini 正在翻译集群词，请稍候…"):
+            bf_result = backfill_proposals_terms_zh()
+        updated = bf_result.get("updated", 0)
+        skipped = bf_result.get("skipped", 0)
+        if bf_result.get("error"):
+            st.error(bf_result["error"])
+        elif updated > 0:
+            st.success(f"✅ 成功补填 {updated} 条提案的集群词中文，跳过 {skipped} 条（已有或无词）")
+            st.cache_data.clear()
+            st.rerun()
+        else:
+            st.info(f"所有提案已有中文词条，无需补填（跳过 {skipped} 条）")
 
     if st.button("🧹 清除垃圾孤儿词", help="扫描孤儿院，自动归档含娱乐/明星/生活类词的非金融条目"):
         purge_res = purge_junk_orphans()
