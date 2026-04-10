@@ -559,17 +559,20 @@ with st.sidebar:
 
     st.divider()
     st.caption("🌐 旧提案集群词汉化")
-    if st.button("🀄 补填集群词中文", help="对已有提案中缺少中文释义的集群词，调用 Gemini 批量翻译补填"):
-        with st.spinner("Gemini 正在翻译集群词，请稍候…"):
+    if st.button("🀄 补填集群词中文", help="对已有提案中缺少中文释义的集群词，调用 Google Translate / Gemini 批量翻译补填"):
+        with st.spinner("正在翻译集群词，请稍候…"):
             bf_result = backfill_proposals_terms_zh()
         updated = bf_result.get("updated", 0)
         skipped = bf_result.get("skipped", 0)
+        failed = bf_result.get("failed", 0)
         if bf_result.get("error"):
             st.error(bf_result["error"])
         elif updated > 0:
             st.success(f"✅ 成功补填 {updated} 条提案的集群词中文，跳过 {skipped} 条（已有或无词）")
             st.cache_data.clear()
             st.rerun()
+        elif failed > 0:
+            st.error(f"翻译失败 {failed} 条（请检查网络连接），跳过 {skipped} 条")
         else:
             st.info(f"所有提案已有中文词条，无需补填（跳过 {skipped} 条）")
 
