@@ -56,6 +56,7 @@ from api_client import (
     fetch_core_data,
     trigger_batch_backfill,
     fetch_batch_backfill_status,
+    trigger_retroactive_screen,
 )
 from datetime import date as _date, timedelta as _timedelta
 import math
@@ -959,8 +960,31 @@ if active_phase == 2:
                     st.success(f"已批准 {ok_count}/{len(proposals)} 个种子主题，雷达词库已激活！")
                     st.rerun()
 
-            st.markdown(f"### 💡 待审批新主题提案：{len(proposals)} 条")
-            st.caption("系统通过孤儿词聚类 + Gemini AI 分析，识别出以下潜在新赛道，等待 CIO 拍板建库。")
+            _rcol1, _rcol2 = st.columns([3, 1])
+            with _rcol1:
+                st.markdown(f"### 💡 待审批新主题提案：{len(proposals)} 条")
+                st.caption("系统通过孤儿词聚类 + Gemini AI 分析，识别出以下潜在新赛道，等待 CIO 拍板建库。")
+            with _rcol2:
+                if st.button("🔍 重新筛选（Gemini 质检）", help="对队列中所有历史提案补跑 Gemini 自动质量筛选，驳回人名/娱乐等非投资性集群", use_container_width=True):
+                    with st.spinner("Gemini 正在逐条质检，请稍候（每条约 5-15 秒）…"):
+                        _screen_result = trigger_retroactive_screen()
+                    if _screen_result.get("success"):
+                        _rej = _screen_result.get("rejected", 0)
+                        _kept = _screen_result.get("kept", 0)
+                        _err = _screen_result.get("errors", 0)
+                        _rej_names = _screen_result.get("rejected_names", [])
+                        _msg = f"质检完成：驳回 {_rej} 条 / 保留 {_kept} 条"
+                        if _err:
+                            _msg += f" / {_err} 条出错"
+                        if _rej_names:
+                            _msg += f"\n驳回：{', '.join(_rej_names[:5])}"
+                            if len(_rej_names) > 5:
+                                _msg += f" 等 {len(_rej_names)} 条"
+                        st.success(_msg)
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error(f"筛选失败：{_screen_result.get('error', '未知错误')[:200]}")
 
             for prop in proposals:
                 prop_id = prop["id"]

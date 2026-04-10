@@ -625,6 +625,10 @@ def trigger_generate_seed_proposals():
     return _narrative_post("/api/v1/narrative/generate_seed_proposals")
 
 
+def trigger_retroactive_screen():
+    return _narrative_post("/api/v1/narrative/retroactive_screen")
+
+
 def fetch_dictionary_stats():
     return _narrative_get("/api/v1/narrative/dictionary_stats")
 
