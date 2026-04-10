@@ -626,7 +626,7 @@ def trigger_generate_seed_proposals():
 
 
 def trigger_retroactive_screen():
-    return _narrative_post("/api/v1/narrative/retroactive_screen")
+    return _narrative_post("/api/v1/narrative/retroactive_screen", timeout=180)
 
 
 def fetch_dictionary_stats():
