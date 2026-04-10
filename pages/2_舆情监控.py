@@ -948,6 +948,7 @@ if active_phase == 2:
                 l2_display = terms_data.get("l2_display") or prop["proposed_l2"]
                 l2_display_zh = terms_data.get("l2_display_zh", "")
                 all_terms = terms_data.get("terms", [])
+                all_terms_zh = terms_data.get("terms_zh", [])
                 reasoning = prop.get("llm_reasoning", "")
                 reasoning_zh = terms_data.get("reasoning_zh", "")
 
@@ -973,7 +974,16 @@ if active_phase == 2:
                     # 导致 Markdown 解析器认为 HTML 块已结束，后续 <div> 被当成代码块渲染成原始文本。
                     reasoning_html = "<div style='margin:0;padding:0'></div>"
 
-                terms_preview = " · ".join(f"<code style='font-size:13px'>{t}</code>" for t in all_terms[:8])
+                terms_chips = []
+                for i, t in enumerate(all_terms[:8]):
+                    zh = all_terms_zh[i] if i < len(all_terms_zh) else ""
+                    if zh:
+                        terms_chips.append(
+                            f"<code style='font-size:13px' title='{t}'>{zh}</code>"
+                        )
+                    else:
+                        terms_chips.append(f"<code style='font-size:13px'>{t}</code>")
+                terms_preview = " · ".join(terms_chips)
                 if len(all_terms) > 8:
                     terms_preview += f" <span style='color:#666;font-size:13px'>+{len(all_terms)-8} 个词</span>"
 
