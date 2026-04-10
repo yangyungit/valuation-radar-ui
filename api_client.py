@@ -12,10 +12,13 @@ import io
 import os
 import platform
 
-# 自动判断当前是否为本地开发环境 (Mac系统自动判定为本地)
-# 这样当你推送到云端(Linux环境)时，会自动切回生产 API，不需要手动来回改代码了！
-if platform.system() == "Darwin" or os.environ.get("USE_LOCAL_API") == "true":
-    API_BASE_URL = "http://localhost:8000" 
+# URL 优先级：环境变量 RADAR_API_URL > USE_LOCAL_API 强制本地 > 平台自动判断
+# 同事在支链开发时，可通过 RADAR_API_URL=https://valuation-radar.onrender.com 直连生产后端
+_env_url = os.environ.get("RADAR_API_URL", "").strip()
+if _env_url:
+    API_BASE_URL = _env_url
+elif platform.system() == "Darwin" or os.environ.get("USE_LOCAL_API") == "true":
+    API_BASE_URL = "http://localhost:8000"
 else:
     API_BASE_URL = "https://valuation-radar.onrender.com"
 

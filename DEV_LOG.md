@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-04-10 | 支链开发对齐 Render 数据：RADAR_API_URL 环境变量
+
+**背景**：同事在支链开发时，本地 `narrative.db` 与 Render 云端数据不一致，导致调试失真；但改动须合并到主链才能影响 Render 部署。
+
+**变动**：
+- `api_client.py`：新增 `RADAR_API_URL` 环境变量最高优先级覆盖机制（优先于 `USE_LOCAL_API` 和平台自动判断）。
+
+**使用方法（支链开发时直连 Render 后端）**：
+```bash
+# 在 valuation-radar-ui 目录下执行
+RADAR_API_URL=https://valuation-radar.onrender.com streamlit run app.py
+```
+本地前端直接打到 Render 后端，数据与生产完全一致，无需拉数据库、无需合并主链。
+
+**注意**：对 Render 后端发起的写操作（词典审核、orphan 操作等）将直接影响生产数据，支链开发时须谨慎使用写接口。
+
+---
+
 ## 2026-04-10 | 历史提案回溯 Gemini 质检 + UI 一键筛选按钮
 
 **背景**：v15.8 的自动筛选仅覆盖新生成提案，队列中已有的 17-18 天前的历史提案（含人名、娱乐等垃圾集群）未被筛选。
