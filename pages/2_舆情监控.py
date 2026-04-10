@@ -969,7 +969,9 @@ if active_phase == 2:
                 elif reasoning and not reasoning.startswith("Gemini call failed"):
                     reasoning_html = f"<div style='font-size:13px;color:#aaa'>📝 {reasoning}</div>"
                 else:
-                    reasoning_html = ""
+                    # 必须用占位 div 而非空字符串：空字符串在 f-string 模板中会产生纯空白行，
+                    # 导致 Markdown 解析器认为 HTML 块已结束，后续 <div> 被当成代码块渲染成原始文本。
+                    reasoning_html = "<div style='margin:0;padding:0'></div>"
 
                 terms_preview = " · ".join(f"<code style='font-size:13px'>{t}</code>" for t in all_terms[:8])
                 if len(all_terms) > 8:
