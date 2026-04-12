@@ -527,6 +527,44 @@ def check_code_conflicts():
 
 
 # ===================================================================
+# 9. 第三方 API 密钥配置状态
+# ===================================================================
+def check_api_keys():
+    """通过后端 /api/v1/system/api_keys_status 端点检查各 key 是否已配置。"""
+    results = []
+    base = _api_base()
+    try:
+        r = requests.get(f"{base}/api/v1/system/api_keys_status", timeout=5)
+        if r.status_code != 200:
+            results.append(_make("API密钥", "密钥状态接口", WARNING,
+                                 f"状态端点返回 HTTP {r.status_code}", ""))
+            return results
+        data = r.json()
+    except requests.exceptions.ConnectionError:
+        results.append(_make("API密钥", "密钥状态接口", CRITICAL,
+                             "后端不可达，无法检查 API Key", ""))
+        return results
+    except Exception as e:
+        results.append(_make("API密钥", "密钥状态接口", WARNING,
+                             "密钥状态检查异常", str(e)))
+        return results
+
+    for item in data.get("keys", []):
+        env_name = item["env_name"]
+        provider = item["provider"]
+        purpose = item["purpose"]
+        configured = item["configured"]
+        if configured:
+            results.append(_make("API密钥", f"{provider} ({env_name})", OK,
+                                 f"已配置 — {purpose}", ""))
+        else:
+            results.append(_make("API密钥", f"{provider} ({env_name})", WARNING,
+                                 f"未配置 — {purpose} 功能将降级",
+                                 f"在 Render → Environment 中设置 {env_name}"))
+    return results
+
+
+# ===================================================================
 # Orchestrator — parallel execution, cached 5 min
 # ===================================================================
 def run_all_checks() -> dict:
@@ -540,6 +578,7 @@ def run_all_checks() -> dict:
         check_narrative_engine,
         check_page_integrity,
         check_code_conflicts,
+        check_api_keys,
     ]
 
     all_results = []

@@ -2,6 +2,19 @@
 
 ---
 
+## 2026-04-12 | 质检员新增「API密钥」扫描模块
+
+**背景**：首页质检员无法检测 FINNHUB / ALPACA / POLYGON / GEMINI 等第三方 API key 是否在 Render 环境变量中正确配置，导致爬虫静默降级时难以排查。
+
+**变动内容**：
+- **后端** `api_server.py`：新增 `GET /api/v1/system/api_keys_status` 端点，读取 6 个关键环境变量（`FINNHUB_API_KEY`、`ALPACA_API_KEY`、`ALPACA_SECRET_KEY`、`POLYGON_API_KEY`、`GEMINI_API_KEY`、`ADMIN_SYNC_TOKEN`），只暴露 `configured: bool`，不泄露 key 值。
+- **前端** `health_checker.py`：新增 `check_api_keys()` 检查函数，调用上述端点，每个未配置的 key 产生 WARNING 并附上 Render 操作提示；已注册到 `run_all_checks()` 并发池。
+- **前端** `app.py`：在仪表盘 `CATEGORY_ICONS` / `CATEGORY_ORDER` 中注册 `"API密钥": "🔑"`，排在 API契约 之后。
+
+**影响范围**：首页质检员新增「🔑 API密钥」卡片；未配置的 key 将显示黄色 WARNING；不影响已有检查项。
+
+---
+
 ## 2026-04-12 | Z 级「现金流堡垒」三阶段全域扩充
 
 **背景**：Z 级赛道长期无候选标的，原因是股票池中仅有少量天然高息股，且 yfinance 的 `lastDividendValue * 4` 假设季度付息，对月度付息资产（如 JEPI/O/STAG 等）严重低估 ~3 倍，导致这些资产无法过 `div_yield >= 1%` 门槛。
