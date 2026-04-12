@@ -86,6 +86,29 @@ CLASS_META: dict = {
             "止损设在近期低点下方，一旦纳入 B/C 级则切换评估框架。"
         ),
     },
+    "Z": {
+        "label": "Z级：现金流堡垒",
+        "nickname": "Yield",
+        "icon": "🏦",
+        "color": "#1ABC9C",
+        "update_freq": "月",
+        "criteria": (
+            "现金流堡垒指数：(40% 真实股息率) + (25% 分红续航力) "
+            "+ (20% 绝对低波·年化波动率倒数) + (15% 本金盾·最大回撤倒数)"
+        ),
+        "logic": (
+            "专为收息型持仓设计，四维纯现金流指标优选能持续派息的资产。"
+            "公式：(40% 真实股息率) + (25% EPS稳定性/分红续航力) "
+            "+ (20% 年化波动率倒数) + (15% 最大回撤倒数)。"
+            "入选门槛：股息率 ≥ 1%，零股息资产（如 GLD）不参赛。月度评估。"
+        ),
+        "strategy": (
+            "收息型底仓，专注真实现金流的长期积累。"
+            "锚定高股息可持续性与低波动保本，换手率极低，"
+            "配合宏观衰退/滞胀剧本使用时对冲效果最佳。"
+            "只展示赛道得分前 20 名（按现值偏低优先排序）。"
+        ),
+    },
 }
 
 st.markdown("""
@@ -144,8 +167,8 @@ with st.sidebar:
     st.header("📡 矩阵过滤器")
     selected_cls = st.multiselect(
         "显示类别",
-        options=["A", "B", "C", "D"],
-        default=["A", "B", "C", "D"],
+        options=["A", "B", "C", "D", "Z"],
+        default=["A", "B", "C", "D", "Z"],
         format_func=lambda x: f"{CLASS_META[x]['icon']} {CLASS_META[x]['label']}",
     )
     only_bullish = st.checkbox("仅显示趋势健康资产 (MA20 > MA60)", value=False)
@@ -183,7 +206,7 @@ all_assets: dict = st.session_state["abcd_classified_assets"]
 # ─────────────────────────────────────────────────────────────────
 #  构建绘图数据框（按 qualifying_grades 展开，与 page3 对齐）
 # ─────────────────────────────────────────────────────────────────
-_GRADE_JITTER = {"A": (0, 0), "B": (0.06, 0.4), "C": (-0.06, -0.4), "D": (0.04, -0.6)}
+_GRADE_JITTER = {"A": (0, 0), "B": (0.06, 0.4), "C": (-0.06, -0.4), "D": (0.04, -0.6), "Z": (-0.04, 0.3)}
 
 rows = []
 for ticker, info in all_assets.items():
@@ -267,7 +290,7 @@ else:
         )
 
     # 每个 ABCD 类单独一条轨迹；多级别副本用空心环标记
-    for cls in ["A", "B", "C", "D"]:
+    for cls in ["A", "B", "C", "D", "Z"]:
         sub = df_show[df_show["类别"] == cls]
         if sub.empty:
             continue
@@ -362,9 +385,9 @@ st.markdown("---")
 # ─────────────────────────────────────────────────────────────────
 st.header("2️⃣ 资产宇宙概览 (Universe Snapshot)")
 
-_qg_total:   dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0}
-_qg_show:    dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0}
-_qg_bullish: dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0}
+_qg_total:   dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0, "Z": 0}
+_qg_show:    dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0, "Z": 0}
+_qg_bullish: dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0, "Z": 0}
 for _tk, _inf in all_assets.items():
     if not _inf.get("has_data"):
         continue
@@ -378,8 +401,8 @@ for _tk, _inf in all_assets.items():
         if _g in selected_cls and (not only_bullish or _bull):
             _qg_show[_g] += 1
 
-stat_cols = st.columns(4)
-for i, cls in enumerate(["A", "B", "C", "D"]):
+stat_cols = st.columns(5)
+for i, cls in enumerate(["A", "B", "C", "D", "Z"]):
     meta = CLASS_META[cls]
     total_n   = _qg_total[cls]
     show_n    = _qg_show[cls]
@@ -441,8 +464,8 @@ if _arena_hist:
 
     if _latest_month:
         _latest_entry = _arena_hist[_latest_month]
-        _winner_cols = st.columns(4)
-        for _ci, _cls in enumerate(["A", "B", "C", "D"]):
+        _winner_cols = st.columns(5)
+        for _ci, _cls in enumerate(["A", "B", "C", "D", "Z"]):
             _cmeta = CLASS_META[_cls]
             _top2 = _latest_entry.get(_cls, [])[:2]
             with _winner_cols[_ci]:
@@ -501,10 +524,10 @@ if _arena_hist:
             _prev_st = _cur_st
         return _res
 
-    _all_streaks = {c: _compute_streaks_p4(c) for c in ["A", "B", "C", "D"]}
+    _all_streaks = {c: _compute_streaks_p4(c) for c in ["A", "B", "C", "D", "Z"]}
 
     _holdings_map: dict = {}
-    for _cls in ["A", "B", "C", "D"]:
+    for _cls in ["A", "B", "C", "D", "Z"]:
         _months_asc = sorted(k for k in _arena_hist if not k.startswith("_"))
         _prev_hold: set = set()
         _cls_map: dict = {}
@@ -526,7 +549,7 @@ if _arena_hist:
         for _mo in _sorted_months:
             _entry = _arena_hist[_mo]
             _row: dict = {"月份": _mo}
-            for _cls in ["A", "B", "C", "D"]:
+            for _cls in ["A", "B", "C", "D", "Z"]:
                 _h = _holdings_map[_cls].get(_mo, {})
                 _hold_set = _h.get("hold", set())
                 _t2_list = _h.get("top2", [])
@@ -565,9 +588,21 @@ st.header("3️⃣ 资产深度查询 (Asset Intelligence Panel)")
 
 df_show_unique = df_show.drop_duplicates(subset="Ticker", keep="first")
 
+# Z 组仅保留 Z-Score 最低的前 20（Z-Score 越低 = 当前收益率越高）
+_z_rows = df_show_unique[df_show_unique["类别"] == "Z"].sort_values("Z-Score").head(20)
+_non_z_rows = df_show_unique[df_show_unique["类别"] != "Z"]
+df_show_unique = pd.concat([_non_z_rows, _z_rows], ignore_index=True)
+
 if df_show_unique.empty:
     st.info("当前过滤条件下无可查询资产。")
     st.stop()
+
+_z_total_count = (df_show["类别"] == "Z").sum()
+if "Z" in selected_cls and _z_total_count > 20:
+    st.caption(
+        f"🏦 Z 组共 {_z_total_count} 只资产，下拉框仅展示现金流得分前 20 名"
+        f"（按 Z-Score 升序 = 当前收益率最高优先）。"
+    )
 
 # 下拉选项：Ticker | 名称 | 所有符合级别
 options = []

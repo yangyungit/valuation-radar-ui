@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-04-12 | Page 4 资产调研加入 Z 组支持
+
+### 背景
+Page 4（资产矩阵与雷达）的 `CLASS_META` 中完全缺失 Z 级（现金流堡垒），导致 Z 类资产无法出现在散点图、统计卡片、竞技场胜出者区块及资产深度查询面板中。
+
+### 改动
+- `CLASS_META` 新增 `"Z"` 条目（label/icon/color/update_freq/criteria/logic/strategy）
+- 侧边栏多选框 `selected_cls` 默认加入 Z
+- `_GRADE_JITTER`、`_qg_total/show/bullish` 计数字典全部扩容至含 Z
+- 散点图循环 `["A","B","C","D","Z"]`、统计卡片改为 5 列
+- 竞技场胜出者区块（Top-2 列、历史月度表、连胜统计）全部支持 Z 赛道
+- 资产深度查询下拉框：Z 组资产按 Z-Score 升序排序后只显示前 20 名（Z-Score 越低 = 当前收益率越高），超出则显示提示文字
+
+### 影响范围
+仅 `pages/4_资产调研.py`，无接口变更。
+
+---
+
 ## 2026-04-12 | 宏观定调页 FRED 数据拉取改用 requests 直连
 
 ### 背景
