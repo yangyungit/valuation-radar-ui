@@ -586,22 +586,36 @@ st.markdown("---")
 # ─────────────────────────────────────────────────────────────────
 st.header("3️⃣ 资产深度查询 (Asset Intelligence Panel)")
 
-df_show_unique = df_show.drop_duplicates(subset="Ticker", keep="first")
+# Z 组：直接从全量 df_all 里取 类别==Z 的行（避免 drop_duplicates 把 Z 行挤掉）
+# 许多 Z 资产同时满足 A+Z，drop_duplicates(keep="first") 会保留 A 行而丢失 Z 行
+_z_all_count = int((df_all["类别"] == "Z").sum())
+if "Z" in selected_cls and _z_all_count > 0:
+    _z_candidates = (
+        df_all[df_all["类别"] == "Z"]
+        .drop_duplicates(subset="Ticker")
+        .sort_values("Z-Score")   # Z-Score 升序 = 当前价格偏低 / 收益率偏高优先
+        .head(20)
+    )
+else:
+    _z_candidates = pd.DataFrame(columns=df_all.columns)
 
-# Z 组仅保留 Z-Score 最低的前 20（Z-Score 越低 = 当前收益率越高）
-_z_rows = df_show_unique[df_show_unique["类别"] == "Z"].sort_values("Z-Score").head(20)
-_non_z_rows = df_show_unique[df_show_unique["类别"] != "Z"]
-df_show_unique = pd.concat([_non_z_rows, _z_rows], ignore_index=True)
+# 非 Z 部分：正常去重，并剔除已收录进 Z 组的 ticker（避免重复出现）
+_z_tickers_in_top20 = set(_z_candidates["Ticker"].tolist())
+_non_z_unique = (
+    df_show[df_show["类别"] != "Z"]
+    .drop_duplicates(subset="Ticker", keep="first")
+    .pipe(lambda d: d[~d["Ticker"].isin(_z_tickers_in_top20)])
+)
+df_show_unique = pd.concat([_non_z_unique, _z_candidates], ignore_index=True)
 
 if df_show_unique.empty:
     st.info("当前过滤条件下无可查询资产。")
     st.stop()
 
-_z_total_count = (df_show["类别"] == "Z").sum()
-if "Z" in selected_cls and _z_total_count > 20:
+if "Z" in selected_cls and _z_all_count > 20:
     st.caption(
-        f"🏦 Z 组共 {_z_total_count} 只资产，下拉框仅展示现金流得分前 20 名"
-        f"（按 Z-Score 升序 = 当前收益率最高优先）。"
+        f"🏦 Z 组共 {_z_all_count} 只资产，下拉框仅展示 Z-Score 最低前 20 名"
+        f"（当前收益率最高优先）。完整排行请前往 **Page 3 资产细筛 → Z赛道**。"
     )
 
 # 下拉选项：Ticker | 名称 | 所有符合级别
