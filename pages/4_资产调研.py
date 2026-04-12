@@ -383,42 +383,7 @@ st.markdown("---")
 # ─────────────────────────────────────────────────────────────────
 #  Section 2：资产宇宙统计卡片
 # ─────────────────────────────────────────────────────────────────
-st.header("2️⃣ 资产宇宙概览 (Universe Snapshot)")
-
-_qg_total:   dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0, "Z": 0}
-_qg_show:    dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0, "Z": 0}
-_qg_bullish: dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0, "Z": 0}
-for _tk, _inf in all_assets.items():
-    if not _inf.get("has_data"):
-        continue
-    _bull = bool(_inf.get("is_bullish", False))
-    for _g in _inf.get("qualifying_grades", []):
-        if _g not in _qg_total:
-            continue
-        _qg_total[_g] += 1
-        if _bull:
-            _qg_bullish[_g] += 1
-        if _g in selected_cls and (not only_bullish or _bull):
-            _qg_show[_g] += 1
-
-stat_cols = st.columns(5)
-for i, cls in enumerate(["A", "B", "C", "D", "Z"]):
-    meta = CLASS_META[cls]
-    total_n   = _qg_total[cls]
-    show_n    = _qg_show[cls]
-    bullish_n = _qg_bullish[cls]
-    bull_pct  = round(bullish_n / total_n * 100) if total_n else 0
-    with stat_cols[i]:
-        st.markdown(f"""
-        <div style='background:{meta["color"]}14; border:1px solid {meta["color"]}66;
-                    border-radius:8px; padding:14px; text-align:center;'>
-            <div style='font-size:26px;'>{meta["icon"]}</div>
-            <div style='font-size:30px; font-weight:bold; color:{meta["color"]};'>{show_n}</div>
-            <div style='font-size:10px; color:#888;'>/ {total_n} 总计</div>
-            <div style='font-size:11px; color:#ccc; margin-top:4px;'>{meta["label"]}</div>
-            <div style='font-size:10px; color:#F1C40F; margin-top:6px;'>趋势健康 {bull_pct}%</div>
-        </div>
-        """, unsafe_allow_html=True)
+st.header("2️⃣ 资产排名概览")
 
 # ─────────────────────────────────────────────────────────────────
 #  Section 2.5：竞技场胜出者 (Arena Top-2 Winners)
@@ -544,40 +509,123 @@ if _arena_hist:
             _prev_hold = _hold
         _holdings_map[_cls] = _cls_map
 
-    with st.expander(f"📅 历史月度 Top-2 胜出者（共 {len(_sorted_months)} 个月）", expanded=False):
-        _hist_rows = []
-        for _mo in _sorted_months:
-            _entry = _arena_hist[_mo]
-            _row: dict = {"月份": _mo}
-            for _cls in ["A", "B", "C", "D", "Z"]:
-                _h = _holdings_map[_cls].get(_mo, {})
-                _hold_set = _h.get("hold", set())
-                _t2_list = _h.get("top2", [])
-                _is_diff = _h.get("diff", False)
-                _mo_st = _all_streaks[_cls].get(_mo, {})
+    # ── 白盒化管道说明：Top-3 → Top-2 筛选逻辑 ──────────────────────
+    st.markdown(
+        "<div style='margin-top:24px; margin-bottom:8px;'>"
+        "<span style='font-size:18px; font-weight:bold; color:#eee;'>"
+        "🔬 选股管道白盒（Top-3 → 最终持仓）"
+        "</span>"
+        "<span style='font-size:13px; color:#888; margin-left:12px;'>"
+        "展示每月如何从 Page 3 竞技场 Top-3 收窄为最终 Top-2 持仓"
+        "</span></div>",
+        unsafe_allow_html=True,
+    )
 
-                _all_recs = _entry.get(_cls, [])[:3]
-                _hold_recs = [r for r in _all_recs if r["ticker"] in _hold_set]
-                _hold_recs.sort(key=lambda r: _mo_st.get(r["ticker"], 0), reverse=True)
+    # 规则说明卡片
+    st.markdown(
+        "<div style='background:#1a1a2e; border:1px solid #3a3a5c; border-radius:8px;"
+        " padding:14px 18px; margin-bottom:16px; font-size:13px; color:#ccc; line-height:1.8;'>"
+        "<b style='color:#F1C40F; font-size:14px;'>📐 换仓规则（持仓稳定性协议）</b><br>"
+        "① Page 3 竞技场每月产出各赛道 <b>Top-3</b> 综合评分排名。<br>"
+        "② 若上月持仓的所有标的仍出现在本月 Top-3 之内，则 <b style='color:#2ECC71;'>维持不动</b>（减少无谓换手）。<br>"
+        "③ 否则，直接采用本月 Top-3 的 <b style='color:#F39C12;'>前两名（Top-2）</b> 作为新持仓。<br>"
+        "④ 表格中 <code>[Top2→X/Y]</code> 标注代表本月触发了换仓，括号内为实际换入的 Top-2 标的。"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
-                _parts = []
-                for _rec in _hold_recs:
-                    _s = _mo_st.get(_rec["ticker"], 0)
-                    _parts.append(f"{_rec['ticker']}({_s}月)")
-
-                _cell = " / ".join(_parts) if _parts else "—"
-                if _is_diff and _t2_list:
-                    _cell += f" [Top2→{'/'.join(_t2_list)}]"
-                _row[f"{_cls} 持仓"] = _cell
-            _hist_rows.append(_row)
-
-        _df_hist = pd.DataFrame(_hist_rows)
-        st.dataframe(
-            _df_hist,
-            use_container_width=True,
-            hide_index=True,
-            height=min(400, 36 * len(_hist_rows) + 38),
+    # 最新月份的逐赛道 Top-3 原始数据 + 管道推演
+    if _latest_month:
+        st.markdown(
+            f"<div style='font-size:15px; font-weight:bold; color:#eee; margin-bottom:10px;'>"
+            f"📊 本月（{_latest_month}）管道推演</div>",
+            unsafe_allow_html=True,
         )
+        _pipe_cols = st.columns(5)
+        for _pi, _pcls in enumerate(["A", "B", "C", "D", "Z"]):
+            _pmeta = CLASS_META[_pcls]
+            _precs = _arena_hist[_latest_month].get(_pcls, [])[:3]
+            _ph = _holdings_map[_pcls].get(_latest_month, {})
+            _p_hold = _ph.get("hold", set())
+            _p_top2 = _ph.get("top2", [])
+            _p_diff = _ph.get("diff", False)
+            with _pipe_cols[_pi]:
+                _inner_pipe = (
+                    f"<div style='background:{_pmeta['color']}10; border:1px solid {_pmeta['color']}44;"
+                    f" border-radius:8px; padding:12px; font-size:13px;'>"
+                    f"<div style='font-size:14px; font-weight:bold; color:{_pmeta['color']};"
+                    f" margin-bottom:8px;'>{_pmeta['icon']} {_pmeta['label']}</div>"
+                    f"<div style='color:#aaa; margin-bottom:6px;'>Page 3 Top-3 原始排名：</div>"
+                )
+                for _pr_i, _pr in enumerate(_precs):
+                    _medal_p = ["🥇", "🥈", "🥉"][_pr_i]
+                    _is_held = _pr["ticker"] in _p_hold
+                    _held_marker = " <span style='color:#2ECC71; font-size:12px;'>✔ 持仓</span>" if _is_held else ""
+                    _inner_pipe += (
+                        f"<div style='padding:3px 0; border-bottom:1px solid #ffffff10;'>"
+                        f"{_medal_p} <b style='color:#eee;'>{_pr['ticker']}</b>"
+                        f" <span style='color:#888; font-size:12px;'>{_pr.get('name','')}</span>"
+                        f" <span style='color:{_pmeta['color']}; font-size:12px;'>{_pr.get('score',0):.1f}分</span>"
+                        f"{_held_marker}</div>"
+                    )
+                if not _precs:
+                    _inner_pipe += "<div style='color:#555;'>暂无数据</div>"
+                if _p_diff:
+                    _inner_pipe += (
+                        f"<div style='margin-top:8px; background:#3d2200; border:1px solid #F39C12;"
+                        f" border-radius:4px; padding:4px 8px; font-size:13px; color:#F39C12;'>"
+                        f"⚡ 触发换仓 → {' / '.join(_p_top2)}</div>"
+                    )
+                else:
+                    _inner_pipe += (
+                        f"<div style='margin-top:8px; background:#0d2b1a; border:1px solid #2ECC71;"
+                        f" border-radius:4px; padding:4px 8px; font-size:13px; color:#2ECC71;'>"
+                        f"✅ 持仓稳定，无需换手</div>"
+                    )
+                _inner_pipe += "</div>"
+                st.markdown(_inner_pipe, unsafe_allow_html=True)
+
+    st.markdown(
+        "<div style='margin-top:24px; margin-bottom:8px;'>"
+        "<span style='font-size:18px; font-weight:bold; color:#eee;'>"
+        f"📅 历史月度 Top-2 胜出者（共 {len(_sorted_months)} 个月）"
+        "</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    _hist_rows = []
+    for _mo in _sorted_months:
+        _entry = _arena_hist[_mo]
+        _row: dict = {"月份": _mo}
+        for _cls in ["A", "B", "C", "D", "Z"]:
+            _h = _holdings_map[_cls].get(_mo, {})
+            _hold_set = _h.get("hold", set())
+            _t2_list = _h.get("top2", [])
+            _is_diff = _h.get("diff", False)
+            _mo_st = _all_streaks[_cls].get(_mo, {})
+
+            _all_recs = _entry.get(_cls, [])[:3]
+            _hold_recs = [r for r in _all_recs if r["ticker"] in _hold_set]
+            _hold_recs.sort(key=lambda r: _mo_st.get(r["ticker"], 0), reverse=True)
+
+            _parts = []
+            for _rec in _hold_recs:
+                _s = _mo_st.get(_rec["ticker"], 0)
+                _parts.append(f"{_rec['ticker']}({_s}月)")
+
+            _cell = " / ".join(_parts) if _parts else "—"
+            if _is_diff and _t2_list:
+                _cell += f" [Top2→{'/'.join(_t2_list)}]"
+            _row[f"{_cls} 持仓"] = _cell
+        _hist_rows.append(_row)
+
+    _df_hist = pd.DataFrame(_hist_rows)
+    st.dataframe(
+        _df_hist,
+        use_container_width=True,
+        hide_index=True,
+        height=min(600, 36 * len(_hist_rows) + 38),
+    )
 
 st.markdown("---")
 
