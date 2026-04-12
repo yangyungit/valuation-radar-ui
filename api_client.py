@@ -12,15 +12,15 @@ import io
 import os
 import platform
 
-# URL 优先级：环境变量 RADAR_API_URL > USE_LOCAL_API 强制本地 > 平台自动判断
-# 同事在支链开发时，可通过 RADAR_API_URL=https://valuation-radar.onrender.com 直连生产后端
+# URL 优先级：环境变量 RADAR_API_URL > USE_LOCAL_API 强制本地 > 默认生产地址
+# 本地调试时，请设置 USE_LOCAL_API=true 或 RADAR_API_URL=http://localhost:8000
 _env_url = os.environ.get("RADAR_API_URL", "").strip()
 if _env_url:
     API_BASE_URL = _env_url
-elif platform.system() == "Darwin" or os.environ.get("USE_LOCAL_API") == "true":
+elif os.environ.get("USE_LOCAL_API") == "true":
     API_BASE_URL = "http://localhost:8000"
 else:
-    API_BASE_URL = "https://valuation-radar.onrender.com"
+    API_BASE_URL = "https://valuation-radar-server.onrender.com"
 
 @st.cache_data(ttl=3600)
 def fetch_core_data():
