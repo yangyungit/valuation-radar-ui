@@ -8,11 +8,43 @@ import numpy as np
 import os
 import json
 from datetime import datetime, timedelta
-try:
-    import pandas_datareader.data as web
-except Exception:
-    web = None
+import requests as _requests
 from api_client import fetch_core_data, get_global_data
+
+
+def _fetch_fred_series(series_id: str, start_date, end_date, api_key: str) -> pd.Series:
+    """单序列：直接调 FRED REST API，返回 pd.Series(date index)。"""
+    url = "https://api.stlouisfed.org/fred/series/observations"
+    params = {
+        "series_id": series_id,
+        "api_key": api_key,
+        "file_type": "json",
+        "observation_start": start_date.strftime("%Y-%m-%d"),
+        "observation_end": end_date.strftime("%Y-%m-%d"),
+    }
+    r = _requests.get(url, params=params, timeout=15)
+    r.raise_for_status()
+    dates, values = [], []
+    for obs in r.json().get("observations", []):
+        try:
+            dates.append(pd.Timestamp(obs["date"]))
+            values.append(float(obs["value"]))
+        except (ValueError, KeyError):
+            pass  # FRED 用 "." 表示缺失值，跳过
+    return pd.Series(values, index=pd.DatetimeIndex(dates), name=series_id)
+
+
+def _fetch_fred_batch(series_ids: list, start_date, end_date, api_key: str) -> pd.DataFrame:
+    """批量拉取多个 FRED 序列，合并成 DataFrame（列名 = series_id）。"""
+    frames = {}
+    for sid in series_ids:
+        try:
+            frames[sid] = _fetch_fred_series(sid, start_date, end_date, api_key)
+        except Exception:
+            pass
+    if not frames:
+        return pd.DataFrame()
+    return pd.DataFrame(frames)
 
 # 1. 动态向云端 API 请求核心机密字典
 core_data = fetch_core_data()
@@ -128,11 +160,14 @@ MACRO_TICKERS_CORE.sort()
 def get_liquidity_data():
     end_date = datetime.now()
     start_date = end_date - timedelta(days=3650)
+    fred_key = os.environ.get("FRED_API_KEY", "")
     try:
+        if not fred_key:
+            raise RuntimeError("FRED_API_KEY 未配置")
         macro_codes = ['WALCL', 'WTREGEN', 'RRPONTSYD', 'BOGMBASE', 'M1SL', 'M2SL', 'CURRCIR', 'GFDEBTN']
-        df_macro = web.DataReader(macro_codes, 'fred', start_date, end_date)
+        df_macro = _fetch_fred_batch(macro_codes, start_date, end_date, fred_key)
         df_macro = df_macro.resample('D').ffill()
-    except:
+    except Exception:
         df_macro = pd.DataFrame()
     try:
         df_assets = yf.download(["SPY", "TLT", "GLD", "BTC-USD", "USO"], start=start_date, end=end_date, progress=False)['Close']
@@ -164,13 +199,14 @@ def get_clock_fred_data():
     通胀侧双锚: CPILFESL (核心CPI), PCEPILFE (核心PCE) — 均计算 YoY
     市场侧:    BAMLH0A0HYM2 (HY信用利差, 日度), T10YIE (10年隐含通胀预期, 日度)
     """
-    if web is None:
-        raise RuntimeError("pandas_datareader 未安装")
+    fred_key = os.environ.get("FRED_API_KEY", "")
+    if not fred_key:
+        raise RuntimeError("FRED_API_KEY 未配置，FRED 数据不可用")
     end_date = datetime.now()
     start_date = end_date - timedelta(days=3650 + 400)
-    df_fred = web.DataReader(
+    df_fred = _fetch_fred_batch(
         ['CPILFESL', 'PCEPILFE', 'BAMLH0A0HYM2', 'T10YIE', 'INDPRO', 'PAYEMS', 'RSAFS'],
-        'fred', start_date, end_date
+        start_date, end_date, fred_key
     )
     if df_fred.index.tz is not None:
         df_fred.index = df_fred.index.tz_localize(None)

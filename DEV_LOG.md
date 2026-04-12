@@ -2,6 +2,28 @@
 
 ---
 
+## 2026-04-12 | 宏观定调页 FRED 数据拉取改用 requests 直连
+
+### 背景
+`pandas_datareader` 与 `pandas >= 2.0` 存在已知兼容性 bug（`TypeError: deprecate_kwarg() missing 1 required positional argument: 'new_arg_name'`），导致宏观定调页面的 FRED 数据管道（核心 CPI、非农就业、工业生产、HY 信用利差等）实际上无法拉取，质检员一直报警告。
+
+### 改动
+
+**`pages/1_宏观定调.py`**
+- 移除 `pandas_datareader` 的 try/import 块。
+- 新增 `_fetch_fred_series(series_id, start_date, end_date, api_key)` — 单序列 FRED REST API 调用，自动跳过 `"."` 缺失值。
+- 新增 `_fetch_fred_batch(series_ids, start_date, end_date, api_key)` — 批量拉取多序列并合并为 DataFrame。
+- `get_clock_fred_data()`：改用 `_fetch_fred_batch`，从环境变量 `FRED_API_KEY` 读取密钥，未配置时抛出明确 RuntimeError（外层 try/except 已兜底降级）。
+- `get_liquidity_data()`：同样改用 `_fetch_fred_batch`，未配置密钥时 `df_macro` 优雅降级为空 DataFrame。
+
+**`valuation-radar/api_server.py`**
+- `api_keys_status` 端点新增 `FRED_API_KEY` 检查项，质检员密钥面板现在会提示是否已配置 FRED Key。
+
+### 必要操作
+需在 Render 环境变量中配置 `FRED_API_KEY`（免费申请：https://fred.stlouisfed.org/docs/api/api_key.html）。
+
+---
+
 ## 2026-04-12 | 质检员新增「API密钥」扫描模块
 
 **背景**：首页质检员无法检测 FINNHUB / ALPACA / POLYGON / GEMINI 等第三方 API key 是否在 Render 环境变量中正确配置，导致爬虫静默降级时难以排查。
