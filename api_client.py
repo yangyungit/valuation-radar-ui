@@ -154,16 +154,20 @@ def get_arena_a_factors(tickers: tuple) -> dict:
             price = fi.get('regularMarketPrice', 0) or fi.get('previousClose', 1) or 1
             div_yield = _calc_ttm_div_yield(stock, price)
 
-            hist = stock.history(period="1y")
+            # 2y period to ensure ma60 series has 180+ valid values for ribbon computation
+            hist = stock.history(period="2y")
             if hist.empty or len(hist) < 60:
                 return t, {"div_yield": div_yield, "max_dd_252": 0.0,
-                           "spy_corr": 0.5, "ann_vol": 0.30}
+                           "spy_corr": 0.5, "ann_vol": 0.30, "ribbon_score": 0.0}
 
             prices = hist["Close"].dropna().astype(float)
-            daily_ret = prices.pct_change().dropna()
 
-            roll_max = prices.cummax()
-            max_dd = float((prices / roll_max - 1.0).min())
+            # Use last 252 days for core metrics to preserve backward compatibility
+            prices_1y = prices.iloc[-252:] if len(prices) >= 252 else prices
+            daily_ret = prices_1y.pct_change().dropna()
+
+            roll_max = prices_1y.cummax()
+            max_dd = float((prices_1y / roll_max - 1.0).min())
 
             vol = float(daily_ret.std())
             ann_vol = vol * np.sqrt(252) if vol > 1e-9 else 0.30
@@ -181,15 +185,66 @@ def get_arena_a_factors(tickers: tuple) -> dict:
             else:
                 spy_corr = 0.5
 
+            # ── Ribbon Quality Score (0~1) ──────────────────────────────
+            ribbon_score = 0.0
+            try:
+                ma20_series = prices.rolling(20).mean().dropna()
+                ma60_series = prices.rolling(60).mean().dropna()
+                min_len = min(len(ma20_series), len(ma60_series))
+                if min_len >= 80:
+                    ma20_s = ma20_series.iloc[-min_len:]
+                    ma60_s = ma60_series.iloc[-min_len:]
+
+                    # S1: MA spread stability (30%) — parallel railroad tracks
+                    spread = (ma20_s - ma60_s) / ma60_s.replace(0, np.nan)
+                    spread_120 = spread.dropna().iloc[-120:]
+                    if len(spread_120) >= 30:
+                        spread_std = float(spread_120.std())
+                        s1 = float(np.clip(1.0 - spread_std / 0.05, 0.0, 1.0))
+                    else:
+                        s1 = 0.0
+
+                    # S2: Consecutive trend days ma20 > ma60 (35%)
+                    cross = (ma20_s > ma60_s).values[::-1]
+                    streak = int(np.argmin(cross)) if not np.all(cross) else len(cross)
+                    s2 = float(np.clip(streak / 252.0, 0.0, 1.0))
+
+                    # S3: Slope stability of ma60 (25%) — constant-velocity ribbon
+                    ma60_tail = ma60_s.iloc[-61:] if len(ma60_s) >= 61 else ma60_s
+                    pct_changes = (ma60_tail.diff() / ma60_tail.shift(1)).dropna()
+                    if len(pct_changes) >= 20:
+                        mean_ch = float(pct_changes.abs().mean())
+                        std_ch  = float(pct_changes.std())
+                        cv = std_ch / mean_ch if mean_ch > 1e-9 else 10.0
+                        s3 = float(np.clip(1.0 / (1.0 + cv), 0.0, 1.0))
+                    else:
+                        s3 = 0.0
+
+                    # S4: Price adhesion to ma20 (10%) — price hugs the moving average
+                    prices_tail = prices.iloc[-60:] if len(prices) >= 60 else prices
+                    ma20_tail   = prices_tail.rolling(20).mean().dropna()
+                    aligned_p   = prices_tail.iloc[-len(ma20_tail):]
+                    dev = ((aligned_p.values - ma20_tail.values) /
+                           ma20_tail.replace(0, np.nan).values)
+                    dev_std = float(np.nanstd(dev)) if len(dev) > 5 else 0.05
+                    s4 = float(np.clip(1.0 - dev_std / 0.05, 0.0, 1.0))
+
+                    ribbon_score = float(np.clip(
+                        0.30 * s1 + 0.35 * s2 + 0.25 * s3 + 0.10 * s4, 0.0, 1.0))
+            except Exception:
+                ribbon_score = 0.0
+            # ───────────────────────────────────────────────────────────
+
             return t, {
                 "div_yield": div_yield,
                 "max_dd_252": max_dd,
                 "spy_corr": spy_corr,
                 "ann_vol": ann_vol,
+                "ribbon_score": ribbon_score,
             }
         except Exception:
             return t, {"div_yield": 0.0, "max_dd_252": 0.0,
-                       "spy_corr": 0.5, "ann_vol": 0.30}
+                       "spy_corr": 0.5, "ann_vol": 0.30, "ribbon_score": 0.0}
 
     result = {}
     with ThreadPoolExecutor(max_workers=10) as executor:
