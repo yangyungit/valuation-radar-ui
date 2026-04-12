@@ -2216,7 +2216,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 overview_cols = st.columns(5)
-for i, cls in enumerate(["A", "B", "Z", "C", "D"]):
+for i, cls in enumerate(["Z", "A", "B", "C", "D"]):
     meta     = CLASS_META[cls]
     n        = len(df_all[df_all["类别"] == cls])
     selected = (cls == _sel4)
