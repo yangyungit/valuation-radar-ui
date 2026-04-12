@@ -160,7 +160,7 @@ MACRO_TICKERS_CORE.sort()
 def get_liquidity_data():
     end_date = datetime.now()
     start_date = end_date - timedelta(days=3650)
-    fred_key = os.environ.get("FRED_API_KEY", "")
+    fred_key = os.environ.get("FRED_API_KEY", "") or st.secrets.get("FRED_API_KEY", "")
     try:
         if not fred_key:
             raise RuntimeError("FRED_API_KEY 未配置")
@@ -199,7 +199,7 @@ def get_clock_fred_data():
     通胀侧双锚: CPILFESL (核心CPI), PCEPILFE (核心PCE) — 均计算 YoY
     市场侧:    BAMLH0A0HYM2 (HY信用利差, 日度), T10YIE (10年隐含通胀预期, 日度)
     """
-    fred_key = os.environ.get("FRED_API_KEY", "")
+    fred_key = os.environ.get("FRED_API_KEY", "") or st.secrets.get("FRED_API_KEY", "")
     if not fred_key:
         raise RuntimeError("FRED_API_KEY 未配置，FRED 数据不可用")
     end_date = datetime.now()
