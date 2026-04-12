@@ -182,21 +182,23 @@ ARENA_CONFIG: dict = {
     },
     "Z": {
         "score_name": "现金流堡垒指数",
-        "weights": {"div_yield": 0.40, "eps_stability": 0.25, "vol_inv": 0.20, "max_dd_inv": 0.15},
+        "weights": {"sharpe_1y": 0.30, "div_yield": 0.20, "div_sustainability": 0.20, "max_dd_inv": 0.15, "price_return": 0.15},
         "invert_z": False,
         "factor_labels": {
-            "div_yield":     "现金奶牛 (真实股息率)",
-            "eps_stability": "分红续航力 (盈利稳定性)",
-            "vol_inv":       "绝对低波 (年化波动率倒数)",
-            "max_dd_inv":    "本金盾 (最大回撤倒数)",
+            "sharpe_1y":        "总回报效率 (近1年夏普比率)",
+            "div_yield":        "现金奶牛 (真实股息率)",
+            "div_sustainability": "分红续航力 (盈利稳定性代理)",
+            "max_dd_inv":       "本金盾 (最大回撤倒数)",
+            "price_return":     "净值趋势 (近1年纯价格回报)",
         },
         "logic": (
-            "Z 组「现金流堡垒」使命：筛选能持续提供真实现金流收入的资产。<br>"
-            "① 真实股息率（年化股息率，权重 40%）— 拿到手的钱最重要<br>"
-            "② 分红续航力（盈利稳定性代理，权重 25%）— 确保分红可持续<br>"
-            "③ 绝对低波（年化波动率倒数，权重 20%）— 收息仓不坐过山车<br>"
+            "Z 组「现金流堡垒」使命：筛选能持续提供真实现金流、且本金不被侵蚀的资产。<br>"
+            "① 总回报效率（近1年夏普比率，风险调整总收益，权重 30%）— Total Return 才是真正的王<br>"
+            "② 现金奶牛（真实股息率，权重 20%）— 降权：锦上添花而非决胜主因<br>"
+            "③ 分红续航力（盈利稳定性代理，权重 20%）— 确保分红可持续<br>"
             "④ 本金盾（最大回撤倒数，权重 15%）— 保护本金安全<br>"
-            "入选门槛：股息率 ≥ 1%。零股息资产（如 GLD）不参赛。"
+            "⑤ 净值趋势（近1年纯价格回报，权重 15%）— 惩罚净值阴跌的财富粉碎机<br>"
+            "⚠️ 股息陷阱熔断：股息率>8% 且净值跌>20%，额外扣 20 分。入选门槛：股息率 ≥ 1%。"
         ),
     },
 }
@@ -548,11 +550,15 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                     roll_max_z = p_1yr_z.cummax()
                     max_dd_z = float((p_1yr_z / roll_max_z - 1.0).min()) if not p_1yr_z.empty else 0.0
                     eps_stab_z = 1.0 / max(vol_z_ann, 0.01)
+                    sharpe_z = (float(daily_ret_z.mean()) / float(daily_ret_z.std()) * np.sqrt(252)) if (len(daily_ret_z) > 10 and daily_ret_z.std() > 1e-9) else 0.0
+                    price_ret_z = float(p_1yr_z.iloc[-1] / p_1yr_z.iloc[0] - 1) if len(p_1yr_z) >= 2 else 0.0
                     row.update({
                         "股息率": meta_data.get(t, {}).get("div_yield", 0.0),
                         "年化波动率": vol_z_ann,
                         "最大回撤_raw": max_dd_z,
                         "EPS稳定性": eps_stab_z,
+                        "夏普比率": sharpe_z,
+                        "净值趋势_1Y": price_ret_z,
                     })
 
                 elif cls == "C":
@@ -671,7 +677,9 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
 FACTOR_ANCHORS: dict = {
     "max_dd_inv":    (-0.25, -0.03),
     "div_yield":     (0.0, 5.0),
-    "div_yield_z":   (0.0, 12.0),      # Z 组股息率上限扩至 12%（覆盖 Strategy 优先股 10%、JEPQ ~9%、STRC 浮动 ~11%）
+    "div_yield_z":        (0.0, 12.0),       # Z 组股息率上限扩至 12%（覆盖 Strategy 优先股 10%、JEPQ ~9%、STRC 浮动 ~11%）
+    "sharpe_1y_z":        (-0.5, 2.0),       # Z 组夏普比率：-0.5 极差 → 2.0 优秀
+    "price_return_1y_z":  (-0.35, 0.15),     # Z 组净值趋势：-35% 财富粉碎机 → +15% 稳健增值
     "spy_corr_inv":  (-0.8, 0.3),
     "vol_inv":       (0.40, 0.08),
     "sharpe_1y":     (-0.5, 2.5),
@@ -984,9 +992,10 @@ def compute_scorecard_z(df: pd.DataFrame) -> pd.DataFrame:
     """
     ScorecardZ -- Z 组「现金流堡垒指数」评分体系 (满分 100 分)
 
-    Score_Z = (40 x DivYield) + (25 x EPS_Stability)
-            + (20 x InvVol) + (15 x InvMaxDD)
+    Score_Z = (30 x Sharpe_1Y) + (20 x DivYield)
+            + (20 x DivSustainability) + (15 x InvMaxDD) + (15 x PriceReturn)
 
+    股息陷阱熔断：股息率>8% 且近1年纯价格回报<-20%，额外扣 20 分。
     入选门槛：股息率 >= 1.0%，零股息资产不参赛。
     """
     if df.empty:
@@ -1000,26 +1009,44 @@ def compute_scorecard_z(df: pd.DataFrame) -> pd.DataFrame:
     if result.empty:
         return result
 
+    # F1: Sharpe 1Y — 风险调整总回报 (30%)
+    sharpe_raw = result.get("夏普比率", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f1_norm = _anchor_norm(sharpe_raw, *FACTOR_ANCHORS["sharpe_1y_z"])
+
+    # F2: Dividend Yield — 现金奶牛 (20%)
     div_raw = result["股息率"].astype(float).fillna(0.0)
-    f1_norm = _anchor_norm(div_raw, *FACTOR_ANCHORS["div_yield_z"])
+    f2_norm = _anchor_norm(div_raw, *FACTOR_ANCHORS["div_yield_z"])
 
+    # F3: Dividend Sustainability — 分红续航力 (20%)
     eps_stab_raw = result.get("EPS稳定性", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f2_norm = _anchor_norm(eps_stab_raw, *FACTOR_ANCHORS["eps_stability"])
+    f3_norm = _anchor_norm(eps_stab_raw, *FACTOR_ANCHORS["eps_stability"])
 
-    vol_raw = result.get("年化波动率", pd.Series(0.3, index=result.index)).astype(float).fillna(0.3)
-    f3_norm = _anchor_norm(-vol_raw, *FACTOR_ANCHORS["vol_inv"])
-
+    # F4: Max Drawdown Inverse — 本金盾 (15%)
     dd_raw = result.get("最大回撤_raw", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
     f4_norm = _anchor_norm(-dd_raw.abs(), *FACTOR_ANCHORS["max_dd_inv"])
 
-    result["因子1_分"] = (0.40 * f1_norm).round(1)
-    result["因子2_分"] = (0.25 * f2_norm).round(1)
+    # F5: Price Return 1Y — 净值趋势惩罚 (15%)
+    price_ret_raw = result.get("净值趋势_1Y", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f5_norm = _anchor_norm(price_ret_raw, *FACTOR_ANCHORS["price_return_1y_z"])
+
+    result["因子1_分"] = (0.30 * f1_norm).round(1)
+    result["因子2_分"] = (0.20 * f2_norm).round(1)
     result["因子3_分"] = (0.20 * f3_norm).round(1)
     result["因子4_分"] = (0.15 * f4_norm).round(1)
+    result["因子5_分"] = (0.15 * f5_norm).round(1)
 
     result["竞技得分"] = (
-        result["因子1_分"] + result["因子2_分"] + result["因子3_分"] + result["因子4_分"]
+        result["因子1_分"] + result["因子2_分"] + result["因子3_分"]
+        + result["因子4_分"] + result["因子5_分"]
     ).round(1)
+
+    # 股息陷阱熔断：股息率>8% 且净值跌>20%，触发扣分预警
+    div_col = result["股息率"].astype(float).fillna(0.0)
+    ret_col = result.get("净值趋势_1Y", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    trap_mask = (div_col > 8.0) & (ret_col < -0.20)
+    result.loc[trap_mask, "竞技得分"] -= 20
+    result["股息陷阱"] = trap_mask
+    result["竞技得分"] = result["竞技得分"].clip(0, 100)
 
     result = result.sort_values("竞技得分", ascending=False).reset_index(drop=True)
     result["排名"] = range(1, len(result) + 1)
@@ -1036,7 +1063,7 @@ _PODIUM_MEDALS = [
 ]
 
 # 最多支持 5 个因子的调色板（F1 颜色由赛道 meta["color"] 动态注入）
-_FACTOR_PALETTE = ["", "#3498DB", "#9B59B6", "#F39C12", "#1ABC9C"]
+_FACTOR_PALETTE = ["", "#3498DB", "#9B59B6", "#F39C12", "#1ABC9C", "#E74C3C"]
 
 
 def _render_podium(top3: pd.DataFrame, cls: str) -> None:
@@ -1179,8 +1206,8 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
             "<div style='width:150px;'>资产</div>"
             "<div style='flex:1; padding:0 20px;'>因子贡献分解 (堆叠)</div>"
             "<div style='width:82px; text-align:right;'>股息率</div>"
-            "<div style='width:100px; text-align:right;'>最大回撤</div>"
-            "<div style='width:90px; text-align:right;'>年化波动</div>"
+            "<div style='width:82px; text-align:right;'>Sharpe</div>"
+            "<div style='width:100px; text-align:right;'>净值趋势</div>"
             f"<div style='width:160px; padding-left:12px;'>{cfg['score_name']}</div>"
             "</div>"
         )
@@ -1238,15 +1265,20 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
             )
         elif cls == "Z":
             dy_z = row.get("股息率", 0.0)
-            dd_z_pct = row.get("最大回撤_raw", 0.0) * 100
-            vol_z_pct = row.get("年化波动率", 0.3) * 100
+            sharpe_z = row.get("夏普比率", 0.0)
+            price_ret_z = row.get("净值趋势_1Y", 0.0) * 100
+            is_trap = bool(row.get("股息陷阱", False))
             dy_color = "#2ECC71" if dy_z >= 3.0 else ("#F1C40F" if dy_z >= 1.0 else "#888")
-            dd_z_color = "#2ECC71" if abs(dd_z_pct) < 10 else ("#F1C40F" if abs(dd_z_pct) < 20 else "#E74C3C")
-            vol_z_color = "#2ECC71" if vol_z_pct < 15 else ("#F1C40F" if vol_z_pct < 25 else "#E74C3C")
+            if is_trap:
+                dy_label = f"🌋 {dy_z:.2f}%"
+            else:
+                dy_label = f"{dy_z:.2f}%"
+            sharpe_color = "#2ECC71" if sharpe_z >= 1.0 else ("#F1C40F" if sharpe_z >= 0.3 else "#E74C3C")
+            ret_color = "#2ECC71" if price_ret_z >= 0 else ("#F1C40F" if price_ret_z >= -10 else "#E74C3C")
             kpi_cells = (
-                f"<div style='width:82px; text-align:right; font-weight:bold; color:{dy_color};'>{dy_z:.2f}%</div>"
-                f"<div style='width:100px; text-align:right; font-weight:bold; color:{dd_z_color};'>{dd_z_pct:.1f}%</div>"
-                f"<div style='width:90px; text-align:right; font-weight:bold; color:{vol_z_color};'>{vol_z_pct:.1f}%</div>"
+                f"<div style='width:82px; text-align:right; font-weight:bold; color:{dy_color};'>{dy_label}</div>"
+                f"<div style='width:82px; text-align:right; font-weight:bold; color:{sharpe_color};'>{sharpe_z:.2f}</div>"
+                f"<div style='width:100px; text-align:right; font-weight:bold; color:{ret_color};'>{price_ret_z:+.1f}%</div>"
             )
         else:
             z_val = row.get("Z-Score", 0.0)
@@ -2894,10 +2926,11 @@ elif _sel4 == "Z":
         <div style='font-size:13px; color:#bbb; line-height:1.8;'>{cfg_z["logic"]}</div>
         <div style='margin-top:10px; font-size:13px; color:#666;'>
             评分权重 →
-            <span class='factor-pill' style='background:{meta_z["color"]}22; color:{meta_z["color"]}; border:1px solid {meta_z["color"]}55;'>真实股息率  40%</span>
-            <span class='factor-pill' style='background:#3498DB22; color:#3498DB; border:1px solid #3498DB55;'>分红续航力  25%</span>
-            <span class='factor-pill' style='background:#9B59B622; color:#9B59B6; border:1px solid #9B59B655;'>绝对低波  20%</span>
+            <span class='factor-pill' style='background:{meta_z["color"]}22; color:{meta_z["color"]}; border:1px solid {meta_z["color"]}55;'>总回报效率 (Sharpe)  30%</span>
+            <span class='factor-pill' style='background:#3498DB22; color:#3498DB; border:1px solid #3498DB55;'>真实股息率  20%</span>
+            <span class='factor-pill' style='background:#9B59B622; color:#9B59B6; border:1px solid #9B59B655;'>分红续航力  20%</span>
             <span class='factor-pill' style='background:#F39C1222; color:#F39C12; border:1px solid #F39C1255;'>本金盾  15%</span>
+            <span class='factor-pill' style='background:#E74C3C22; color:#E74C3C; border:1px solid #E74C3C55;'>净值趋势  15%</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -2905,14 +2938,16 @@ elif _sel4 == "Z":
     st.markdown("""
     <div class='formula-box' style='background:#1a1a1a; border-left:3px solid #1ABC9C;
          padding:14px; margin-bottom:16px; font-size:14px; color:#ccc; border-radius:4px;'>
-    <b>ScorecardZ 白盒公式（满分 100 分）— 拿得到真实现金流：</b><br><br>
+    <b>ScorecardZ 白盒公式（满分 100 分）— Total Return 才是真正的王：</b><br><br>
     <span style='color:#1ABC9C; font-weight:bold;'>Score<sub>Z</sub></span> =
-    <span style='color:#1ABC9C;'>(40 × DivYield<sub>norm</sub>)</span> +
-    <span style='color:#3498DB;'>(25 × EPS_Stability<sub>norm</sub>)</span> +
-    <span style='color:#9B59B6;'>(20 × InvVol<sub>norm</sub>)</span> +
-    <span style='color:#F39C12;'>(15 × InvMaxDD<sub>norm</sub>)</span><br><br>
+    <span style='color:#1ABC9C;'>(30 × Sharpe<sub>1Y</sub>)</span> +
+    <span style='color:#3498DB;'>(20 × DivYield<sub>norm</sub>)</span> +
+    <span style='color:#9B59B6;'>(20 × DivSustainability<sub>norm</sub>)</span> +
+    <span style='color:#F39C12;'>(15 × InvMaxDD<sub>norm</sub>)</span> +
+    <span style='color:#E74C3C;'>(15 × PriceReturn<sub>1Y</sub>)</span><br><br>
     <span style='color:#888; font-size:13px;'>
-    入选门槛：股息率 ≥ 1%，零股息资产（如 GLD）不参赛。股息率锚点扩展至 8%，覆盖 REITs 及高息 ETF。
+    入选门槛：股息率 ≥ 1%，零股息资产（如 GLD）不参赛。⚠️ 股息陷阱熔断：股息率 &gt; 8% 且净值跌 &gt; 20% 触发
+    <span style='color:#E74C3C; font-weight:bold;'>🌋 股息陷阱</span> 预警，额外扣 20 分——高息未必是财富，极可能是跌出来的假高息。
     </span>
     </div>
     """, unsafe_allow_html=True)
@@ -2920,16 +2955,18 @@ elif _sel4 == "Z":
     if df_z_base.empty:
         st.info("当前 Z 级赛道暂无参赛资产（需股息率 ≥ 1%）。请检查数据或开启演示模式。")
     else:
-        with st.spinner("正在拉取 Z 组因子数据（股息率、EPS稳定性、波动率、最大回撤）…"):
+        with st.spinner("正在拉取 Z 组五维因子数据（Sharpe、股息率、分红续航力、最大回撤、净值趋势）…"):
             _z_tickers = tuple(df_z_base["Ticker"].tolist())
             _factors_a_z = get_arena_a_factors(_z_tickers)
             _factors_b_z = get_arena_b_factors(_z_tickers)
 
         df_z = df_z_base.copy()
-        df_z["股息率"]      = df_z["Ticker"].map(lambda t: float(_factors_a_z.get(t, {}).get("div_yield",    0.0)))
-        df_z["最大回撤_raw"] = df_z["Ticker"].map(lambda t: float(_factors_a_z.get(t, {}).get("max_dd_252",  0.0)))
-        df_z["年化波动率"]   = df_z["Ticker"].map(lambda t: float(_factors_a_z.get(t, {}).get("ann_vol",     0.30)))
-        df_z["EPS稳定性"]   = df_z["Ticker"].map(lambda t: float(_factors_b_z.get(t, {}).get("eps_stability", 0.0)))
+        df_z["股息率"]      = df_z["Ticker"].map(lambda t: float(_factors_a_z.get(t, {}).get("div_yield",       0.0)))
+        df_z["最大回撤_raw"] = df_z["Ticker"].map(lambda t: float(_factors_a_z.get(t, {}).get("max_dd_252",     0.0)))
+        df_z["年化波动率"]   = df_z["Ticker"].map(lambda t: float(_factors_a_z.get(t, {}).get("ann_vol",        0.30)))
+        df_z["EPS稳定性"]   = df_z["Ticker"].map(lambda t: float(_factors_b_z.get(t, {}).get("eps_stability",  0.0)))
+        df_z["夏普比率"]     = df_z["Ticker"].map(lambda t: float(_factors_b_z.get(t, {}).get("sharpe_252",     0.0)))
+        df_z["净值趋势_1Y"]  = df_z["Ticker"].map(lambda t: float(_factors_b_z.get(t, {}).get("price_return_252", 0.0)))
 
         df_scored_z = compute_scorecard_z(df_z)
 
@@ -2966,16 +3003,20 @@ elif _sel4 == "Z":
         _render_podium(df_scored_z.head(3), "Z")
 
         if n_z > 0:
-            champ_z = df_scored_z.iloc[0]
-            dy_z    = champ_z.get("股息率", 0.0)
-            dd_z    = champ_z.get("最大回撤_raw", 0.0)
+            champ_z       = df_scored_z.iloc[0]
+            dy_z          = champ_z.get("股息率", 0.0)
+            sharpe_z_champ = champ_z.get("夏普比率", 0.0)
+            price_ret_champ = champ_z.get("净值趋势_1Y", 0.0) * 100
+            dd_z          = champ_z.get("最大回撤_raw", 0.0)
+            trap_flag     = "⚠️ 注意：已触发股息陷阱熔断扣分！" if champ_z.get("股息陷阱", False) else ""
             st.success(
                 f"**🏦 赛道冠军深度解读 — {champ_z['Ticker']} ({champ_z['名称']})**\n\n"
-                f"在 Z 级 {n_z} 位参赛标的中以 **现金流堡垒指数 {champ_z['竞技得分']:.0f} 分**夺冠。\n"
-                f"真实股息率 = **{dy_z:.2f}%**，贡献 {champ_z['因子1_分']:.1f} 分；"
-                f"分红续航力贡献 = {champ_z['因子2_分']:.1f} 分；"
-                f"绝对低波贡献 = {champ_z['因子3_分']:.1f} 分；"
-                f"本金盾贡献 = {champ_z['因子4_分']:.1f} 分（最大回撤 {dd_z*100:.1f}%）。"
+                f"在 Z 级 {n_z} 位参赛标的中以 **现金流堡垒指数 {champ_z['竞技得分']:.0f} 分**夺冠。{trap_flag}\n"
+                f"风险调整总回报 Sharpe = **{sharpe_z_champ:.2f}**，贡献 {champ_z.get('因子1_分', 0):.1f} 分；"
+                f"真实股息率 = **{dy_z:.2f}%**，贡献 {champ_z.get('因子2_分', 0):.1f} 分；"
+                f"分红续航力贡献 = {champ_z.get('因子3_分', 0):.1f} 分；"
+                f"本金盾贡献 = {champ_z.get('因子4_分', 0):.1f} 分（最大回撤 {dd_z*100:.1f}%）；"
+                f"净值趋势贡献 = {champ_z.get('因子5_分', 0):.1f} 分（近1年净值 {price_ret_champ:+.1f}%）。"
             )
 
         st.markdown("---")
