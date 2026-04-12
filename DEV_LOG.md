@@ -2,6 +2,74 @@
 
 ---
 
+## 2026-04-12 | Z 级「现金流堡垒」三阶段全域扩充
+
+**背景**：Z 级赛道长期无候选标的，原因是股票池中仅有少量天然高息股，且 yfinance 的 `lastDividendValue * 4` 假设季度付息，对月度付息资产（如 JEPI/O/STAG 等）严重低估 ~3 倍，导致这些资产无法过 `div_yield >= 1%` 门槛。
+
+### Phase 1：静态种子池 + 数据修复
+
+**`valuation-radar/my_stock_pool.py`**（复杂变动）：
+- 新增 `Z_SEED_POOL` 字典：26 个生息类标的，覆盖七大子类——极短债（BIL/SGOV/SHV/SHY）、中长期美债（IEF/TLT/GOVT）、投资级/高收益债（AGG/LQD/HYG/EMB）、高股息权益 ETF（SCHD/VYM/JEPI/JEPQ/DVY/HDV/NOBL）、REITs（O/VNQ/STAG）、优先股（PFF/STRF/STRK）、BDC（ARCC/MAIN）
+- 解析引擎追加循环：Z_SEED_POOL 合入 TIC_MAP/SECTOR_MAP/REGIME_MAP/MACRO_TAGS_MAP（不干涉 A/B/C/D 四大禁区）
+- TIC_MAP 规模从 116 → 142 个标的
+- DEEP_INSIGHTS 新增 26 条机构级投研语料
+- NARRATIVE_THEMES_HEAT 新增「🏦 生息资产/现金流堡垒」主题
+- STOCK_NARRATIVE_MAP、STOCK_L2_MAP 补全 Z 池所有标的
+
+**`valuation-radar-ui/api_client.py`**（数据质量修复）：
+- 新增 `_calc_ttm_div_yield()` 辅助函数：使用 yfinance `.dividends` 历史拉取过去 12 个月真实分红总额计算 TTM 股息率，适配月度/季度/年度任意付息频率
+- `get_stock_metadata()`、`get_arena_a_factors()`、`get_arena_b_factors()` 三处 `lastDividendValue * 4 / price` 全部替换为 TTM 计算
+
+**`valuation-radar-ui/pages/3_资产细筛.py`**：
+- `FACTOR_ANCHORS["div_yield_z"]` 上限 8% → 12%（覆盖 Strategy 优先股 10%、JEPQ ~9%、STRC 浮动 ~11%）
+- `_MOCK_ASSETS` 补充 5 条 Z 级 Mock 数据（SCHD/JEPI/O/BIL/STRF）
+- Demo 模式预计算补充 Z 组：注入各标的模拟因子后走 `compute_scorecard_z()` 评分，`arena_winners["Z"]` 不再为空
+- 顶部加载 `_SECTOR_MAP = _core_data.get("SECTOR_MAP", {})`
+- Z 赛道排行榜上方新增子类分布彩色 pill 标签（固收/高息权益/REIT/优先股/BDC）
+- 导入 `import requests` 和 `API_BASE_URL`
+
+### Phase 2：Finviz 全市场周扫 + 侧边栏生息雷达
+
+**新建 `valuation-radar/z_scanner.py`**：
+- 基于 `finviz` 库扫描全美股高息标的（股票 >5%、ETF >3%、封闭式基金 >4%）
+- 与已知 TIC_MAP + Z_SEED_POOL 做差集，只推送真正的新发现
+- 按股息率降序输出，保存到 `z_scan_report.json`
+- 支持 `--min-yield` 和 `--output` 命令行参数
+- crontab 示例：每周日凌晨 3 点执行
+
+**`valuation-radar/api_server.py`** 新增端点：
+- `GET /api/v1/z_scan_discoveries`：返回最新扫描报告
+- `GET /api/v1/sec_alerts`：代理 sec_monitor.py 查询
+- `GET /api/v1/defi_yields`：代理 defi_monitor.py 拉取
+
+**`valuation-radar-ui/pages/3_资产细筛.py`** 侧边栏新增：
+- 「🔭 生息雷达」区块：展示最新扫描报告，超过 8 个折叠显示
+- 「📋 SEC 新品告警」区块：展示过去 14 天的新证券注册声明
+
+### Phase 3：SEC 监控 + DeFi 链上收益面板
+
+**新建 `valuation-radar/sec_monitor.py`**：
+- 使用 SEC EDGAR 官方免费 API（data.sec.gov），监控 6 个目标发行人（Strategy/iShares/Vanguard/JPM/Schwab）
+- 关注表单：S-1/S-3/424B2/424B4/424B5 等新证券注册声明
+- 无 API Key 要求，按 SEC User-Agent 规范设置请求头
+
+**新建 `valuation-radar/defi_monitor.py`**：
+- 基于 DeFi Llama 公开 API，拉取 TVL > $100M 的稳定币借贷池
+- 过滤条件：主流链白名单（ETH/ARB/Base 等）、APY < 100%（排除挖矿奖励）
+- 额外提供 `fetch_protocol_summary()` 获取主流协议 TVL 健康度
+
+**`valuation-radar-ui/pages/3_资产细筛.py`** Z 赛道新增：
+- DeFi 链上收益率 expander 面板：展示 Top 20 稳定币池，含梯度背景热力图，自动标注当前链上最优收益
+- 明确标注"不参与 ScorecardZ 评分"
+
+### 妥协记录
+- `finviz` 库需手动安装：`pip install finviz`；周扫描脚本需通过 crontab 单独调度，不在 Streamlit 运行时自动触发
+- STRF/STRK 上市时间较短（2025年），yfinance 历史 < 252 天，TTM 股息率可能基于不完整数据；已有 `len(hist) < 60` 兜底逻辑
+- DeFi 面板为实时请求（非缓存），网络超时时优雅降级为离线提示
+- SEC 监控仅追踪 6 个预设发行人，无法覆盖完全未知的新发行方（需定期手动补充 WATCHED_ISSUERS）
+
+---
+
 ## 2026-04-10 | 支链开发对齐 Render 数据：RADAR_API_URL 环境变量
 
 **背景**：同事在支链开发时，本地 `narrative.db` 与 Render 云端数据不一致，导致调试失真；但改动须合并到主链才能影响 Render 部署。

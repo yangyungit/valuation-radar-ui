@@ -4,13 +4,15 @@ import numpy as np
 import plotly.graph_objects as go
 import json
 import os
+import requests
 import calendar
 import yfinance as yf
 from datetime import datetime, timedelta
 from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         get_arena_a_factors, get_arena_b_factors,
                         get_arena_c_factors, get_arena_d_factors,
-                        fetch_l2_l3_detail, get_batch_ticker_cooccurrence)
+                        fetch_l2_l3_detail, get_batch_ticker_cooccurrence,
+                        API_BASE_URL)
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
     classify_asset_parallel,
@@ -32,6 +34,7 @@ _core_data = fetch_core_data()
 _MACRO_TAGS_MAP     = _core_data.get("MACRO_TAGS_MAP", {})
 _NARRATIVE_HEAT_MAP = _core_data.get("NARRATIVE_THEMES_HEAT", {})
 _STOCK_NARRATIVE    = _core_data.get("STOCK_NARRATIVE_MAP", {})
+_SECTOR_MAP         = _core_data.get("SECTOR_MAP", {})
 
 st.set_page_config(page_title="同类资产竞技场", layout="wide", page_icon="🏆")
 
@@ -224,6 +227,12 @@ _MOCK_ASSETS: dict = {
     "URA":   {"cls": "D", "cn_name": "铀矿 ETF", "z_score": -1.2, "mom20": 15.5, "is_bullish": False, "reason": "Mock 演示", "method": "Mock", "has_data": True},
     "SLV":   {"cls": "D", "cn_name": "白银 ETF", "z_score": -0.5, "mom20": 18.8, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
     "CVX":   {"cls": "D", "cn_name": "雪佛龙",   "z_score":  0.2, "mom20": 12.4, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    # Z级：现金流堡垒（高股息/低波动/稳定现金流）
+    "SCHD":  {"cls": "Z", "cn_name": "Schwab高息ETF",    "z_score":  0.1, "mom20":  1.2, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "JEPI":  {"cls": "Z", "cn_name": "JPM增强收益ETF",   "z_score":  0.0, "mom20":  0.8, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "O":     {"cls": "Z", "cn_name": "Realty Income",    "z_score": -0.1, "mom20":  1.5, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "BIL":   {"cls": "Z", "cn_name": "超短期国债ETF",    "z_score":  0.0, "mom20":  0.1, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
+    "STRF":  {"cls": "Z", "cn_name": "Strategy 10%优先股", "z_score": 0.3, "mom20":  2.1, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
 }
 
 # ─────────────────────────────────────────────────────────────────
@@ -662,7 +671,7 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
 FACTOR_ANCHORS: dict = {
     "max_dd_inv":    (-0.25, -0.03),
     "div_yield":     (0.0, 5.0),
-    "div_yield_z":   (0.0, 8.0),       # Z 组股息率上限扩至 8%（覆盖 REITs/高息 ETF）
+    "div_yield_z":   (0.0, 12.0),      # Z 组股息率上限扩至 12%（覆盖 Strategy 优先股 10%、JEPQ ~9%、STRC 浮动 ~11%）
     "spy_corr_inv":  (-0.8, 0.3),
     "vol_inv":       (0.40, 0.08),
     "sharpe_1y":     (-0.5, 2.5),
@@ -2000,6 +2009,59 @@ with st.sidebar:
                 st.session_state.pop("_confirm_delete_history", None)
                 st.rerun()
 
+    # ── 生息雷达（Z级新品发现）─────────────────────────────────
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔭 生息雷达")
+    st.sidebar.caption("每周自动扫描全市场高息标的，发现池外新品")
+    try:
+        _scan_resp = requests.get(f"{API_BASE_URL}/api/v1/z_scan_discoveries", timeout=5)
+        if _scan_resp.status_code == 200:
+            _scan_data = _scan_resp.json()
+            _discoveries = [d for d in _scan_data.get("discoveries", []) if "ticker" in d]
+            _scan_time = _scan_data.get("generated_at", "")
+            if _discoveries:
+                st.sidebar.warning(f"发现 **{len(_discoveries)}** 个池外高息标的！")
+                for _d in _discoveries[:8]:
+                    st.sidebar.markdown(
+                        f"**{_d['ticker']}** {_d.get('name','')[:18]}  \n"
+                        f"<span style='color:#1ABC9C;font-size:13px;'>股息率 {_d.get('div_yield_pct',0):.1f}%</span>"
+                        f" <span style='color:#888;font-size:12px;'>| {_d.get('source_profile','')}</span>",
+                        unsafe_allow_html=True,
+                    )
+                if len(_discoveries) > 8:
+                    st.sidebar.caption(f"...及另外 {len(_discoveries)-8} 个标的")
+                if _scan_time:
+                    st.sidebar.caption(f"扫描时间：{_scan_time[:10]}")
+            else:
+                st.sidebar.success("✅ 本轮无新发现，当前池已全覆盖")
+                if _scan_time:
+                    st.sidebar.caption(f"扫描时间：{_scan_time[:10]}")
+        else:
+            st.sidebar.caption("生息雷达：暂无扫描报告")
+    except Exception:
+        st.sidebar.caption("🔭 生息雷达离线（需运行 z_scanner.py）")
+
+    # ── SEC 新品发行警报 ──────────────────────────────────────
+    st.sidebar.markdown("### 📋 SEC 新品告警")
+    st.sidebar.caption("监控优先股/ETF 新注册申报")
+    try:
+        _sec_resp = requests.get(f"{API_BASE_URL}/api/v1/sec_alerts", timeout=5)
+        if _sec_resp.status_code == 200:
+            _sec_data = _sec_resp.json()
+            _alerts = _sec_data.get("alerts", [])
+            if _alerts:
+                st.sidebar.warning(f"过去14天 **{len(_alerts)}** 条新申报！")
+                for _a in _alerts[:5]:
+                    st.sidebar.markdown(
+                        f"**{_a.get('issuer','')}** `{_a.get('form','')}` {_a.get('date','')}",
+                    )
+            else:
+                st.sidebar.success("✅ 过去14天无新发行申报")
+        else:
+            st.sidebar.caption("SEC 监控：暂无数据")
+    except Exception:
+        st.sidebar.caption("📋 SEC 监控离线（需 sec_monitor.py）")
+
 # ─────────────────────────────────────────────────────────────────
 #  页面标题
 # ─────────────────────────────────────────────────────────────────
@@ -2171,6 +2233,20 @@ if demo_mode:
             _pre_aw[_cls] = (
                 _df_pre.sort_values("20日动量", ascending=False)["Ticker"].head(3).tolist()
             )
+    # Z 组 Mock 预计算：注入模拟因子后走 ScorecardZ 评分
+    _df_pre_z = df_all[df_all["类别"] == "Z"].copy()
+    if not _df_pre_z.empty:
+        _Z_MOCK_YIELDS = {"SCHD": 3.8, "JEPI": 7.5, "O": 5.6, "BIL": 5.1, "STRF": 10.0}
+        _df_pre_z["股息率"]      = _df_pre_z["Ticker"].map(lambda t: _Z_MOCK_YIELDS.get(t, 3.0))
+        _df_pre_z["最大回撤_raw"] = _df_pre_z["Ticker"].map(
+            lambda t: {"SCHD": -0.12, "JEPI": -0.10, "O": -0.18, "BIL": -0.01, "STRF": -0.25}.get(t, -0.15))
+        _df_pre_z["年化波动率"]   = _df_pre_z["Ticker"].map(
+            lambda t: {"SCHD": 0.14, "JEPI": 0.12, "O": 0.16, "BIL": 0.01, "STRF": 0.30}.get(t, 0.20))
+        _df_pre_z["EPS稳定性"]   = _df_pre_z["Ticker"].map(
+            lambda t: {"SCHD": 7.0, "JEPI": 8.0, "O": 6.0, "BIL": 10.0, "STRF": 3.0}.get(t, 5.0))
+        _df_pre_z_scored = compute_scorecard_z(_df_pre_z)
+        if not _df_pre_z_scored.empty:
+            _pre_aw["Z"] = [row["Ticker"] for _, row in _df_pre_z_scored.head(3).iterrows()]
     if _pre_aw:
         st.session_state["arena_winners"] = _pre_aw
 
@@ -2903,6 +2979,30 @@ elif _sel4 == "Z":
             )
 
         st.markdown("---")
+
+        # Z 赛道子类分布标签
+        _Z_SUBCLASS_COLORS = {
+            "固收": "#3498DB", "高息权益": "#2ECC71",
+            "REIT": "#E67E22", "优先股": "#E74C3C", "BDC": "#9B59B6",
+        }
+        if n_z > 0:
+            _sector_pill_html = ""
+            _subclass_counts: dict = {}
+            for _, _zr in df_scored_z.iterrows():
+                _sc = _SECTOR_MAP.get(_zr["Ticker"], "其他")
+                _subclass_counts[_sc] = _subclass_counts.get(_sc, 0) + 1
+            for _sc, _cnt in sorted(_subclass_counts.items(), key=lambda x: -x[1]):
+                _c = _Z_SUBCLASS_COLORS.get(_sc, "#888")
+                _sector_pill_html += (
+                    f"<span style='background:{_c}22; color:{_c}; border:1px solid {_c}55; "
+                    f"border-radius:4px; padding:2px 8px; margin-right:6px; font-size:13px;'>"
+                    f"{_sc} {_cnt}</span>"
+                )
+            st.markdown(
+                f"<div style='margin-bottom:12px;'>📂 参赛子类分布：{_sector_pill_html}</div>",
+                unsafe_allow_html=True,
+            )
+
         _render_leaderboard(df_scored_z, "Z")
 
         if n_z > 0:
@@ -2921,6 +3021,44 @@ elif _sel4 == "Z":
                 if st.button("🎯 深度猎杀", key="hunt_Z"):
                     st.session_state["p4_champion_ticker"] = champ_ticker_z
                     st.success(f"已锁定 {champ_ticker_z}！请切换至 **5 个股深度猎杀** 页面。")
+
+        # ── DeFi 链上收益率参考面板（独立赛道，不参与 ScorecardZ）──────
+        st.markdown("---")
+        with st.expander("🔗 DeFi 链上稳定币收益率参考（不参与 ScorecardZ 评分）", expanded=False):
+            st.caption(
+                "数据来源：DeFi Llama 公开 API | 仅展示 TVL > $100M 的稳定币借贷池 | "
+                "APY 实时波动，仅供参考，不构成投资建议"
+            )
+            try:
+                _defi_resp = requests.get(f"{API_BASE_URL}/api/v1/defi_yields", timeout=8)
+                if _defi_resp.status_code == 200:
+                    _defi_data = _defi_resp.json()
+                    _defi_pools = _defi_data.get("pools", [])
+                    if _defi_pools and "error" not in _defi_pools[0]:
+                        _df_defi = pd.DataFrame(_defi_pools)
+                        _df_defi = _df_defi[["protocol", "chain", "symbol", "apy", "tvl_m"]].copy()
+                        _df_defi.columns = ["协议", "链", "币种", "APY(%)", "TVL($M)"]
+                        _df_defi["APY(%)"] = _df_defi["APY(%)"].astype(float)
+                        _df_defi["TVL($M)"] = _df_defi["TVL($M)"].astype(float)
+                        st.dataframe(
+                            _df_defi.style.background_gradient(subset=["APY(%)"], cmap="Greens"),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        _top_defi = _df_defi.iloc[0]
+                        st.info(
+                            f"🏆 当前链上最优稳定币收益：**{_top_defi['协议']}** ({_top_defi['链']}) "
+                            f"— {_top_defi['币种']} APY = **{_top_defi['APY(%)']:.2f}%**，"
+                            f"TVL = ${_top_defi['TVL($M)']:.0f}M"
+                        )
+                    elif _defi_pools and "error" in _defi_pools[0]:
+                        st.warning(_defi_pools[0]["error"])
+                    else:
+                        st.info("暂无 DeFi 收益率数据")
+                else:
+                    st.caption("DeFi 监控端点未响应")
+            except Exception:
+                st.caption("🔗 DeFi 监控离线（需后端启动且 defi_monitor.py 已部署）")
 
 elif _sel4 == "D":
     df_d  = df_all[df_all["类别"] == "D"].copy()

@@ -79,22 +79,40 @@ def get_global_data(tickers, years=4):
     except Exception as e:
         return pd.DataFrame()
 
+def _calc_ttm_div_yield(ticker_obj, price: float) -> float:
+    """计算 TTM（过去12个月）真实股息率，适配月度/季度/年度等任意付息频率。"""
+    try:
+        if price <= 0:
+            return 0.0
+        divs = ticker_obj.dividends
+        if divs is None or divs.empty:
+            return 0.0
+        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=400)
+        recent = divs[divs.index >= cutoff]
+        if recent.empty:
+            return 0.0
+        ttm_div = float(recent.sum())
+        return round(ttm_div / price * 100, 2)
+    except Exception:
+        return 0.0
+
+
 @st.cache_data(ttl=3600*24)
 def get_stock_metadata(tickers):
-    """获取市值和近似股息率等公开元数据 (10线程并发 FastInfo 版)
+    """获取市值和 TTM 真实股息率等公开元数据 (10线程并发版)
 
-    div_yield 使用 lastDividendValue * 4 / price 近似年化；
-    月度付息资产会低估，已在 DEV_LOG 记录。
+    div_yield 使用过去12个月真实分红历史计算 TTM 年化股息率，
+    正确处理月度/季度/年度等任意付息频率（JEPI/O/STAG 等月度付息资产不再被低估）。
     """
     from concurrent.futures import ThreadPoolExecutor
 
     def _fetch_one(t):
         try:
-            fi = yf.Ticker(t).fast_info
+            stock = yf.Ticker(t)
+            fi = stock.fast_info
             mcap = fi.get('marketCap', 0) or 0
-            last_div = fi.get('lastDividendValue', 0) or 0
             price = fi.get('regularMarketPrice', 0) or fi.get('previousClose', 1) or 1
-            div_yield = round(last_div * 4 / price * 100, 2) if (last_div > 0 and price > 0) else 0.0
+            div_yield = _calc_ttm_div_yield(stock, price)
             return t, {"mcap": mcap, "div_yield": div_yield}
         except Exception:
             return t, {"mcap": 0, "div_yield": 0.0}
@@ -133,9 +151,8 @@ def get_arena_a_factors(tickers: tuple) -> dict:
             stock = yf.Ticker(t)
             fi = stock.fast_info
             mcap = fi.get('marketCap', 0) or 0
-            last_div = fi.get('lastDividendValue', 0) or 0
             price = fi.get('regularMarketPrice', 0) or fi.get('previousClose', 1) or 1
-            div_yield = round(last_div * 4 / price * 100, 2) if (last_div > 0 and price > 0) else 0.0
+            div_yield = _calc_ttm_div_yield(stock, price)
 
             hist = stock.history(period="1y")
             if hist.empty or len(hist) < 60:
@@ -205,9 +222,8 @@ def get_arena_b_factors(tickers: tuple) -> dict:
             mcap = fi.get('marketCap', 0) or 0
             if mcap < 1e6:
                 mcap = 1e9
-            last_div = fi.get('lastDividendValue', 0) or 0
             price = fi.get('regularMarketPrice', 0) or fi.get('previousClose', 1) or 1
-            div_yield = round(last_div * 4 / price * 100, 2) if (last_div > 0 and price > 0) else 0.0
+            div_yield = _calc_ttm_div_yield(stock, price)
 
             hist = stock.history(period="1y")
             if hist.empty or len(hist) < 60:
