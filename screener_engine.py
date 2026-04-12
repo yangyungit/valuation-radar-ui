@@ -341,6 +341,7 @@ def classify_all_at_date(
     meta_data: dict,
     tic_map: dict = None,
     prev_grades_map: dict = None,
+    z_seed_tickers: set = None,
 ) -> dict:
     """Run the full parallel ABCD classification at a specific historical date.
 
@@ -354,6 +355,8 @@ def classify_all_at_date(
                 used as an approximation for all historical dates.
     tic_map : Optional {ticker: cn_name} for human-readable names.
     prev_grades_map : Optional {ticker: [grade_list]} from previous period for hysteresis.
+    z_seed_tickers : Optional set of tickers from Z_SEED_POOL; excluded from A-grade
+                     to prevent fixed-income/yield assets dominating the equity arena.
 
     Returns
     -------
@@ -393,6 +396,7 @@ def classify_all_at_date(
                 all_metrics[t]["rs_rel"]      = round(rs_values[t], 1)
 
     # Pass 2: parallel classify with hysteresis
+    _z_seeds = set(z_seed_tickers or ())
     all_assets: dict = {}
     for ticker in screen_tickers:
         m       = all_metrics[ticker]
@@ -403,6 +407,10 @@ def classify_all_at_date(
         prev_g    = prev_grades_map.get(ticker, [])
 
         q_grades, details = classify_asset_parallel(m, div_yield, mcap, prev_grades=prev_g)
+
+        if ticker in _z_seeds and "A" in q_grades:
+            q_grades = [g for g in q_grades if g != "A"]
+
         p_cls = _primary_grade(q_grades)
 
         all_assets[ticker] = {

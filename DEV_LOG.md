@@ -2,6 +2,33 @@
 
 ---
 
+## 2026-04-12 | A 组赛道剔除 Z 种子池资产（防止固收屠榜）
+
+### 背景与动机
+Z_SEED_POOL 中的固收/生息类资产（SGOV、BIL、SHV、SHY、TLT、PFF 等 27 只）天然具备极低回撤、极低波动、低 SPY 相关性的属性，完美匹配 A 组「避风港防御指数」的四维评分体系。导致 A 组排行榜被这些"稳如狗拿利息"的品种屠榜——而 A 组的设计初衷是筛选**防御性权益资产**（如 KO、PG、XLU），不是吃利息的纯固收品种。
+
+### 改动清单
+
+**`valuation-radar/api_server.py`**
+- `get_stock_pool_data()` 响应新增 `Z_SEED_TICKERS` 字段：下发 Z 种子池全部 ticker 列表，供前端识别并排除。
+- `from my_stock_pool import` 新增 `Z_SEED_POOL`。
+
+**`screener_engine.py`**
+- `classify_all_at_date()` 新增可选参数 `z_seed_tickers: set`。
+- 分类后若 ticker ∈ z_seed_tickers，从 `qualifying_grades` 中移除 "A"。
+- Z 种子池资产仍正常参与 Z 组竞赛，不受影响。
+
+**`pages/3_资产细筛.py`**
+- 顶部解包 `_Z_SEED_TICKERS = set(_core_data.get("Z_SEED_TICKERS", []))`。
+- 实时分类和历史回测两处 `classify_all_at_date()` 调用均传入 `z_seed_tickers=_Z_SEED_TICKERS`。
+
+### 影响范围
+- A 组参赛选手减少约 15-20 只（纯固收/高息 ETF），剩余为真正的防御性权益标的。
+- Z 组不受影响，Z 种子池资产继续在 Z 组正常竞赛。
+- B/C/D 组不受影响（Z 种子池标的极少满足这些组的入选条件）。
+
+---
+
 ## 2026-04-12 | Z 组排名体系重构：从"股息率驱动"升级为"Total Return 驱动"
 
 ### 背景与动机

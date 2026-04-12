@@ -35,6 +35,7 @@ _MACRO_TAGS_MAP     = _core_data.get("MACRO_TAGS_MAP", {})
 _NARRATIVE_HEAT_MAP = _core_data.get("NARRATIVE_THEMES_HEAT", {})
 _STOCK_NARRATIVE    = _core_data.get("STOCK_NARRATIVE_MAP", {})
 _SECTOR_MAP         = _core_data.get("SECTOR_MAP", {})
+_Z_SEED_TICKERS     = set(_core_data.get("Z_SEED_TICKERS", []))
 
 st.set_page_config(page_title="同类资产竞技场", layout="wide", page_icon="🏆")
 
@@ -454,6 +455,7 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
         pit_assets = classify_all_at_date(
             price_df, loc, list(all_tickers), meta_data,
             tic_map=ticker_names, prev_grades_map=prev_grades_map,
+            z_seed_tickers=_Z_SEED_TICKERS,
         )
 
         prev_grades_map = {
@@ -2133,6 +2135,7 @@ else:
         all_assets = classify_all_at_date(
             _price_df, _date_idx, _SCREEN_TICKERS, _meta_live,
             tic_map=_TIC_MAP, prev_grades_map=_prev_grades_map,
+            z_seed_tickers=_Z_SEED_TICKERS,
         )
 
     _new_grades_map = {
