@@ -19,12 +19,14 @@
 - **后端访问**：http://localhost:8000
 
 ## 云端部署
-- **平台**：Render.com
-- **套餐**：$7/月 Starter Web Service（按实例计费，非订阅会员）
+- **后端平台**：Render.com，$7/月 Starter Web Service（按实例计费，非订阅会员）
   - Cron Job 功能：**可用**，独立按分钟计费（Starter 档 $0.00016/分钟，最低 $1/月起）
   - 每次 z_scanner.py 运行约 2-3 分钟，成本约 $0.003，月均 $0.01
+  - ⚠️ Starter 套餐无流量时会自动休眠，冷启动需 30~60 秒
 - **后端 Repo**：valuation-radar（部署在 Render Web Service）
-- **前端 Repo**：valuation-radar-ui
+- **后端 URL**：https://valuation-radar.onrender.com
+- **前端平台**：Streamlit Cloud（https://yangyun-macro.streamlit.app/）
+- **前端 Repo**：valuation-radar-ui（部署在 Streamlit Cloud，Linux 环境）
 
 ## 项目核心约束（勿违反）
 - `my_stock_pool.py` 中 A/B/C/D 四大战术分组是最高业务机密，**绝对不允许**修改
