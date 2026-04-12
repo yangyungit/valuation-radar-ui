@@ -483,7 +483,7 @@ if _arena_hist:
         unsafe_allow_html=True,
     )
 
-    # ── 彩色 HTML 表格：绿=稳居前二无守擂压力，红=跌至第三但守擂成功 ──
+    # ── 彩色 HTML 表格：绿=稳居前二无守擂压力，默认=守擂中（在前三属于正常） ──
     _th_style = (
         "padding:8px 12px; border-bottom:1px solid #333; "
         "text-align:left; background:#1a1a1a; white-space:nowrap;"
@@ -493,13 +493,14 @@ if _arena_hist:
     _tbl = [
         "<table style='width:100%; border-collapse:collapse; font-size:13px;'>",
         "<thead><tr>",
-        f"<th style='{_th_style} color:#aaa;'>月份</th>",
+        "<th style='" + _th_style + " color:#aaa;'>月份</th>",
     ]
     for _cls in ["A", "B", "C", "D", "Z"]:
         _m = CLASS_META[_cls]
+        _mc = _m["color"]
         _tbl.append(
-            f"<th style='{_th_style} color:{_m[\"color\"]};'>"
-            f"{_m['icon']} {_cls} 持仓</th>"
+            "<th style='" + _th_style + " color:" + _mc + ";'>"
+            + _m["icon"] + " " + _cls + " 持仓</th>"
         )
     _tbl.append("</tr></thead><tbody>")
 
@@ -507,13 +508,12 @@ if _arena_hist:
         _entry = _arena_hist[_mo]
         _tbl.append("<tr>")
         _tbl.append(
-            f"<td style='{_td_style} color:#ddd; font-weight:600;'>{_mo}</td>"
+            "<td style='" + _td_style + " color:#ddd; font-weight:600;'>" + _mo + "</td>"
         )
         for _cls in ["A", "B", "C", "D", "Z"]:
             _h = _holdings_map[_cls].get(_mo, {})
             _hold_set = _h.get("hold", set())
             _t2_list = _h.get("top2", [])
-            _t2_set = set(_t2_list)
             _is_diff = _h.get("diff", False)
             _mo_st = _all_streaks[_cls].get(_mo, {})
 
@@ -525,28 +525,26 @@ if _arena_hist:
             for _rec in _hold_recs:
                 _tk = _rec["ticker"]
                 _s = _mo_st.get(_tk, 0)
-                _txt = f"{_tk}({_s}月)"
+                _txt = _tk + "(" + str(_s) + "月)"
                 if not _is_diff:
                     # 稳居 Top-2，无守擂压力 → 绿
                     _spans.append(
-                        f"<span style='color:#2ECC71; font-weight:600;'>{_txt}</span>"
-                    )
-                elif _tk not in _t2_set:
-                    # 跌至第三但守擂成功 → 红
-                    _spans.append(
-                        f"<span style='color:#E74C3C; font-weight:600;'>{_txt}</span>"
+                        "<span style='color:#2ECC71; font-weight:600;'>" + _txt + "</span>"
                     )
                 else:
-                    # 守擂期间仍在 Top-2 → 默认色
-                    _spans.append(f"<span style='color:#ddd;'>{_txt}</span>")
+                    # 守擂中（仍在前三，属于正常）→ 默认色
+                    _spans.append("<span style='color:#ddd;'>" + _txt + "</span>")
 
-            _cell_html = " / ".join(_spans) if _spans else "<span style='color:#555;'>—</span>"
+            _cell_html = (
+                " / ".join(_spans) if _spans
+                else "<span style='color:#555;'>—</span>"
+            )
             if _is_diff and _t2_list:
                 _cell_html += (
-                    f" <span style='color:#E67E22; font-size:12px;'>"
-                    f"[Top2→{'/'.join(_t2_list)}]</span>"
+                    " <span style='color:#E67E22; font-size:12px;'>"
+                    "[Top2→" + "/".join(_t2_list) + "]</span>"
                 )
-            _tbl.append(f"<td style='{_td_style}'>{_cell_html}</td>")
+            _tbl.append("<td style='" + _td_style + "'>" + _cell_html + "</td>")
         _tbl.append("</tr>")
 
     _tbl.append("</tbody></table>")
