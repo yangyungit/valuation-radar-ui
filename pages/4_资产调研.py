@@ -528,18 +528,18 @@ if _arena_hist:
                 _s = _mo_st.get(_tk, 0)
                 _txt = _tk + "(" + str(_s) + "月)"
                 if not _is_diff:
-                    # 稳居 Top-2，无守擂压力 → 绿
-                    _spans.append(
-                        "<span style='color:#2ECC71; font-weight:600;'>" + _txt + "</span>"
-                    )
+                    # 稳居 Top-2，无守擂压力 → 白
+                    _spans.append("<span style='color:#ddd;'>" + _txt + "</span>")
                 elif _tk not in _t2_set:
                     # 守擂中但已跌出 Top-2（不在中括号里）→ 红
                     _spans.append(
                         "<span style='color:#E74C3C; font-weight:600;'>" + _txt + "</span>"
                     )
                 else:
-                    # 守擂中且仍在 Top-2 → 默认色
-                    _spans.append("<span style='color:#ddd;'>" + _txt + "</span>")
+                    # 守擂中且仍在 Top-2 → 绿
+                    _spans.append(
+                        "<span style='color:#2ECC71; font-weight:600;'>" + _txt + "</span>"
+                    )
 
             _cell_html = (
                 " / ".join(_spans) if _spans
