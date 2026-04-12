@@ -521,6 +521,7 @@ if _arena_hist:
             _hold_recs = [r for r in _all_recs if r["ticker"] in _hold_set]
             _hold_recs.sort(key=lambda r: _mo_st.get(r["ticker"], 0), reverse=True)
 
+            _t2_set = set(_t2_list)
             _spans = []
             for _rec in _hold_recs:
                 _tk = _rec["ticker"]
@@ -531,8 +532,13 @@ if _arena_hist:
                     _spans.append(
                         "<span style='color:#2ECC71; font-weight:600;'>" + _txt + "</span>"
                     )
+                elif _tk not in _t2_set:
+                    # 守擂中但已跌出 Top-2（不在中括号里）→ 红
+                    _spans.append(
+                        "<span style='color:#E74C3C; font-weight:600;'>" + _txt + "</span>"
+                    )
                 else:
-                    # 守擂中（仍在前三，属于正常）→ 默认色
+                    # 守擂中且仍在 Top-2 → 默认色
                     _spans.append("<span style='color:#ddd;'>" + _txt + "</span>")
 
             _cell_html = (
