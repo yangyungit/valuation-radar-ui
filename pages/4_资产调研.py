@@ -501,11 +501,18 @@ if _arena_hist:
             _t2_set = {r["ticker"] for r in _recs[:2]}
             _t3_set = {r["ticker"] for r in _recs[:3]}
             _t2_list = [r["ticker"] for r in _recs[:2]]
-            if _prev_hold and _prev_hold.issubset(_t3_set):
+            _guarding = bool(_prev_hold) and _prev_hold.issubset(_t3_set)
+            if _guarding:
                 _hold = _prev_hold
             else:
                 _hold = _t2_set
-            _cls_map[_m] = {"hold": _hold, "top2": _t2_list, "diff": _hold != _t2_set}
+            # diff=True：守擂生效但 Top-2 已变；traded=True：换仓（持仓跌出 Top-3）
+            _cls_map[_m] = {
+                "hold": _hold,
+                "top2": _t2_list,
+                "diff": _hold != _t2_set,
+                "traded": not _guarding and bool(_prev_hold) and _prev_hold != _t2_set,
+            }
             _prev_hold = _hold
         _holdings_map[_cls] = _cls_map
 
@@ -527,9 +534,11 @@ if _arena_hist:
         " padding:14px 18px; margin-bottom:16px; font-size:13px; color:#ccc; line-height:1.8;'>"
         "<b style='color:#F1C40F; font-size:14px;'>📐 换仓规则（持仓稳定性协议）</b><br>"
         "① Page 3 竞技场每月产出各赛道 <b>Top-3</b> 综合评分排名。<br>"
-        "② 若上月持仓的所有标的仍出现在本月 Top-3 之内，则 <b style='color:#2ECC71;'>维持不动</b>（减少无谓换手）。<br>"
-        "③ 否则，直接采用本月 Top-3 的 <b style='color:#F39C12;'>前两名（Top-2）</b> 作为新持仓。<br>"
-        "④ 表格中 <code>[Top2→X/Y]</code> 标注代表本月触发了换仓，括号内为实际换入的 Top-2 标的。"
+        "② 若上月持仓的所有标的仍出现在本月 Top-3 之内，则 <b style='color:#2ECC71;'>维持不动（信念守擂制）</b>——"
+        "在位者只要守住 Top-3 席位即可保留持仓，减少无谓换手。<br>"
+        "③ 若任意一只持仓跌出 Top-3，则全部换仓，采用本月 <b style='color:#F39C12;'>Top-2</b> 作为新持仓。<br>"
+        "④ 历史表格中 <code>[Top2→X/Y]</code> 标注代表当月 <b style='color:#E67E22;'>守擂生效</b>——上月持仓仍在 Top-3 内未触发换仓，"
+        "但 Top-2 排名已更新为 X/Y，括号内为本期真实前两名供参考。"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -549,6 +558,7 @@ if _arena_hist:
             _p_hold = _ph.get("hold", set())
             _p_top2 = _ph.get("top2", [])
             _p_diff = _ph.get("diff", False)
+            _p_traded = _ph.get("traded", False)
             with _pipe_cols[_pi]:
                 _inner_pipe = (
                     f"<div style='background:{_pmeta['color']}10; border:1px solid {_pmeta['color']}44;"
@@ -571,10 +581,18 @@ if _arena_hist:
                 if not _precs:
                     _inner_pipe += "<div style='color:#555;'>暂无数据</div>"
                 if _p_diff:
+                    # 守擂生效：上月持仓仍在 Top-3，未换仓，但 Top-2 排名已变
+                    _inner_pipe += (
+                        f"<div style='margin-top:8px; background:#1a1a00; border:1px solid #E67E22;"
+                        f" border-radius:4px; padding:4px 8px; font-size:13px; color:#E67E22;'>"
+                        f"🛡️ 守擂生效，维持持仓（本期 Top-2：{' / '.join(_p_top2)}）</div>"
+                    )
+                elif _p_traded:
+                    # 换仓：持仓跌出 Top-3，切换至新 Top-2
                     _inner_pipe += (
                         f"<div style='margin-top:8px; background:#3d2200; border:1px solid #F39C12;"
                         f" border-radius:4px; padding:4px 8px; font-size:13px; color:#F39C12;'>"
-                        f"⚡ 触发换仓 → {' / '.join(_p_top2)}</div>"
+                        f"🔄 触发换仓 → {' / '.join(_p_top2)}</div>"
                     )
                 else:
                     _inner_pipe += (
