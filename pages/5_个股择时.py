@@ -125,13 +125,8 @@ def _fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
 
 
 if _arena_data:
-    # ── 惰性换手持仓推算（宁缺毋滥版） ──
-    # A/B 赛道使用 conviction 门槛 + 空位回补 + 消极退出；其余赛道保持原逻辑
-    _A_MIN_CONV = 40   # A 组入选 / 回补最低信念
-    _A_FLOOR_CONV = 40  # A 组持仓中消极退出地板
-    _B_MIN_CONV = 40   # B 组入选 / 回补最低信念
-    _B_FLOOR_CONV = 40  # B 组持仓中消极退出地板
-
+    # ── 惰性换手持仓推算：与 Page 4「历史月度 Top-2 胜出者」保持一致 ──
+    # 规则：上期持仓若全部仍在 Top-3 则保留不动，否则直接换成当月 Top-2
     _tm_months = sorted(k for k in _arena_data if not k.startswith("_"))
     _tm_hold: dict = {}
     _score_anomalies: list = []
@@ -142,39 +137,19 @@ if _arena_data:
         for _m in _tm_months:
             _recs = _arena_data[_m].get(_c, [])
             _t3 = {r["ticker"] for r in _recs[:3]}
+            _t2 = {r["ticker"] for r in _recs[:2]}
 
-            if _c in ("A", "B"):
-                _min_conv = _A_MIN_CONV if _c == "A" else _B_MIN_CONV
-                _floor_conv = _A_FLOOR_CONV if _c == "A" else _B_FLOOR_CONV
-                _conv_map = {r["ticker"]: r.get("conviction", 0) for r in _recs}
-                _score_map = {r["ticker"]: r.get("score", 0) for r in _recs}
-
-                if _c == "B":
-                    for _r in _recs[:3]:
-                        if _r.get("score", 999) == 0 or _r.get("score") is None:
-                            _score_anomalies.append({
-                                "month": _m, "ticker": _r["ticker"],
-                                "name": _r.get("name", _r["ticker"]),
-                                "rank": _recs.index(_r) + 1,
-                                "conviction": _r.get("conviction", "—"),
-                            })
-
-                _surviving = {tk for tk in _prev_h
-                              if tk in _t3
-                              and _conv_map.get(tk, 0) >= _floor_conv}
-                _hold: set = _surviving.copy()
+            if _c == "B":
                 for _r in _recs[:3]:
-                    if len(_hold) >= 2:
-                        break
-                    _tk = _r["ticker"]
-                    if (_tk not in _hold
-                            and _conv_map.get(_tk, 0) >= _min_conv
-                            and _score_map.get(_tk, 0) > 0):
-                        _hold.add(_tk)
-            else:
-                _t2 = {r["ticker"] for r in _recs[:2]}
-                _hold = _prev_h if (_prev_h and _prev_h.issubset(_t3)) else _t2
+                    if _r.get("score", 999) == 0 or _r.get("score") is None:
+                        _score_anomalies.append({
+                            "month": _m, "ticker": _r["ticker"],
+                            "name": _r.get("name", _r["ticker"]),
+                            "rank": _recs.index(_r) + 1,
+                            "conviction": _r.get("conviction", "—"),
+                        })
 
+            _hold = _prev_h if (_prev_h and _prev_h.issubset(_t3)) else _t2
             _cm[_m] = _hold
             _prev_h = _hold
         _tm_hold[_c] = _cm
