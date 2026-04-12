@@ -105,26 +105,23 @@ ARENA_CONFIG: dict = {
     "A": {
         "score_name": "避风港防御指数",
         "weights": {
-            "max_dd_inv": 0.30, "div_yield": 0.20,
-            "spy_corr_inv": 0.20, "vol_inv": 0.15,
-            "ribbon_quality": 0.15,
+            "max_dd_inv": 0.30, "fcf_yield": 0.20,
+            "spy_corr_inv": 0.20, "ribbon_quality": 0.30,
         },
         "invert_z": False,
         "factor_labels": {
             "max_dd_inv":     "极限抗跌 (最大回撤倒数)",
-            "div_yield":      "现金奶牛 (股息率)",
+            "fcf_yield":      "现金奶牛 (FCF收益率)",
             "spy_corr_inv":   "宏观对冲 (SPY相关性倒数)",
-            "vol_inv":        "绝对低波 (年化波动率倒数)",
             "ribbon_quality": "带鱼质量 (趋势干净度)",
         },
         "logic": (
-            "压舱石的竞技逻辑：防守 + 温和趋势质量五维体系，专抓极低波动、大盘对冲与均线带鱼形态。<br>"
+            "压舱石的竞技逻辑：防守 + 温和趋势质量四维体系，专抓真实现金流、大盘对冲与均线带鱼形态。<br>"
             "① 极限抗跌（真实252日最大回撤取倒数，回撤越小得分越高，权重 30%）<br>"
-            "② 现金奶牛（真实股息率，现金流回报越高越好，权重 20%）<br>"
+            "② 现金奶牛（自由现金流收益率 FCF/MCap，ETF 回退至股息率，权重 20%）<br>"
             "③ 宏观对冲（与SPY日收益率皮尔逊相关系数取倒数，低/负相关得高分，权重 20%）<br>"
-            "④ 绝对低波（252日年化波动率取倒数，波动越低得分越高，权重 15%）<br>"
-            "⑤ 带鱼质量（MA间距稳定性+持续天数+斜率稳定性+价格贴轨度，趋势干净度，权重 15%）<br>"
-            "五维统计指标同时达标方为真正避风港，拒绝一切短期动量噪音。"
+            "④ 带鱼质量（MA间距稳定性+持续天数+斜率稳定性+价格贴轨度，趋势干净度，权重 30%）<br>"
+            "四维统计指标同时达标方为真正避风港，拒绝一切短期动量噪音。"
         ),
     },
     "B": {
@@ -524,6 +521,7 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                             if not (np.isnan(_c) or np.isinf(_c)):
                                 spy_corr_a = _c
                     row.update({
+                        "FCF收益率": 0.0,
                         "最大回撤_raw": max_dd_a,
                         "SPY相关性": spy_corr_a,
                         "年化波动率": ann_vol_a,
@@ -688,6 +686,7 @@ FACTOR_ANCHORS: dict = {
     "div_yield_z":        (0.0, 12.0),       # Z 组股息率上限扩至 12%（覆盖 Strategy 优先股 10%、JEPQ ~9%、STRC 浮动 ~11%）
     "sharpe_1y_z":        (-0.5, 2.0),       # Z 组夏普比率：-0.5 极差 → 2.0 优秀
     "price_return_1y_z":  (-0.35, 0.15),     # Z 组净值趋势：-35% 财富粉碎机 → +15% 稳健增值
+    "fcf_yield":     (0.0, 10.0),
     "spy_corr_inv":  (-0.8, 0.3),
     "vol_inv":       (0.40, 0.08),
     "sharpe_1y":     (-0.5, 2.5),
@@ -773,10 +772,10 @@ def compute_scorecard_a(df: pd.DataFrame) -> pd.DataFrame:
     """
     ScorecardA -- A 组「避风港防御指数」评分体系 (满分 100 分)
 
-    Score_A = (30 x InvMaxDD) + (20 x DivYield)
-            + (20 x InvSPYCorr) + (15 x InvVol) + (15 x RibbonQuality)
+    Score_A = (30 x InvMaxDD) + (20 x FCFYield)
+            + (20 x InvSPYCorr) + (30 x RibbonQuality)
 
-    需要 df 已含 "最大回撤_raw", "股息率", "SPY相关性", "年化波动率", "带鱼质量" 五列。
+    需要 df 已含 "最大回撤_raw", "FCF收益率", "SPY相关性", "带鱼质量" 四列。
     """
     if df.empty:
         return df
@@ -786,27 +785,23 @@ def compute_scorecard_a(df: pd.DataFrame) -> pd.DataFrame:
     dd_raw = result.get("最大回撤_raw", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
     f1_norm = _anchor_norm(-dd_raw.abs(), *FACTOR_ANCHORS["max_dd_inv"])
 
-    div_raw = result.get("股息率", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f2_norm = _anchor_norm(div_raw, *FACTOR_ANCHORS["div_yield"])
+    fcf_raw = result.get("FCF收益率", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
+    f2_norm = _anchor_norm(fcf_raw, *FACTOR_ANCHORS["fcf_yield"])
 
     corr_raw = result.get("SPY相关性", pd.Series(0.5, index=result.index)).astype(float).fillna(0.5)
     f3_norm = _anchor_norm(-corr_raw, *FACTOR_ANCHORS["spy_corr_inv"])
 
-    vol_raw = result.get("年化波动率", pd.Series(0.3, index=result.index)).astype(float).fillna(0.3)
-    f4_norm = _anchor_norm(-vol_raw, *FACTOR_ANCHORS["vol_inv"])
-
     ribbon_raw = result.get("带鱼质量", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f5_norm = _anchor_norm(ribbon_raw, *FACTOR_ANCHORS["ribbon_quality"])
+    f4_norm = _anchor_norm(ribbon_raw, *FACTOR_ANCHORS["ribbon_quality"])
 
     result["因子1_分"] = (0.30 * f1_norm).round(1)
     result["因子2_分"] = (0.20 * f2_norm).round(1)
     result["因子3_分"] = (0.20 * f3_norm).round(1)
-    result["因子4_分"] = (0.15 * f4_norm).round(1)
-    result["因子5_分"] = (0.15 * f5_norm).round(1)
+    result["因子4_分"] = (0.30 * f4_norm).round(1)
 
     result["竞技得分"] = (
         result["因子1_分"] + result["因子2_分"] + result["因子3_分"]
-        + result["因子4_分"] + result["因子5_分"]
+        + result["因子4_分"]
     ).round(1)
 
     result = result.sort_values("竞技得分", ascending=False).reset_index(drop=True)
@@ -1639,25 +1634,23 @@ def _render_podium_a(top3: pd.DataFrame) -> None:
 
         row      = top3.iloc[i]
         score    = row["竞技得分"]
-        dy       = row.get("股息率", 0.0)
+        fcf_v    = row.get("FCF收益率", 0.0)
         dd       = row.get("最大回撤_raw", 0.0)
         corr_v   = row.get("SPY相关性", 0.5)
-        vol_v    = row.get("年化波动率", 0.3)
         ribbon_v = row.get("带鱼质量", 0.0)
         conv     = row.get("信念值", 0.0)
         status   = row.get("守擂状态", "")
 
-        dy_color     = "#2ECC71" if dy > 2.0 else ("#F1C40F" if dy > 0.5 else "#888")
+        fcf_color    = "#2ECC71" if fcf_v > 5.0 else ("#F1C40F" if fcf_v > 2.0 else "#888")
         dd_color     = "#2ECC71" if abs(dd) < 0.10 else ("#F39C12" if abs(dd) < 0.20 else "#E74C3C")
         corr_color   = "#2ECC71" if corr_v < 0.3 else ("#F1C40F" if corr_v < 0.6 else "#E74C3C")
-        vol_color    = "#2ECC71" if vol_v < 0.15 else ("#F1C40F" if vol_v < 0.25 else "#E74C3C")
         ribbon_color = "#2ECC71" if ribbon_v >= 0.55 else ("#F1C40F" if ribbon_v >= 0.30 else "#888")
 
         status_lbl, status_clr = _conv_status_label(status)
         conv_pct = min(conv / 100 * 100, 100)
 
         factor_pills_html = ""
-        for fi in range(1, 6):
+        for fi in range(1, 5):
             fc = _A_FACTOR_COLORS[fi - 1]
             factor_pills_html += (
                 f"<span style='color:{fc}30; background:{fc}20; "
@@ -1690,12 +1683,10 @@ def _render_podium_a(top3: pd.DataFrame) -> None:
                 <div style='font-size:13px; text-align:left; line-height:2;'>
                     <span style='color:#888;'>最大回撤(1Y)</span>
                     <span style='color:{dd_color}; font-weight:bold; float:right;'>{dd*100:.1f}%</span><br>
-                    <span style='color:#888;'>股息率</span>
-                    <span style='color:{dy_color}; font-weight:bold; float:right;'>{dy:.2f}%</span><br>
+                    <span style='color:#888;'>FCF收益率</span>
+                    <span style='color:{fcf_color}; font-weight:bold; float:right;'>{fcf_v:.2f}%</span><br>
                     <span style='color:#888;'>SPY相关性</span>
                     <span style='color:{corr_color}; font-weight:bold; float:right;'>{corr_v:.2f}</span><br>
-                    <span style='color:#888;'>年化波动率</span>
-                    <span style='color:{vol_color}; font-weight:bold; float:right;'>{vol_v*100:.1f}%</span><br>
                     <span style='color:#888;'>带鱼质量</span>
                     <span style='color:{ribbon_color}; font-weight:bold; float:right;'>{ribbon_v:.2f}</span>
                 </div>
@@ -1932,10 +1923,11 @@ def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
         if cls == "A":
             dd_val = champ.get("最大回撤_raw", 0.0)
             corr_val = champ.get("SPY相关性", 0.5)
-            vol_val = champ.get("年化波动率", 0.3)
+            fcf_val = champ.get("FCF收益率", 0.0)
+            ribbon_val = champ.get("带鱼质量", 0.0)
             extra_line = (
-                f"最大回撤 = **{dd_val*100:.1f}%**，SPY相关性 = **{corr_val:.2f}**，"
-                f"年化波动率 = **{vol_val*100:.1f}%**。"
+                f"最大回撤 = **{dd_val*100:.1f}%**，FCF收益率 = **{fcf_val:.2f}%**，"
+                f"SPY相关性 = **{corr_val:.2f}**，带鱼质量 = **{ribbon_val:.2f}**。"
             )
         else:
             trend_txt = "趋势健康 (MA20 > MA60)" if champ.get("趋势健康", False) else "趋势走弱 (MA20 < MA60)"
@@ -2260,10 +2252,11 @@ if demo_mode:
     _pre_aw: dict = {}
     _df_pre_a = df_all[df_all["类别"] == "A"].copy()
     if not _df_pre_a.empty:
-        _df_pre_a["股息率"]     = 2.0
+        _df_pre_a["FCF收益率"]   = 5.0
         _df_pre_a["最大回撤_raw"] = -0.08
         _df_pre_a["SPY相关性"]   = 0.3
         _df_pre_a["年化波动率"]   = 0.12
+        _df_pre_a["带鱼质量"]    = 0.5
         _df_pre_a_scored = compute_scorecard_a(_df_pre_a)
         _pre_aw["A"] = [row["Ticker"] for _, row in _df_pre_a_scored.head(3).iterrows()]
     # B 组 Mock：生成模拟质量因子
@@ -2418,10 +2411,10 @@ if _sel4 == "A":
     if df_a.empty:
         st.info("当前 A 级赛道暂无参赛资产。请检查数据加载状态或开启演示模式。")
     else:
-        with st.spinner("正在拉取 A 组避风港因子数据（最大回撤、股息率、SPY相关性、年化波动率）…"):
+        with st.spinner("正在拉取 A 组避风港因子数据（最大回撤、FCF收益率、SPY相关性、带鱼质量）…"):
             _factors_a = get_arena_a_factors(tuple(df_a["Ticker"].tolist()))
 
-        df_a["股息率"]     = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("div_yield",     0.0)))
+        df_a["FCF收益率"]   = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("fcf_yield",   0.0)))
         df_a["最大回撤_raw"] = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("max_dd_252",  0.0)))
         df_a["SPY相关性"]   = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("spy_corr",    0.5)))
         df_a["年化波动率"]   = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("ann_vol",     0.30)))
@@ -2511,10 +2504,9 @@ if _sel4 == "A":
             _champ_row_a = df_scored_a[df_scored_a["Ticker"] == champ_tk_a]
             if not _champ_row_a.empty:
                 champ_a   = _champ_row_a.iloc[0]
-                dy_c      = champ_a.get("股息率", 0.0)
+                fcf_c     = champ_a.get("FCF收益率", 0.0)
                 dd_c      = champ_a.get("最大回撤_raw", 0.0)
                 corr_c    = champ_a.get("SPY相关性", 0.5)
-                vol_c     = champ_a.get("年化波动率", 0.3)
                 ribbon_c  = champ_a.get("带鱼质量", 0.0)
 
                 dd_verdict = ("极强抗跌韧性" if abs(dd_c) < 0.10
@@ -2531,15 +2523,13 @@ if _sel4 == "A":
                     f"在 A 级 {n_a} 位参赛标的中，信念值最高"
                     f"（因子分 {champ_a['竞技得分']:.0f}）。\n"
                     f"最大回撤 = **{dd_c*100:.1f}%**（{dd_verdict}），"
-                    f"股息率 = **{dy_c:.2f}%**，"
+                    f"FCF收益率 = **{fcf_c:.2f}%**，"
                     f"SPY 相关性 = **{corr_c:.2f}**（{corr_verdict}），"
-                    f"年化波动率 = **{vol_c*100:.1f}%**，"
                     f"带鱼质量 = **{ribbon_c:.2f}**（{ribbon_verdict}）。\n"
                     f"因子贡献：F1={champ_a.get('因子1_分', 0):.1f}，"
                     f"F2={champ_a.get('因子2_分', 0):.1f}，"
                     f"F3={champ_a.get('因子3_分', 0):.1f}，"
-                    f"F4={champ_a.get('因子4_分', 0):.1f}，"
-                    f"F5={champ_a.get('因子5_分', 0):.1f}。"
+                    f"F4={champ_a.get('因子4_分', 0):.1f}。"
                 )
 
         st.markdown("---")

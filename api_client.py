@@ -127,11 +127,12 @@ def get_stock_metadata(tickers):
 
 @st.cache_data(ttl=3600*4)
 def get_arena_a_factors(tickers: tuple) -> dict:
-    """获取 A 组 ScorecardA 所需四维避风港因子 (252 日回溯)：
-    - div_yield:  年化股息率 (%)
+    """获取 A 组 ScorecardA 所需避风港因子 (252 日回溯)：
+    - fcf_yield:  自由现金流收益率 FCF/MCap (%)，ETF 无 FCF 时回退到股息率
+    - div_yield:  TTM 股息率 (%)，供 Z 组复用
     - max_dd_252: 近252日最大回撤 (负数)
     - spy_corr:   与 SPY 日收益率的皮尔逊相关系数
-    - ann_vol:    252日年化波动率
+    - ann_vol:    252日年化波动率，供 Z 组复用
     """
     from concurrent.futures import ThreadPoolExecutor
     import numpy as np
@@ -154,11 +155,23 @@ def get_arena_a_factors(tickers: tuple) -> dict:
             price = fi.get('regularMarketPrice', 0) or fi.get('previousClose', 1) or 1
             div_yield = _calc_ttm_div_yield(stock, price)
 
+            # FCF yield: freeCashflow / marketCap as %; fallback to div_yield for ETFs
+            fcf_yield = div_yield
+            try:
+                info = stock.info or {}
+                fcf = info.get('freeCashflow')
+                mcap_val = info.get('marketCap') or mcap
+                if fcf is not None and mcap_val and float(mcap_val) > 0:
+                    fcf_yield = max(0.0, float(fcf) / float(mcap_val) * 100.0)
+            except Exception:
+                pass
+
             # 2y period to ensure ma60 series has 180+ valid values for ribbon computation
             hist = stock.history(period="2y")
             if hist.empty or len(hist) < 60:
-                return t, {"div_yield": div_yield, "max_dd_252": 0.0,
-                           "spy_corr": 0.5, "ann_vol": 0.30, "ribbon_score": 0.0}
+                return t, {"fcf_yield": fcf_yield, "div_yield": div_yield,
+                           "max_dd_252": 0.0, "spy_corr": 0.5, "ann_vol": 0.30,
+                           "ribbon_score": 0.0}
 
             prices = hist["Close"].dropna().astype(float)
 
@@ -236,6 +249,7 @@ def get_arena_a_factors(tickers: tuple) -> dict:
             # ───────────────────────────────────────────────────────────
 
             return t, {
+                "fcf_yield": fcf_yield,
                 "div_yield": div_yield,
                 "max_dd_252": max_dd,
                 "spy_corr": spy_corr,
@@ -243,7 +257,7 @@ def get_arena_a_factors(tickers: tuple) -> dict:
                 "ribbon_score": ribbon_score,
             }
         except Exception:
-            return t, {"div_yield": 0.0, "max_dd_252": 0.0,
+            return t, {"fcf_yield": 0.0, "div_yield": 0.0, "max_dd_252": 0.0,
                        "spy_corr": 0.5, "ann_vol": 0.30, "ribbon_score": 0.0}
 
     result = {}

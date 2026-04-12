@@ -2,6 +2,32 @@
 
 ---
 
+## 2026-04-12 | A 级评分卡重构：F2 现金奶牛改为 FCF 收益率，删除 F4 绝对低波，带鱼质量升权至 30%
+
+### 重构动机
+两处因子设计缺陷被识别并修复：
+
+**① F2「现金奶牛」概念与实现不符**  
+原来用 `div_yield`（股息率）代理「现金奶牛」，有三个硬伤：（1）不派息的优质现金牛（BRK.B、GOOG 等）直接被判零分；（2）股价腰斩后股息率被动翻倍，反而得高分（股息陷阱）；（3）A 组标的（GLD、TLT、BIL）天然无股息，20% 权重白送。  
+更严重的是：`get_stock_metadata` 从未向 `meta` 写入 `div_yield` 字段，导致 ScorecardA.score() 里的 F2 **一直静默吃零分**。
+
+**② F4「绝对低波」与 F1「极限抗跌」高度冗余**  
+低波动率和低最大回撤高度共线，F4 实质上是 F1（30%）的影子，叠加在一起等于变相给「防守」分配了 45% 权重，挤压了有区分度的带鱼质量因子的空间。
+
+### 改动内容
+| 因子 | 旧权重 | 新权重 | 变化 |
+|---|---|---|---|
+| F1 极限抗跌 (最大回撤倒数) | 30% | 30% | 不变 |
+| F2 现金奶牛 → FCF收益率 (FCF/MCap%) | 20% | 20% | **指标替换**：股息率 → 自由现金流收益率，ETF 无 FCF 数据时回退股息率 |
+| F3 宏观对冲 (SPY相关性倒数) | 20% | 20% | 不变 |
+| F4 绝对低波 (波动率倒数) | 15% | **删除** | 与 F1 共线，下行风险已被 F1 覆盖 |
+| F5 带鱼质量 → 升为 F4 | 15% | **30%** | 权重翻倍，成为第二大因子 |
+
+### 改动范围
+- `valuation-radar/core_engine.py`: `get_stock_metadata()` 新增 `fcf_yield` 字段（freeCashflow/marketCap*100，ETF 回退 dividendYield*100）；`ScorecardA.score()` F2 改用 `fcf_yield`，删除 F4 vol 计算，F5 权重乘数 15→30。
+- `valuation-radar-ui/api_client.py`: `get_arena_a_factors._fetch_one()` 新增 `fcf_yield` 计算（stock.info.freeCashflow/marketCap，ETF 回退 div_yield），返回 dict 新增 `fcf_yield` 键，保留 `div_yield` 和 `ann_vol` 供 Z 组复用。
+- `valuation-radar-ui/pages/3_资产细筛.py`: `ARENA_CONFIG["A"]` 权重/标签/logic 文案全部更新；`FACTOR_ANCHORS` 新增 `fcf_yield: (0.0, 10.0)`；`compute_scorecard_a()` 4 因子化，F2 改用 `FCF收益率` 列；数据加载映射 `FCF收益率` 列；`_render_podium_a()` 股息率行改为 FCF 收益率，factor pill 循环 range(1,6)→range(1,5)；冠军深度解读文案同步更新。
+
 ## 2026-04-12 | A 级带鱼质量因子 (Ribbon Quality Score) — F5 第五维度
 
 ### 设计哲学
