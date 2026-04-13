@@ -3753,15 +3753,24 @@ def _streak_badge_html(streak: int) -> str:
             f"flex-shrink:0; margin-left:4px;'>{streak}月</span>")
 
 
+_HIST_CONV_ICONS: dict = {
+    "defending":  ("🛡️", "#2ECC71"),
+    "new_entry":  ("🆕", "#3498DB"),
+    "challenged": ("⚔️", "#F39C12"),
+    "cold_start": ("🔰", "#9B59B6"),
+}
+
+
 def _hist_cell(rec: dict, medal_color: str, streak: int = 0) -> str:
     _streak_html = _streak_badge_html(streak) if streak >= 1 else ""
     _conv = rec.get("conviction")
     _conv_html = ""
     if _conv is not None:
-        _conv_color = "#F39C12" if _conv >= 55 else ("#2ECC71" if _conv >= 30 else "#555")
+        _status = rec.get("status", "")
+        _icon, _conv_color = _HIST_CONV_ICONS.get(_status, ("🔮", "#9B59B6"))
         _conv_html = (
             f"<span style='font-size:13px; color:{_conv_color}; font-weight:bold; "
-            f"flex-shrink:0; margin-left:2px;'>C:{_conv:.0f}</span>"
+            f"flex-shrink:0; margin-left:4px;'>{_icon} {_conv:.0f}</span>"
         )
     return (
         f"<div style='flex:1; display:flex; align-items:baseline; gap:5px; "
