@@ -2567,38 +2567,12 @@ else:
 
     with st.spinner("⚙️ 正在执行并行 ABCD 分类（含滞后带）…"):
         _date_idx = len(_price_df) - 1
-        # #region agent log
-        import json as _json_dbg, time as _time_dbg, inspect as _inspect_dbg
-        _DBG_LOG = "/Users/zhanghao/yangyun/Code_Projects/valuation-radar-ui/.cursor/debug-f3c57f.log"
-        try:
-            import screener_engine as _se_mod
-            _sig = str(_inspect_dbg.signature(_se_mod.classify_all_at_date))
-        except Exception as _e:
-            _sig = f"inspect error: {_e}"
-        try:
-            with open(_DBG_LOG, "a") as _f:
-                _f.write(_json_dbg.dumps({"sessionId":"f3c57f","timestamp":int(_time_dbg.time()*1000),"location":"3_资产细筛.py:2570","message":"pre-call check","data":{"signature":_sig,"price_df_type":type(_price_df).__name__,"screen_tickers_type":type(_SCREEN_TICKERS).__name__,"screen_tickers_len":len(_SCREEN_TICKERS),"meta_live_type":type(_meta_live).__name__,"thresholds":_hyst_thresholds},"hypothesisId":"A,B,C"}) + "\n")
-        except Exception: pass
-        # #endregion
-        try:
-            all_assets = classify_all_at_date(
-                _price_df, _date_idx, _SCREEN_TICKERS, _meta_live,
-                tic_map=_TIC_MAP, prev_grades_map=_prev_grades_map,
-                z_seed_tickers=_Z_SEED_TICKERS,
-                thresholds=_hyst_thresholds,
-            )
-        except TypeError as _te:
-            # #region agent log
-            import traceback as _tb
-            _full_tb = _tb.format_exc()
-            try:
-                with open(_DBG_LOG, "a") as _f:
-                    _f.write(_json_dbg.dumps({"sessionId":"f3c57f","timestamp":int(_time_dbg.time()*1000),"location":"3_资产细筛.py:classify_call","message":"TypeError caught","data":{"error":str(_te),"traceback":_full_tb[:2000]},"hypothesisId":"A,B,C,D,E"}) + "\n")
-            except Exception: pass
-            st.error(f"**[DEBUG] TypeError 详情:** `{_te}`")
-            st.code(_full_tb, language="python")
-            st.stop()
-            # #endregion
+        all_assets = classify_all_at_date(
+            _price_df, _date_idx, _SCREEN_TICKERS, _meta_live,
+            tic_map=_TIC_MAP, prev_grades_map=_prev_grades_map,
+            z_seed_tickers=_Z_SEED_TICKERS,
+            thresholds=_hyst_thresholds,
+        )
 
     _new_grades_map = {
         t: info.get("qualifying_grades", [])

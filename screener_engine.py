@@ -388,17 +388,6 @@ def classify_all_at_date(
     {ticker: {"cls": str, "qualifying_grades": list, "primary_cls": str,
               "criteria": dict, "cn_name": str, ...}}
     """
-    # #region agent log
-    import json, time as _time
-    _dbg_log_path = "/Users/zhanghao/yangyun/Code_Projects/valuation-radar-ui/.cursor/debug-f3c57f.log"
-    def _dbg(msg, data, hyp):
-        try:
-            with open(_dbg_log_path, "a") as _f:
-                _f.write(json.dumps({"sessionId":"f3c57f","timestamp":int(_time.time()*1000),"location":"screener_engine.py:classify_all_at_date","message":msg,"data":data,"hypothesisId":hyp}) + "\n")
-        except Exception: pass
-    _dbg("entry args types", {"price_df_type": type(price_df).__name__, "price_df_shape": list(price_df.shape) if hasattr(price_df,"shape") else str(type(price_df)), "date_idx": date_idx, "screen_tickers_type": type(screen_tickers).__name__, "screen_tickers_len": len(screen_tickers) if screen_tickers is not None else None, "meta_data_type": type(meta_data).__name__, "thresholds_type": type(thresholds).__name__}, "A,B,C,D,E")
-    # #endregion
-
     if tic_map is None:
         tic_map = {}
     if prev_grades_map is None:
@@ -409,14 +398,7 @@ def classify_all_at_date(
     # Pass 1: compute per-asset metrics
     all_metrics: dict = {}
     for ticker in screen_tickers:
-        # #region agent log
-        try:
-            _m = compute_metrics(ticker, df_slice, spy_col="SPY")
-            all_metrics[ticker] = _m
-        except Exception as _e:
-            _dbg("compute_metrics error", {"ticker": ticker, "error": str(_e), "error_type": type(_e).__name__}, "D,E")
-            raise
-        # #endregion
+        all_metrics[ticker] = compute_metrics(ticker, df_slice, spy_col="SPY")
 
     # RS rank across the pool
     spy_ts = df_slice["SPY"].dropna().astype(float) if "SPY" in df_slice.columns else pd.Series(dtype=float)
@@ -439,23 +421,13 @@ def classify_all_at_date(
                 all_metrics[t]["rs_rel"]      = round(rs_values[t], 1)
 
     # Pass 2: parallel classify with hysteresis
-    # #region agent log
-    _sample_meta = {k: v for k, v in list(meta_data.items())[:2]} if isinstance(meta_data, dict) else str(type(meta_data))
-    _dbg("pass2 start", {"thresholds": thresholds, "sample_meta": _sample_meta, "all_metrics_keys_sample": list(all_metrics.keys())[:3]}, "A,C")
-    # #endregion
     _z_seeds = set(z_seed_tickers or ())
     all_assets: dict = {}
     for ticker in screen_tickers:
         m       = all_metrics[ticker]
         m_info  = meta_data.get(ticker, {"mcap": 0, "div_yield": 0.0})
-        # #region agent log
-        try:
-            mcap      = float(m_info.get("mcap", 0) or 0)
-            div_yield = float(m_info.get("div_yield", 0.0) or 0.0)
-        except Exception as _e:
-            _dbg("meta float cast error", {"ticker": ticker, "m_info": m_info, "error": str(_e)}, "C")
-            raise
-        # #endregion
+        mcap      = float(m_info.get("mcap", 0) or 0)
+        div_yield = float(m_info.get("div_yield", 0.0) or 0.0)
         cn_name   = tic_map.get(ticker, ticker)
         prev_g    = prev_grades_map.get(ticker, [])
 
