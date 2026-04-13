@@ -60,18 +60,18 @@ CONVICTION_A_CONFIG: dict = {
 }
 
 # Status constants
-STATUS_DEFENDING  = "defending"    # 卫冕留任
+STATUS_DEFENDING  = "defending"    # 留任
 STATUS_NEW_ENTRY  = "new_entry"    # 新晋入选（信念达标）
 STATUS_CHALLENGED = "challenged"   # 挑战上位（击败在位者）
-STATUS_COLD_START = "cold_start"   # 冷启动（候选池不足时的兜底）
+STATUS_COLD_START = "cold_start"   # 新兵（候选池不足时的兜底）
 STATUS_DROPPED    = "dropped"      # 信念衰退退出
 
 _STATUS_LABELS: dict = {
-    STATUS_DEFENDING:  ("🛡️ 卫冕留任", "#2ECC71"),
-    STATUS_NEW_ENTRY:  ("🆕 新晋入选", "#3498DB"),
-    STATUS_CHALLENGED: ("⚔️ 挑战上位", "#F39C12"),
-    STATUS_COLD_START: ("🔰 冷启动",   "#9B59B6"),
-    STATUS_DROPPED:    ("📉 信念退出", "#E74C3C"),
+    STATUS_DEFENDING:  ("🛡️ 留任",   "#2ECC71"),
+    STATUS_NEW_ENTRY:  ("🆕 新晋",   "#3498DB"),
+    STATUS_CHALLENGED: ("⚔️ 挑战",   "#F39C12"),
+    STATUS_COLD_START: ("🔰 新兵",   "#9B59B6"),
+    STATUS_DROPPED:    ("📉 退出",   "#E74C3C"),
 }
 
 
@@ -228,7 +228,7 @@ def select_top_n(
             })
             open_seats -= 1
 
-        # ── Step 4: 冷启动兜底 ──
+        # ── Step 4: 新兵兜底 ──
         if len(retained) < n:
             remaining = sorted(
                 [t for t in conviction_state
@@ -240,7 +240,7 @@ def select_top_n(
                 retained.append(t)
                 decisions.append({
                     "ticker": t, "action": STATUS_COLD_START,
-                    "detail": f"信念 {conviction_state[t]:.0f}（候选池不足，冷启动入选）",
+                    "detail": f"信念 {conviction_state[t]:.0f}（候选池不足，新兵补位）",
                 })
 
         selected_tickers = retained[:n]
@@ -323,7 +323,29 @@ def explain_config_html(config: dict | None = None) -> str:
     </code><br>
     <span style='color:#888; font-size:13px;'>
     效果：微小分差不再触发换手，持仓周期显著延长，闪现标的被天然过滤。
-    </span>
+    </span><br><br>
+
+    <hr style='border:none; border-top:1px solid #333; margin:10px 0;'>
+    <b style='color:#ddd;'>📖 状态标签说明</b><br>
+    <div style='margin-top:8px; display:flex; flex-direction:column; gap:5px; font-size:13px;'>
+      <div>
+        <span style='color:#2ECC71; font-weight:bold;'>🛡️ 留任</span>
+        <span style='color:#888;'> — 上月在榜，信念值 ≥ 退出门槛（{exit_th:.0f}），原地守擂</span>
+      </div>
+      <div>
+        <span style='color:#3498DB; font-weight:bold;'>🆕 新晋</span>
+        <span style='color:#888;'> — 席位有空缺，信念值 ≥ 入选门槛（{entry:.0f}），正式达标入选</span>
+      </div>
+      <div>
+        <span style='color:#F39C12; font-weight:bold;'>⚔️ 挑战</span>
+        <span style='color:#888;'> — 席位满员，信念值比最弱在位者高出 {margin:.0f} 以上，强制替换上位</span>
+      </div>
+      <div>
+        <span style='color:#9B59B6; font-weight:bold;'>🔰 新兵</span>
+        <span style='color:#888;'> — 候选池不足（达标者 &lt; 空位数），从所有有信念积分的标的里择优兜底补位；
+        信念值积累过 {exit_th:.0f} 后才会转为留任状态</span>
+      </div>
+    </div>
     </div>
     """
 

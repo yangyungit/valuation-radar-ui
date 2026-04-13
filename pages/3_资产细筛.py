@@ -2206,11 +2206,11 @@ def _render_conviction_whitebox(
             "dropped":    "#E74C3C",
         }
         _action_label = {
-            "defending":  "🛡️ 卫冕留任",
-            "new_entry":  "🆕 新晋入选",
-            "challenged": "⚔️ 挑战上位",
-            "cold_start": "🔰 冷启动",
-            "dropped":    "📉 信念退出",
+            "defending":  "🛡️ 留任",
+            "new_entry":  "🆕 新晋",
+            "challenged": "⚔️ 挑战",
+            "cold_start": "🔰 新兵",
+            "dropped":    "📉 退出",
         }
         panel_b_html = ""
         for d in decisions:
