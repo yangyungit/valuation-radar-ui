@@ -1170,8 +1170,13 @@ def _render_podium(top3: pd.DataFrame, cls: str) -> None:
 # ─────────────────────────────────────────────────────────────────
 #  UI：完整排行榜（含得分条形图）
 # ─────────────────────────────────────────────────────────────────
-def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
-    """渲染完整赛道排行榜 + 因子分解横向条形图（内联至列表）。"""
+def _render_leaderboard(df_scored: pd.DataFrame, cls: str,
+                        conviction_map: dict | None = None) -> None:
+    """渲染完整赛道排行榜 + 因子分解横向条形图（内联至列表）。
+
+    conviction_map: {ticker: {"conviction": float, "status": str}}
+        仅 A/B 组传入，用于在最大回撤左侧展示信念值与守擂状态。
+    """
     meta = CLASS_META[cls]
     cfg = ARENA_CONFIG[cls]
 
@@ -1200,10 +1205,10 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
             "<div style='width:46px; text-align:center;'>排名</div>"
             "<div style='width:150px;'>资产</div>"
             "<div style='flex:1; padding:0 20px;'>因子贡献分解 (堆叠)</div>"
+            "<div style='width:90px; text-align:right;'>信念值</div>"
             "<div style='width:82px; text-align:right;'>最大回撤</div>"
             "<div style='width:82px; text-align:right;'>SPY相关</div>"
             "<div style='width:82px; text-align:right;'>年化波动</div>"
-            f"<div style='width:160px; padding-left:12px;'>{cfg['score_name']}</div>"
             "</div>"
         )
     elif cls == "Z":
@@ -1266,10 +1271,29 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
             dd_color = "#2ECC71" if abs(dd_pct) < 10 else ("#F1C40F" if abs(dd_pct) < 20 else "#E74C3C")
             corr_color = "#2ECC71" if corr_v < 0.3 else ("#F1C40F" if corr_v < 0.6 else "#E74C3C")
             vol_color = "#2ECC71" if vol_pct < 15 else ("#F1C40F" if vol_pct < 25 else "#E74C3C")
+            # ── 信念值单元格 ──────────────────────────────────────────
+            _conv_data = (conviction_map or {}).get(row["Ticker"], {})
+            _conv_val  = _conv_data.get("conviction", 0.0)
+            _conv_st   = _conv_data.get("status", "")
+            _CONV_ICONS = {
+                "defending":  ("🛡️", "#2ECC71"),
+                "new_entry":  ("🆕", "#3498DB"),
+                "challenged": ("⚔️", "#F39C12"),
+                "cold_start": ("🔰", "#9B59B6"),
+            }
+            _conv_icon, _conv_clr = _CONV_ICONS.get(_conv_st, ("", "#888"))
+            if _conv_val > 0:
+                _conv_cell = (
+                    f"<div style='width:90px; text-align:right; font-weight:bold;"
+                    f" color:{_conv_clr};'>{_conv_icon} {_conv_val:.0f}</div>"
+                )
+            else:
+                _conv_cell = "<div style='width:90px; text-align:right; color:#555;'>—</div>"
             kpi_cells = (
-                f"<div style='width:82px; text-align:right; font-weight:bold; color:{dd_color};'>{dd_pct:.1f}%</div>"
-                f"<div style='width:82px; text-align:right; font-weight:bold; color:{corr_color};'>{corr_v:.2f}</div>"
-                f"<div style='width:82px; text-align:right; font-weight:bold; color:{vol_color};'>{vol_pct:.1f}%</div>"
+                _conv_cell
+                + f"<div style='width:82px; text-align:right; font-weight:bold; color:{dd_color};'>{dd_pct:.1f}%</div>"
+                + f"<div style='width:82px; text-align:right; font-weight:bold; color:{corr_color};'>{corr_v:.2f}</div>"
+                + f"<div style='width:82px; text-align:right; font-weight:bold; color:{vol_color};'>{vol_pct:.1f}%</div>"
             )
         elif cls == "Z":
             dy_z = row.get("股息率", 0.0)
@@ -1300,6 +1324,39 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
                 f"<div style='width:46px; text-align:center;'>{trend_icon}</div>"
             )
 
+        # A 组：因子分内嵌在堆叠条右侧，不再单独渲染得分栏
+        if cls == "A":
+            bar_area_html = (
+                "<div style='flex:1; padding:0 20px; display:flex; align-items:center; gap:8px;'>"
+                "<div style='flex:1; display:flex; height:10px; background:#1e1e1e;"
+                " border-radius:4px; overflow:hidden;'>"
+                f"{factor_bars_html}"
+                "</div>"
+                f"<span style='font-size:13px; color:#555; min-width:24px;"
+                f" text-align:right;'>{score:.0f}</span>"
+                "</div>"
+            )
+            score_col_html = ""
+        else:
+            bar_area_html = (
+                "<div style='flex:1; padding:0 20px;'>"
+                "<div style='display:flex; width:100%; height:10px; background:#1e1e1e;"
+                " border-radius:4px; overflow:hidden;'>"
+                f"{factor_bars_html}"
+                "</div>"
+                "</div>"
+            )
+            score_col_html = (
+                "<div style='width:160px; padding-left:12px;'>"
+                "<div style='display:flex; align-items:center; gap:8px;'>"
+                "<div style='flex:1; background:#1e1e1e; border-radius:4px; height:8px;'>"
+                f"<div style='width:{bar_pct:.0f}%; background:{meta['color']};"
+                " border-radius:4px; height:8px;'></div>"
+                "</div>"
+                f"<span style='font-size:13px; font-weight:bold; color:{meta['color']};"
+                f" min-width:32px;'>{score:.0f}</span>"
+                "</div></div>"
+            )
         rows_html += (
             "<div style='display:flex; align-items:center; border-bottom:1px solid #1e1e1e; padding:8px 0;'>"
             f"<div style='width:46px; text-align:center;'>{rank_html}</div>"
@@ -1307,19 +1364,10 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str) -> None:
             f"<span style='font-size:14px; font-weight:bold; color:#eee;'>{row['Ticker']}</span>"
             f"<span style='font-size:11px; color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>{row['名称']}</span>"
             "</div>"
-            "<div style='flex:1; padding:0 20px;'>"
-            "<div style='display:flex; width:100%; height:10px; background:#1e1e1e; border-radius:4px; overflow:hidden;'>"
-            f"{factor_bars_html}"
-            "</div>"
-            "</div>"
+            f"{bar_area_html}"
             f"{kpi_cells}"
-            "<div style='width:160px; padding-left:12px;'>"
-            "<div style='display:flex; align-items:center; gap:8px;'>"
-            "<div style='flex:1; background:#1e1e1e; border-radius:4px; height:8px;'>"
-            f"<div style='width:{bar_pct:.0f}%; background:{meta['color']}; border-radius:4px; height:8px;'></div>"
+            f"{score_col_html}"
             "</div>"
-            f"<span style='font-size:13px; font-weight:bold; color:{meta['color']}; min-width:32px;'>{score:.0f}</span>"
-            "</div></div></div>"
         )
 
     st.markdown(
@@ -1698,7 +1746,8 @@ def _render_podium_a(top3: pd.DataFrame) -> None:
             """, unsafe_allow_html=True)
 
 
-def _render_leaderboard_b(df_scored: pd.DataFrame) -> None:
+def _render_leaderboard_b(df_scored: pd.DataFrame,
+                          conviction_map: dict | None = None) -> None:
     """B 组核心底仓质量指数专属排行榜（DivYield / MaxDD / Sharpe 三维列）。"""
     meta = CLASS_META["B"]
     n    = len(df_scored)
@@ -1735,12 +1784,12 @@ def _render_leaderboard_b(df_scored: pd.DataFrame) -> None:
         "<div style='width:46px; text-align:center;'>排名</div>"
         "<div style='width:150px;'>资产</div>"
         "<div style='flex:1; padding:0 20px;'>因子贡献分解 (堆叠)</div>"
+        "<div style='width:90px; text-align:right;'>信念值</div>"
         "<div style='width:82px; text-align:right;'>股息率</div>"
         "<div style='width:100px; text-align:right;'>最大回撤</div>"
         "<div style='width:80px; text-align:right;'>夏普比率</div>"
         "<div style='width:80px; text-align:right;'>RS₁₂₀</div>"
         "<div style='width:80px; text-align:right;'>Rev增速</div>"
-        "<div style='width:150px; padding-left:12px;'>核心底仓质量指数</div>"
         "</div>"
     )
 
@@ -1782,6 +1831,25 @@ def _render_leaderboard_b(df_scored: pd.DataFrame) -> None:
                 f"title='{fl}: {fi_val:.1f}'></div>"
             )
 
+        # ── 信念值单元格 ──────────────────────────────────────────────
+        _conv_data_b = (conviction_map or {}).get(row["Ticker"], {})
+        _conv_val_b  = _conv_data_b.get("conviction", 0.0)
+        _conv_st_b   = _conv_data_b.get("status", "")
+        _CONV_ICONS_B = {
+            "defending":  ("🛡️", "#2ECC71"),
+            "new_entry":  ("🆕", "#3498DB"),
+            "challenged": ("⚔️", "#F39C12"),
+            "cold_start": ("🔰", "#9B59B6"),
+        }
+        _conv_icon_b, _conv_clr_b = _CONV_ICONS_B.get(_conv_st_b, ("", "#888"))
+        if _conv_val_b > 0:
+            _conv_cell_b = (
+                f"<div style='width:90px; text-align:right; font-weight:bold;"
+                f" color:{_conv_clr_b};'>{_conv_icon_b} {_conv_val_b:.0f}</div>"
+            )
+        else:
+            _conv_cell_b = "<div style='width:90px; text-align:right; color:#555;'>—</div>"
+
         rows_html += (
             "<div style='display:flex; align-items:center; border-bottom:1px solid #1e1e1e; padding:8px 0;'>"
             f"<div style='width:46px; text-align:center;'>{rank_html}</div>"
@@ -1789,22 +1857,20 @@ def _render_leaderboard_b(df_scored: pd.DataFrame) -> None:
             f"<span style='font-size:14px; font-weight:bold; color:#eee;'>{row['Ticker']}</span>"
             f"<span style='font-size:13px; color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>{row['名称']}</span>"
             "</div>"
-            "<div style='flex:1; padding:0 20px;'>"
-            "<div style='display:flex; width:100%; height:10px; background:#1e1e1e; border-radius:4px; overflow:hidden;'>"
+            "<div style='flex:1; padding:0 20px; display:flex; align-items:center; gap:8px;'>"
+            "<div style='flex:1; display:flex; height:10px; background:#1e1e1e;"
+            " border-radius:4px; overflow:hidden;'>"
             f"{factor_bars_html}"
-            "</div></div>"
+            "</div>"
+            f"<span style='font-size:13px; color:#555; min-width:24px; text-align:right;'>{score:.0f}</span>"
+            "</div>"
+            f"{_conv_cell_b}"
             f"<div style='width:82px; text-align:right; font-weight:bold; color:{dy_color};'>{dy:.2f}%</div>"
             f"<div style='width:100px; text-align:right; font-weight:bold; color:{dd_color};'>{dd*100:.1f}%</div>"
             f"<div style='width:80px; text-align:right; font-weight:bold; color:{sp_color};'>{sp:.2f}</div>"
             f"<div style='width:80px; text-align:right; font-weight:bold; color:{rs_color};'>{rs120:+.1f}%</div>"
             f"<div style='width:80px; text-align:right; font-weight:bold; color:{rv_color};'>{rv:+.1f}%</div>"
-            "<div style='width:150px; padding-left:12px;'>"
-            "<div style='display:flex; align-items:center; gap:8px;'>"
-            "<div style='flex:1; background:#1e1e1e; border-radius:4px; height:8px;'>"
-            f"<div style='width:{bar_pct:.0f}%; background:{meta['color']}; border-radius:4px; height:8px;'></div>"
             "</div>"
-            f"<span style='font-size:13px; font-weight:bold; color:{meta['color']}; min-width:32px;'>{score:.0f}</span>"
-            "</div></div></div>"
         )
 
     st.markdown(
@@ -2977,7 +3043,16 @@ if _sel4 == "A":
                 )
 
         st.markdown("---")
-        _render_leaderboard(df_scored_a, "A")
+        # 构建全量信念 map（含守擂状态），传入排行榜以展示信念值列
+        _full_conv_map_a: dict = {}
+        if n_a > 0:
+            _sel_status_map_a = {s["ticker"]: s["status"] for s in _rt_selected_a}
+            for _tk, _cv in _rt_conv_state_a.items():
+                _full_conv_map_a[_tk] = {
+                    "conviction": _cv,
+                    "status": _sel_status_map_a.get(_tk, ""),
+                }
+        _render_leaderboard(df_scored_a, "A", conviction_map=_full_conv_map_a)
 
         if n_a > 0:
             champ_ticker_a = df_scored_a.iloc[0]["Ticker"]
@@ -3215,7 +3290,16 @@ elif _sel4 == "B":
                 )
 
         st.markdown("---")
-        _render_leaderboard_b(df_scored_b)
+        # 构建全量信念 map（含守擂状态），传入排行榜以展示信念值列
+        _full_conv_map_b: dict = {}
+        if n_b > 0:
+            _sel_status_map_b = {s["ticker"]: s["status"] for s in _rt_selected}
+            for _tk, _cv in _rt_conv_state.items():
+                _full_conv_map_b[_tk] = {
+                    "conviction": _cv,
+                    "status": _sel_status_map_b.get(_tk, ""),
+                }
+        _render_leaderboard_b(df_scored_b, conviction_map=_full_conv_map_b)
 
         if n_b > 0 and _rt_selected:
             champ_ticker_b = _rt_selected[0]["ticker"]
