@@ -301,7 +301,7 @@ if _arena_data:
         st.dataframe(
             _styled_df,
             use_container_width=True, hide_index=True,
-            height=min(400, 35 * len(_profit_df) + 38),
+            height=min(900, 35 * len(_profit_df) + 38),
         )
     else:
         st.info("无法获取足够的价格数据来计算盈亏统计。")
