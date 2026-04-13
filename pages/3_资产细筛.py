@@ -3657,11 +3657,16 @@ st.markdown("---")
 st.markdown(
     f"### 📅 {_hist_meta['icon']} {_hist_meta['label']} — 历史月度 Top 3",
 )
+_hist_macro_note = (
+    "本赛道评分不受宏观剧本变化影响，四剧本裁决列仅供市场环境参考。"
+    if _sel4 in ("A", "D", "Z")
+    else "B 组权重随剧本动态调整；C 组宏观顺风标的随剧本切换，切换月份将自动插入白盒注释行。"
+)
 st.caption(
     f"当前赛道：{_hist_meta['label']}。纵向追踪每月末排名，"
     "方便确认哪些标的被持续输送至 Page 5 / Page 6。"
     "「四剧本裁决」列来自 Page 1 月度表（与 C 组宏观匹配同源）。"
-    "切换顶部 ABCD 色块即可查看其他赛道历史。"
+    f"切换顶部 ABCD 色块即可查看其他赛道历史。{_hist_macro_note}"
 )
 
 # ── 回填控制区 ───────────────────────────────────────────────────
@@ -3775,6 +3780,70 @@ def _hist_empty() -> str:
     return "<div style='flex:1; font-size:13px; color:#333; padding-left:4px;'>—</div>"
 
 
+_REGIME_CN_TO_CODE: dict = {"软着陆": "Soft", "再通胀": "Hot", "滞胀": "Stag", "衰退": "Rec"}
+_REGIME_EMOJI: dict = {"软着陆": "🚗", "再通胀": "🔥", "滞胀": "🚨", "衰退": "❄️"}
+_B_FACTOR_LABELS = ("Quality", "Resilience", "Sharpe", "RS120d", "MCap", "Revenue", "MacroAlign")
+
+
+def _regime_shift_annotation(prev_cn: str, curr_cn: str, cls: str) -> str:
+    """Return annotation-row HTML describing regime shift impact; empty string for A/D/Z."""
+    if cls not in ("B", "C"):
+        return ""
+    prev_code = _REGIME_CN_TO_CODE.get(prev_cn, "")
+    curr_code = _REGIME_CN_TO_CODE.get(curr_cn, "")
+    if not prev_code or not curr_code:
+        return ""
+
+    lines: list = []
+    if cls == "B":
+        pw = B_REGIME_WEIGHTS.get(prev_code, B_REGIME_WEIGHTS["Soft"])
+        cw = B_REGIME_WEIGHTS.get(curr_code, B_REGIME_WEIGHTS["Soft"])
+        changes = []
+        for i, label in enumerate(_B_FACTOR_LABELS):
+            if pw[i] != cw[i]:
+                direction = "↑" if cw[i] > pw[i] else "↓"
+                color = "#2ECC71" if cw[i] > pw[i] else "#E74C3C"
+                changes.append(
+                    f"<span style='color:{color}; font-weight:bold;'>"
+                    f"{label} {int(pw[i]*100)}%→{int(cw[i]*100)}% {direction}"
+                    f"</span>"
+                )
+        if changes:
+            lines.append("B组权重调整：" + "　".join(changes))
+    else:  # C
+        prev_t = set(_MACRO_TAGS_MAP.get(prev_code, []))
+        curr_t = set(_MACRO_TAGS_MAP.get(curr_code, []))
+        added   = sorted(curr_t - prev_t)
+        removed = sorted(prev_t - curr_t)
+        if added:
+            tickers_html = " ".join(
+                f"<span style='color:#2ECC71; font-weight:bold;'>{t}</span>"
+                for t in added
+            )
+            lines.append(f"宏观顺风新增：{tickers_html}")
+        if removed:
+            tickers_html = " ".join(
+                f"<span style='color:#E74C3C; font-weight:bold; "
+                f"text-decoration:line-through;'>{t}</span>"
+                for t in removed
+            )
+            lines.append(f"宏观顺风移出：{tickers_html}")
+
+    if not lines:
+        return ""
+
+    content = "　｜　".join(lines)
+    return (
+        f"<div style='display:flex; align-items:flex-start; padding:5px 8px 5px 11px; "
+        f"background:#1a1200; border-left:3px solid #F39C12; "
+        f"border-bottom:1px solid #1a1a1a; font-size:13px; color:#ccc;'>"
+        f"<span style='color:#F39C12; font-weight:bold; "
+        f"flex-shrink:0; margin-right:8px; white-space:nowrap;'>🔀 剧本切换影响</span>"
+        f"<span style='flex:1; line-height:1.5;'>{content}</span>"
+        f"</div>"
+    )
+
+
 if not _history:
     st.info("暂无历史记录。点击上方「回填历史数据」按钮，一键生成过去 N 个月的档案。", icon="📋")
 else:
@@ -3803,12 +3872,29 @@ else:
             f"<div style='flex:1; padding-left:4px;'>🥉 季军</div>"
             f"</div>"
         )
+        # Pre-compute verdicts to enable look-ahead shift detection
+        # _cls_months is newest-first; _cls_months[i+1] = chronologically previous month
+        _all_verdicts = [_resolve_horsemen_verdict_cn(_mo, _horsemen_archive) for _mo in _cls_months]
         _data_rows = ""
         for _idx, _mo in enumerate(_cls_months):
             _recs  = _history[_mo].get(_sel4, [])
             _mo_streaks = _streaks_map.get(_mo, {})
-            _v_cn   = _resolve_horsemen_verdict_cn(_mo, _horsemen_archive)
-            _v_html, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
+            _v_cn   = _all_verdicts[_idx]
+            _next_v_cn = _all_verdicts[_idx + 1] if _idx + 1 < len(_cls_months) else ""
+            _regime_shifted = bool(_v_cn and _next_v_cn and _v_cn != _next_v_cn)
+
+            if _regime_shifted:
+                _prev_emoji = _REGIME_EMOJI.get(_next_v_cn, "")
+                _curr_badge, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
+                _v_html = (
+                    f"<div style='line-height:1.3;'>"
+                    f"<div style='font-size:13px; color:#777;'>{_prev_emoji}→</div>"
+                    f"{_curr_badge}"
+                    f"</div>"
+                )
+            else:
+                _v_html, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
+
             _bg    = "#111" if _idx % 2 == 0 else "#0d0d0d"
             _row   = (
                 f"<div style='display:flex; align-items:center; padding:8px 8px; "
@@ -3824,6 +3910,11 @@ else:
                     _row += _hist_empty()
             _row += "</div>"
             _data_rows += _row
+
+            if _regime_shifted:
+                _anno = _regime_shift_annotation(_next_v_cn, _v_cn, _sel4)
+                if _anno:
+                    _data_rows += _anno
 
         st.markdown(
             f"<div style='border:1px solid {_hist_meta['color']}44; border-radius:8px; "
