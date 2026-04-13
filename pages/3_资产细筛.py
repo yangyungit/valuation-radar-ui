@@ -2445,23 +2445,6 @@ def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
     # ── 完整排行榜 + 因子图 ──────────────────────────────────────
     _render_leaderboard(df_scored, cls)
 
-    # ── 快捷跳转 ─────────────────────────────────────────────────
-    if n_total > 0:
-        champ_ticker = df_scored.iloc[0]["Ticker"]
-        champ_name   = df_scored.iloc[0]["名称"]
-        col_hint, col_btn = st.columns([3, 1])
-        with col_hint:
-            st.markdown(
-                f"<div style='font-size:12px; color:#888; margin-top:6px;'>"
-                f"🏆 赛道冠军 <b style='color:#FFD700;'>{champ_ticker}</b>"
-                f" ({champ_name}) 已就绪，可一键送入深度猎杀模块进行单体精析。"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-        with col_btn:
-            if st.button("🎯 深度猎杀", key=f"hunt_{cls}"):
-                st.session_state["p4_champion_ticker"] = champ_ticker
-                st.success(f"已锁定 {champ_ticker}！请切换至 **5 个股深度猎杀** 页面。")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -3003,23 +2986,6 @@ if _sel4 == "A":
             with col_obj:
                 st.metric(label=label, value=val, delta=suffix)
 
-        st.markdown("---")
-        st.markdown("#### 🛡️ 信念守擂 Top 3 — 高亮置顶")
-
-        if n_a > 0 and _rt_selected_a:
-            _conv_top3_tickers_a = [s["ticker"] for s in _rt_selected_a]
-            _conv_top3_df_a = df_scored_a[df_scored_a["Ticker"].isin(_conv_top3_tickers_a)].copy()
-            _ticker_order_a = {tk: idx for idx, tk in enumerate(_conv_top3_tickers_a)}
-            _conv_top3_df_a["_conv_order"] = _conv_top3_df_a["Ticker"].map(_ticker_order_a)
-            _conv_top3_df_a = _conv_top3_df_a.sort_values("_conv_order").drop(columns=["_conv_order"])
-            _conv_map_a = {s["ticker"]: s for s in _rt_selected_a}
-            _conv_top3_df_a["信念值"] = _conv_top3_df_a["Ticker"].map(
-                lambda t: _conv_map_a.get(t, {}).get("conviction", 0.0))
-            _conv_top3_df_a["守擂状态"] = _conv_top3_df_a["Ticker"].map(
-                lambda t: _conv_map_a.get(t, {}).get("status", ""))
-            _render_podium_a(_conv_top3_df_a)
-        else:
-            _render_podium_a(df_scored_a.head(0))
 
         if n_a > 0 and _rt_decisions_a:
             st.markdown(_conv_decisions_html(_rt_decisions_a), unsafe_allow_html=True)
@@ -3070,22 +3036,6 @@ if _sel4 == "A":
                 }
         _render_leaderboard(df_scored_a, "A", conviction_map=_full_conv_map_a)
 
-        if n_a > 0:
-            champ_ticker_a = df_scored_a.iloc[0]["Ticker"]
-            champ_name_a   = df_scored_a.iloc[0]["名称"]
-            col_hint, col_btn = st.columns([3, 1])
-            with col_hint:
-                st.markdown(
-                    f"<div style='font-size:13px; color:#888; margin-top:6px;'>"
-                    f"🏆 赛道冠军 <b style='color:#FFD700;'>{champ_ticker_a}</b>"
-                    f" ({champ_name_a}) 已就绪，可一键送入深度猎杀模块进行单体精析。"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-            with col_btn:
-                if st.button("🎯 深度猎杀", key="hunt_A"):
-                    st.session_state["p4_champion_ticker"] = champ_ticker_a
-                    st.success(f"已锁定 {champ_ticker_a}！请切换至 **5 个股深度猎杀** 页面。")
 
         # ── 白盒加工台 ─────────────────────────────────────────────
         st.markdown("---")
@@ -3239,24 +3189,6 @@ elif _sel4 == "B":
             with col_obj:
                 st.metric(label=label, value=val, delta=suffix)
 
-        st.markdown("---")
-        st.markdown("#### 🛡️ 信念守擂 Top 3 — 高亮置顶")
-
-        if n_b > 0:
-            # 用信念选出的 Top 3 匹配 df_scored_b 中的行来渲染 podium
-            _conv_top3_tickers = [s["ticker"] for s in _rt_selected]
-            _conv_top3_df = df_scored_b[df_scored_b["Ticker"].isin(_conv_top3_tickers)].copy()
-            _ticker_order = {tk: i for i, tk in enumerate(_conv_top3_tickers)}
-            _conv_top3_df["_conv_order"] = _conv_top3_df["Ticker"].map(_ticker_order)
-            _conv_top3_df = _conv_top3_df.sort_values("_conv_order").drop(columns=["_conv_order"])
-            _conv_map = {s["ticker"]: s for s in _rt_selected}
-            _conv_top3_df["信念值"] = _conv_top3_df["Ticker"].map(
-                lambda t: _conv_map.get(t, {}).get("conviction", 0.0))
-            _conv_top3_df["守擂状态"] = _conv_top3_df["Ticker"].map(
-                lambda t: _conv_map.get(t, {}).get("status", ""))
-            _render_podium_b(_conv_top3_df)
-        else:
-            _render_podium_b(df_scored_b.head(0))
 
         # ── 守擂决策日志（白盒） ──
         if n_b > 0 and _rt_decisions:
@@ -3317,22 +3249,6 @@ elif _sel4 == "B":
                 }
         _render_leaderboard_b(df_scored_b, conviction_map=_full_conv_map_b)
 
-        if n_b > 0 and _rt_selected:
-            champ_ticker_b = _rt_selected[0]["ticker"]
-            champ_name_b   = _rt_selected[0]["name"]
-            col_hint_b, col_btn_b = st.columns([3, 1])
-            with col_hint_b:
-                st.markdown(
-                    f"<div style='font-size:13px; color:#888; margin-top:6px;'>"
-                    f"🛡️ 信念冠军 <b style='color:#FFD700;'>{champ_ticker_b}</b>"
-                    f" ({champ_name_b}) 已就绪，可一键送入深度猎杀模块进行单体精析。"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-            with col_btn_b:
-                if st.button("🎯 深度猎杀", key="hunt_B"):
-                    st.session_state["p4_champion_ticker"] = champ_ticker_b
-                    st.success(f"已锁定 {champ_ticker_b}！请切换至 **5 个股深度猎杀** 页面。")
 
         # ── 白盒加工台 ─────────────────────────────────────────────
         st.markdown("---")
@@ -3470,22 +3386,6 @@ elif _sel4 == "C":
         st.markdown("---")
         _render_leaderboard(df_scored_c, "C")
 
-        if n_c > 0:
-            champ_ticker_c = df_scored_c.iloc[0]["Ticker"]
-            champ_name_c   = df_scored_c.iloc[0]["名称"]
-            col_hint_c, col_btn_c = st.columns([3, 1])
-            with col_hint_c:
-                st.markdown(
-                    f"<div style='font-size:12px; color:#888; margin-top:6px;'>"
-                    f"🏆 赛道冠军 <b style='color:#FFD700;'>{champ_ticker_c}</b>"
-                    f" ({champ_name_c}) 已就绪，可一键送入深度猎杀模块进行单体精析。"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-            with col_btn_c:
-                if st.button("🎯 深度猎杀", key="hunt_C"):
-                    st.session_state["p4_champion_ticker"] = champ_ticker_c
-                    st.success(f"已锁定 {champ_ticker_c}！请切换至 **5 个股深度猎杀** 页面。")
 
 elif _sel4 == "Z":
     df_z_base = df_all[df_all["类别"] == "Z"].copy()
@@ -3620,22 +3520,6 @@ elif _sel4 == "Z":
 
         _render_leaderboard(df_scored_z, "Z")
 
-        if n_z > 0:
-            champ_ticker_z = df_scored_z.iloc[0]["Ticker"]
-            champ_name_z   = df_scored_z.iloc[0]["名称"]
-            col_hint_z, col_btn_z = st.columns([3, 1])
-            with col_hint_z:
-                st.markdown(
-                    f"<div style='font-size:13px; color:#888; margin-top:6px;'>"
-                    f"🏆 赛道冠军 <b style='color:#FFD700;'>{champ_ticker_z}</b>"
-                    f" ({champ_name_z}) 已就绪，可一键送入深度猎杀模块进行单体精析。"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-            with col_btn_z:
-                if st.button("🎯 深度猎杀", key="hunt_Z"):
-                    st.session_state["p4_champion_ticker"] = champ_ticker_z
-                    st.success(f"已锁定 {champ_ticker_z}！请切换至 **5 个股深度猎杀** 页面。")
 
         # ── DeFi 链上收益率参考面板（独立赛道，不参与 ScorecardZ）──────
         st.markdown("---")
@@ -4029,23 +3913,6 @@ elif _sel4 == "D":
 
         st.markdown("---")
 
-        # ── 快捷跳转 ──────────────────────────────────────────────
-        if n_d > 0:
-            champ_ticker_d = df_scored_d.iloc[0]["Ticker"]
-            champ_name_d   = df_scored_d.iloc[0]["名称"]
-            col_hint_d, col_btn_d = st.columns([3, 1])
-            with col_hint_d:
-                st.markdown(
-                    f"<div style='font-size:13px; color:#888; margin-top:6px;'>"
-                    f"🏆 赛道冠军 <b style='color:#FFD700;'>{champ_ticker_d}</b>"
-                    f" ({champ_name_d}) 已就绪，可一键送入深度猎杀模块进行单体精析。"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-            with col_btn_d:
-                if st.button("🎯 深度猎杀", key="hunt_D"):
-                    st.session_state["p4_champion_ticker"] = champ_ticker_d
-                    st.success(f"已锁定 {champ_ticker_d}！请切换至 **5 个股深度猎杀** 页面。")
 
 # ─────────────────────────────────────────────────────────────────
 #  历史榜单 — 只显示当前选中赛道（_sel4）的月度 Top 3
