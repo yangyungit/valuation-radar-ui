@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-04-13 | 修复 A 赛道持仓碎片化（惰性换手连坐 + FCF 天花板惩罚）
+
+### 背景 & 问题
+
+**Bug 1：惰性换手"连坐"（Page 4 & 5）**
+原持仓守擂逻辑使用 `_prev_h.issubset(_t3)`——全集合判断，只要有任意一个持仓标的跌出 Top-3，整批持仓全部换掉。导致 GLD 等仍在 Top-3 的标的因"伙伴出局"而被无辜踢走，持仓碎片化、闪现率虚高。
+
+**Bug 2：ScorecardA FCF 对商品 ETF 天花板惩罚（core_engine.py）**
+GLD 等商品 ETF 既无 `freeCashflow` 也无 `dividendYield`，F2 维度（FCF Yield，权重 20%）直接判 0/20，导致 GLD 得分偏低（63 分 vs 旧版 86 分），影响 A 赛道公平竞争。
+
+### 变动内容
+
+- **pages/5_个股择时.py**（第 152 行）：`issubset` 改为单标的独立守擂——逐个检查前持仓是否仍在 Top-3；保留数 ≥ 2 原样留任，= 1 从 Top-3 顺序补位，= 0 取 Top-2 重置。
+- **pages/4_资产调研.py**（第 436-440 行）：同步改为相同的单标的独立守擂逻辑，`traded` 标志改为 `_hold != _prev_hold`（任意持仓变化均触发）。
+- **core_engine.py `get_stock_metadata`**（第 43-55 行）：新增 `fcf_source` 字段——若 `freeCashflow` 和 `dividendYield` 均缺失则标记 `"missing"`，否则 `"data"`。
+- **core_engine.py `ScorecardA.score`**（第 924-930 行）：F2 判分时检查 `fcf_source`，`"missing"` → 给中性分 10.0/20，不奖不罚；有数据则保持原线性映射。
+
+### 影响范围
+
+- A 赛道 GLD 持仓稳定性提升（模拟：2025-02~2025-11 连续持有，闪现率 59%→51%）。
+- ScorecardA GLD 分数从 ~51-63 分回归至更公平的 ~65-75 分区间。
+- B/C/D 赛道逻辑不变，不受影响。
+
 ## 2026-04-13 | 信念状态迁移至后端持久化 + 回填 Checkpoint 防中断丢失
 
 ### 背景 & 问题

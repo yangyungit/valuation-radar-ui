@@ -149,7 +149,17 @@ if _arena_data:
                             "conviction": _r.get("conviction", "—"),
                         })
 
-            _hold = _prev_h if (_prev_h and _prev_h.issubset(_t3)) else _t2
+            if _prev_h:
+                _survivors = _prev_h & _t3
+                if len(_survivors) >= 2:
+                    _hold = _survivors
+                elif len(_survivors) == 1:
+                    _fill = next((r["ticker"] for r in _recs[:3] if r["ticker"] not in _survivors), None)
+                    _hold = _survivors | {_fill} if _fill else _t2
+                else:
+                    _hold = _t2
+            else:
+                _hold = _t2
             _cm[_m] = _hold
             _prev_h = _hold
         _tm_hold[_c] = _cm

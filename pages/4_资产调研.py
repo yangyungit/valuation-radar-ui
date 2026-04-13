@@ -433,17 +433,23 @@ if _arena_hist:
             _t2_set = {r["ticker"] for r in _recs[:2]}
             _t3_set = {r["ticker"] for r in _recs[:3]}
             _t2_list = [r["ticker"] for r in _recs[:2]]
-            _guarding = bool(_prev_hold) and _prev_hold.issubset(_t3_set)
-            if _guarding:
-                _hold = _prev_hold
+            if _prev_hold:
+                _survivors = _prev_hold & _t3_set
+                if len(_survivors) >= 2:
+                    _hold = _survivors
+                elif len(_survivors) == 1:
+                    _fill = next((r["ticker"] for r in _recs[:3] if r["ticker"] not in _survivors), None)
+                    _hold = _survivors | {_fill} if _fill else _t2_set
+                else:
+                    _hold = _t2_set
             else:
                 _hold = _t2_set
-            # diff=True：守擂生效但 Top-2 已变；traded=True：换仓（持仓跌出 Top-3）
+            # diff=True：守擂生效但 Top-2 已变；traded=True：持仓发生变化
             _cls_map[_m] = {
                 "hold": _hold,
                 "top2": _t2_list,
                 "diff": _hold != _t2_set,
-                "traded": not _guarding and bool(_prev_hold) and _prev_hold != _t2_set,
+                "traded": bool(_prev_hold) and _hold != _prev_hold,
             }
             _prev_hold = _hold
         _holdings_map[_cls] = _cls_map
