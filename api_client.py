@@ -22,6 +22,10 @@ elif os.environ.get("USE_LOCAL_API") == "true":
 else:
     API_BASE_URL = "https://valuation-radar-server.onrender.com"
 
+# True 当且仅当通过 RADAR_API_URL 显式指向远程生产环境（非 localhost）
+# 用于在前端层面阻断对生产数据库的危险写操作
+IS_PROD_REMOTE = bool(_env_url) and "localhost" not in _env_url
+
 @st.cache_data(ttl=3600)
 def fetch_core_data():
     """通过 REST API 获取核心资产字典与研报"""
@@ -634,6 +638,8 @@ def fetch_conviction_state(cls: str) -> tuple[dict, list]:
 
 def push_conviction_state(cls: str, state: dict, holders: list) -> bool:
     """将信念状态推送到后端 universe.db 持久化。返回是否成功。"""
+    if IS_PROD_REMOTE:
+        return False
     try:
         r = requests.post(
             f"{API_BASE_URL}/api/v1/conviction_state/{cls}",
@@ -662,6 +668,8 @@ def _narrative_get(path, params=None):
 
 def _narrative_post(path, json=None, params=None, timeout=60):
     """POST 叙事引擎端点，失败时返回 {"success": False, "error": ...}。"""
+    if IS_PROD_REMOTE and not st.session_state.get("prod_write_confirmed", False):
+        return {"success": False, "blocked": True, "error": "⚠️ 直连生产环境写保护：请在页面顶部勾选确认后再操作"}
     try:
         r = requests.post(f"{API_BASE_URL}{path}", json=json, params=params, timeout=timeout)
         r.raise_for_status()

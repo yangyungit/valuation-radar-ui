@@ -14,7 +14,7 @@ from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         fetch_l2_l3_detail, get_batch_ticker_cooccurrence,
                         fetch_conviction_state as _api_fetch_conv,
                         push_conviction_state as _api_push_conv,
-                        API_BASE_URL)
+                        API_BASE_URL, IS_PROD_REMOTE)
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
     classify_asset_parallel,
@@ -40,6 +40,14 @@ _SECTOR_MAP         = _core_data.get("SECTOR_MAP", {})
 _Z_SEED_TICKERS     = set(_core_data.get("Z_SEED_TICKERS", []))
 
 st.set_page_config(page_title="同类资产竞技场", layout="wide", page_icon="🏆")
+
+if IS_PROD_REMOTE:
+    st.error(
+        "🔒 **直连生产环境（只读模式）**  \n"
+        "当前通过 `RADAR_API_URL` 直连 Render 生产后端。"
+        "本页所有信念状态写操作已被禁用，不会影响生产数据库。",
+        icon="🚫",
+    )
 
 # ─────────────────────────────────────────────────────────────────
 #  全局样式
@@ -358,7 +366,9 @@ def _record_arena_history(cls: str, top3_records: list, month_key: str = None) -
 def _save_conviction_state(cls: str, state: dict, holders: list) -> None:
     """持久化信念状态：优先写入后端 universe.db，同时保留本地 JSON 作为缓存。"""
     # 1. 后端持久化（主存储，防止前端文件意外丢失）
-    _api_push_conv(cls, state, holders)
+    # 直连生产环境时禁止写入，api_client 层已拦截，此处双重保护
+    if not IS_PROD_REMOTE:
+        _api_push_conv(cls, state, holders)
     # 2. 本地 JSON 同步写入（供离线/断网时回退）
     history = _load_arena_history()
     history[f"_conviction_{cls}"] = state
@@ -2521,8 +2531,9 @@ with st.sidebar:
                     if os.path.exists(_HISTORY_FILE):
                         os.remove(_HISTORY_FILE)
                     # 同步清零 A/B 组信念状态，防止删除历史后残留信念积分影响公平性
-                    _api_push_conv("A", {}, [])
-                    _api_push_conv("B", {}, [])
+                    if not IS_PROD_REMOTE:
+                        _api_push_conv("A", {}, [])
+                        _api_push_conv("B", {}, [])
                     st.session_state.pop("_confirm_delete_history", None)
                     st.success("历史档案及 A/B 组信念状态已同步清空！")
                     st.rerun()

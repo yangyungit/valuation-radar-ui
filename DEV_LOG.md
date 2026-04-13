@@ -4,6 +4,17 @@
 
 ## 2026-04-13
 
+### 生产环境写操作防护（RADAR_API_URL 直连场景）
+
+**背景**：同事通过 `RADAR_API_URL` 直连 Render 生产后端进行支链开发时，所有写接口均无保护，存在污染 `narrative.db`（词典/orphan）和 `universe.db`（信念状态/迟滞状态）的风险。
+
+**变动**：
+- `api_client.py`：新增 `IS_PROD_REMOTE` 布尔常量（`_env_url` 已设且不含 `localhost`），供各页面读取；`push_conviction_state` 在 `IS_PROD_REMOTE` 时直接 `return False`（Page 3 写操作硬封死）；`_narrative_post` 在 `IS_PROD_REMOTE` 且 `session_state["prod_write_confirmed"]` 未置位时返回 `{"success": False, "blocked": True}`（Page 2 写操作软封锁）。
+- `pages/3_资产细筛.py`：导入 `IS_PROD_REMOTE`；`st.set_page_config` 后立即渲染红色 error 横幅；`_save_conviction_state` 函数内及"删除历史"的两处 `_api_push_conv` 调用点均加 `if not IS_PROD_REMOTE:` 双重保护。
+- `pages/2_舆情监控.py`：导入 `IS_PROD_REMOTE`；`st.set_page_config` 后渲染 warning 横幅 + 单一确认 checkbox（`key="prod_write_confirmed"`），未勾选时 `_narrative_post` 层自动拦截所有写请求，无需逐一修改 25+ 个写操作调用点。
+
+**影响范围**：仅在 `RADAR_API_URL` 指向非 localhost 时生效；正常本地开发和生产部署行为不受任何影响。
+
 ### P0: 择时工具解耦 — 可插拔多策略对比平台
 
 **改动文件：`valuation-radar-ui/pages/5_个股择时.py`**

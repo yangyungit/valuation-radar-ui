@@ -57,12 +57,27 @@ from api_client import (
     trigger_batch_backfill,
     fetch_batch_backfill_status,
     trigger_retroactive_screen,
+    IS_PROD_REMOTE,
 )
 from datetime import date as _date, timedelta as _timedelta
 import math
 import re as _re
 
 st.set_page_config(page_title="舆情监控", layout="wide")
+
+if IS_PROD_REMOTE:
+    st.warning(
+        "⚠️ **直连生产环境** — 当前通过 `RADAR_API_URL` 直连 Render 生产后端。"
+        "所有词典修改、触发流水线等**写操作将直接影响生产数据**，请谨慎操作。",
+        icon="🛢️",
+    )
+    st.session_state.setdefault("prod_write_confirmed", False)
+    _confirmed = st.checkbox(
+        "我了解风险，确认本次操作会直接写入生产数据库",
+        key="prod_write_confirmed",
+    )
+    if not _confirmed:
+        st.info("未勾选确认时，所有写操作将被自动拦截，不会修改生产数据。")
 
 # ---------------------------------------------------------------------------
 # Phase color palette (shared by stepper + phase headers)
