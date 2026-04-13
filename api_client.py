@@ -557,6 +557,34 @@ def fetch_funnel_scores(df, tickers, meta_data, theme_heat_dict, macro_scores=No
 
 
 @st.cache_data(ttl=3600)
+def fetch_funnel_v2_scores(df, tickers, meta_data, theme_heat_dict, macro_scores=None):
+    """v2 跨组竞争漏斗：同一 ticker 可进入多个 Scorecard，返回额外的 cross_group_map。
+    
+    Returns
+    -------
+    (metrics_df, spy_mom20, cross_group_map)
+    cross_group_map: {ticker: [grade1, grade2, ...]}（仅包含出现在 2+ 个组的 ticker）
+    """
+    try:
+        payload = {
+            "df_json": df.to_json(orient="split"),
+            "tickers": tickers,
+            "meta_data": meta_data,
+            "theme_heat_dict": theme_heat_dict,
+        }
+        if macro_scores is not None:
+            payload["macro_scores"] = macro_scores
+        response = requests.post(f"{API_BASE_URL}/api/v1/calculate_funnel_v2", json=payload, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        metrics_df = pd.read_json(io.StringIO(data["metrics_json"]), orient="split")
+        return metrics_df, data.get("spy_mom20", 0.0), data.get("cross_group_map", {})
+    except Exception as e:
+        st.error(f"🚨 云端漏斗 v2 引擎连接失败: {e}")
+        return pd.DataFrame(), 0.0, {}
+
+
+@st.cache_data(ttl=3600)
 def fetch_vcp_analysis(ohlcv_df, lookback_days=180):
     """发送 OHLCV 数据到后端 VCP 分析引擎，获取 VCP 形态诊断与 TWAP 建议"""
     try:

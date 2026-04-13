@@ -6,7 +6,7 @@ import numpy as np
 import json
 import os
 
-from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_funnel_scores, fetch_rolling_backtest
+from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_funnel_scores, fetch_funnel_v2_scores, fetch_rolling_backtest
 
 core_data = fetch_core_data()
 
@@ -32,6 +32,16 @@ with st.sidebar:
         st.session_state.pop("bt_result_cache", None)
         st.success("所有页面缓存已清除！")
         st.rerun()
+
+    st.markdown("---")
+    st.markdown("**⚗️ 实验功能**")
+    use_funnel_v2 = st.toggle(
+        "启用跨组竞争漏斗 v2",
+        value=st.session_state.get("use_funnel_v2", False),
+        key="use_funnel_v2_toggle",
+        help="v2：同一标的可同时通过多个组门槛，被多个 Scorecard 独立评分（实验性）",
+    )
+    st.session_state["use_funnel_v2"] = use_funnel_v2
 
     st.markdown("---")
     st.markdown("**📅 回测年数**")
@@ -131,7 +141,15 @@ live_regime_label: str    = st.session_state.get("live_regime_label", None)
 if not live_smoothed_probs:
     live_smoothed_probs = {"Soft": 0.25, "Hot": 0.25, "Stag": 0.25, "Rec": 0.25}
 
-df_scores, _ = fetch_funnel_scores(df, all_pool_tickers, meta_info, NARRATIVE_THEMES_HEAT, macro_scores=live_smoothed_probs)
+_cross_group_map: dict = {}
+if st.session_state.get("use_funnel_v2", False):
+    df_scores, _, _cross_group_map = fetch_funnel_v2_scores(
+        df, all_pool_tickers, meta_info, NARRATIVE_THEMES_HEAT, macro_scores=live_smoothed_probs
+    )
+else:
+    df_scores, _ = fetch_funnel_scores(
+        df, all_pool_tickers, meta_info, NARRATIVE_THEMES_HEAT, macro_scores=live_smoothed_probs
+    )
 
 _incumbent_score_p6 = live_smoothed_probs.get(live_regime_label, 0.0) if live_regime_label else max(live_smoothed_probs.values(), default=0.0)
 top_regime_score = _incumbent_score_p6
@@ -552,6 +570,38 @@ else:
     st.warning(f"**CIO 洞察 — 装死模式:** 现任剧本「**{_live_label_cn}**」裁决胜率 {top_regime_score*100:.0f}% < 60%，卫星池启动持仓迟滞或停泊 BIL 现金防守。")
 
 st.markdown("---")
+
+# ── v2 跨组竞争徽章区（仅在启用 v2 时显示）──────────────────────────────────────
+if st.session_state.get("use_funnel_v2", False) and _cross_group_map:
+    _GRADE_COLORS = {"A": "#2ECC71", "B": "#3498DB", "C": "#F39C12", "D": "#E74C3C", "Z": "#9B59B6"}
+    _badge_rows = []
+    for _t, _grades in sorted(_cross_group_map.items()):
+        _cn = TIC_MAP.get(_t, _t)
+        _badges_html = " ".join(
+            f"<span style='background:{_GRADE_COLORS.get(g, \"#888\")};color:#fff;"
+            f"border-radius:4px;padding:2px 7px;font-size:13px;font-weight:bold;'>{g}</span>"
+            for g in _grades
+        )
+        _badge_rows.append({"ticker": _t, "cn_name": _cn, "badges": _badges_html, "groups": "/".join(_grades)})
+
+    if _badge_rows:
+        with st.expander(f"⚡ 跨组竞争者 — {len(_badge_rows)} 个标的通过 2+ 组门槛（v2 实验数据）", expanded=True):
+            st.caption("以下标的同时符合多个组的资格门槛，被多个 Scorecard 独立评分。数字越多说明该标的当前综合质量越高。")
+            _badge_html_blocks = []
+            for row in _badge_rows:
+                _badge_html_blocks.append(
+                    f"<div style='display:inline-flex;align-items:center;gap:8px;"
+                    f"background:#1a1a2e;border-radius:8px;padding:8px 14px;margin:4px;'>"
+                    f"<span style='font-size:14px;font-weight:bold;color:#eee;'>{row['cn_name']}</span>"
+                    f"<span style='font-size:13px;color:#aaa;'>({row['ticker']})</span>"
+                    f"{row['badges']}"
+                    f"</div>"
+                )
+            st.markdown(
+                "<div style='display:flex;flex-wrap:wrap;gap:4px;'>" + "".join(_badge_html_blocks) + "</div>",
+                unsafe_allow_html=True,
+            )
+
 st.header("2️⃣ 智能仓位生成引擎 — Core-Satellite (Allocation Engine)")
 
 # 数据流溯源横幅
