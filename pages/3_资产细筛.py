@@ -2970,60 +2970,6 @@ if _sel4 == "A":
             _aw["A"] = _rt_new_holders_a
             st.session_state["arena_winners"] = _aw
 
-        top_score_a = df_scored_a["竞技得分"].iloc[0] if n_a > 0 else 0.0
-        avg_score_a = df_scored_a["竞技得分"].mean()  if n_a > 0 else 0.0
-        n_low_dd    = int((df_scored_a["最大回撤_raw"].abs() < 0.15).sum()) if n_a > 0 else 0
-        _top_conv_a = max((s["conviction"] for s in _rt_selected_a), default=0.0) if n_a > 0 else 0.0
-
-        kpi_cols_a = st.columns(5)
-        for col_obj, (label, val, suffix) in zip(kpi_cols_a, [
-            ("参赛资产",       f"{n_a}",              "只"),
-            ("低回撤(<15%)",   f"{n_low_dd}",         f"/ {n_a}"),
-            ("冠军信念值",     f"{_top_conv_a:.0f}",   "/ 100"),
-            ("冠军因子分",     f"{top_score_a:.0f}",   "/ 100"),
-            ("赛道平均分",     f"{avg_score_a:.0f}",   "/ 100"),
-        ]):
-            with col_obj:
-                st.metric(label=label, value=val, delta=suffix)
-
-
-        if n_a > 0 and _rt_decisions_a:
-            st.markdown(_conv_decisions_html(_rt_decisions_a), unsafe_allow_html=True)
-
-        if n_a > 0 and _rt_selected_a:
-            champ_s_a  = _rt_selected_a[0]
-            champ_tk_a = champ_s_a["ticker"]
-            _champ_row_a = df_scored_a[df_scored_a["Ticker"] == champ_tk_a]
-            if not _champ_row_a.empty:
-                champ_a   = _champ_row_a.iloc[0]
-                fcf_c     = champ_a.get("FCF收益率", 0.0)
-                dd_c      = champ_a.get("最大回撤_raw", 0.0)
-                corr_c    = champ_a.get("SPY相关性", 0.5)
-                ribbon_c  = champ_a.get("带鱼质量", 0.0)
-
-                dd_verdict = ("极强抗跌韧性" if abs(dd_c) < 0.10
-                              else ("回撤控制良好" if abs(dd_c) < 0.20 else "回撤偏大，需警惕"))
-                corr_verdict = ("强对冲属性" if corr_c < 0.3
-                                else ("中度对冲" if corr_c < 0.6 else "高度同步大盘"))
-                ribbon_verdict = ("教科书级带鱼" if ribbon_c >= 0.55
-                                  else ("趋势形态尚可" if ribbon_c >= 0.30 else "均线散乱"))
-
-                _status_lbl_a, _ = _conv_status_label(champ_s_a["status"])
-                st.success(
-                    f"**{meta_a['icon']} 赛道冠军深度解读 — {champ_tk_a} ({champ_a['名称']})** "
-                    f"｜信念值 {champ_s_a['conviction']:.0f} ｜{_status_lbl_a}\n\n"
-                    f"在 A 级 {n_a} 位参赛标的中，信念值最高"
-                    f"（因子分 {champ_a['竞技得分']:.0f}）。\n"
-                    f"最大回撤 = **{dd_c*100:.1f}%**（{dd_verdict}），"
-                    f"FCF收益率 = **{fcf_c:.2f}%**，"
-                    f"SPY 相关性 = **{corr_c:.2f}**（{corr_verdict}），"
-                    f"带鱼质量 = **{ribbon_c:.2f}**（{ribbon_verdict}）。\n"
-                    f"因子贡献：F1={champ_a.get('因子1_分', 0):.1f}，"
-                    f"F2={champ_a.get('因子2_分', 0):.1f}，"
-                    f"F3={champ_a.get('因子3_分', 0):.1f}，"
-                    f"F4={champ_a.get('因子4_分', 0):.1f}。"
-                )
-
         st.markdown("---")
         # 构建全量信念 map（含守擂状态），传入排行榜以展示信念值列
         _full_conv_map_a: dict = {}
@@ -3173,70 +3119,6 @@ elif _sel4 == "B":
             _aw["B"] = _rt_new_holders
             st.session_state["arena_winners"] = _aw
 
-        top_score_b = df_scored_b["竞技得分"].iloc[0] if n_b > 0 else 0.0
-        avg_score_b = df_scored_b["竞技得分"].mean()  if n_b > 0 else 0.0
-        n_low_dd    = int((df_scored_b["最大回撤_raw"].abs() < 0.15).sum()) if n_b > 0 else 0
-        _top_conv   = max((s["conviction"] for s in _rt_selected), default=0.0) if n_b > 0 else 0.0
-
-        kpi_cols_b = st.columns(5)
-        for col_obj, (label, val, suffix) in zip(kpi_cols_b, [
-            ("参赛资产",       f"{n_b}",            "只"),
-            ("低回撤(<15%)",   f"{n_low_dd}",       f"/ {n_b}"),
-            ("冠军信念值",     f"{_top_conv:.0f}",   "/ 100"),
-            ("冠军因子分",     f"{top_score_b:.0f}", "/ 100"),
-            ("赛道平均分",     f"{avg_score_b:.0f}", "/ 100"),
-        ]):
-            with col_obj:
-                st.metric(label=label, value=val, delta=suffix)
-
-
-        # ── 守擂决策日志（白盒） ──
-        if n_b > 0 and _rt_decisions:
-            st.markdown(_conv_decisions_html(_rt_decisions), unsafe_allow_html=True)
-
-        if n_b > 0 and _rt_selected:
-            champ_s  = _rt_selected[0]
-            champ_tk = champ_s["ticker"]
-            _champ_row = df_scored_b[df_scored_b["Ticker"] == champ_tk]
-            if not _champ_row.empty:
-                champ_b  = _champ_row.iloc[0]
-                dy_c     = champ_b.get("股息率", 0.0)
-                dd_c     = champ_b.get("最大回撤_raw", 0.0)
-                sp_c     = champ_b.get("夏普比率", 0.0)
-                rs120_c  = champ_b.get("RS120d", 0.0)
-                rv_c     = champ_b.get("Revenue增速", 0.0)
-
-                if abs(dd_c) < 0.10:
-                    dd_verdict = "极强抗跌韧性"
-                elif abs(dd_c) < 0.20:
-                    dd_verdict = "回撤控制良好"
-                else:
-                    dd_verdict = "回撤偏大，需警惕"
-
-                rs_verdict = "趋势强势" if rs120_c > 5 else ("趋势中性" if rs120_c > -5 else "趋势走弱")
-                _regime_labels_b = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
-                _regime_cn = _regime_labels_b.get(macro_regime, macro_regime)
-                _w_cur = B_REGIME_WEIGHTS.get(macro_regime, B_REGIME_WEIGHTS["Soft"])
-                _rs_weight_pct = int(_w_cur[3] * 100)
-                _macro_aligned = champ_tk in set(_MACRO_TAGS_MAP.get(macro_regime, []))
-                _macro_verdict = "顺风" if _macro_aligned else "逆风"
-
-                _status_lbl, _status_clr = _conv_status_label(champ_s["status"])
-                st.success(
-                    f"**🦍 赛道冠军深度解读 — {champ_tk} ({champ_b['名称']})** "
-                    f"｜信念值 {champ_s['conviction']:.0f} ｜{_status_lbl}"
-                    f"｜当前剧本: {_regime_cn}\n\n"
-                    f"在 B 级 {n_b} 位参赛标的中，信念值最高"
-                    f"（因子分 {champ_b['竞技得分']:.0f}）。\n"
-                    f"真·护城河质量 = {champ_b['因子1_分']:.1f}（股息率 {dy_c:.2f}%），"
-                    f"抗跌韧性 = {champ_b['因子2_分']:.1f}（最大回撤 {dd_c*100:.1f}% — {dd_verdict}），"
-                    f"夏普比率 = {champ_b['因子3_分']:.1f}（Sharpe {sp_c:.2f}），"
-                    f"中期相对强度 = {champ_b['因子4_分']:.1f}（RS₁₂₀ {rs120_c:+.1f}% — {rs_verdict}，权重{_rs_weight_pct}%），"
-                    f"市值壁垒 = {champ_b['因子5_分']:.1f}，"
-                    f"成长弹性 = {champ_b['因子6_分']:.1f}（Revenue 增速 {rv_c:+.1f}%），"
-                    f"宏观适配 = {champ_b['因子7_分']:.1f}（{_regime_cn}剧本 — {_macro_verdict}）。"
-                )
-
         st.markdown("---")
         # 构建全量信念 map（含守擂状态），传入排行榜以展示信念值列
         _full_conv_map_b: dict = {}
@@ -3348,40 +3230,9 @@ elif _sel4 == "C":
             _aw["C"] = [row["Ticker"] for _, row in df_scored_c.head(3).iterrows()]
             st.session_state["arena_winners"] = _aw
 
-        n_bullish_c = int(df_scored_c["趋势健康"].sum())
-        top_score_c = df_scored_c["竞技得分"].iloc[0] if n_c > 0 else 0.0
-        avg_score_c = df_scored_c["竞技得分"].mean() if n_c > 0 else 0.0
-
-        kpi_cols_c = st.columns(4)
-        for col_obj, (label, val, suffix) in zip(kpi_cols_c, [
-            ("参赛资产", f"{n_c}", "只"),
-            ("趋势健康", f"{n_bullish_c}", f"/ {n_c}"),
-            ("赛道冠军分", f"{top_score_c:.0f}", "/ 100"),
-            ("赛道平均分", f"{avg_score_c:.0f}", "/ 100"),
-        ]):
-            with col_obj:
-                st.metric(label=label, value=val, delta=suffix)
-
         st.markdown("---")
         st.markdown("#### 🏆 赛道翘楚 — Top 3 高亮置顶")
         _render_podium(df_scored_c.head(3), "C")
-
-        if n_c > 0:
-            champ_c = df_scored_c.iloc[0]
-            trend_txt_c = "趋势健康 (MA20 > MA60)" if champ_c["趋势健康"] else "趋势走弱 (MA20 < MA60)"
-            aligned_c = champ_c["Ticker"] in set(_MACRO_TAGS_MAP.get(macro_regime, []))
-            rs120_c = float(champ_c.get("RS120d", 0.0))
-            rs250_c = float(champ_c.get("RS250d", 0.0))
-            st.success(
-                f"**👑 赛道冠军深度解读 — {champ_c['Ticker']} ({champ_c['名称']})**\n\n"
-                f"在 C 级 {n_c} 位参赛标的中以 **慢变量霸权指数 {champ_c['竞技得分']:.0f} 分**夺冠。\n"
-                f"Forward EPS 增速贡献 = {champ_c['因子1_分']:.1f}，"
-                f"log₁₀(市值) 贡献 = {champ_c['因子2_分']:.1f}，"
-                f"RS₁₂₀ 贡献 = {champ_c['因子3_分']:.1f}（半年超额 {rs120_c:+.1f}%），"
-                f"宏观顺风 = {champ_c['因子4_分']:.1f}（{'✅ 顺风' if aligned_c else '❌ 逆风'}，剧本：{macro_regime}），"
-                f"RS₂₅₀ 年度超额 = {champ_c['因子5_分']:.1f}（{rs250_c:+.1f}%）。\n"
-                f"趋势状态：{trend_txt_c}。"
-            )
 
         st.markdown("---")
         _render_leaderboard(df_scored_c, "C")
@@ -3458,40 +3309,9 @@ elif _sel4 == "Z":
             _aw_z["Z"] = [row["Ticker"] for _, row in df_scored_z.head(3).iterrows()]
             st.session_state["arena_winners"] = _aw_z
 
-        top_score_z = df_scored_z["竞技得分"].iloc[0] if n_z > 0 else 0.0
-        avg_score_z = df_scored_z["竞技得分"].mean()  if n_z > 0 else 0.0
-        n_high_div  = int((df_scored_z["股息率"] >= 2.0).sum()) if n_z > 0 else 0
-
-        kpi_cols_z = st.columns(4)
-        for col_obj, (label, val, suffix) in zip(kpi_cols_z, [
-            ("参赛资产",      f"{n_z}",             "只"),
-            ("高股息(≥2%)",  f"{n_high_div}",      f"/ {n_z}"),
-            ("赛道冠军分",    f"{top_score_z:.0f}", "/ 100"),
-            ("赛道平均分",    f"{avg_score_z:.0f}", "/ 100"),
-        ]):
-            with col_obj:
-                st.metric(label=label, value=val, delta=suffix)
-
         st.markdown("---")
         st.markdown("#### 🏆 赛道翘楚 — Top 3 高亮置顶")
         _render_podium(df_scored_z.head(3), "Z")
-
-        if n_z > 0:
-            champ_z       = df_scored_z.iloc[0]
-            dy_z          = champ_z.get("股息率", 0.0)
-            sharpe_z_champ = champ_z.get("夏普比率", 0.0)
-            price_ret_champ = champ_z.get("净值趋势_1Y", 0.0) * 100
-            dd_z          = champ_z.get("最大回撤_raw", 0.0)
-            trap_flag     = "⚠️ 注意：已触发股息陷阱熔断扣分！" if champ_z.get("股息陷阱", False) else ""
-            st.success(
-                f"**🏦 赛道冠军深度解读 — {champ_z['Ticker']} ({champ_z['名称']})**\n\n"
-                f"在 Z 级 {n_z} 位参赛标的中以 **现金流堡垒指数 {champ_z['竞技得分']:.0f} 分**夺冠。{trap_flag}\n"
-                f"风险调整总回报 Sharpe = **{sharpe_z_champ:.2f}**，贡献 {champ_z.get('因子1_分', 0):.1f} 分；"
-                f"真实股息率 = **{dy_z:.2f}%**，贡献 {champ_z.get('因子2_分', 0):.1f} 分；"
-                f"分红续航力贡献 = {champ_z.get('因子3_分', 0):.1f} 分；"
-                f"本金盾贡献 = {champ_z.get('因子4_分', 0):.1f} 分（最大回撤 {dd_z*100:.1f}%）；"
-                f"净值趋势贡献 = {champ_z.get('因子5_分', 0):.1f} 分（近1年净值 {price_ret_champ:+.1f}%）。"
-            )
 
         st.markdown("---")
 
@@ -3625,49 +3445,11 @@ elif _sel4 == "D":
             st.session_state["arena_winners"] = _aw
 
         # ── KPI 卡片 ─────────────────────────────────────────────
-        top_score_d = df_scored_d["竞技得分"].iloc[0] if n_d > 0 else 0.0
-        avg_score_d = df_scored_d["竞技得分"].mean()  if n_d > 0 else 0.0
-        n_breakout  = int((df_scored_d["MA60偏离"].between(-10, 20)).sum()) if n_d > 0 else 0
-
-        kpi_cols_d = st.columns(4)
-        for col_obj, (label, val, suffix) in zip(kpi_cols_d, [
-            ("参赛资产",       f"{n_d}",           "只"),
-            ("黄金突破区",     f"{n_breakout}",    f"/ {n_d}"),
-            ("赛道冠军分",     f"{top_score_d:.0f}", "/ 100"),
-            ("赛道平均分",     f"{avg_score_d:.0f}", "/ 100"),
-        ]):
-            with col_obj:
-                st.metric(label=label, value=val, delta=suffix)
-
         st.markdown("---")
 
         # ── 颁奖台 ────────────────────────────────────────────────
         st.markdown("#### 🏆 赛道翘楚 — Top 3 高亮置顶")
         _render_podium_d(df_scored_d.head(3))
-
-        # ── 冠军深度解读 ──────────────────────────────────────────
-        if n_d > 0:
-            champ_d = df_scored_d.iloc[0]
-            vol_z_c  = champ_d.get("Vol_Z", 0.0)
-            rs_c     = champ_d.get("RS_20d", 0.0)
-            ma60_c   = champ_d.get("MA60偏离", 0.0)
-
-            if -10 <= ma60_c <= 20:
-                ma60_verdict = "⚡ 处于黄金突破区（季线起飞最佳姿态）"
-            elif ma60_c > 50:
-                ma60_verdict = "🔴 乖离过大（强弩之末，建议等回调）"
-            elif ma60_c > 20:
-                ma60_verdict = "⚠️ 偏离季线偏高，注意追高风险"
-            else:
-                ma60_verdict = "🔵 尚在季线下方蓄力，等待突破信号"
-
-            st.success(
-                f"**🚀 赛道冠军深度解读 — {champ_d['Ticker']} ({champ_d['名称']})**\n\n"
-                f"在 D 级 {n_d} 位参赛标的中以 **爆点扫描指数 {champ_d['竞技得分']:.0f} 分**夺冠。\n"
-                f"量价共振烈度（Vol_Z）= **{vol_z_c:+.2f}**，贡献 {champ_d['因子1_分']:.1f} 分；"
-                f"相对强度 RS₂₀ vs SPY = **{rs_c:+.1f}%**，贡献 {champ_d['因子2_分']:.1f} 分；"
-                f"MA60 偏离 = **{ma60_c:+.1f}%** — {ma60_verdict}，贡献 {champ_d['因子3_分']:.1f} 分。"
-            )
 
         st.markdown("---")
 
