@@ -1815,6 +1815,424 @@ def _render_leaderboard_b(df_scored: pd.DataFrame) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
+#  白盒加工台：分类迟滞 & 信念守擂
+# ─────────────────────────────────────────────────────────────────
+
+def _render_hysteresis_whitebox(all_assets_dict: dict) -> None:
+    """第一层白盒：A 组分类迟滞全量审计表 + 可调迟滞阈值 sliders。"""
+    with st.expander("🔬 第一层白盒 — A 组分类迟滞审计表", expanded=False):
+        # ── 阈值调节 sliders ──────────────────────────────────────
+        st.markdown(
+            "<div style='font-size:14px; color:#F39C12; font-weight:bold;"
+            " margin-bottom:8px;'>⚙️ A 组迟滞阈值调节（修改后即时生效）</div>",
+            unsafe_allow_html=True,
+        )
+        sc1, sc2, sc3 = st.columns(3)
+        with sc1:
+            st.slider("股息进入线 (%)", 0.0, 3.0, step=0.1,
+                      key="hyst_a_income_enter",
+                      help="股息率需≥此值才算满足收益来源（进入）")
+            st.slider("股息退出线 (%)", 0.0, 2.0, step=0.1,
+                      key="hyst_a_income_exit",
+                      help="股息率<此值且慢趋势弱才触发退出信号")
+        with sc2:
+            st.slider("回撤进入线 (%)", 5.0, 25.0, step=0.5,
+                      key="hyst_a_dd_enter",
+                      help="1年最大回撤需<此值方可进入A组")
+            st.slider("回撤退出线 (%)", 10.0, 35.0, step=0.5,
+                      key="hyst_a_dd_exit",
+                      help="1年最大回撤>此值触发退出")
+        with sc3:
+            st.slider("相关性进入线", 0.30, 0.80, step=0.01,
+                      key="hyst_a_corr_enter",
+                      help="SPY相关性需<此值方可进入A组")
+            st.slider("相关性退出线", 0.40, 0.90, step=0.01,
+                      key="hyst_a_corr_exit",
+                      help="SPY相关性>此值触发退出")
+
+        st.markdown("<hr style='border-color:#333; margin:10px 0;'>", unsafe_allow_html=True)
+
+        # ── 渲染全量审计表 ─────────────────────────────────────────
+        rows_html = ""
+        tickers_sorted = sorted(
+            all_assets_dict.keys(),
+            key=lambda t: (
+                0 if all_assets_dict[t]["criteria"].get("A", {}).get("pass") else 1,
+                -all_assets_dict[t].get("div_yield", 0.0),
+            ),
+        )
+        th_ie = st.session_state.get("hyst_a_income_enter", 1.0)
+        th_ix = st.session_state.get("hyst_a_income_exit",  0.5)
+        th_de = st.session_state.get("hyst_a_dd_enter",    15.0)
+        th_dx = st.session_state.get("hyst_a_dd_exit",     20.0)
+        th_ce = st.session_state.get("hyst_a_corr_enter",  0.65)
+        th_cx = st.session_state.get("hyst_a_corr_exit",   0.75)
+
+        header_html = (
+            "<div style='display:flex; gap:6px; padding:4px 0; border-bottom:2px solid #333;"
+            " font-size:13px; color:#888; font-weight:bold;'>"
+            "<span style='width:70px;'>Ticker</span>"
+            "<span style='width:110px;'>名称</span>"
+            "<span style='width:60px; text-align:center;'>上期A</span>"
+            "<span style='width:80px; text-align:right;'>股息%</span>"
+            "<span style='width:80px; text-align:right;'>回撤%</span>"
+            "<span style='width:80px; text-align:right;'>SPY相关</span>"
+            "<span style='width:90px; text-align:center;'>收益达标</span>"
+            "<span style='width:90px; text-align:center;'>回撤达标</span>"
+            "<span style='width:90px; text-align:center;'>相关达标</span>"
+            "<span style='width:80px; text-align:center;'>最终结果</span>"
+            "<span style='width:100px; text-align:center;'>迟滞效果</span>"
+            "</div>"
+        )
+        for tk in tickers_sorted:
+            info = all_assets_dict[tk]
+            a_crit = info.get("criteria", {}).get("A", {})
+            if not a_crit or "pass" not in a_crit:
+                continue
+            was_a      = a_crit.get("_was_a", False)
+            a_pass     = a_crit.get("pass", False)
+            div_yield  = float(a_crit.get("_div_yield", info.get("div_yield", 0.0)))
+            max_dd     = float(a_crit.get("_max_dd", info.get("max_dd", 0.0)))
+            spy_corr   = float(a_crit.get("_spy_corr", info.get("spy_corr", 0.0)))
+            slow_bull  = info.get("slow_bullish", False)
+
+            # Recompute checks using current threshold values
+            ie = div_yield >= th_ie or slow_bull
+            ix = div_yield < th_ix and not slow_bull
+            de = max_dd < th_de
+            dx = max_dd > th_dx
+            ce = spy_corr < th_ce
+            cx = spy_corr > th_cx
+
+            # Hysteresis effect: incumbent kept in who would have failed entry
+            if was_a and a_pass and (not ie or not de or not ce):
+                hyst_tag = "<span style='color:#F39C12; font-size:13px;'>🔒 迟滞留任</span>"
+            elif not was_a and not a_pass and (not ix and not dx and not cx):
+                hyst_tag = "<span style='color:#888; font-size:13px;'>— 正常拒签</span>"
+            else:
+                hyst_tag = "<span style='color:#555; font-size:13px;'>—</span>"
+
+            row_bg = "#1e2a1e" if a_pass else "#1a1a1a"
+            pass_clr = "#2ECC71" if a_pass else "#E74C3C"
+            was_a_icon = "✅" if was_a else "—"
+
+            def _chk(ok: bool) -> str:
+                return f"<span style='color:{'#2ECC71' if ok else '#E74C3C'};'>{'✅' if ok else '❌'}</span>"
+
+            rows_html += (
+                f"<div style='display:flex; gap:6px; padding:5px 0; "
+                f"border-bottom:1px solid #222; background:{row_bg}; font-size:13px;'>"
+                f"<span style='width:70px; font-weight:bold; color:{pass_clr};'>{tk}</span>"
+                f"<span style='width:110px; color:#aaa; overflow:hidden; text-overflow:ellipsis; "
+                f"white-space:nowrap;'>{info.get('cn_name', tk)}</span>"
+                f"<span style='width:60px; text-align:center; color:#aaa;'>{was_a_icon}</span>"
+                f"<span style='width:80px; text-align:right; color:#ccc;'>{div_yield:.2f}%</span>"
+                f"<span style='width:80px; text-align:right; color:#ccc;'>{max_dd:.1f}%</span>"
+                f"<span style='width:80px; text-align:right; color:#ccc;'>{spy_corr:.2f}</span>"
+                f"<span style='width:90px; text-align:center;'>{_chk(ie if not was_a else not ix)}</span>"
+                f"<span style='width:90px; text-align:center;'>{_chk(de if not was_a else not dx)}</span>"
+                f"<span style='width:90px; text-align:center;'>{_chk(ce if not was_a else not cx)}</span>"
+                f"<span style='width:80px; text-align:center; font-weight:bold; color:{pass_clr};'>"
+                f"{'✅ 入选' if a_pass else '❌ 未入'}</span>"
+                f"<span style='width:100px; text-align:center;'>{hyst_tag}</span>"
+                f"</div>"
+            )
+
+        st.markdown(
+            f"<div style='font-size:13px; color:#888; margin-bottom:6px;'>"
+            f"阈值（进入）: 股息≥{th_ie:.1f}% | 回撤&lt;{th_de:.0f}% | 相关&lt;{th_ce:.2f} &nbsp;｜&nbsp;"
+            f"阈值（退出）: 股息&lt;{th_ix:.1f}% | 回撤&gt;{th_dx:.0f}% | 相关&gt;{th_cx:.2f}"
+            f"</div>"
+            f"<div style='background:#111; border-radius:6px; padding:8px; overflow-x:auto;'>"
+            f"{header_html}{rows_html}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def _render_conviction_whitebox(
+    conv_state: dict,
+    prev_conv_state: dict,
+    holders: list,
+    factor_scores: dict,
+    names: dict,
+    cfg: dict,
+    selected: list,
+    decisions: list,
+    group_cls: str,
+) -> None:
+    """第二层白盒：信念守擂全量推演（Panel A/B/C + 参数调节 sliders）。"""
+    _ss_prefix = f"conv_{group_cls.lower()}"
+    _entry_th = cfg["entry_threshold"]
+    _exit_th  = cfg["exit_threshold"]
+    _margin   = cfg["challenge_margin"]
+    _top_n    = cfg["top_n"]
+
+    with st.expander(f"🔬 第二层白盒 — {group_cls} 组信念守擂全量推演", expanded=False):
+
+        # ── 信念参数 sliders ───────────────────────────────────────
+        st.markdown(
+            f"<div style='font-size:14px; color:#3498DB; font-weight:bold;"
+            f" margin-bottom:8px;'>⚙️ {group_cls} 组信念参数调节（修改后即时生效）</div>",
+            unsafe_allow_html=True,
+        )
+        _sp1, _sp2, _sp3, _sp4 = st.columns(4)
+        with _sp1:
+            st.slider("挑战者衰减 decay", 0.50, 0.95, step=0.01,
+                      key=f"{_ss_prefix}_decay",
+                      help="非在位者每月信念衰减系数（越小衰减越快）")
+            st.slider("在位者衰减 holder_decay", 0.50, 0.95, step=0.01,
+                      key=f"{_ss_prefix}_holder_decay",
+                      help="在位者享受更慢衰减（惯性）")
+        with _sp2:
+            st.slider("积累率 accumulate", 0.05, 0.50, step=0.01,
+                      key=f"{_ss_prefix}_accum",
+                      help="因子分 → 信念的转化率")
+            st.slider("席位数 top_n", 1, 5, step=1,
+                      key=f"{_ss_prefix}_top_n",
+                      help="守擂席位数")
+        with _sp3:
+            st.slider("入选门槛 entry", 20, 80, step=1,
+                      key=f"{_ss_prefix}_entry",
+                      help="信念需达此值方可入选")
+        with _sp4:
+            st.slider("退出门槛 exit", 10, 60, step=1,
+                      key=f"{_ss_prefix}_exit",
+                      help="在位者信念跌破此值即退出")
+            st.slider("守擂优势 margin", 0, 30, step=1,
+                      key=f"{_ss_prefix}_margin",
+                      help="挑战者需比最弱在位者高出此值才能替换")
+
+        st.markdown("<hr style='border-color:#333; margin:10px 0;'>", unsafe_allow_html=True)
+
+        # ── Panel A：信念积累明细表 ────────────────────────────────
+        st.markdown(
+            "<div style='font-size:15px; font-weight:bold; color:#F39C12;"
+            " margin-bottom:8px;'>Panel A — 信念积累明细（全候选）</div>",
+            unsafe_allow_html=True,
+        )
+        _selected_set = {s["ticker"] for s in selected}
+        _holder_set   = set(holders)
+        all_tickers_sorted = sorted(conv_state.keys(), key=lambda t: conv_state[t], reverse=True)
+
+        panel_a_html = (
+            "<div style='display:flex; gap:6px; padding:4px 0; border-bottom:2px solid #333;"
+            " font-size:13px; color:#888; font-weight:bold;'>"
+            "<span style='width:70px;'>Ticker</span>"
+            "<span style='width:110px;'>名称</span>"
+            "<span style='width:70px; text-align:right;'>旧信念</span>"
+            "<span style='width:70px; text-align:right;'>因子分</span>"
+            "<span style='width:60px; text-align:center;'>角色</span>"
+            "<span style='width:70px; text-align:right;'>衰减率</span>"
+            "<span style='width:80px; text-align:right;'>新信念</span>"
+            "<span style='width:70px; text-align:right;'>变化量</span>"
+            "<span style='flex:1;'>信念条</span>"
+            "<span style='width:80px; text-align:center;'>状态</span>"
+            "</div>"
+        )
+        for tk in all_tickers_sorted:
+            new_cv   = conv_state.get(tk, 0.0)
+            old_cv   = prev_conv_state.get(tk, 0.0)
+            fs       = factor_scores.get(tk, 0.0)
+            nm       = names.get(tk, tk)
+            is_holder = tk in _holder_set
+            is_sel   = tk in _selected_set
+            decay_used = cfg.get("holder_decay_rate", cfg["decay_rate"]) if is_holder else cfg["decay_rate"]
+            delta    = new_cv - old_cv
+
+            if is_sel:
+                row_color = "#1e2a1e"
+                tk_color  = "#F39C12"
+                badge     = "🛡️ 持仓"
+            elif new_cv >= _entry_th:
+                row_color = "#1a1f2a"
+                tk_color  = "#3498DB"
+                badge     = "达入选线"
+            elif new_cv >= _exit_th:
+                row_color = "#1a1a1a"
+                tk_color  = "#aaa"
+                badge     = "达退出线"
+            else:
+                row_color = "#111"
+                tk_color  = "#555"
+                badge     = "低于退出线"
+
+            bar_pct = min(new_cv / 100 * 100, 100)
+            entry_mark = int(_entry_th)
+            exit_mark  = int(_exit_th)
+            bar_color  = "#F39C12" if is_sel else ("#2ECC71" if new_cv >= _entry_th else (
+                "#888" if new_cv >= _exit_th else "#333"))
+            role_lbl = "在位" if is_holder else "挑战"
+            delta_clr = "#2ECC71" if delta >= 0 else "#E74C3C"
+
+            panel_a_html += (
+                f"<div style='display:flex; gap:6px; align-items:center; padding:4px 0;"
+                f" border-bottom:1px solid #222; background:{row_color}; font-size:13px;'>"
+                f"<span style='width:70px; font-weight:bold; color:{tk_color};'>{tk}</span>"
+                f"<span style='width:110px; color:#aaa; overflow:hidden; text-overflow:ellipsis;"
+                f" white-space:nowrap;'>{nm}</span>"
+                f"<span style='width:70px; text-align:right; color:#888;'>{old_cv:.0f}</span>"
+                f"<span style='width:70px; text-align:right; color:#888;'>{fs:.0f}</span>"
+                f"<span style='width:60px; text-align:center; color:{'#F39C12' if is_holder else '#3498DB'};'>"
+                f"{role_lbl}</span>"
+                f"<span style='width:70px; text-align:right; color:#888;'>{decay_used:.2f}</span>"
+                f"<span style='width:80px; text-align:right; font-weight:bold; color:{tk_color};'>"
+                f"{new_cv:.0f}</span>"
+                f"<span style='width:70px; text-align:right; color:{delta_clr};'>"
+                f"{delta:+.0f}</span>"
+                f"<div style='flex:1; position:relative; background:#1e1e1e;"
+                f" border-radius:4px; height:8px; min-width:80px;'>"
+                f"<div style='width:{bar_pct:.0f}%; background:{bar_color};"
+                f" border-radius:4px; height:8px;'></div>"
+                f"<div style='position:absolute; top:0; left:{entry_mark}%;"
+                f" width:2px; height:8px; background:#3498DB; opacity:0.8;'></div>"
+                f"<div style='position:absolute; top:0; left:{exit_mark}%;"
+                f" width:2px; height:8px; background:#E74C3C; opacity:0.8;'></div>"
+                f"</div>"
+                f"<span style='width:80px; text-align:center; font-size:13px; color:#aaa;'>"
+                f"{badge}</span>"
+                f"</div>"
+            )
+        st.markdown(
+            f"<div style='font-size:13px; color:#888; margin-bottom:4px;'>"
+            f"🔵 蓝线 = 入选线({_entry_th:.0f}) ｜ 🔴 红线 = 退出线({_exit_th:.0f}) ｜"
+            f" 🛡️ = 当前持仓 ｜ 按新信念降序</div>"
+            f"<div style='background:#111; border-radius:6px; padding:8px;'>"
+            f"{panel_a_html}</div>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── Panel B：守擂选拔推演 ─────────────────────────────────
+        st.markdown(
+            "<div style='font-size:15px; font-weight:bold; color:#2ECC71;"
+            " margin-bottom:8px;'>Panel B — 守擂选拔推演</div>",
+            unsafe_allow_html=True,
+        )
+        _action_color = {
+            "defending":  "#2ECC71",
+            "new_entry":  "#3498DB",
+            "challenged": "#F39C12",
+            "cold_start": "#9B59B6",
+            "dropped":    "#E74C3C",
+        }
+        _action_label = {
+            "defending":  "🛡️ 卫冕留任",
+            "new_entry":  "🆕 新晋入选",
+            "challenged": "⚔️ 挑战上位",
+            "cold_start": "🔰 冷启动",
+            "dropped":    "📉 信念退出",
+        }
+        panel_b_html = ""
+        for d in decisions:
+            _tk   = d["ticker"]
+            _act  = d["action"]
+            _det  = d["detail"]
+            _nm   = names.get(_tk, _tk)
+            _clr  = _action_color.get(_act, "#888")
+            _lbl  = _action_label.get(_act, _act)
+            _cv   = conv_state.get(_tk, 0.0)
+            panel_b_html += (
+                f"<div style='display:flex; align-items:center; gap:8px;"
+                f" padding:6px 8px; border-bottom:1px solid #222;"
+                f" border-left:3px solid {_clr}; margin-bottom:4px;"
+                f" background:#111; border-radius:0 4px 4px 0; font-size:13px;'>"
+                f"<span style='width:60px; font-weight:bold; color:{_clr};'>{_tk}</span>"
+                f"<span style='width:100px; color:#aaa;'>{_nm}</span>"
+                f"<span style='width:80px; font-weight:bold; color:{_clr};'>{_lbl}</span>"
+                f"<span style='color:#888;'>{_det}</span>"
+                f"<span style='margin-left:auto; color:#666; font-size:13px;'>"
+                f"信念: {_cv:.0f}</span>"
+                f"</div>"
+            )
+        st.markdown(
+            f"<div style='background:#0d0d0d; border-radius:6px; padding:8px;'>"
+            f"{panel_b_html}</div>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── Panel C：因子排名 vs 信念排名 ─────────────────────────
+        st.markdown(
+            "<div style='font-size:15px; font-weight:bold; color:#9B59B6;"
+            " margin-bottom:8px;'>Panel C — 因子排名 vs 信念排名对比</div>",
+            unsafe_allow_html=True,
+        )
+        tickers_with_scores = [t for t in factor_scores if t in conv_state]
+        factor_ranked  = sorted(tickers_with_scores, key=lambda t: factor_scores.get(t, 0.0), reverse=True)
+        conv_ranked    = sorted(tickers_with_scores, key=lambda t: conv_state.get(t, 0.0), reverse=True)
+        _top_k = min(max(_top_n * 2, 6), len(tickers_with_scores))
+
+        panel_c_html = (
+            "<div style='display:grid; grid-template-columns:1fr 1fr; gap:12px;'>"
+            "<div>"
+            "<div style='font-size:14px; color:#9B59B6; font-weight:bold; margin-bottom:6px;'>"
+            "📊 因子分 Top N</div>"
+        )
+        for i, tk in enumerate(factor_ranked[:_top_k]):
+            _fs  = factor_scores.get(tk, 0.0)
+            _cv  = conv_state.get(tk, 0.0)
+            _nm  = names.get(tk, tk)
+            _sel = tk in _selected_set
+            _clr = "#F39C12" if _sel else ("#2ECC71" if _cv >= _entry_th else "#888")
+            _sel_tag = " 🛡️" if _sel else ""
+            panel_c_html += (
+                f"<div style='display:flex; justify-content:space-between;"
+                f" padding:4px 0; border-bottom:1px solid #222; font-size:13px;'>"
+                f"<span style='color:{_clr}; font-weight:{'bold' if _sel else 'normal'};'>"
+                f"#{i+1} {tk} {_nm[:8]}{_sel_tag}</span>"
+                f"<span style='color:#888;'>F:{_fs:.0f} / C:{_cv:.0f}</span>"
+                f"</div>"
+            )
+        panel_c_html += "</div><div>"
+        panel_c_html += (
+            "<div style='font-size:14px; color:#F39C12; font-weight:bold; margin-bottom:6px;'>"
+            "🛡️ 信念分 Top N</div>"
+        )
+        for i, tk in enumerate(conv_ranked[:_top_k]):
+            _cv  = conv_state.get(tk, 0.0)
+            _fs  = factor_scores.get(tk, 0.0)
+            _nm  = names.get(tk, tk)
+            _sel = tk in _selected_set
+            _clr = "#F39C12" if _sel else ("#2ECC71" if _cv >= _entry_th else "#888")
+            _sel_tag = " 🛡️" if _sel else ""
+            panel_c_html += (
+                f"<div style='display:flex; justify-content:space-between;"
+                f" padding:4px 0; border-bottom:1px solid #222; font-size:13px;'>"
+                f"<span style='color:{_clr}; font-weight:{'bold' if _sel else 'normal'};'>"
+                f"#{i+1} {tk} {_nm[:8]}{_sel_tag}</span>"
+                f"<span style='color:#888;'>C:{_cv:.0f} / F:{_fs:.0f}</span>"
+                f"</div>"
+            )
+        panel_c_html += "</div></div>"
+        # Highlight divergence
+        diverged = [
+            t for t in tickers_with_scores
+            if (factor_ranked.index(t) < _top_n and t not in _selected_set)
+            or (t in _selected_set and factor_ranked.index(t) >= _top_n)
+        ]
+        if diverged:
+            div_tags = ", ".join(
+                f"<b style='color:#E74C3C;'>{t}</b>"
+                if (factor_ranked.index(t) < _top_n and t not in _selected_set)
+                else f"<b style='color:#F39C12;'>{t}</b>"
+                for t in diverged[:6]
+            )
+            panel_c_html += (
+                f"<div style='margin-top:8px; font-size:13px; color:#888;'>"
+                f"⚡ 因子/信念分歧标的：{div_tags}"
+                f"（<span style='color:#E74C3C;'>红</span>=因子高但信念未入选，"
+                f"<span style='color:#F39C12;'>橙</span>=因子低但信念守住席位）</div>"
+            )
+        st.markdown(
+            f"<div style='background:#111; border-radius:6px; padding:12px;'>"
+            f"{panel_c_html}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+# ─────────────────────────────────────────────────────────────────
 #  UI：单个竞技场 Tab 渲染函数
 # ─────────────────────────────────────────────────────────────────
 def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
@@ -2137,12 +2555,23 @@ else:
 
     _prev_grades_map = _load_prev_classification()
 
+    # Read hysteresis thresholds from session_state (set by sliders in whitebox section)
+    _hyst_thresholds = {
+        "a_income_enter": st.session_state.get("hyst_a_income_enter", 1.0),
+        "a_income_exit":  st.session_state.get("hyst_a_income_exit",  0.5),
+        "a_dd_enter":     st.session_state.get("hyst_a_dd_enter",    15.0),
+        "a_dd_exit":      st.session_state.get("hyst_a_dd_exit",     20.0),
+        "a_corr_enter":   st.session_state.get("hyst_a_corr_enter",  0.65),
+        "a_corr_exit":    st.session_state.get("hyst_a_corr_exit",   0.75),
+    }
+
     with st.spinner("⚙️ 正在执行并行 ABCD 分类（含滞后带）…"):
         _date_idx = len(_price_df) - 1
         all_assets = classify_all_at_date(
             _price_df, _date_idx, _SCREEN_TICKERS, _meta_live,
             tic_map=_TIC_MAP, prev_grades_map=_prev_grades_map,
             z_seed_tickers=_Z_SEED_TICKERS,
+            thresholds=_hyst_thresholds,
         )
 
     _new_grades_map = {
@@ -2425,23 +2854,38 @@ if _sel4 == "A":
         n_a = len(df_scored_a)
         _rt_selected_a = []
         _rt_decisions_a = []
+        _rt_old_conv_a: dict = {}
+
+        # Build conviction config from session_state sliders (defaults = CONVICTION_A_CONFIG)
+        _rt_conv_cfg_a = {
+            "decay_rate":        st.session_state.get("conv_a_decay",        CONVICTION_A_CONFIG["decay_rate"]),
+            "holder_decay_rate": st.session_state.get("conv_a_holder_decay", CONVICTION_A_CONFIG["holder_decay_rate"]),
+            "accumulate_rate":   st.session_state.get("conv_a_accum",        CONVICTION_A_CONFIG["accumulate_rate"]),
+            "entry_threshold":   float(st.session_state.get("conv_a_entry",  CONVICTION_A_CONFIG["entry_threshold"])),
+            "exit_threshold":    float(st.session_state.get("conv_a_exit",   CONVICTION_A_CONFIG["exit_threshold"])),
+            "challenge_margin":  float(st.session_state.get("conv_a_margin", CONVICTION_A_CONFIG["challenge_margin"])),
+            "max_conviction":    CONVICTION_A_CONFIG["max_conviction"],
+            "top_n":             int(st.session_state.get("conv_a_top_n",    CONVICTION_A_CONFIG["top_n"])),
+        }
+
         if n_a > 0:
             _rt_factor_scores_a = {
                 row["Ticker"]: float(row["竞技得分"])
                 for _, row in df_scored_a.iterrows()
             }
-            _rt_conv_state_a, _rt_conv_holders_a = _load_conviction_state("A")
+            _rt_prev_conv_a, _rt_conv_holders_a = _load_conviction_state("A")
+            _rt_old_conv_a = dict(_rt_prev_conv_a)  # snapshot before update for whitebox
             _rt_conv_state_a = _conv_update(
-                _rt_conv_state_a, _rt_factor_scores_a,
+                _rt_prev_conv_a, _rt_factor_scores_a,
                 current_holders=_rt_conv_holders_a,
-                config=CONVICTION_A_CONFIG,
+                config=_rt_conv_cfg_a,
             )
             _rt_names_a = {row["Ticker"]: row["名称"] for _, row in df_scored_a.iterrows()}
             _rt_selected_a, _rt_decisions_a = _conv_select(
                 _rt_conv_state_a, _rt_conv_holders_a,
                 ticker_names=_rt_names_a,
                 factor_scores=_rt_factor_scores_a,
-                config=CONVICTION_A_CONFIG,
+                config=_rt_conv_cfg_a,
             )
             _rt_new_holders_a = [s["ticker"] for s in _rt_selected_a]
 
@@ -2552,6 +2996,28 @@ if _sel4 == "A":
                     st.session_state["p4_champion_ticker"] = champ_ticker_a
                     st.success(f"已锁定 {champ_ticker_a}！请切换至 **5 个股深度猎杀** 页面。")
 
+        # ── 白盒加工台 ─────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown(
+            "<div style='font-size:16px; font-weight:bold; color:#F39C12;"
+            " margin-bottom:4px;'>🔬 白盒加工台 — 排行榜到 Top 3 的完整推演</div>",
+            unsafe_allow_html=True,
+        )
+        _ab_assets = st.session_state.get("abcd_classified_assets", {})
+        _render_hysteresis_whitebox(_ab_assets)
+        if n_a > 0:
+            _render_conviction_whitebox(
+                conv_state=_rt_conv_state_a,
+                prev_conv_state=_rt_old_conv_a,
+                holders=_rt_conv_holders_a,
+                factor_scores=_rt_factor_scores_a,
+                names=_rt_names_a,
+                cfg=_rt_conv_cfg_a,
+                selected=_rt_selected_a,
+                decisions=_rt_decisions_a,
+                group_cls="A",
+            )
+
 elif _sel4 == "B":
     df_b  = df_all[df_all["类别"] == "B"].copy()
     meta  = CLASS_META["B"]
@@ -2612,22 +3078,41 @@ elif _sel4 == "B":
         df_scored_b = compute_scorecard_b(df_b, macro_regime)
 
         n_b = len(df_scored_b)
+        _rt_selected = []
+        _rt_decisions = []
+        _rt_old_conv_b: dict = {}
+
+        # Build conviction config from session_state sliders (defaults = CONVICTION_B_CONFIG)
+        _rt_conv_cfg_b = {
+            "decay_rate":        st.session_state.get("conv_b_decay",        CONVICTION_B_CONFIG["decay_rate"]),
+            "holder_decay_rate": st.session_state.get("conv_b_holder_decay", CONVICTION_B_CONFIG["holder_decay_rate"]),
+            "accumulate_rate":   st.session_state.get("conv_b_accum",        CONVICTION_B_CONFIG["accumulate_rate"]),
+            "entry_threshold":   float(st.session_state.get("conv_b_entry",  CONVICTION_B_CONFIG["entry_threshold"])),
+            "exit_threshold":    float(st.session_state.get("conv_b_exit",   CONVICTION_B_CONFIG["exit_threshold"])),
+            "challenge_margin":  float(st.session_state.get("conv_b_margin", CONVICTION_B_CONFIG["challenge_margin"])),
+            "max_conviction":    CONVICTION_B_CONFIG["max_conviction"],
+            "top_n":             int(st.session_state.get("conv_b_top_n",    CONVICTION_B_CONFIG["top_n"])),
+        }
+
         if n_b > 0:
             # ── 信念积累 + 冠军守擂 ──
             _rt_factor_scores = {
                 row["Ticker"]: float(row["竞技得分"])
                 for _, row in df_scored_b.iterrows()
             }
-            _rt_conv_state, _rt_conv_holders = _load_conviction_state("B")
+            _rt_prev_conv_b, _rt_conv_holders = _load_conviction_state("B")
+            _rt_old_conv_b = dict(_rt_prev_conv_b)  # snapshot before update for whitebox
             _rt_conv_state = _conv_update(
-                _rt_conv_state, _rt_factor_scores,
+                _rt_prev_conv_b, _rt_factor_scores,
                 current_holders=_rt_conv_holders,
+                config=_rt_conv_cfg_b,
             )
             _rt_names = {row["Ticker"]: row["名称"] for _, row in df_scored_b.iterrows()}
             _rt_selected, _rt_decisions = _conv_select(
                 _rt_conv_state, _rt_conv_holders,
                 ticker_names=_rt_names,
                 factor_scores=_rt_factor_scores,
+                config=_rt_conv_cfg_b,
             )
             _rt_new_holders = [s["ticker"] for s in _rt_selected]
 
@@ -2729,51 +3214,6 @@ elif _sel4 == "B":
                     f"宏观适配 = {champ_b['因子7_分']:.1f}（{_regime_cn}剧本 — {_macro_verdict}）。"
                 )
 
-        # ── 全候选池信念值一览（白盒展开区） ──
-        if n_b > 0:
-            with st.expander("📊 全候选池信念值一览", expanded=False):
-                _sorted_conv = sorted(
-                    _rt_conv_state.items(), key=lambda x: x[1], reverse=True)
-                _entry_th = CONVICTION_B_CONFIG["entry_threshold"]
-                _exit_th  = CONVICTION_B_CONFIG["exit_threshold"]
-                _conv_rows_html = ""
-                for _ck, _cv in _sorted_conv:
-                    _in_top3 = _ck in _conv_top3_tickers
-                    _nm = _rt_names.get(_ck, _ck)
-                    _fs = _rt_factor_scores.get(_ck, 0.0)
-                    _bar_color = "#F39C12" if _in_top3 else (
-                        "#2ECC71" if _cv >= _entry_th else (
-                            "#555" if _cv >= _exit_th else "#333"))
-                    _pct = min(_cv / 100 * 100, 100)
-                    _badge = "🛡️" if _in_top3 else ""
-                    _conv_rows_html += (
-                        f"<div style='display:flex; align-items:center; gap:8px; "
-                        f"padding:4px 0; border-bottom:1px solid #1a1a1a;'>"
-                        f"<span style='width:70px; font-size:14px; font-weight:bold; "
-                        f"color:{'#F39C12' if _in_top3 else '#ccc'};'>{_ck}</span>"
-                        f"<span style='width:100px; font-size:13px; color:#888; "
-                        f"overflow:hidden; text-overflow:ellipsis; "
-                        f"white-space:nowrap;'>{_nm}</span>"
-                        f"<div style='flex:1; background:#1e1e1e; border-radius:4px; "
-                        f"height:8px;'>"
-                        f"<div style='width:{_pct:.0f}%; background:{_bar_color}; "
-                        f"border-radius:4px; height:8px;'></div></div>"
-                        f"<span style='width:50px; font-size:13px; font-weight:bold; "
-                        f"color:{_bar_color}; text-align:right;'>{_cv:.0f}</span>"
-                        f"<span style='width:50px; font-size:13px; color:#666; "
-                        f"text-align:right;'>F:{_fs:.0f}</span>"
-                        f"<span style='width:24px;'>{_badge}</span>"
-                        f"</div>"
-                    )
-                st.markdown(
-                    f"<div style='font-size:13px; color:#888; margin-bottom:6px;'>"
-                    f"入选线 = {_entry_th:.0f} ｜退出线 = {_exit_th:.0f} ｜"
-                    f"🛡️ = 当前持仓</div>"
-                    f"<div style='background:#111; border-radius:6px; padding:8px;'>"
-                    f"{_conv_rows_html}</div>",
-                    unsafe_allow_html=True,
-                )
-
         st.markdown("---")
         _render_leaderboard_b(df_scored_b)
 
@@ -2793,6 +3233,26 @@ elif _sel4 == "B":
                 if st.button("🎯 深度猎杀", key="hunt_B"):
                     st.session_state["p4_champion_ticker"] = champ_ticker_b
                     st.success(f"已锁定 {champ_ticker_b}！请切换至 **5 个股深度猎杀** 页面。")
+
+        # ── 白盒加工台 ─────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown(
+            "<div style='font-size:16px; font-weight:bold; color:#F39C12;"
+            " margin-bottom:4px;'>🔬 白盒加工台 — 排行榜到 Top 3 的完整推演</div>",
+            unsafe_allow_html=True,
+        )
+        if n_b > 0:
+            _render_conviction_whitebox(
+                conv_state=_rt_conv_state,
+                prev_conv_state=_rt_old_conv_b,
+                holders=_rt_conv_holders,
+                factor_scores=_rt_factor_scores,
+                names=_rt_names,
+                cfg=_rt_conv_cfg_b,
+                selected=_rt_selected,
+                decisions=_rt_decisions,
+                group_cls="B",
+            )
 
 elif _sel4 == "C":
     df_c = df_all[df_all["类别"] == "C"].copy()

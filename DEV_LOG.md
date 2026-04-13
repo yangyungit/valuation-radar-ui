@@ -2,6 +2,36 @@
 
 ---
 
+## 2026-04-13 | 白盒加工台：A/B 组分类迟滞 + 信念守擂全量推演（含可调参数）
+
+### 变动内容
+在"完整排行榜"与"历史月度 Top 3"之间插入了两层可交互白盒加工台，A、B 两组均适用。
+
+**① screener_engine.py — 迟滞阈值参数化**
+- `classify_asset_parallel()` 新增 `thresholds: dict = None` 参数，A 组的 6 个硬编码迟滞阈值（股息进入/退出、回撤进入/退出、相关性进入/退出）改为从 dict 读取，None 时用原默认值（完全向后兼容）。
+- `all_details["A"]` 新增 `_was_a`、`_enter_checks`、`_exit_checks`、`_div_yield`、`_max_dd`、`_spy_corr` 等白盒辅助字段，供前端审计表读取。
+- `classify_all_at_date()` 新增 `thresholds` 参数并透传给 `classify_asset_parallel()`。
+
+**② 3_资产细筛.py — 两个新白盒渲染函数**
+- `_render_hysteresis_whitebox(all_assets_dict)` — 第一层：展示所有候选标的的 A 组审计表（Ticker/名称/上期A/三项指标实际值/通过情况/迟滞效果），内置 6 个阈值 sliders，修改后即时生效（通过 session_state → classify_all_at_date rerun 链路）。
+- `_render_conviction_whitebox(...)` — 第二层：Panel A（信念积累明细+可视化信念条）、Panel B（守擂选拔逐步推演）、Panel C（因子排名 vs 信念排名对比+分歧高亮），内置 7 个信念参数 sliders，修改后即时重算并更新 Top N。
+
+**③ A 组改动**
+- 读取 session_state 中的信念参数 sliders，构建 `_rt_conv_cfg_a`，所有 `_conv_update` / `_conv_select` 调用改用此 config。
+- 在 `_conv_update` 前快照旧信念状态 `_rt_old_conv_a`，供白盒 Panel A 展示"旧→新"变化量。
+- `_render_leaderboard(df_scored_a, "A")` 之后追加白盒加工台（分类迟滞 + 信念守擂）。
+
+**④ B 组改动**（与 A 组平行）
+- 同样构建 `_rt_conv_cfg_b`（含 7 个 session_state slider keys）、快照 `_rt_old_conv_b`。
+- 移除旧的"全候选池信念值一览"展开区，替换为统一的 `_render_conviction_whitebox` 调用。
+- `_render_leaderboard_b(df_scored_b)` 之后追加白盒加工台。
+
+### 影响范围
+- `screener_engine.py`：2 个函数签名变更（向后兼容），`all_details["A"]` 字段新增
+- `pages/3_资产细筛.py`：新增约 280 行白盒函数，A/B 组各约 20 行改动，移除旧的 B 组信念一览展开区
+
+---
+
 ## 2026-04-12 | A 级评分卡重构：F2 现金奶牛改为 FCF 收益率，删除 F4 绝对低波，带鱼质量升权至 30%
 
 ### 重构动机

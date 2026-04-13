@@ -109,6 +109,7 @@ _GRADE_PRIORITY = {"A": 0, "B": 1, "Z": 2, "C": 3, "D": 4}
 def classify_asset_parallel(
     m: dict, div_yield: float, mcap: float,
     prev_grades: list = None,
+    thresholds: dict = None,
 ) -> tuple:
     """Parallel independent evaluation of all 4 grades with hysteresis.
 
@@ -116,37 +117,60 @@ def classify_asset_parallel(
     Each grade is evaluated independently; an asset can qualify for multiple grades.
     When ``prev_grades`` includes a grade, that grade uses relaxed exit thresholds
     instead of strict entry thresholds (hysteresis band).
+
+    Parameters
+    ----------
+    thresholds : Optional dict with keys for A-grade hysteresis thresholds:
+        a_income_enter (default 1.0), a_income_exit (default 0.5),
+        a_dd_enter (default 15.0), a_dd_exit (default 20.0),
+        a_corr_enter (default 0.65), a_corr_exit (default 0.75).
+        None means use original defaults (fully backward-compatible).
     """
     if not m.get("has_data"):
         return [], {"error": "数据不足"}
 
     prev = set(prev_grades or [])
+    th = thresholds or {}
     grades = []
     all_details = {}
 
     # ── A: Anchor (defensive) ──
     was_a = "A" in prev
-    a_income_enter = div_yield >= 1.0 or m.get("slow_bullish", False)
-    a_income_exit  = div_yield < 0.5 and not m.get("slow_bullish", False)
-    a_dd_enter     = m["max_dd"] < 15.0
-    a_dd_exit      = m["max_dd"] > 20.0
-    a_corr_enter   = m["spy_corr"] < 0.65
-    a_corr_exit    = m["spy_corr"] > 0.75
+    _a_ie = float(th.get("a_income_enter", 1.0))
+    _a_ix = float(th.get("a_income_exit",  0.5))
+    _a_de = float(th.get("a_dd_enter",    15.0))
+    _a_dx = float(th.get("a_dd_exit",     20.0))
+    _a_ce = float(th.get("a_corr_enter",  0.65))
+    _a_cx = float(th.get("a_corr_exit",   0.75))
+
+    a_income_enter = div_yield >= _a_ie or m.get("slow_bullish", False)
+    a_income_exit  = div_yield < _a_ix and not m.get("slow_bullish", False)
+    a_dd_enter     = m["max_dd"] < _a_de
+    a_dd_exit      = m["max_dd"] > _a_dx
+    a_corr_enter   = m["spy_corr"] < _a_ce
+    a_corr_exit    = m["spy_corr"] > _a_cx
 
     if was_a:
         a_pass = not a_income_exit and not a_dd_exit and not a_corr_exit
     else:
         a_pass = a_income_enter and a_dd_enter and a_corr_enter
 
-    div_tag = f"股息 {div_yield:.1f}%" if div_yield >= 1.0 else ("慢趋势健康(MA60>MA200)" if m.get("slow_bullish") else "无收益来源")
+    div_tag = f"股息 {div_yield:.1f}%" if div_yield >= _a_ie else ("慢趋势健康(MA60>MA200)" if m.get("slow_bullish") else "无收益来源")
     all_details["A"] = {
         "pass": a_pass,
         "收益来源(股息/慢趋势)": (a_income_enter if not was_a else not a_income_exit,
-                               f"{div_tag}（进入需股息≥1%或MA60>MA200；退出需股息<0.5%且MA60<MA200）"),
+                               f"{div_tag}（进入需股息≥{_a_ie:.1f}%或MA60>MA200；退出需股息<{_a_ix:.1f}%且MA60<MA200）"),
         "1年最大回撤": (a_dd_enter if not was_a else not a_dd_exit,
-                      f"{m['max_dd']:.1f}%（进入<15%，退出>20%）"),
+                      f"{m['max_dd']:.1f}%（进入<{_a_de:.0f}%，退出>{_a_dx:.0f}%）"),
         "SPY相关性":   (a_corr_enter if not was_a else not a_corr_exit,
-                      f"{m['spy_corr']:.2f}（进入<0.65，退出>0.75）"),
+                      f"{m['spy_corr']:.2f}（进入<{_a_ce:.2f}，退出>{_a_cx:.2f}）"),
+        # Extra keys for whitebox (non-destructive additions)
+        "_was_a":       was_a,
+        "_enter_checks": (a_income_enter, a_dd_enter, a_corr_enter),
+        "_exit_checks":  (a_income_exit,  a_dd_exit,  a_corr_exit),
+        "_div_yield":    div_yield,
+        "_max_dd":       m.get("max_dd", 0.0),
+        "_spy_corr":     m.get("spy_corr", 0.0),
     }
     if a_pass:
         grades.append("A")
@@ -342,6 +366,7 @@ def classify_all_at_date(
     tic_map: dict = None,
     prev_grades_map: dict = None,
     z_seed_tickers: set = None,
+    thresholds: dict = None,
 ) -> dict:
     """Run the full parallel ABCD classification at a specific historical date.
 
@@ -406,7 +431,7 @@ def classify_all_at_date(
         cn_name   = tic_map.get(ticker, ticker)
         prev_g    = prev_grades_map.get(ticker, [])
 
-        q_grades, details = classify_asset_parallel(m, div_yield, mcap, prev_grades=prev_g)
+        q_grades, details = classify_asset_parallel(m, div_yield, mcap, prev_grades=prev_g, thresholds=thresholds)
 
         if ticker in _z_seeds and "A" in q_grades:
             q_grades = [g for g in q_grades if g != "A"]
