@@ -3517,7 +3517,7 @@ with _bf_col2:
 with _bf_col3:
     st.markdown(
         "<div style='font-size:13px; color:#666; padding-top:8px;'>"
-        "注：每月末先 Point-in-Time 重新跑粗筛分拣（消除前视偏差），再在各赛道内评分。"
+        "注：每月末先 Point-in-Time 重新执行 ABCD 分类（消除前视偏差），再在各赛道内评分。"
         "首次下载约需 60-120 秒（5年数据量较大）。</div>",
         unsafe_allow_html=True,
     )
