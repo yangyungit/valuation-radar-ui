@@ -618,7 +618,36 @@ def clear_api_caches():
 
 
 # ==========================================
-# 3. 叙事引擎 API 客户端 (Narrative Engine)
+# 3. 信念状态 API 客户端 (Conviction State)
+# ==========================================
+
+def fetch_conviction_state(cls: str) -> tuple[dict, list]:
+    """从后端 universe.db 读取信念状态。失败时返回 ({}, [])。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/conviction_state/{cls}", timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return data.get("state", {}), data.get("holders", [])
+    except Exception:
+        return {}, []
+
+
+def push_conviction_state(cls: str, state: dict, holders: list) -> bool:
+    """将信念状态推送到后端 universe.db 持久化。返回是否成功。"""
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/conviction_state/{cls}",
+            json={"state": state, "holders": holders},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json().get("success", False)
+    except Exception:
+        return False
+
+
+# ==========================================
+# 4. 叙事引擎 API 客户端 (Narrative Engine)
 # ==========================================
 
 def _narrative_get(path, params=None):

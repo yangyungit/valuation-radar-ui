@@ -12,6 +12,8 @@ from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         get_arena_a_factors, get_arena_b_factors,
                         get_arena_c_factors, get_arena_d_factors,
                         fetch_l2_l3_detail, get_batch_ticker_cooccurrence,
+                        fetch_conviction_state as _api_fetch_conv,
+                        push_conviction_state as _api_push_conv,
                         API_BASE_URL)
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
@@ -354,7 +356,10 @@ def _record_arena_history(cls: str, top3_records: list, month_key: str = None) -
 
 
 def _save_conviction_state(cls: str, state: dict, holders: list) -> None:
-    """将信念状态持久化到 arena_history.json 的 meta key 中。"""
+    """持久化信念状态：优先写入后端 universe.db，同时保留本地 JSON 作为缓存。"""
+    # 1. 后端持久化（主存储，防止前端文件意外丢失）
+    _api_push_conv(cls, state, holders)
+    # 2. 本地 JSON 同步写入（供离线/断网时回退）
     history = _load_arena_history()
     history[f"_conviction_{cls}"] = state
     history[f"_holders_{cls}"] = holders
@@ -367,7 +372,11 @@ def _save_conviction_state(cls: str, state: dict, holders: list) -> None:
 
 
 def _load_conviction_state(cls: str) -> tuple[dict, list]:
-    """从 arena_history.json 加载信念状态。返回 (state_dict, holders_list)。"""
+    """加载信念状态：优先从后端 universe.db 读取，失败时降级到本地 JSON。"""
+    state, holders = _api_fetch_conv(cls)
+    if state:
+        return state, holders
+    # 降级：从本地 JSON 读取
     history = _load_arena_history()
     state   = history.get(f"_conviction_{cls}", {})
     holders = history.get(f"_holders_{cls}", [])
@@ -670,8 +679,12 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
             _record_arena_history(cls, top3, month_key=month_key)
 
         saved += 1
+        # Checkpoint：每 6 个月持久化一次信念状态，防止中断丢失
+        if saved % 6 == 0:
+            _save_conviction_state("A", _bf_conv_state_a, _bf_conv_holders_a)
+            _save_conviction_state("B", _bf_conv_state, _bf_conv_holders)
 
-    # 回填结束后持久化 A/B 组信念状态
+    # 回填结束后最终持久化 A/B 组信念状态
     _save_conviction_state("A", _bf_conv_state_a, _bf_conv_holders_a)
     _save_conviction_state("B", _bf_conv_state, _bf_conv_holders)
     return saved, ""

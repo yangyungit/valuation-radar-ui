@@ -2,6 +2,33 @@
 
 ---
 
+## 2026-04-13 | 信念状态迁移至后端持久化 + 回填 Checkpoint 防中断丢失
+
+### 背景 & 问题
+信念状态（conviction_state）此前仅存储于前端 `data/arena_history.json`。一旦该文件被意外清空，或历史回填中途被 Streamlit 中断（`_save_conviction_state` 只在循环结束后调用一次），积累的多月信念值全部归零，导致显示"冷启动"而非应有的"卫冕留任"。
+
+### 变动内容
+
+#### 后端（`valuation-radar`）
+- **`universe_manager.py`**：新增 `conviction_state` 表（SQLite, `universe.db`），字段 `cls / state_json / holders_json / updated_at`；新增 `get_conviction_state(cls)` 和 `save_conviction_state(cls, state, holders)` 两个 CRUD 函数；`init_db()` 同步建表（幂等）。
+- **`api_server.py`**：新增两个端点：
+  - `GET  /api/v1/conviction_state/{cls}` — 从 universe.db 读取指定组别（A/B）信念状态
+  - `POST /api/v1/conviction_state/{cls}` — 写入/更新信念状态
+
+#### 前端（`valuation-radar-ui`）
+- **`api_client.py`**：新增 `fetch_conviction_state(cls)` 和 `push_conviction_state(cls, state, holders)` 两个封装函数，调用上述后端端点，网络失败时安全返回空值。
+- **`pages/3_资产细筛.py`**：
+  - `_load_conviction_state`：优先从后端 API 读取，失败时降级到本地 JSON（离线兜底）。
+  - `_save_conviction_state`：同时写入后端 API（主存储）和本地 JSON（缓存副本）。
+  - **回填循环**：每处理 6 个月执行一次 checkpoint `_save_conviction_state`，防止长回填任务中断后丢失所有进度。
+
+### 影响范围
+- 信念状态现在有双重保障：后端 SQLite 为主，前端 JSON 为缓存。
+- 即使前端文件全部删除，下次重启后加载信念状态仍走后端 API 恢复。
+- 即使回填任务在第 N 个月被中断，至多损失最后不超过 6 个月的积累进度。
+
+---
+
 ## 2026-04-13 | 排行榜布局优化：信念值列前移，移除冗余得分栏
 
 ### 变动内容
