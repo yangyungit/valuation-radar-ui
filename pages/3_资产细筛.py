@@ -2647,64 +2647,6 @@ else:
 
     st.session_state["abcd_classified_assets"] = all_assets
 
-# ─────────────────────────────────────────────────────────────────
-#  分类概览（Expander）
-# ─────────────────────────────────────────────────────────────────
-if not demo_mode:
-    _GRADE_COLORS = {"A": "#3498DB", "B": "#F39C12", "C": "#2ECC71", "D": "#9B59B6"}
-    _GRADE_ICONS  = {"A": "⚓", "B": "🦍", "C": "👑", "D": "🚀"}
-    with st.expander("📋 分类概览 — 并行独立评估结果（点击展开）"):
-        _overview_cols = st.columns(5)
-        _grade_counts = {"A": 0, "B": 0, "C": 0, "D": 0, "?": 0}
-        for _t, _info in all_assets.items():
-            for _g in _info.get("qualifying_grades", []):
-                if _g in _grade_counts:
-                    _grade_counts[_g] += 1
-            if not _info.get("qualifying_grades"):
-                _grade_counts["?"] += 1
-
-        for _i, _g in enumerate(["A", "B", "C", "D", "?"]):
-            with _overview_cols[_i]:
-                _gc = _GRADE_COLORS.get(_g, "#888")
-                _gi = _GRADE_ICONS.get(_g, "❓")
-                _lbl = CLASS_META[_g]["label"] if _g in CLASS_META else "待分类"
-                st.markdown(
-                    f"<div style='text-align:center; padding:10px; "
-                    f"border:1px solid {_gc}44; border-radius:8px;'>"
-                    f"<div style='font-size:22px;'>{_gi}</div>"
-                    f"<div style='font-size:24px; font-weight:bold; color:{_gc};'>"
-                    f"{_grade_counts[_g]}</div>"
-                    f"<div style='font-size:13px; color:#bbb;'>{_lbl}</div></div>",
-                    unsafe_allow_html=True,
-                )
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.caption(
-            "并行评估模式下同一资产可同时符合多个级别（如 B+C），"
-            "各赛道独立评分时将包含所有 qualifying 该级别的资产。"
-        )
-
-        _multi_grade = [
-            (t, info) for t, info in all_assets.items()
-            if len(info.get("qualifying_grades", [])) > 1
-        ]
-        if _multi_grade:
-            st.markdown("**多级别资产：**")
-            for _t, _info in sorted(_multi_grade, key=lambda x: x[0]):
-                _badges = " ".join(
-                    f"<span style='background:{_GRADE_COLORS.get(g, '#888')}22; "
-                    f"color:{_GRADE_COLORS.get(g, '#888')}; padding:2px 8px; "
-                    f"border-radius:10px; font-size:13px; border:1px solid "
-                    f"{_GRADE_COLORS.get(g, '#888')}55;'>{g}</span>"
-                    for g in _info["qualifying_grades"]
-                )
-                st.markdown(
-                    f"<span style='font-weight:bold; color:#eee;'>{_t}</span> "
-                    f"({_info.get('cn_name', _t)}) → {_badges}",
-                    unsafe_allow_html=True,
-                )
-
-    st.markdown("---")
 
 # ─────────────────────────────────────────────────────────────────
 #  构建全量 DataFrame（并行模式：每个 qualifying grade 一行）
