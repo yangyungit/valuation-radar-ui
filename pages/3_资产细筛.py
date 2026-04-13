@@ -2537,8 +2537,11 @@ with st.sidebar:
                 try:
                     if os.path.exists(_HISTORY_FILE):
                         os.remove(_HISTORY_FILE)
+                    # 同步清零 A/B 组信念状态，防止删除历史后残留信念积分影响公平性
+                    _api_push_conv("A", {}, [])
+                    _api_push_conv("B", {}, [])
                     st.session_state.pop("_confirm_delete_history", None)
-                    st.success("历史档案已清空！")
+                    st.success("历史档案及 A/B 组信念状态已同步清空！")
                     st.rerun()
                 except Exception as _e:
                     st.error(f"删除失败：{_e}")
