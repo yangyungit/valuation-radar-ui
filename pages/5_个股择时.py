@@ -1,5 +1,6 @@
 import os
 import json
+from typing import NamedTuple
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -122,6 +123,283 @@ def _fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
         except TypeError:
             w.index = w.index.tz_convert(None)
     return w
+
+
+# ── 择时策略接口标准 ──────────────────────────────────────────────────
+class TimingResult(NamedTuple):
+    signals: list       # [{"date": Timestamp, "type": "buy"/"sell", "price": float}, ...]
+    benched_zones: list  # [(start_date, end_date), ...]
+    timed_rets: list    # 每个 roster period 的择时收益 %
+    raw_rets: list      # 每个 roster period 的名单原始收益 %（各工具相同）
+    overlays: list      # [{"label": str, "series": pd.Series, "color": str, "dash": str}]
+
+
+def _timing_ma_cross(wk_df: pd.DataFrame, roster_periods: list,
+                     fast_weeks: int = 12, slow_weeks: int = None, **kwargs) -> TimingResult:
+    """MA 金叉死叉（或价格 vs 生命线）策略。
+    fast_weeks: 快线 MA 周期；slow_weeks: 慢线 MA 周期（None 时退化为价格 vs 快线）。
+    """
+    close = wk_df["Close"].astype(float)
+    fast_ma = close.rolling(fast_weeks, min_periods=fast_weeks).mean()
+    use_cross = slow_weeks is not None
+    slow_ma = close.rolling(slow_weeks, min_periods=slow_weeks).mean() if use_cross else None
+
+    signals, benched_zones = [], []
+    timed_rets, raw_rets = [], []
+
+    for sm, em in roster_periods:
+        sd = pd.Timestamp(f"{sm}-01")
+        ed = pd.Timestamp(f"{em}-01") + pd.offsets.MonthEnd(1)
+        mask = (wk_df.index >= sd) & (wk_df.index <= ed)
+        seg_c = close[mask]
+        seg_fast = fast_ma[mask]
+        seg_slow = slow_ma[mask] if use_cross else None
+
+        if seg_c.empty:
+            timed_rets.append(0.0)
+            raw_rets.append(0.0)
+            continue
+
+        raw_ep = float(seg_c.iloc[0])
+        raw_xp = float(seg_c.iloc[-1])
+        raw_rets.append((raw_xp / raw_ep - 1) * 100 if raw_ep > 0 else 0.0)
+
+        in_pos, entry_p, cum = False, None, 1.0
+        bench_start = None
+
+        for dt in seg_c.index:
+            p = float(seg_c.loc[dt])
+            fv = seg_fast.loc[dt]
+
+            if use_cross:
+                sv = seg_slow.loc[dt]
+                if pd.isna(fv) or pd.isna(sv):
+                    if not in_pos and bench_start is None:
+                        bench_start = dt
+                    continue
+                fv_f, sv_f = float(fv), float(sv)
+                if not in_pos:
+                    if fv_f > sv_f:
+                        signals.append({"date": dt, "type": "buy", "price": p})
+                        in_pos, entry_p = True, p
+                        if bench_start is not None:
+                            benched_zones.append((bench_start, dt))
+                            bench_start = None
+                    elif bench_start is None:
+                        bench_start = dt
+                else:
+                    if fv_f < sv_f:
+                        signals.append({"date": dt, "type": "sell", "price": p})
+                        if entry_p and entry_p > 0:
+                            cum *= p / entry_p
+                        in_pos, entry_p = False, None
+                        bench_start = dt
+            else:
+                if pd.isna(fv):
+                    if not in_pos and bench_start is None:
+                        bench_start = dt
+                    continue
+                mv = float(fv)
+                if not in_pos:
+                    if p > mv:
+                        signals.append({"date": dt, "type": "buy", "price": p})
+                        in_pos, entry_p = True, p
+                        if bench_start is not None:
+                            benched_zones.append((bench_start, dt))
+                            bench_start = None
+                    elif bench_start is None:
+                        bench_start = dt
+                else:
+                    if p < mv:
+                        signals.append({"date": dt, "type": "sell", "price": p})
+                        if entry_p and entry_p > 0:
+                            cum *= p / entry_p
+                        in_pos, entry_p = False, None
+                        bench_start = dt
+
+        if in_pos and entry_p and entry_p > 0:
+            last_p = float(seg_c.iloc[-1])
+            signals.append({"date": seg_c.index[-1], "type": "sell", "price": last_p})
+            cum *= last_p / entry_p
+        if bench_start is not None and not seg_c.empty:
+            benched_zones.append((bench_start, seg_c.index[-1]))
+        timed_rets.append((cum - 1) * 100)
+
+    overlays = []
+    fast_label = f"MA{fast_weeks}w" + (" 快线" if use_cross else " 生命线")
+    overlays.append({"label": fast_label, "series": fast_ma, "color": "#E74C3C", "dash": "dash"})
+    if slow_ma is not None:
+        overlays.append({"label": f"MA{slow_weeks}w 慢线", "series": slow_ma,
+                         "color": "#F39C12", "dash": "dash"})
+    return TimingResult(signals, benched_zones, timed_rets, raw_rets, overlays)
+
+
+def _timing_break_ma(wk_df: pd.DataFrame, roster_periods: list,
+                     ma_weeks: int, line_color: str, **kwargs) -> TimingResult:
+    """价格跌破 MA 生命线策略（通用实现，供 break_ma60 / break_ma20 复用）。"""
+    close = wk_df["Close"].astype(float)
+    ma = close.rolling(ma_weeks, min_periods=ma_weeks).mean()
+    signals, benched_zones = [], []
+    timed_rets, raw_rets = [], []
+
+    for sm, em in roster_periods:
+        sd = pd.Timestamp(f"{sm}-01")
+        ed = pd.Timestamp(f"{em}-01") + pd.offsets.MonthEnd(1)
+        mask = (wk_df.index >= sd) & (wk_df.index <= ed)
+        seg_c = close[mask]
+        seg_ma = ma[mask]
+
+        if seg_c.empty:
+            timed_rets.append(0.0)
+            raw_rets.append(0.0)
+            continue
+
+        raw_ep = float(seg_c.iloc[0])
+        raw_xp = float(seg_c.iloc[-1])
+        raw_rets.append((raw_xp / raw_ep - 1) * 100 if raw_ep > 0 else 0.0)
+
+        in_pos, entry_p, cum = False, None, 1.0
+        bench_start = None
+
+        for dt in seg_c.index:
+            p = float(seg_c.loc[dt])
+            mv_raw = seg_ma.loc[dt]
+            if pd.isna(mv_raw):
+                if not in_pos and bench_start is None:
+                    bench_start = dt
+                continue
+            mv = float(mv_raw)
+            if not in_pos:
+                if p > mv:
+                    signals.append({"date": dt, "type": "buy", "price": p})
+                    in_pos, entry_p = True, p
+                    if bench_start is not None:
+                        benched_zones.append((bench_start, dt))
+                        bench_start = None
+                elif bench_start is None:
+                    bench_start = dt
+            else:
+                if p < mv:
+                    signals.append({"date": dt, "type": "sell", "price": p})
+                    if entry_p and entry_p > 0:
+                        cum *= p / entry_p
+                    in_pos, entry_p = False, None
+                    bench_start = dt
+
+        if in_pos and entry_p and entry_p > 0:
+            last_p = float(seg_c.iloc[-1])
+            signals.append({"date": seg_c.index[-1], "type": "sell", "price": last_p})
+            cum *= last_p / entry_p
+        if bench_start is not None and not seg_c.empty:
+            benched_zones.append((bench_start, seg_c.index[-1]))
+        timed_rets.append((cum - 1) * 100)
+
+    overlays = [{"label": f"MA{ma_weeks}w", "series": ma, "color": line_color, "dash": "dash"}]
+    return TimingResult(signals, benched_zones, timed_rets, raw_rets, overlays)
+
+
+def _timing_break_ma60(wk_df: pd.DataFrame, roster_periods: list, **kwargs) -> TimingResult:
+    """价格跌破 MA60w 生命线策略。"""
+    return _timing_break_ma(wk_df, roster_periods, ma_weeks=60, line_color="#3498DB")
+
+
+def _timing_break_ma20(wk_df: pd.DataFrame, roster_periods: list, **kwargs) -> TimingResult:
+    """价格跌破 MA20w 线策略。"""
+    return _timing_break_ma(wk_df, roster_periods, ma_weeks=20, line_color="#9B59B6")
+
+
+def _timing_rapid_drop(wk_df: pd.DataFrame, roster_periods: list,
+                       drop_pct: float = 8.0, **kwargs) -> TimingResult:
+    """急跌速断器：默认持仓；单周跌幅 > drop_pct% 紧急清仓；价格重新站上 MA12w 后回场。"""
+    close = wk_df["Close"].astype(float)
+    ma12 = close.rolling(12, min_periods=12).mean()
+    wk_ret_pct = close.pct_change() * 100
+
+    signals, benched_zones = [], []
+    timed_rets, raw_rets = [], []
+
+    for sm, em in roster_periods:
+        sd = pd.Timestamp(f"{sm}-01")
+        ed = pd.Timestamp(f"{em}-01") + pd.offsets.MonthEnd(1)
+        mask = (wk_df.index >= sd) & (wk_df.index <= ed)
+        seg_c = close[mask]
+        seg_ma12 = ma12[mask]
+        seg_wkret = wk_ret_pct[mask]
+
+        if seg_c.empty:
+            timed_rets.append(0.0)
+            raw_rets.append(0.0)
+            continue
+
+        raw_ep = float(seg_c.iloc[0])
+        raw_xp = float(seg_c.iloc[-1])
+        raw_rets.append((raw_xp / raw_ep - 1) * 100 if raw_ep > 0 else 0.0)
+
+        in_pos = True
+        entry_p = raw_ep
+        cum = 1.0
+        bench_start = None
+        signals.append({"date": seg_c.index[0], "type": "buy", "price": raw_ep})
+
+        for dt in seg_c.index:
+            p = float(seg_c.loc[dt])
+            wkr_raw = seg_wkret.loc[dt]
+            wkr = float(wkr_raw) if not pd.isna(wkr_raw) else 0.0
+            mv_raw = seg_ma12.loc[dt]
+            mv = float(mv_raw) if not pd.isna(mv_raw) else None
+
+            if in_pos:
+                if wkr < -drop_pct:
+                    signals.append({"date": dt, "type": "sell", "price": p})
+                    if entry_p and entry_p > 0:
+                        cum *= p / entry_p
+                    in_pos = False
+                    entry_p = None
+                    bench_start = dt
+            else:
+                if mv is not None and p > mv:
+                    signals.append({"date": dt, "type": "buy", "price": p})
+                    in_pos = True
+                    entry_p = p
+                    if bench_start is not None:
+                        benched_zones.append((bench_start, dt))
+                        bench_start = None
+
+        if in_pos and entry_p and entry_p > 0:
+            last_p = float(seg_c.iloc[-1])
+            last_dt = seg_c.index[-1]
+            last_sig = signals[-1] if signals else None
+            if not (last_sig and last_sig["type"] == "sell" and last_sig["date"] == last_dt):
+                signals.append({"date": last_dt, "type": "sell", "price": last_p})
+            cum *= last_p / entry_p
+        if bench_start is not None and not seg_c.empty:
+            benched_zones.append((bench_start, seg_c.index[-1]))
+        timed_rets.append((cum - 1) * 100)
+
+    overlays = [{"label": "MA12w 参考线", "series": ma12, "color": "#E67E22", "dash": "dot"}]
+    return TimingResult(signals, benched_zones, timed_rets, raw_rets, overlays)
+
+
+_TIMING_TOOLS = {
+    "ma_cross":   {"label": "MA金叉死叉",    "fn": _timing_ma_cross,   "desc": "MA12w/MA60w 金叉买入、死叉卖出"},
+    "break_ma60": {"label": "跌破MA60生命线", "fn": _timing_break_ma60, "desc": "价格站上 MA60w 买入、跌破卖出"},
+    "break_ma20": {"label": "跌破MA20线",    "fn": _timing_break_ma20, "desc": "价格站上 MA20w 买入、跌破卖出"},
+    "rapid_drop": {"label": "急跌速断器",    "fn": _timing_rapid_drop,  "desc": "单周暴跌超阈值紧急卖出"},
+}
+
+_TOOL_COLORS = {
+    "ma_cross":   {"buy": "#2ECC71", "sell": "#E74C3C"},
+    "break_ma60": {"buy": "#3498DB", "sell": "#1A6EA8"},
+    "break_ma20": {"buy": "#9B59B6", "sell": "#7D3C98"},
+    "rapid_drop": {"buy": "#E67E22", "sell": "#CA6F1E"},
+}
+
+_TOOL_SYMBOLS = {
+    "ma_cross":   {"buy": "triangle-up",  "sell": "triangle-down"},
+    "break_ma60": {"buy": "diamond",      "sell": "diamond"},
+    "break_ma20": {"buy": "circle",       "sell": "circle"},
+    "rapid_drop": {"buy": "star",         "sell": "star"},
+}
 
 
 if _arena_data:
@@ -325,30 +603,8 @@ st.header("🕐 竞技场持仓择时回顾")
 st.caption("复盘各赛道历史选股 — 🟩 绿色区域 = 细筛入选 | ▲ 买入 ▼ 卖出 = MA 择时信号")
 
 if _arena_data:
-    # ── 择时风控逻辑白盒 ──
-    with st.expander("📐 择时风控逻辑白盒 — 点击展开", expanded=False):
-        st.markdown("""
-<div class='timing-box'>
-<b style='font-size:15px; color:#2ECC71;'>核心原则：细筛选人，择时决定上/下场</b><br><br>
-<b>📊 图表解读</b><br>
-&nbsp;&nbsp;• <b style='color:#2ECC71;'>🟩 绿色半透明区域</b> = 标的在竞技场候选名单中（细筛入选，月度更新）<br>
-&nbsp;&nbsp;• <b style='color:#2ECC71;'>▲ 绿色三角</b> = 择时买入（A/B: MA12w 金叉 MA60w | C/D: 价格站上生命线）<br>
-&nbsp;&nbsp;• <b style='color:#E74C3C;'>▼ 红色三角</b> = 择时卖出（A/B: MA12w 死叉 MA60w | C/D: 价格跌破生命线 | 退出名单强制平仓）<br>
-&nbsp;&nbsp;• <b style='color:#E74C3C;'>━ 红色虚线</b> = 快线 MA（A/B: MA12w | C: MA8w | D: MA4w）<br>
-&nbsp;&nbsp;• <b style='color:#F39C12;'>━ 橙色虚线</b> = 慢线 MA60w（仅 A/B 组，用于金叉 / 死叉判定）<br><br>
-<b>🔄 两层决策分离</b><br>
-&nbsp;&nbsp;① <b>细筛层（慢）</b>：月度 Arena 排名 → 决定「谁有资格进组合」→ 对应绿色区域<br>
-&nbsp;&nbsp;② <b>择时层（快）</b>：周度 MA 信号 → 决定「此刻该持有还是暂泊」→ 对应箭头信号<br>
-&nbsp;&nbsp;在名单 ≠ 在持仓，择时信号决定实际上/下车，退出名单时自动平仓。<br><br>
-<b>📏 各级别生命线标准</b><br>
-&nbsp;&nbsp;• <b>A/B 组</b>（长持型）：MA12w / MA60w 金叉死叉 ≈ 日线 MA60 / MA300 交叉，最大幅减少 whipsaw<br>
-&nbsp;&nbsp;• <b>C 组</b>（趋势型）：8 周 MA ≈ 日线 MA40，中等灵敏<br>
-&nbsp;&nbsp;• <b>D 组</b>（短线型）：4 周 MA ≈ 日线 MA20，快速反应
-</div>
-""", unsafe_allow_html=True)
-
     # ── 用户控件 ──
-    _cc1, _cc2 = st.columns([1, 3])
+    _cc1, _cc2, _cc3 = st.columns([1, 3, 2])
     with _cc1:
         _tm_cls = st.selectbox(
             "选择赛道", ["A", "B", "C", "D"],
@@ -361,105 +617,63 @@ if _arena_data:
             default=_all_tk[:2] if len(_all_tk) >= 2 else _all_tk,
             key="tm_sel",
         )
+    with _cc3:
+        _tm_tools_sel = st.multiselect(
+            "择时工具（可多选对比）",
+            list(_TIMING_TOOLS.keys()),
+            default=["ma_cross"],
+            format_func=lambda x: _TIMING_TOOLS[x]["label"],
+            key="tm_tools_sel",
+        )
+    if not _tm_tools_sel:
+        _tm_tools_sel = ["ma_cross"]
 
-    def _compute_timing(wk_df: pd.DataFrame, roster_periods: list,
-                        ma_weeks: int = 12, slow_ma_weeks: int = None) -> tuple:
-        """MA 择时：返回 (signals, benched_zones, timed_rets, raw_rets, fast_ma, slow_ma)。
-        当 slow_ma_weeks 不为 None 时使用快慢 MA 金叉/死叉（A/B 组），
-        否则使用价格 vs MA 突破逻辑（C/D 组）。
-        退出候选名单时若仍持仓则强制卖出。
-        """
-        close = wk_df["Close"].astype(float)
-        fast_ma = close.rolling(ma_weeks, min_periods=ma_weeks).mean()
-        use_cross = slow_ma_weeks is not None
-        slow_ma = close.rolling(slow_ma_weeks, min_periods=slow_ma_weeks).mean() if use_cross else None
-
-        signals, benched_zones = [], []
-        timed_rets, raw_rets = [], []
-
-        for sm, em in roster_periods:
-            sd = pd.Timestamp(f"{sm}-01")
-            ed = pd.Timestamp(f"{em}-01") + pd.offsets.MonthEnd(1)
-            mask = (wk_df.index >= sd) & (wk_df.index <= ed)
-            seg_c = close[mask]
-            seg_fast = fast_ma[mask]
-            seg_slow = slow_ma[mask] if use_cross else None
-
-            if seg_c.empty:
-                timed_rets.append(0.0)
-                raw_rets.append(0.0)
-                continue
-
-            raw_ep = float(seg_c.iloc[0])
-            raw_xp = float(seg_c.iloc[-1])
-            raw_rets.append((raw_xp / raw_ep - 1) * 100 if raw_ep > 0 else 0.0)
-
-            in_pos, entry_p, cum = False, None, 1.0
-            bench_start = None
-
-            for dt in seg_c.index:
-                p = float(seg_c.loc[dt])
-                fv = seg_fast.loc[dt]
-
-                if use_cross:
-                    sv = seg_slow.loc[dt]
-                    if pd.isna(fv) or pd.isna(sv):
-                        if not in_pos and bench_start is None:
-                            bench_start = dt
-                        continue
-                    fv_f, sv_f = float(fv), float(sv)
-
-                    if not in_pos:
-                        if fv_f > sv_f:
-                            signals.append({"date": dt, "type": "buy", "price": p})
-                            in_pos, entry_p = True, p
-                            if bench_start is not None:
-                                benched_zones.append((bench_start, dt))
-                                bench_start = None
-                        elif bench_start is None:
-                            bench_start = dt
-                    else:
-                        if fv_f < sv_f:
-                            signals.append({"date": dt, "type": "sell", "price": p})
-                            if entry_p and entry_p > 0:
-                                cum *= p / entry_p
-                            in_pos, entry_p = False, None
-                            bench_start = dt
-                else:
-                    if pd.isna(fv):
-                        if not in_pos and bench_start is None:
-                            bench_start = dt
-                        continue
-                    mv = float(fv)
-
-                    if not in_pos:
-                        if p > mv:
-                            signals.append({"date": dt, "type": "buy", "price": p})
-                            in_pos, entry_p = True, p
-                            if bench_start is not None:
-                                benched_zones.append((bench_start, dt))
-                                bench_start = None
-                        elif bench_start is None:
-                            bench_start = dt
-                    else:
-                        if p < mv:
-                            signals.append({"date": dt, "type": "sell", "price": p})
-                            if entry_p and entry_p > 0:
-                                cum *= p / entry_p
-                            in_pos, entry_p = False, None
-                            bench_start = dt
-
-            if in_pos and entry_p and entry_p > 0:
-                last_p = float(seg_c.iloc[-1])
-                signals.append({"date": seg_c.index[-1], "type": "sell", "price": last_p})
-                cum *= last_p / entry_p
-                in_pos = False
-            if bench_start is not None and not seg_c.empty:
-                benched_zones.append((bench_start, seg_c.index[-1]))
-
-            timed_rets.append((cum - 1) * 100)
-
-        return signals, benched_zones, timed_rets, raw_rets, fast_ma, slow_ma
+    # ── 择时风控逻辑白盒（动态展示选中工具说明）──
+    with st.expander("📐 择时风控逻辑白盒 — 点击展开", expanded=False):
+        _wb_parts = []
+        for _tid in _tm_tools_sel:
+            _tclr = _TOOL_COLORS[_tid]["buy"]
+            _tlab = _TIMING_TOOLS[_tid]["label"]
+            if _tid == "ma_cross":
+                _wb_parts.append(
+                    f"<b style='color:{_tclr};'>▶ {_tlab}</b>（当前赛道：{_CLS_LBL[_tm_cls]}）<br>"
+                    f"&nbsp;&nbsp;• <b>A/B 组</b>：MA12w 金叉 MA60w 买入，死叉卖出（等效日线 MA60/MA300 交叉）<br>"
+                    f"&nbsp;&nbsp;• <b>C 组</b>：价格站上 MA8w 买入，跌破卖出（等效日线 MA40）<br>"
+                    f"&nbsp;&nbsp;• <b>D 组</b>：价格站上 MA4w 买入，跌破卖出（等效日线 MA20）"
+                )
+            elif _tid == "break_ma60":
+                _wb_parts.append(
+                    f"<b style='color:{_tclr};'>▶ {_tlab}</b><br>"
+                    f"&nbsp;&nbsp;• 价格站上 MA60w（≈ 日线 MA300）视为趋势健康，买入持有<br>"
+                    f"&nbsp;&nbsp;• 价格跌破 MA60w 生命线，无论赛道或信念，强制清仓"
+                )
+            elif _tid == "break_ma20":
+                _wb_parts.append(
+                    f"<b style='color:{_tclr};'>▶ {_tlab}</b><br>"
+                    f"&nbsp;&nbsp;• 价格站上 MA20w（≈ 日线 MA100）买入持有<br>"
+                    f"&nbsp;&nbsp;• 价格跌破 MA20w 卖出，适合 C/D 组短周期趋势标的"
+                )
+            elif _tid == "rapid_drop":
+                _wb_parts.append(
+                    f"<b style='color:{_tclr};'>▶ {_tlab}</b><br>"
+                    f"&nbsp;&nbsp;• 默认持仓（不主动追高），仅在极端周跌幅 &gt;8% 时紧急平仓<br>"
+                    f"&nbsp;&nbsp;• 平仓后等待价格重新站上 MA12w 再回场，规避连续踩踏"
+                )
+        _wb_html = "<br><br>".join(_wb_parts)
+        st.markdown(f"""
+<div class='timing-box'>
+<b style='font-size:15px; color:#2ECC71;'>核心原则：细筛选人，择时决定上/下场</b><br><br>
+<b>📊 图表解读</b><br>
+&nbsp;&nbsp;• <b style='color:#2ECC71;'>🟩 绿色半透明区域</b> = 标的在竞技场候选名单中（细筛入选，月度更新）<br>
+&nbsp;&nbsp;• <b>各工具买入</b>用不同颜色/形状标注（▲ MA金叉 | ◆ MA60 | ● MA20 | ★ 速断器）<br>
+&nbsp;&nbsp;• <b>卖出信号</b>与对应工具同色，形状相同<br><br>
+<b>🔄 两层决策分离</b><br>
+&nbsp;&nbsp;① <b>细筛层（慢）</b>：月度 Arena 排名 → 决定「谁有资格进组合」→ 对应绿色区域<br>
+&nbsp;&nbsp;② <b>择时层（快）</b>：周度信号 → 决定「此刻该持有还是暂泊」<br><br>
+<b>🧰 当前选中策略说明</b><br>
+{_wb_html}
+</div>
+""", unsafe_allow_html=True)
 
     # ── 逐标的绘制 ──
     if not _tm_sel:
@@ -480,9 +694,14 @@ if _arena_data:
         _ma_w = _CLS_MA_WEEKS[_tm_cls]
         _slow_ma_w = _CLS_SLOW_MA[_tm_cls]
 
-        _sigs, _bench_zones, _t_rets, _r_rets, _fast_ma, _slow_ma = _compute_timing(
-            _wk, _pds, ma_weeks=_ma_w, slow_ma_weeks=_slow_ma_w,
-        )
+        # 运行所有选中的择时工具
+        _tool_results: dict = {}
+        for _tool_id in _tm_tools_sel:
+            _tool_results[_tool_id] = _TIMING_TOOLS[_tool_id]["fn"](
+                _wk, _pds, fast_weeks=_ma_w, slow_weeks=_slow_ma_w, drop_pct=8.0,
+            )
+
+        _r_rets = _tool_results[_tm_tools_sel[0]].raw_rets
 
         _fig = make_subplots(
             rows=2, cols=1, shared_xaxes=True,
@@ -501,23 +720,16 @@ if _arena_data:
             name="周线",
         ), row=1, col=1)
 
-        # MA 生命线
-        _fast_valid = _fast_ma.dropna()
-        if not _fast_valid.empty:
-            _ma_label = f"MA{_ma_w}w" + (" 快线" if _slow_ma is not None else " 生命线")
-            _fig.add_trace(go.Scatter(
-                x=_fast_valid.index, y=_fast_valid.astype(float),
-                line=dict(color="#E74C3C", width=1.5, dash="dash"),
-                name=_ma_label,
-            ), row=1, col=1)
-        if _slow_ma is not None:
-            _slow_valid = _slow_ma.dropna()
-            if not _slow_valid.empty:
-                _fig.add_trace(go.Scatter(
-                    x=_slow_valid.index, y=_slow_valid.astype(float),
-                    line=dict(color="#F39C12", width=1.5, dash="dash"),
-                    name=f"MA{_slow_ma_w}w 慢线",
-                ), row=1, col=1)
+        # 各工具叠加线（MA 辅助线等）
+        for _tool_id in _tm_tools_sel:
+            for _ov in _tool_results[_tool_id].overlays:
+                _ov_s = _ov["series"].dropna()
+                if not _ov_s.empty:
+                    _fig.add_trace(go.Scatter(
+                        x=_ov_s.index, y=_ov_s.astype(float),
+                        line=dict(color=_ov["color"], width=1.5, dash=_ov["dash"]),
+                        name=f"{_TIMING_TOOLS[_tool_id]['label']} · {_ov['label']}",
+                    ), row=1, col=1)
 
         # 灰色成交量
         _fig.add_trace(go.Bar(
@@ -525,17 +737,16 @@ if _arena_data:
             marker_color="#444", name="成交量", opacity=0.4,
         ), row=2, col=1)
 
-        # ── 绿色候选区域 + 收益标注 ──
-        _cum_raw, _cum_timed = 0.0, 0.0
-        _wins_raw, _wins_timed = 0, 0
-        _detail_rows: list = []
+        # ── 绿色候选区域 + 多工具收益标注 ──
         _price_hi = float(_wk["High"].astype(float).max())
+        _detail_rows: list = []
+        _tool_cum: dict = {tid: 0.0 for tid in _tm_tools_sel}
+        _tool_wins: dict = {tid: 0 for tid in _tm_tools_sel}
 
         for _i, (_sm, _em) in enumerate(_pds):
             _sd = pd.Timestamp(f"{_sm}-01")
             _ed = pd.Timestamp(f"{_em}-01") + pd.offsets.MonthEnd(1)
 
-            # 绿色候选名单区域（统一绿色 = 细筛入选）
             _fig.add_vrect(
                 x0=_sd, x1=_ed, fillcolor="#2ECC71", opacity=0.10,
                 line=dict(color="#2ECC71", width=1, dash="dot"),
@@ -547,13 +758,22 @@ if _arena_data:
             )
 
             _rr = _r_rets[_i] if _i < len(_r_rets) else 0.0
-            _tr = _t_rets[_i] if _i < len(_t_rets) else 0.0
-            _cum_raw += _rr
-            _cum_timed += _tr
-            if _rr > 0:
-                _wins_raw += 1
-            if _tr > 0:
-                _wins_timed += 1
+            _ann_parts = [f"名单 <b>{_rr:+.1f}%</b>"]
+            _detail_row = {
+                "候选区间": f"{_sm} → {_em}",
+                "月数": len([m for m in _tm_months if _sm <= m <= _em]),
+                "名单收益": f"{_rr:+.1f}%",
+            }
+
+            for _tid in _tm_tools_sel:
+                _tr = (_tool_results[_tid].timed_rets[_i]
+                       if _i < len(_tool_results[_tid].timed_rets) else 0.0)
+                _tool_cum[_tid] += _tr
+                if _tr > 0:
+                    _tool_wins[_tid] += 1
+                _tl = _TIMING_TOOLS[_tid]["label"]
+                _ann_parts.append(f"{_tl} <b>{_tr:+.1f}%</b>")
+                _detail_row[f"{_tl} 择时"] = f"{_tr:+.1f}%"
 
             _mask_seg = (_wk.index >= _sd) & (_wk.index <= _ed)
             _seg = _wk[_mask_seg]
@@ -561,26 +781,16 @@ if _arena_data:
             if len(_seg) >= 1:
                 _ep = float(_seg["Open"].astype(float).iloc[0])
                 _xp = float(_seg["Close"].astype(float).iloc[-1])
+            _detail_row["入选价"] = f"${_ep:.2f}" if _ep else "—"
+            _detail_row["退选价"] = f"${_xp:.2f}" if _xp else "—"
+            _detail_rows.append(_detail_row)
 
-            _n_months = len([m for m in _tm_months if _sm <= m <= _em])
-            _n_trades = len([s for s in _sigs if _sd <= s["date"] <= _ed])
-            _detail_rows.append({
-                "候选区间": f"{_sm} → {_em}",
-                "月数": _n_months,
-                "入选价": f"${_ep:.2f}" if _ep else "—",
-                "退选价": f"${_xp:.2f}" if _xp else "—",
-                "名单收益": f"{_rr:+.1f}%",
-                "择时收益": f"{_tr:+.1f}%",
-                "择时交易": f"{_n_trades} 笔",
-            })
-
-            # 收益率标注：名单收益 → 择时收益
             _rc = "#2ECC71" if _rr >= 0 else "#E74C3C"
             _mid = _sd + (_ed - _sd) / 2
             _y_pos = _price_hi * (1.05 if _i % 2 == 0 else 0.97)
             _fig.add_annotation(
                 x=_mid, y=_y_pos,
-                text=f"名单 <b>{_rr:+.1f}%</b> → 择时 <b>{_tr:+.1f}%</b>",
+                text=" | ".join(_ann_parts),
                 showarrow=False,
                 font=dict(size=11, color="#ddd"),
                 bgcolor="rgba(0,0,0,0.75)",
@@ -588,41 +798,45 @@ if _arena_data:
                 row=1, col=1,
             )
 
-        # ── 择时买卖箭头 ──
-        _buy_sigs = [s for s in _sigs if s["type"] == "buy"]
-        _sell_sigs = [s for s in _sigs if s["type"] == "sell"]
-        if _buy_sigs:
-            _fig.add_trace(go.Scatter(
-                x=[s["date"] for s in _buy_sigs],
-                y=[s["price"] for s in _buy_sigs],
-                mode="markers",
-                marker=dict(symbol="triangle-up", size=12, color="#2ECC71",
-                            line=dict(color="white", width=1)),
-                name="▲ 买入/回场",
-                hovertemplate="%{x|%Y-%m-%d}<br>▲ 买入 $%{y:.2f}<extra></extra>",
-            ), row=1, col=1)
-        if _sell_sigs:
-            _fig.add_trace(go.Scatter(
-                x=[s["date"] for s in _sell_sigs],
-                y=[s["price"] for s in _sell_sigs],
-                mode="markers",
-                marker=dict(symbol="triangle-down", size=12, color="#E74C3C",
-                            line=dict(color="white", width=1)),
-                name="▼ 暂泊/下场",
-                hovertemplate="%{x|%Y-%m-%d}<br>▼ 暂泊 $%{y:.2f}<extra></extra>",
-            ), row=1, col=1)
+        # ── 各工具买卖信号（分色分形）──
+        for _tid in _tm_tools_sel:
+            _result = _tool_results[_tid]
+            _tclr = _TOOL_COLORS[_tid]
+            _tsym = _TOOL_SYMBOLS[_tid]
+            _tlab = _TIMING_TOOLS[_tid]["label"]
+            _buy_sigs = [s for s in _result.signals if s["type"] == "buy"]
+            _sell_sigs = [s for s in _result.signals if s["type"] == "sell"]
+            if _buy_sigs:
+                _fig.add_trace(go.Scatter(
+                    x=[s["date"] for s in _buy_sigs],
+                    y=[s["price"] for s in _buy_sigs],
+                    mode="markers",
+                    marker=dict(symbol=_tsym["buy"], size=12, color=_tclr["buy"],
+                                line=dict(color="white", width=1)),
+                    name=f"▲ {_tlab} 买入",
+                    hovertemplate="%{x|%Y-%m-%d}<br>▲ 买入 $%{y:.2f}<extra></extra>",
+                ), row=1, col=1)
+            if _sell_sigs:
+                _fig.add_trace(go.Scatter(
+                    x=[s["date"] for s in _sell_sigs],
+                    y=[s["price"] for s in _sell_sigs],
+                    mode="markers",
+                    marker=dict(symbol=_tsym["sell"], size=12, color=_tclr["sell"],
+                                line=dict(color="white", width=1)),
+                    name=f"▼ {_tlab} 卖出",
+                    hovertemplate="%{x|%Y-%m-%d}<br>▼ 卖出 $%{y:.2f}<extra></extra>",
+                ), row=1, col=1)
 
-        _wr_raw = (_wins_raw / len(_pds) * 100) if _pds else 0
-        _wr_timed = (_wins_timed / len(_pds) * 100) if _pds else 0
+        # 图表标题：各工具累计收益 + 胜率
+        _title_parts = [f"{_tk} ({_cn}) | {_CLS_LBL[_tm_cls]} | {len(_pds)}段候选"]
+        for _tid in _tm_tools_sel:
+            _wr = (_tool_wins[_tid] / len(_pds) * 100) if _pds else 0
+            _title_parts.append(
+                f"{_TIMING_TOOLS[_tid]['label']} {_tool_cum[_tid]:+.1f}% 胜率{_wr:.0f}%"
+            )
+
         _fig.update_layout(
-            title=dict(
-                text=(
-                    f"{_tk} ({_cn}) | {_CLS_LBL[_tm_cls]} | "
-                    f"{len(_pds)}段候选 · 名单{_cum_raw:+.1f}% · "
-                    f"择时{_cum_timed:+.1f}% · 胜率{_wr_timed:.0f}%"
-                ),
-                font=dict(size=14),
-            ),
+            title=dict(text=" · ".join(_title_parts), font=dict(size=14)),
             height=500, template="plotly_dark",
             xaxis_rangeslider_visible=False,
             showlegend=True,
@@ -634,7 +848,7 @@ if _arena_data:
 
         st.plotly_chart(_fig, use_container_width=True)
 
-        # 持仓明细表
+        # 持仓明细表（多工具列）
         if _detail_rows:
             with st.expander(f"📋 {_tk} 持仓明细（{len(_pds)}段候选期）", expanded=False):
                 st.dataframe(
