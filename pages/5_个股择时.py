@@ -511,13 +511,14 @@ if _arena_data:
             except Exception:
                 pass
 
-    # ── 绘制首尾相接拼接 K 线图（整数 x 轴，各段顺序衔接）────────────
+    # ── 绘制首尾相接拼接累计收益率线形图（整数 x 轴，各段顺序衔接）────────────
     def _build_stitched_kline_fig(segs: list, slot_name: str) -> go.Figure:
         fig = go.Figure()
         x_offset = 0
         tick_vals: list = []
         tick_texts: list = []
         boundary_xs: list = []
+        running_return = 0.0  # 累计收益率起点 0%
 
         for _ci, (_tk, _s_m, _e_m) in enumerate(segs):
             _wkd = _a_price_cache.get(_tk)
@@ -527,30 +528,29 @@ if _arena_data:
             _ed = pd.Timestamp(f"{_e_m}-01") + pd.offsets.MonthEnd(1)
             _mask = (_wkd.index >= _sd) & (_wkd.index <= _ed)
             _seg_wk = _wkd[_mask].copy()
-            for _col in ["Open", "High", "Low", "Close"]:
-                _seg_wk[_col] = _seg_wk[_col].astype(float)
-            _seg_wk = _seg_wk.dropna(subset=["Open", "High", "Low", "Close"])
-            if _seg_wk.empty:
+            _closes = _seg_wk["Close"].astype(float).dropna()
+            if len(_closes) < 2:
                 continue
 
-            _n = len(_seg_wk)
+            _n = len(_closes)
             _x_vals = list(range(x_offset, x_offset + _n))
             _color = _SLOT_COLORS[_ci % len(_SLOT_COLORS)]
             _cn = _name_map.get(_tk, _tk)
 
-            fig.add_trace(go.Candlestick(
+            # 本段内部收益率（%），叠加到累计收益率
+            _seg_pct = (_closes / float(_closes.iloc[0]) - 1) * 100
+            _seg_cum = running_return + _seg_pct
+
+            fig.add_trace(go.Scatter(
                 x=_x_vals,
-                open=_seg_wk["Open"],
-                high=_seg_wk["High"],
-                low=_seg_wk["Low"],
-                close=_seg_wk["Close"],
+                y=_seg_cum.values,
+                mode="lines",
+                line=dict(color=_color, width=2),
                 name=f"{_cn}（{_s_m}→{_e_m}）",
-                increasing_line_color=_color,
-                decreasing_line_color=_color,
-                increasing_fillcolor=_color,
-                decreasing_fillcolor=_color,
                 showlegend=True,
             ))
+
+            running_return = float(_seg_cum.iloc[-1])
 
             tick_vals.append(x_offset + _n // 2)
             tick_texts.append(f"{_cn}<br>{_s_m}→{_e_m}")
@@ -565,15 +565,18 @@ if _arena_data:
                           line_color="rgba(200,200,200,0.35)", line_width=1)
 
         fig.update_layout(
-            title=f"{slot_name} — 持仓段首尾相接 K 线（共 {len(segs)} 段）",
+            title=f"{slot_name} — 持仓段首尾相接累计收益率（共 {len(segs)} 段）",
             xaxis=dict(
                 tickvals=tick_vals,
                 ticktext=tick_texts,
                 tickfont=dict(size=11),
                 gridcolor="rgba(100,100,100,0.3)",
             ),
-            yaxis=dict(gridcolor="rgba(100,100,100,0.3)"),
-            xaxis_rangeslider_visible=False,
+            yaxis=dict(
+                title="累计收益率 (%)",
+                ticksuffix="%",
+                gridcolor="rgba(100,100,100,0.3)",
+            ),
             height=520,
             margin=dict(l=10, r=10, t=44, b=70),
             paper_bgcolor="rgba(0,0,0,0)",
@@ -633,8 +636,8 @@ if _arena_data:
     # ═══════════════════════════════════════════════════════════════════
     #  Section: A 组信念守擂持仓 K 线图
     # ═══════════════════════════════════════════════════════════════════
-    st.header("📈 A 组信念守擂持仓 K 线图")
-    st.caption("左列 / 右列对应 Page 4 历史月度 Top-2 胜出者的 slot-stable 分配（每段用不同颜色区分持仓期）")
+    st.header("📈 A 组信念守擂持仓累计收益率图")
+    st.caption("左列 / 右列对应 Page 4 历史月度 Top-2 胜出者的 slot-stable 分配（各段累计收益率首尾相接，不同颜色区分持仓期）")
 
     _kpi_c1, _kpi_c2, _kpi_c3 = st.columns(3)
     with _kpi_c1:
@@ -652,7 +655,7 @@ if _arena_data:
     with _dd_c3:
         st.metric("A 级合成最大回撤", f"-{_dd_combined:.1f}%")
 
-    _tab_left, _tab_right = st.tabs(["📊 左列持仓 (Slot 0)", "📊 右列持仓 (Slot 1)"])
+    _tab_left, _tab_right = st.tabs(["📈 左列收益率曲线 (Slot 0)", "📈 右列收益率曲线 (Slot 1)"])
     with _tab_left:
         _fig_left = _build_stitched_kline_fig(_seg_left, "左列 (Slot 0)")
         st.plotly_chart(_fig_left, use_container_width=True)
