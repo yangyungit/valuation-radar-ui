@@ -218,39 +218,6 @@ ARENA_CONFIG: dict = {
     },
 }
 
-# ─────────────────────────────────────────────────────────────────
-#  演示模式 Mock 数据
-# ─────────────────────────────────────────────────────────────────
-_MOCK_ASSETS: dict = {
-    # A级：压舱石（高股息/低回撤/抗跌）
-    "JNJ":   {"cls": "A", "cn_name": "强生",         "z_score":  0.4, "mom20":  2.1, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "KO":    {"cls": "A", "cn_name": "可口可乐",     "z_score":  0.6, "mom20":  1.8, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "PG":    {"cls": "A", "cn_name": "宝洁",         "z_score":  0.8, "mom20":  3.2, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "VZ":    {"cls": "A", "cn_name": "威瑞森",       "z_score": -0.3, "mom20":  0.9, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "XLU":   {"cls": "A", "cn_name": "公用事业 ETF", "z_score":  0.2, "mom20":  1.5, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    # B级：大猩猩（宽护城河/高FCF/ROIC优秀）
-    "AAPL":  {"cls": "B", "cn_name": "苹果",   "z_score":  1.2, "mom20":  8.5, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "MSFT":  {"cls": "B", "cn_name": "微软",   "z_score":  1.8, "mom20":  6.2, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "GOOGL": {"cls": "B", "cn_name": "谷歌",   "z_score":  0.9, "mom20":  4.8, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "META":  {"cls": "B", "cn_name": "Meta",   "z_score":  1.5, "mom20": 11.2, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "V":     {"cls": "B", "cn_name": "Visa",   "z_score":  1.1, "mom20":  5.5, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    # C级：时代之王（高动量/宏观剧本契合/主升浪）
-    "NVDA":  {"cls": "C", "cn_name": "英伟达",   "z_score":  2.4, "mom20": 18.3, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "AMZN":  {"cls": "C", "cn_name": "亚马逊",   "z_score":  0.7, "mom20": 12.1, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "GLD":   {"cls": "C", "cn_name": "黄金 ETF", "z_score":  0.3, "mom20":  9.2, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "XLE":   {"cls": "C", "cn_name": "能源 ETF", "z_score":  0.4, "mom20":  7.3, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    # D级：预备队（催化剂清晰/右侧放量突破/严格止损）
-    "FCX":   {"cls": "D", "cn_name": "自由港",   "z_score": -0.2, "mom20": 22.4, "is_bullish": False, "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "URA":   {"cls": "D", "cn_name": "铀矿 ETF", "z_score": -1.2, "mom20": 15.5, "is_bullish": False, "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "SLV":   {"cls": "D", "cn_name": "白银 ETF", "z_score": -0.5, "mom20": 18.8, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "CVX":   {"cls": "D", "cn_name": "雪佛龙",   "z_score":  0.2, "mom20": 12.4, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    # Z级：现金流堡垒（高股息/低波动/稳定现金流）
-    "SCHD":  {"cls": "Z", "cn_name": "Schwab高息ETF",    "z_score":  0.1, "mom20":  1.2, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "JEPI":  {"cls": "Z", "cn_name": "JPM增强收益ETF",   "z_score":  0.0, "mom20":  0.8, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "O":     {"cls": "Z", "cn_name": "Realty Income",    "z_score": -0.1, "mom20":  1.5, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "BIL":   {"cls": "Z", "cn_name": "超短期国债ETF",    "z_score":  0.0, "mom20":  0.1, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-    "STRF":  {"cls": "Z", "cn_name": "Strategy 10%优先股", "z_score": 0.3, "mom20":  2.1, "is_bullish": True,  "reason": "Mock 演示", "method": "Mock", "has_data": True},
-}
 
 # ─────────────────────────────────────────────────────────────────
 #  宏观剧本派生（Macro Regime Derivation）
@@ -2365,7 +2332,7 @@ def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
     """, unsafe_allow_html=True)
 
     if df_cls.empty:
-        st.info(f"当前 {meta['label']} 赛道暂无参赛资产。请检查数据加载状态或开启演示模式。")
+        st.info(f"当前 {meta['label']} 赛道暂无参赛资产。请检查数据加载状态或清除缓存后重试。")
         return
 
     # ── 计算评分 ─────────────────────────────────────────────────
@@ -2470,9 +2437,6 @@ def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
 # ─────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("🏆 竞技场控制台")
-    demo_mode = st.toggle("演示模式（使用 Mock 数据）", value=False)
-    if demo_mode:
-        st.info("当前使用内置 Mock 数据演示。关闭此开关后，将实时执行 ABCD 并行分类与评分。")
     st.markdown("---")
     st.subheader("🧭 宏观剧本设定 (3Y 中期战略视角)")
     st.caption("平滑剧本供 B/C 组使用；原始剧本供 D 组宏观匹配")
@@ -2625,59 +2589,56 @@ st.caption(
 # ─────────────────────────────────────────────────────────────────
 #  数据来源决策 + 自主分类
 # ─────────────────────────────────────────────────────────────────
-if demo_mode:
-    all_assets: dict = _MOCK_ASSETS
-else:
-    _core_live = fetch_core_data()
-    _TIC_MAP = _core_live.get("TIC_MAP", {})
-    _USER_TICKERS = list(_TIC_MAP.keys())
-    _SCREEN_TICKERS = sorted(set(_USER_TICKERS))
-    _DOWNLOAD_TICKERS = sorted(set(_SCREEN_TICKERS + ["SPY"]))
+_core_live = fetch_core_data()
+_TIC_MAP = _core_live.get("TIC_MAP", {})
+_USER_TICKERS = list(_TIC_MAP.keys())
+_SCREEN_TICKERS = sorted(set(_USER_TICKERS))
+_DOWNLOAD_TICKERS = sorted(set(_SCREEN_TICKERS + ["SPY"]))
 
-    with st.spinner("⏳ 正在加载资产价格矩阵..."):
-        _price_df = get_global_data(_DOWNLOAD_TICKERS, years=3)
+with st.spinner("⏳ 正在加载资产价格矩阵..."):
+    _price_df = get_global_data(_DOWNLOAD_TICKERS, years=3)
 
-    with st.spinner("⏳ 正在加载基本面元数据（市值/股息率）..."):
-        _meta_live = get_stock_metadata(_SCREEN_TICKERS)
+with st.spinner("⏳ 正在加载基本面元数据（市值/股息率）..."):
+    _meta_live = get_stock_metadata(_SCREEN_TICKERS)
 
-    if _price_df.empty or len(_price_df) < 30:
-        st.error("⚠️ 价格数据加载失败，请检查网络或清理缓存后重试。")
-        st.stop()
+if _price_df.empty or len(_price_df) < 30:
+    st.error("⚠️ 价格数据加载失败，请检查网络或清理缓存后重试。")
+    st.stop()
 
-    _prev_grades_map = _load_prev_classification()
+_prev_grades_map = _load_prev_classification()
 
-    # Read hysteresis thresholds from session_state (set by sliders in whitebox section)
-    _hyst_thresholds = {
-        "a_income_enter": st.session_state.get("hyst_a_income_enter", 1.0),
-        "a_income_exit":  st.session_state.get("hyst_a_income_exit",  0.5),
-        "a_dd_enter":     st.session_state.get("hyst_a_dd_enter",    15.0),
-        "a_dd_exit":      st.session_state.get("hyst_a_dd_exit",     20.0),
-        "a_corr_enter":   st.session_state.get("hyst_a_corr_enter",  0.65),
-        "a_corr_exit":    st.session_state.get("hyst_a_corr_exit",   0.75),
-    }
+# Read hysteresis thresholds from session_state (set by sliders in whitebox section)
+_hyst_thresholds = {
+    "a_income_enter": st.session_state.get("hyst_a_income_enter", 1.0),
+    "a_income_exit":  st.session_state.get("hyst_a_income_exit",  0.5),
+    "a_dd_enter":     st.session_state.get("hyst_a_dd_enter",    15.0),
+    "a_dd_exit":      st.session_state.get("hyst_a_dd_exit",     20.0),
+    "a_corr_enter":   st.session_state.get("hyst_a_corr_enter",  0.65),
+    "a_corr_exit":    st.session_state.get("hyst_a_corr_exit",   0.75),
+}
 
-    with st.spinner("⚙️ 正在执行并行 ABCD 分类（含滞后带）…"):
-        _date_idx = len(_price_df) - 1
-        all_assets = classify_all_at_date(
-            _price_df, _date_idx, _SCREEN_TICKERS, _meta_live,
-            tic_map=_TIC_MAP, prev_grades_map=_prev_grades_map,
-            z_seed_tickers=_Z_SEED_TICKERS,
-            thresholds=_hyst_thresholds,
-        )
+with st.spinner("⚙️ 正在执行并行 ABCD 分类（含滞后带）…"):
+    _date_idx = len(_price_df) - 1
+    all_assets = classify_all_at_date(
+        _price_df, _date_idx, _SCREEN_TICKERS, _meta_live,
+        tic_map=_TIC_MAP, prev_grades_map=_prev_grades_map,
+        z_seed_tickers=_Z_SEED_TICKERS,
+        thresholds=_hyst_thresholds,
+    )
 
-    _new_grades_map = {
-        t: info.get("qualifying_grades", [])
-        for t, info in all_assets.items()
-    }
-    _save_prev_classification(_new_grades_map)
+_new_grades_map = {
+    t: info.get("qualifying_grades", [])
+    for t, info in all_assets.items()
+}
+_save_prev_classification(_new_grades_map)
 
-    st.session_state["abcd_classified_assets"] = all_assets
-    # write-through：同步到后端（arena_winners 此时尚未计算，先持久化资产分类）
-    push_screen_results({
-        "abcd_classified_assets": all_assets,
-        "arena_winners": st.session_state.get("arena_winners", {}),
-        "p4_arena_leaders": st.session_state.get("p4_arena_leaders", {}),
-    })
+st.session_state["abcd_classified_assets"] = all_assets
+# write-through：同步到后端（arena_winners 此时尚未计算，先持久化资产分类）
+push_screen_results({
+    "abcd_classified_assets": all_assets,
+    "arena_winners": st.session_state.get("arena_winners", {}),
+    "p4_arena_leaders": st.session_state.get("p4_arena_leaders", {}),
+})
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -2707,59 +2668,10 @@ for ticker, info in all_assets.items():
         })
 
 if not rows:
-    st.error("数据中无有效资产，请检查数据加载状态或开启演示模式。")
+    st.error("数据中无有效资产，请检查数据加载状态或清除缓存后重试。")
     st.stop()
 
 df_all = pd.DataFrame(rows).astype({"Z-Score": float, "20日动量": float})
-
-# ─────────────────────────────────────────────────────────────────
-#  Mock 模式快速预计算：一次性计算全部 4 赛道冠军并写入 arena_winners
-#  （避免用户必须逐个点击 Tab 才能让 Page 6 获取完整冠军名单）
-# ─────────────────────────────────────────────────────────────────
-if demo_mode:
-    _pre_aw: dict = {}
-    _df_pre_a = df_all[df_all["类别"] == "A"].copy()
-    if not _df_pre_a.empty:
-        _df_pre_a["FCF收益率"]   = 5.0
-        _df_pre_a["最大回撤_raw"] = -0.08
-        _df_pre_a["SPY相关性"]   = 0.3
-        _df_pre_a["年化波动率"]   = 0.12
-        _df_pre_a["带鱼质量"]    = 0.5
-        _df_pre_a_scored = compute_scorecard_a(_df_pre_a)
-        _pre_aw["A"] = [row["Ticker"] for _, row in _df_pre_a_scored.head(3).iterrows()]
-    # B 组 Mock：生成模拟质量因子
-    _df_pre_b = df_all[df_all["类别"] == "B"].copy()
-    if not _df_pre_b.empty:
-        _df_pre_b["股息率"]      = 1.5
-        _df_pre_b["最大回撤_raw"] = -0.12
-        _df_pre_b["夏普比率"]     = 1.2
-        _df_pre_b["RS120d"]      = 5.0
-        _df_pre_b["市值对数"]     = 11.5
-        _df_pre_b["EPS稳定性"]   = 5.0
-        _df_pre_b_scored = compute_scorecard_b(_df_pre_b, macro_regime)
-        _pre_aw["B"] = [row["Ticker"] for _, row in _df_pre_b_scored.head(3).iterrows()]
-    for _cls in ["C", "D"]:
-        _df_pre = df_all[df_all["类别"] == _cls].copy()
-        if not _df_pre.empty:
-            _pre_aw[_cls] = (
-                _df_pre.sort_values("20日动量", ascending=False)["Ticker"].head(3).tolist()
-            )
-    # Z 组 Mock 预计算：注入模拟因子后走 ScorecardZ 评分
-    _df_pre_z = df_all[df_all["类别"] == "Z"].copy()
-    if not _df_pre_z.empty:
-        _Z_MOCK_YIELDS = {"SCHD": 3.8, "JEPI": 7.5, "O": 5.6, "BIL": 5.1, "STRF": 10.0}
-        _df_pre_z["股息率"]      = _df_pre_z["Ticker"].map(lambda t: _Z_MOCK_YIELDS.get(t, 3.0))
-        _df_pre_z["最大回撤_raw"] = _df_pre_z["Ticker"].map(
-            lambda t: {"SCHD": -0.12, "JEPI": -0.10, "O": -0.18, "BIL": -0.01, "STRF": -0.25}.get(t, -0.15))
-        _df_pre_z["年化波动率"]   = _df_pre_z["Ticker"].map(
-            lambda t: {"SCHD": 0.14, "JEPI": 0.12, "O": 0.16, "BIL": 0.01, "STRF": 0.30}.get(t, 0.20))
-        _df_pre_z["EPS稳定性"]   = _df_pre_z["Ticker"].map(
-            lambda t: {"SCHD": 7.0, "JEPI": 8.0, "O": 6.0, "BIL": 10.0, "STRF": 3.0}.get(t, 5.0))
-        _df_pre_z_scored = compute_scorecard_z(_df_pre_z)
-        if not _df_pre_z_scored.empty:
-            _pre_aw["Z"] = [row["Ticker"] for _, row in _df_pre_z_scored.head(3).iterrows()]
-    if _pre_aw:
-        st.session_state["arena_winners"] = _pre_aw
 
 def _sync_arena_to_backend() -> None:
     """write-through：将当前 arena_winners + p4_arena_leaders 同步到后端缓存。"""
@@ -2885,7 +2797,7 @@ if _sel4 == "A":
         """, unsafe_allow_html=True)
 
     if df_a.empty:
-        st.info("当前 A 级赛道暂无参赛资产。请检查数据加载状态或开启演示模式。")
+        st.info("当前 A 级赛道暂无参赛资产。请检查数据加载状态或清除缓存后重试。")
     else:
         with st.spinner("正在拉取 A 组避风港因子数据（最大回撤、FCF收益率、SPY相关性、带鱼质量）…"):
             _factors_a = get_arena_a_factors(tuple(df_a["Ticker"].tolist()))
@@ -3032,7 +2944,7 @@ elif _sel4 == "B":
         """, unsafe_allow_html=True)
 
     if df_b.empty:
-        st.info("当前 B 级赛道暂无参赛资产。请检查数据加载状态或开启演示模式。")
+        st.info("当前 B 级赛道暂无参赛资产。请检查数据加载状态或清除缓存后重试。")
     else:
         with st.spinner("正在拉取 B 组底仓质量因子数据（股息率、最大回撤、夏普比率、市值）…"):
             _factors_b = get_arena_b_factors(tuple(df_b["Ticker"].tolist()))
@@ -3177,7 +3089,7 @@ elif _sel4 == "C":
     """.format(regime=macro_regime), unsafe_allow_html=True)
 
     if df_c.empty:
-        st.info(f"当前 C 级赛道暂无参赛资产。请检查数据或开启演示模式。")
+        st.info(f"当前 C 级赛道暂无参赛资产。请检查数据或清除缓存后重试。")
     else:
         with st.spinner("正在拉取 C 组基本面因子数据（EPS增速、RS₁₂₀、RS₂₅₀、市值）…"):
             _meta_c    = get_stock_metadata(tuple(df_c["Ticker"].tolist()))
@@ -3263,7 +3175,7 @@ elif _sel4 == "Z":
     """, unsafe_allow_html=True)
 
     if df_z_base.empty:
-        st.info("当前 Z 级赛道暂无参赛资产（需股息率 ≥ 1%）。请检查数据或开启演示模式。")
+        st.info("当前 Z 级赛道暂无参赛资产（需股息率 ≥ 1%）。请检查数据或清除缓存后重试。")
     else:
         with st.spinner("正在拉取 Z 组五维因子数据（Sharpe、股息率、分红续航力、最大回撤、净值趋势）…"):
             _z_tickers = tuple(df_z_base["Ticker"].tolist())
@@ -3403,7 +3315,7 @@ elif _sel4 == "D":
     """, unsafe_allow_html=True)
 
     if df_d.empty:
-        st.info("当前 D 级赛道暂无参赛资产。请检查数据加载状态或开启演示模式。")
+        st.info("当前 D 级赛道暂无参赛资产。请检查数据加载状态或清除缓存后重试。")
     else:
         with st.spinner("正在拉取 D 组爆点因子数据（Vol_Z、RS vs SPY、MA60 位置）…"):
             _factors_d = get_arena_d_factors(tuple(df_d["Ticker"].tolist()))
