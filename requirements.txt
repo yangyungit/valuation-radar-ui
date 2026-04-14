@@ -3,7 +3,6 @@ yfinance
 pandas
 plotly
 matplotlib
-pandas_datareader
 setuptools
 deep-translator
 requests
