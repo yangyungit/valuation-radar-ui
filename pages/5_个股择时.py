@@ -446,6 +446,195 @@ if _arena_data:
             _prev_h = _hold
         _tm_hold[_c] = _cm
 
+    # ── 名称映射（供 K 线图和盈利统计共用）─────────────────────────────
+    _name_map: dict = {}
+    for _m in _tm_months:
+        for _c_nm in ["A", "B", "C", "D"]:
+            for _rec in _arena_data[_m].get(_c_nm, []):
+                _name_map[_rec["ticker"]] = _rec.get("name", _rec["ticker"])
+
+    # ── A 组 slot-stable 列分配 ─────────────────────────────────────────
+    _a_slot_assignments: dict = {}
+    _prev_slots_a: list = [None, None]
+    for _m in _tm_months:
+        _hold_set_a = _tm_hold["A"].get(_m, set())
+        _new_slots_a = [None, None]
+        _assigned_a: set = set()
+        for _si in range(2):
+            if _prev_slots_a[_si] and _prev_slots_a[_si] in _hold_set_a:
+                _new_slots_a[_si] = _prev_slots_a[_si]
+                _assigned_a.add(_prev_slots_a[_si])
+        _remaining_a = sorted(t for t in _hold_set_a if t not in _assigned_a)
+        for _t in _remaining_a:
+            for _si in range(2):
+                if _new_slots_a[_si] is None:
+                    _new_slots_a[_si] = _t
+                    break
+        _a_slot_assignments[_m] = _new_slots_a
+        _prev_slots_a = _new_slots_a
+
+    # ── 构建左/右列持仓段序列 ──────────────────────────────────────────
+    _SLOT_COLORS = [
+        "#2ECC71", "#3498DB", "#E67E22", "#9B59B6",
+        "#1ABC9C", "#E74C3C", "#F1C40F", "#8E44AD",
+    ]
+
+    def _build_a_slot_segments(slot_idx: int) -> list:
+        segs: list = []
+        _cur_tk, _cur_s, _cur_e = None, None, None
+        for _m in _tm_months:
+            _tk = _a_slot_assignments.get(_m, [None, None])[slot_idx]
+            if _tk == _cur_tk:
+                _cur_e = _m
+            else:
+                if _cur_tk is not None:
+                    segs.append((_cur_tk, _cur_s, _cur_e))
+                _cur_tk, _cur_s, _cur_e = _tk, _m, _m
+        if _cur_tk is not None:
+            segs.append((_cur_tk, _cur_s, _cur_e))
+        return segs
+
+    _seg_left = _build_a_slot_segments(0)
+    _seg_right = _build_a_slot_segments(1)
+
+    # ── 拉取 A 组所有标的 OHLCV ───────────────────────────────────────
+    _a_tickers_all = sorted({
+        tk for slots in _a_slot_assignments.values() for tk in slots if tk
+    })
+    _a_price_cache: dict = {}
+    with st.spinner("正在获取 A 组 K 线数据..."):
+        for _tk in _a_tickers_all:
+            try:
+                _wkd = _fetch_weekly_ohlcv(_tk)
+                if not _wkd.empty:
+                    _a_price_cache[_tk] = _wkd
+            except Exception:
+                pass
+
+    # ── 绘制分段着色 K 线图 ───────────────────────────────────────────
+    def _build_kline_fig(segs: list, title: str) -> go.Figure:
+        fig = go.Figure()
+        for _ci, (_tk, _s_m, _e_m) in enumerate(segs):
+            _wkd = _a_price_cache.get(_tk)
+            if _wkd is None or _wkd.empty:
+                continue
+            _sd = pd.Timestamp(f"{_s_m}-01")
+            _ed = pd.Timestamp(f"{_e_m}-01") + pd.offsets.MonthEnd(1)
+            _mask = (_wkd.index >= _sd) & (_wkd.index <= _ed)
+            _seg_wk = _wkd[_mask].copy()
+            for _col in ["Open", "High", "Low", "Close"]:
+                _seg_wk[_col] = _seg_wk[_col].astype(float)
+            _seg_wk = _seg_wk.dropna(subset=["Open", "High", "Low", "Close"])
+            if _seg_wk.empty:
+                continue
+            _color = _SLOT_COLORS[_ci % len(_SLOT_COLORS)]
+            _cn = _name_map.get(_tk, _tk)
+            fig.add_trace(go.Candlestick(
+                x=_seg_wk.index,
+                open=_seg_wk["Open"],
+                high=_seg_wk["High"],
+                low=_seg_wk["Low"],
+                close=_seg_wk["Close"],
+                name=f"{_cn}({_s_m}→{_e_m})",
+                increasing_line_color=_color,
+                decreasing_line_color=_color,
+                increasing_fillcolor=_color,
+                decreasing_fillcolor=_color,
+                showlegend=True,
+            ))
+        fig.update_layout(
+            title=title,
+            xaxis_rangeslider_visible=False,
+            height=420,
+            margin=dict(l=10, r=10, t=40, b=10),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(30,30,30,0.6)",
+            font=dict(color="#ccc", size=13),
+            legend=dict(font=dict(size=11), orientation="h", y=-0.22),
+        )
+        fig.update_xaxes(gridcolor="rgba(100,100,100,0.3)")
+        fig.update_yaxes(gridcolor="rgba(100,100,100,0.3)")
+        return fig
+
+    # ── 计算每列总收益与最大回撤 ──────────────────────────────────────
+    def _calc_slot_stats(segs: list) -> tuple:
+        nav_all: list = []
+        running_nav = 1.0
+        for _tk, _s_m, _e_m in segs:
+            _wkd = _a_price_cache.get(_tk)
+            if _wkd is None or _wkd.empty:
+                continue
+            _sd = pd.Timestamp(f"{_s_m}-01")
+            _ed = pd.Timestamp(f"{_e_m}-01") + pd.offsets.MonthEnd(1)
+            _mask = (_wkd.index >= _sd) & (_wkd.index <= _ed)
+            _seg_wk = _wkd[_mask].copy()
+            _closes = _seg_wk["Close"].astype(float).dropna()
+            if len(_closes) < 2:
+                continue
+            _seg_nav = (_closes / float(_closes.iloc[0])) * running_nav
+            running_nav = float(_seg_nav.iloc[-1])
+            nav_all.append(_seg_nav)
+        if not nav_all:
+            return 0.0, 0.0, pd.Series(dtype=float)
+        _nav = pd.concat(nav_all).sort_index()
+        _nav = _nav[~_nav.index.duplicated(keep="last")]
+        _total_ret = (float(_nav.iloc[-1]) / float(_nav.iloc[0]) - 1) * 100
+        _peak = _nav.cummax()
+        _dd = (_peak - _nav) / _peak.replace(0, float("nan"))
+        _max_dd = float(_dd.max()) * 100
+        return _total_ret, _max_dd, _nav
+
+    _ret_left, _dd_left, _nav_left = _calc_slot_stats(_seg_left)
+    _ret_right, _dd_right, _nav_right = _calc_slot_stats(_seg_right)
+
+    # ── 合成 A 级整体（半仓等权）──────────────────────────────────────
+    _ret_combined, _dd_combined = 0.0, 0.0
+    if not _nav_left.empty and not _nav_right.empty:
+        _idx_union = _nav_left.index.union(_nav_right.index)
+        _nl = _nav_left.reindex(_idx_union).ffill().bfill()
+        _nr = _nav_right.reindex(_idx_union).ffill().bfill()
+        _nav_combined = 0.5 * _nl + 0.5 * _nr
+        _ret_combined = (float(_nav_combined.iloc[-1]) / float(_nav_combined.iloc[0]) - 1) * 100
+        _peak_c = _nav_combined.cummax()
+        _dd_c = (_peak_c - _nav_combined) / _peak_c.replace(0, float("nan"))
+        _dd_combined = float(_dd_c.max()) * 100
+    elif not _nav_left.empty:
+        _ret_combined, _dd_combined = _ret_left, _dd_left
+    elif not _nav_right.empty:
+        _ret_combined, _dd_combined = _ret_right, _dd_right
+
+    # ═══════════════════════════════════════════════════════════════════
+    #  Section: A 组信念守擂持仓 K 线图
+    # ═══════════════════════════════════════════════════════════════════
+    st.header("📈 A 组信念守擂持仓 K 线图")
+    st.caption("左列 / 右列对应 Page 4 历史月度 Top-2 胜出者的 slot-stable 分配（每段用不同颜色区分持仓期）")
+
+    _kpi_c1, _kpi_c2, _kpi_c3 = st.columns(3)
+    with _kpi_c1:
+        st.metric("左列总收益", f"{_ret_left:+.1f}%")
+    with _kpi_c2:
+        st.metric("右列总收益", f"{_ret_right:+.1f}%")
+    with _kpi_c3:
+        st.metric("A 级合成总收益", f"{_ret_combined:+.1f}%")
+
+    _dd_c1, _dd_c2, _dd_c3 = st.columns(3)
+    with _dd_c1:
+        st.metric("左列最大回撤", f"-{_dd_left:.1f}%")
+    with _dd_c2:
+        st.metric("右列最大回撤", f"-{_dd_right:.1f}%")
+    with _dd_c3:
+        st.metric("A 级合成最大回撤", f"-{_dd_combined:.1f}%")
+
+    _chart_col_left, _chart_col_right = st.columns(2)
+    with _chart_col_left:
+        st.subheader("左列持仓")
+        _fig_left = _build_kline_fig(_seg_left, "左列（Slot 0）K 线图")
+        st.plotly_chart(_fig_left, use_container_width=True)
+    with _chart_col_right:
+        st.subheader("右列持仓")
+        _fig_right = _build_kline_fig(_seg_right, "右列（Slot 1）K 线图")
+        st.plotly_chart(_fig_right, use_container_width=True)
+
     # ═══════════════════════════════════════════════════════════════════
     #  Section 0: 资产细筛盈利统计
     # ═══════════════════════════════════════════════════════════════════
@@ -475,12 +664,6 @@ if _arena_data:
         key="pf_cls_sel",
     )
     _pf_classes = _pf_cls_opts[_pf_cls_sel]
-
-    _name_map: dict = {}
-    for _m in _tm_months:
-        for _c_nm in ["A", "B", "C", "D"]:
-            for _rec in _arena_data[_m].get(_c_nm, []):
-                _name_map[_rec["ticker"]] = _rec.get("name", _rec["ticker"])
 
     _seen_tickers: set = set()
     for _c_nm in _pf_classes:
