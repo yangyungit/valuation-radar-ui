@@ -6,7 +6,7 @@ import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from api_client import fetch_core_data, fetch_vcp_analysis
+from api_client import fetch_core_data, fetch_vcp_analysis, fetch_screen_results
 
 core_data = fetch_core_data()
 TIC_MAP = core_data.get("TIC_MAP", {})
@@ -42,7 +42,11 @@ with st.sidebar:
         st.rerun()
 
 # ── VCP 目标选择逻辑（数据预处理，不渲染 UI）──
-p4_arena_leaders = st.session_state.get("p4_arena_leaders", {})
+_screen_cache_p5 = fetch_screen_results()
+p4_arena_leaders = (
+    _screen_cache_p5.get("p4_arena_leaders")
+    or st.session_state.get("p4_arena_leaders", {})
+)
 p4_routed = st.session_state.get("p4_champion_ticker", "")
 
 all_candidates = []

@@ -2659,7 +2659,6 @@ if active_phase == 5:
                     "top_l3": r["top_l3"],
                     "top_l3_full": r["top_l3_full"],
                 }
-            st.session_state["narrative_heat_ranking"] = _narr_ranking_dict
 
 
     else:

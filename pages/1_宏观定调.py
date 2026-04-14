@@ -9,7 +9,7 @@ import os
 import json
 from datetime import datetime, timedelta
 import requests as _requests
-from api_client import fetch_core_data, get_global_data
+from api_client import fetch_core_data, get_global_data, push_macro_regime
 
 
 def _fetch_fred_series(series_id: str, start_date, end_date, api_key: str) -> pd.Series:
@@ -1424,6 +1424,15 @@ if not df.empty and len(df) > 750:
         }
         for month_str, row in df_hist_horsemen.iterrows()
     }
+
+    # write-through：同步推送 regime 数据包到后端持久化，消灭 Page 3/6 的 session_state 依赖
+    push_macro_regime({
+        "current_macro_regime":     _horsemen_en_winner,
+        "current_macro_regime_raw": _d_raw_regime,
+        "smoothed_regime_probs":    _horsemen_probs,
+        "live_regime_label":        _horsemen_en_winner,
+        "horsemen_monthly_probs":   st.session_state["horsemen_monthly_probs"],
+    })
 
     # 持久化月度裁决（与上方「四大剧本历史裁决表」同一套月度 resample 结果），供 Page 4 历史榜并列展示
     _horsemen_verdict_file = os.path.join(os.path.dirname(__file__), "..", "data", "horsemen_monthly_verdict.json")

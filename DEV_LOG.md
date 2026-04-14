@@ -2,6 +2,54 @@
 
 ---
 
+## 2026-04-14
+
+### Session State 后沉五步迁移（Steps 1-5）
+
+**背景**：前端跨页面通过 `session_state` 传递宏观剧本、ABCD 分类、竞选结果等业务数据，导致页面访问顺序依赖（Page 1 → Page 3 → Page 4/5/6）、刷新数据忽闪等问题。本次采用 **write-through cache** 模式，将上述数据逐步沉入后端 `universe.db`，消灭顺序依赖。
+
+#### Step 1：宏观 Regime 沉入后端
+- **后端** `universe_manager.py`：新增 `macro_regime_cache` 表 + `save_macro_regime()` / `get_macro_regime()` 函数
+- **后端** `api_server.py`：新增 `POST /api/v1/macro/regime`、`GET /api/v1/macro/current-regime` 端点
+- **前端** `api_client.py`：新增 `push_macro_regime()`（TTL 写后清缓存）、`fetch_current_regime()`（TTL=300s）
+- **Page 1**：`session_state` 写入后追加 `push_macro_regime()` write-through 调用
+- **Page 3/6**：regime 读取改为优先调 `fetch_current_regime()` API，回退 session_state 过渡兼容
+
+#### Step 2：narrative_heat_ranking 消灭跨页依赖
+- **Page 3**：删除 `session_state.get("narrative_heat_ranking")` 优先路径，始终调 `fetch_l2_l3_detail(days=7)` API
+- **Page 2**：删除 `session_state["narrative_heat_ranking"] = ...` 写入
+
+#### Step 3：ABCD 分类 + Arena 竞选结果沉入后端
+- **后端** `universe_manager.py`：新增 `screen_results` 表 + `save_screen_results()` / `get_screen_results()` 函数
+- **后端** `api_server.py`：新增 `POST/GET /api/v1/screen/results` 端点
+- **Page 3**：`abcd_classified_assets` 写入后 push；arena_winners/p4_arena_leaders 各写入点后追加 `_sync_arena_to_backend()` 同步
+- **Page 4**：`abcd_classified_assets` 改为优先从 `fetch_screen_results()` 读取
+- **Page 5**：`p4_arena_leaders` 改为优先从 `fetch_screen_results()` 读取
+- **Page 6**：`arena_winners` 改为优先从 `fetch_screen_results()` 读取
+
+#### Step 4：screener_engine / conviction_engine 物理迁入后端
+- **后端**：`screener_engine.py` + `conviction_engine.py` 复制到 `valuation-radar/`（以前端版本为准，功能更完整）
+- **后端** `api_server.py`：新增 `POST /api/v1/screen/run-classification` 端点（接收 price_records，返回完整分类 + 竞选结果）
+- **前端** `api_client.py`：新增 `run_classification_api()` 包装函数
+- ⚠️ **妥协记录**：Page 3 实际调用迁移（本地 `classify_all_at_date` → API）**暂缓**。原因：price_df 序列化为 JSON 约 1-3MB/请求，在本地开发环境虽可接受，但引入网络往返耗时会明显拖慢用户体感；且 Page 3 的分类 → 评分 → 竞选链路紧耦合、重构范围大。当前 write-through（Step 3）已能确保跨页面数据一致性，完整迁移留待 Step 5 后端定时触发机制建立后统一处理。
+
+#### Step 5：宏观引擎 + 雷达迁入后端
+- **后端** `macro_engine.py`（新建）：
+  - FRED 拉取函数 `_fetch_fred_series/batch`、`get_clock_fred_data()`（API Key 从环境变量读取，不再暴露给前端）
+  - 四大剧本历史裁决引擎 `_build_horsemen_history()`
+  - SPY 5阶趋势状态机 `compute_spy_trend_state()`
+  - 完整 regime 计算 `compute_macro_regime()`
+  - Page 0 雷达资产池 `ASSET_GROUPS` + `compute_radar_metrics()` + `generate_deep_insight()`
+- **后端** `api_server.py`：新增 `POST /api/v1/macro/compute`（接收 price_df，内部拉 FRED，返回+持久化 regime）、`GET /api/v1/macro/radar`（雷达指标）
+- **前端** `api_client.py`：新增 `fetch_macro_radar()`（TTL=4h）
+- ⚠️ **妥协记录**：Page 1 本地计算仍保留（write-through 已解决 Page 3/6 依赖），完整迁移（Page 1 改调 `/api/v1/macro/compute`、Page 0 改调 `/api/v1/macro/radar`）留待定时触发 + yfinance 后端化后的 Phase 2 执行。
+
+#### 清理
+- 删除 Page 3 孤儿 key 读取：`page1_macro_recommended`（该 key 从未有写入方，始终返回空列表 `[]`，删除无副作用）
+- `p4_champion_ticker` 保留（这是 Page 3→5 用户点击路由的合法 widget key，非孤儿）
+
+---
+
 ## 2026-04-13
 
 ### 历史月度 Top 3 宏观剧本白盒化

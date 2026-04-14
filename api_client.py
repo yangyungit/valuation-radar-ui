@@ -653,6 +653,131 @@ def push_conviction_state(cls: str, state: dict, holders: list) -> bool:
 
 
 # ==========================================
+# 3b. 宏观 Regime 缓存 API 客户端
+# ==========================================
+
+@st.cache_data(ttl=3600 * 4)
+def fetch_macro_radar() -> dict:
+    """从后端获取宏观雷达指标（Z-Score/RS/趋势结构）。
+    后端自行下载 yfinance 数据并计算，前端零感知。
+    返回 {"success": True, "metrics": [...], "spy_mom20": float, "insights": {...}}。
+    """
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/radar", timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return {"success": False, "metrics": [], "spy_mom20": 0.0, "insights": {}}
+
+@st.cache_data(ttl=300)
+def fetch_current_regime() -> dict:
+    """从后端 universe.db 读取最新 macro regime 数据包。失败时返回 {}。
+    TTL=300s（5 分钟），Page 1 写入后可主动调 fetch_current_regime.clear() 使缓存失效。
+    """
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/current-regime", timeout=10)
+        r.raise_for_status()
+        return r.json().get("data", {})
+    except Exception:
+        return {}
+
+
+def push_macro_regime(payload: dict) -> bool:
+    """将 Page 1 计算出的 regime 数据包推送到后端持久化。返回是否成功。"""
+    if IS_PROD_REMOTE:
+        return False
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/macro/regime",
+            json=payload,
+            timeout=10,
+        )
+        r.raise_for_status()
+        fetch_current_regime.clear()
+        return r.json().get("success", False)
+    except Exception:
+        return False
+
+
+# ==========================================
+# 3c. ABCD 筛选结果缓存 API 客户端
+# ==========================================
+
+@st.cache_data(ttl=300)
+def fetch_screen_results() -> dict:
+    """从后端 universe.db 读取最新 ABCD 分类 + Arena 竞选结果。失败时返回 {}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/screen/results", timeout=10)
+        r.raise_for_status()
+        return r.json().get("data", {})
+    except Exception:
+        return {}
+
+
+def push_screen_results(payload: dict) -> bool:
+    """将 Page 3 的 ABCD 分类 + Arena 竞选结果推送到后端持久化。返回是否成功。"""
+    if IS_PROD_REMOTE:
+        return False
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/screen/results",
+            json=payload,
+            timeout=10,
+        )
+        r.raise_for_status()
+        fetch_screen_results.clear()
+        return r.json().get("success", False)
+    except Exception:
+        return False
+
+
+def run_classification_api(
+    price_df,
+    screen_tickers: list,
+    meta_data: dict,
+    prev_grades_map: dict = None,
+    z_seed_tickers: list = None,
+    thresholds: dict = None,
+    conv_state_a: dict = None,
+    conv_holders_a: list = None,
+    conv_state_b: dict = None,
+    conv_holders_b: list = None,
+    conv_config_a: dict = None,
+    conv_config_b: dict = None,
+) -> dict:
+    """将 price_df 序列化后调用后端 /api/v1/screen/run-classification。
+    返回 {"success": True, "abcd_classified_assets": ..., "selected_a": ..., "selected_b": ...}。
+    失败时返回 {"success": False, "error": ...}。
+    """
+    try:
+        price_records = price_df.to_dict(orient="index")
+        price_records = {str(k): v for k, v in price_records.items()}
+        payload = {
+            "price_records":   price_records,
+            "screen_tickers":  screen_tickers,
+            "meta_data":       meta_data or {},
+            "prev_grades_map": prev_grades_map or {},
+            "z_seed_tickers":  list(z_seed_tickers or []),
+            "thresholds":      thresholds or {},
+            "conv_state_a":    conv_state_a or {},
+            "conv_holders_a":  conv_holders_a or [],
+            "conv_state_b":    conv_state_b or {},
+            "conv_holders_b":  conv_holders_b or [],
+            "conv_config_a":   conv_config_a or {},
+            "conv_config_b":   conv_config_b or {},
+        }
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/screen/run-classification",
+            json=payload,
+            timeout=120,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+# ==========================================
 # 4. 叙事引擎 API 客户端 (Narrative Engine)
 # ==========================================
 

@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import os, json
 import plotly.graph_objects as go
-from api_client import fetch_core_data
+from api_client import fetch_core_data, fetch_screen_results
 
 st.set_page_config(page_title="资产矩阵与雷达", layout="wide", page_icon="📡")
 
@@ -190,18 +190,21 @@ st.title("📡 资产矩阵与雷达 (Asset Matrix & Radar)")
 st.caption("数据源：上游 Page 4「同类资产竞技场」ABCD 分类结果 → 四象限视觉映射 → 类别逻辑深挖")
 
 # ─────────────────────────────────────────────────────────────────
-#  数据读取：依赖上游 Page 4 写入 session_state
+#  数据读取：优先后端缓存，回退 session_state
 # ─────────────────────────────────────────────────────────────────
-if "abcd_classified_assets" not in st.session_state:
+_screen_cache = fetch_screen_results()
+all_assets: dict = (
+    _screen_cache.get("abcd_classified_assets")
+    or st.session_state.get("abcd_classified_assets")
+)
+if not all_assets:
     st.warning(
         "**尚未获取到分拣数据。** 请先访问左侧导航栏中的 "
-        "**4 同类资产竞技场** 页面——系统完成资产 ABCD 分类后，"
+        "**3 同类资产竞技场** 页面——系统完成资产 ABCD 分类后，"
         "结果将自动传入本视图。",
         icon="🗂️",
     )
     st.stop()
-
-all_assets: dict = st.session_state["abcd_classified_assets"]
 
 # ─────────────────────────────────────────────────────────────────
 #  构建绘图数据框（按 qualifying_grades 展开，与 page3 对齐）

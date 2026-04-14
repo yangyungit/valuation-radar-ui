@@ -14,6 +14,7 @@ from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         fetch_l2_l3_detail, get_batch_ticker_cooccurrence,
                         fetch_conviction_state as _api_fetch_conv,
                         push_conviction_state as _api_push_conv,
+                        fetch_current_regime, push_screen_results,
                         API_BASE_URL, IS_PROD_REMOTE)
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
@@ -288,8 +289,14 @@ def _load_horsemen_verdict_archive() -> dict:
 
 
 def _verdict_cn_from_session_probs(month_key: str) -> str:
-    """当本地档案缺失时，用当前 session 的 horsemen_monthly_probs 推导该月最高概率剧本（中文）。"""
-    probs = st.session_state.get("horsemen_monthly_probs", {}).get(month_key)
+    """当本地档案缺失时，用后端缓存的 horsemen_monthly_probs 推导该月最高概率剧本（中文）。
+    优先读后端 API，回退到 session_state。
+    """
+    _regime_data = fetch_current_regime()
+    probs = (
+        _regime_data.get("horsemen_monthly_probs", {}).get(month_key)
+        or st.session_state.get("horsemen_monthly_probs", {}).get(month_key)
+    )
     if not probs:
         return ""
     _cn = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
@@ -2391,6 +2398,7 @@ def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
         _aw = st.session_state.get("arena_winners", {})
         _aw[cls] = [row["Ticker"] for _, row in df_scored.head(3).iterrows()]
         st.session_state["arena_winners"] = _aw
+        _sync_arena_to_backend()
 
     kpi_cols = st.columns(4)
     if cls == "A":
@@ -2470,8 +2478,16 @@ with st.sidebar:
     st.caption("平滑剧本供 B/C 组使用；原始剧本供 D 组宏观匹配")
     _regime_options = ["Soft", "Hot", "Stag", "Rec"]
     _regime_labels  = {"Soft": "软着陆/复苏", "Hot": "过热/再通胀", "Stag": "滞胀", "Rec": "衰退"}
-    _ss_regime     = st.session_state.get("current_macro_regime")
-    _ss_regime_raw = st.session_state.get("current_macro_regime_raw")
+    # 优先读后端缓存，回退到 session_state（write-through 过渡兼容）
+    _regime_cache   = fetch_current_regime()
+    _ss_regime     = (
+        _regime_cache.get("current_macro_regime")
+        or st.session_state.get("current_macro_regime")
+    )
+    _ss_regime_raw = (
+        _regime_cache.get("current_macro_regime_raw")
+        or st.session_state.get("current_macro_regime_raw")
+    )
     _default_regime_idx = (
         _regime_options.index(_ss_regime)
         if _ss_regime in _regime_options
@@ -2615,8 +2631,7 @@ else:
     _core_live = fetch_core_data()
     _TIC_MAP = _core_live.get("TIC_MAP", {})
     _USER_TICKERS = list(_TIC_MAP.keys())
-    _page1_picks = st.session_state.get("page1_macro_recommended", [])
-    _SCREEN_TICKERS = sorted(set(_USER_TICKERS + _page1_picks))
+    _SCREEN_TICKERS = sorted(set(_USER_TICKERS))
     _DOWNLOAD_TICKERS = sorted(set(_SCREEN_TICKERS + ["SPY"]))
 
     with st.spinner("⏳ 正在加载资产价格矩阵..."):
@@ -2657,6 +2672,12 @@ else:
     _save_prev_classification(_new_grades_map)
 
     st.session_state["abcd_classified_assets"] = all_assets
+    # write-through：同步到后端（arena_winners 此时尚未计算，先持久化资产分类）
+    push_screen_results({
+        "abcd_classified_assets": all_assets,
+        "arena_winners": st.session_state.get("arena_winners", {}),
+        "p4_arena_leaders": st.session_state.get("p4_arena_leaders", {}),
+    })
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -2739,6 +2760,14 @@ if demo_mode:
             _pre_aw["Z"] = [row["Ticker"] for _, row in _df_pre_z_scored.head(3).iterrows()]
     if _pre_aw:
         st.session_state["arena_winners"] = _pre_aw
+
+def _sync_arena_to_backend() -> None:
+    """write-through：将当前 arena_winners + p4_arena_leaders 同步到后端缓存。"""
+    push_screen_results({
+        "abcd_classified_assets": st.session_state.get("abcd_classified_assets", {}),
+        "arena_winners":          st.session_state.get("arena_winners", {}),
+        "p4_arena_leaders":       st.session_state.get("p4_arena_leaders", {}),
+    })
 
 # ─────────────────────────────────────────────────────────────────
 #  全局概览横幅（可点击切换竞技场）
@@ -2922,6 +2951,7 @@ if _sel4 == "A":
             _aw = st.session_state.get("arena_winners", {})
             _aw["A"] = _rt_new_holders_a
             st.session_state["arena_winners"] = _aw
+            _sync_arena_to_backend()
 
         st.markdown("---")
         # 构建全量信念 map（含守擂状态），传入排行榜以展示信念值列
@@ -3071,6 +3101,7 @@ elif _sel4 == "B":
             _aw = st.session_state.get("arena_winners", {})
             _aw["B"] = _rt_new_holders
             st.session_state["arena_winners"] = _aw
+            _sync_arena_to_backend()
 
         st.markdown("---")
         # 构建全量信念 map（含守擂状态），传入排行榜以展示信念值列
@@ -3182,6 +3213,7 @@ elif _sel4 == "C":
             _aw = st.session_state.get("arena_winners", {})
             _aw["C"] = [row["Ticker"] for _, row in df_scored_c.head(3).iterrows()]
             st.session_state["arena_winners"] = _aw
+            _sync_arena_to_backend()
 
         st.markdown("---")
         st.markdown("#### 🏆 赛道翘楚 — Top 3 高亮置顶")
@@ -3261,6 +3293,7 @@ elif _sel4 == "Z":
             _aw_z = st.session_state.get("arena_winners", {})
             _aw_z["Z"] = [row["Ticker"] for _, row in df_scored_z.head(3).iterrows()]
             st.session_state["arena_winners"] = _aw_z
+            _sync_arena_to_backend()
 
         st.markdown("---")
         st.markdown("#### 🏆 赛道翘楚 — Top 3 高亮置顶")
@@ -3396,6 +3429,7 @@ elif _sel4 == "D":
             _aw = st.session_state.get("arena_winners", {})
             _aw["D"] = [row["Ticker"] for _, row in df_scored_d.head(3).iterrows()]
             st.session_state["arena_winners"] = _aw
+            _sync_arena_to_backend()
 
         # ── KPI 卡片 ─────────────────────────────────────────────
         st.markdown("---")
@@ -3438,14 +3472,13 @@ elif _sel4 == "D":
         """, unsafe_allow_html=True)
 
         if n_d > 0:
-            # --- Fetch narrative heat ranking (prefer session_state, fallback to direct API) ---
-            _narr_ranking = st.session_state.get("narrative_heat_ranking")
+            # --- 始终走 API 获取叙事热度排行（消灭 Page 2 -> Page 3 session_state 依赖）---
+            _narr_ranking = None
             _narr_l2l3_raw = None
-            if not _narr_ranking:
-                with st.spinner("正在拉取叙事雷达数据（Page 2 尚未访问，直接获取）…"):
-                    _narr_resp = fetch_l2_l3_detail(days=7)
-                    _narr_l2l3_raw = _narr_resp.get("data", [])
-                if _narr_l2l3_raw:
+            with st.spinner("正在拉取叙事雷达数据…"):
+                _narr_resp = fetch_l2_l3_detail(days=7)
+                _narr_l2l3_raw = _narr_resp.get("data", [])
+            if _narr_l2l3_raw:
                     _max_pos_m = max(
                         (float(r.get("heat_momentum", 0)) for r in _narr_l2l3_raw
                          if float(r.get("heat_momentum", 0)) > 0),
@@ -3694,7 +3727,10 @@ if _do_backfill:
         _bf_meta = get_stock_metadata(tuple(all_assets.keys()))
         _bf_saved, _bf_err = _backfill_arena_history(
             all_assets, months_back=_bf_months,
-            monthly_probs=st.session_state.get("horsemen_monthly_probs", {}),
+            monthly_probs=(
+                fetch_current_regime().get("horsemen_monthly_probs")
+                or st.session_state.get("horsemen_monthly_probs", {})
+            ),
             meta_data=_bf_meta,
         )
     if _bf_err:

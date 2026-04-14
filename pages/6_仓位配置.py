@@ -6,7 +6,7 @@ import numpy as np
 import json
 import os
 
-from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_funnel_scores, fetch_funnel_v2_scores, fetch_rolling_backtest
+from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_funnel_scores, fetch_funnel_v2_scores, fetch_rolling_backtest, fetch_current_regime
 
 core_data = fetch_core_data()
 
@@ -132,12 +132,19 @@ REGIME_NARRATIVE = {
     "衰退": "充当无视周期的盈利安全垫，抵御大盘系统性下行的毁灭性冲击。"
 }
 
-# ── 从 Page 1「四大剧本历史裁决表」读取宏观概率（SSOT） ──────────────────────
+# ── 宏观概率（SSOT）：优先读后端缓存，回退 session_state ──────────────────────
 # 历史裁决表本身为月度频率，已具备天然防抖特性，无需额外 EMA 平滑层
-live_smoothed_probs: dict = st.session_state.get("smoothed_regime_probs", {})
-live_regime_label: str    = st.session_state.get("live_regime_label", None)
+_regime_cache = fetch_current_regime()
+live_smoothed_probs: dict = (
+    _regime_cache.get("smoothed_regime_probs")
+    or st.session_state.get("smoothed_regime_probs", {})
+)
+live_regime_label: str = (
+    _regime_cache.get("live_regime_label")
+    or st.session_state.get("live_regime_label", None)
+)
 
-# 兜底：Page 1 未访问过时，使用等权概率（不引入独立后端 EMA 计算）
+# 兜底：后端尚无数据时，使用等权概率（不引入独立后端 EMA 计算）
 if not live_smoothed_probs:
     live_smoothed_probs = {"Soft": 0.25, "Hot": 0.25, "Stag": 0.25, "Rec": 0.25}
 
@@ -217,7 +224,10 @@ for _tier_key, _tlist in USER_GROUPS_DEF.items():
         # Arena 持仓迟滞仅用于步骤 2 的 UI 展示，不约束回测引擎
         group_assignments[_tn] = _tid
 
-_horsemen_monthly = st.session_state.get("horsemen_monthly_probs", {})
+_horsemen_monthly = (
+    _regime_cache.get("horsemen_monthly_probs")
+    or st.session_state.get("horsemen_monthly_probs", {})
+)
 _bt_trim_enabled  = st.session_state.get("bt_trim_applied_enabled", True)
 _bt_drift_pct     = st.session_state.get("bt_drift_applied_pct", 30)
 bt_years          = st.session_state.get("bt_years_selected", 1)
@@ -254,7 +264,11 @@ portfolio = []
 
 # 全局数据流：优先使用回测引擎最新一期选股（SSOT），步骤 2 与步骤 4 调仓明细严格对齐
 # 若回测失败，回退至 arena_winners 或 Molt 评分
-_arena_winners: dict = dict(st.session_state.get("arena_winners", {}))
+_screen_cache_p6 = fetch_screen_results()
+_arena_winners: dict = dict(
+    _screen_cache_p6.get("arena_winners")
+    or st.session_state.get("arena_winners", {})
+)
 
 # ── 从 arena_history.json 补充 C/D 组数据（Page 4 未访问时的 fallback） ────────
 # 复用顶部已加载的 _arena_hist_full，避免重复读文件
@@ -428,7 +442,7 @@ if not _wh_last:
 
         # B 组制动器减出的仓位泊入 Z 组
         if z_park_pct > 0:
-            z_picks = st.session_state.get("arena_winners", {}).get("Z", [])[:2]
+            z_picks = _arena_winners.get("Z", [])[:2]
             if z_picks:
                 for zt in z_picks:
                     portfolio.append({
@@ -560,7 +574,7 @@ c3.metric("🟡 滞胀信号强度",   f"{live_smoothed_probs.get('Stag',0)*100:
 c4.metric("🔴 衰退信号强度",   f"{live_smoothed_probs.get('Rec',0)*100:.0f}%")
 
 _live_label_cn = REGIME_CN_MAP.get(live_regime_label, live_regime_label or "未确立")
-if not st.session_state.get("smoothed_regime_probs"):
+if not live_smoothed_probs or set(live_smoothed_probs.values()) == {0.25}:
     st.info("ℹ️ **尚未从 Page 1 获取裁决数据** — 当前以等权概率兜底。请先访问「🧭 宏观定调」页面以获取完整四大剧本裁决结果。")
 if satellite_active:
     _c_cn = REGIME_CN_MAP.get(_c_regime_en, _c_regime_en)
