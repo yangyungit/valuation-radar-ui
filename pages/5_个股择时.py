@@ -518,6 +518,7 @@ if _arena_data:
         tick_vals: list = []
         tick_texts: list = []
         boundary_xs: list = []
+        name_annotations: list = []
         running_return = 0.0  # 累计收益率起点 0%
 
         for _ci, (_tk, _s_m, _e_m) in enumerate(segs):
@@ -552,8 +553,21 @@ if _arena_data:
 
             running_return = float(_seg_cum.iloc[-1])
 
+            # x 轴只显示时间区间，名称单独以 annotation 显示在图表顶部
             tick_vals.append(x_offset + _n // 2)
-            tick_texts.append(f"{_cn}<br>{_s_m}→{_e_m}")
+            tick_texts.append(f"{_s_m}→{_e_m}")
+
+            name_annotations.append(dict(
+                x=x_offset + _n // 2,
+                y=1.0,
+                xref="x",
+                yref="paper",
+                text=_cn,
+                showarrow=False,
+                font=dict(size=11, color=_color),
+                xanchor="center",
+                yanchor="bottom",
+            ))
 
             if x_offset > 0:
                 boundary_xs.append(x_offset - 0.5)
@@ -570,6 +584,7 @@ if _arena_data:
                 tickvals=tick_vals,
                 ticktext=tick_texts,
                 tickfont=dict(size=11),
+                tickangle=-30,
                 gridcolor="rgba(100,100,100,0.3)",
             ),
             yaxis=dict(
@@ -577,8 +592,9 @@ if _arena_data:
                 ticksuffix="%",
                 gridcolor="rgba(100,100,100,0.3)",
             ),
-            height=520,
-            margin=dict(l=10, r=10, t=44, b=70),
+            annotations=name_annotations,
+            height=560,
+            margin=dict(l=10, r=10, t=44, b=60),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(30,30,30,0.6)",
             font=dict(color="#ccc", size=13),
