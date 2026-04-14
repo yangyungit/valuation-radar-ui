@@ -457,6 +457,32 @@ if _arena_hist:
             _prev_hold = _hold
         _holdings_map[_cls] = _cls_map
 
+    # slot-stable column ordering: keep the same ticker in the same
+    # left / right position across consecutive months for visual alignment
+    _slot_assignments: dict = {}
+    for _cls in ["A", "B", "C", "D", "Z"]:
+        _months_asc = sorted(k for k in _arena_hist if not k.startswith("_"))
+        _prev_slots: list = [None, None]
+        _cls_slots: dict = {}
+        for _m in _months_asc:
+            _h = _holdings_map[_cls].get(_m, {})
+            _hold_set = _h.get("hold", set())
+            _new_slots: list = [None, None]
+            _assigned: set = set()
+            for i in range(2):
+                if _prev_slots[i] and _prev_slots[i] in _hold_set:
+                    _new_slots[i] = _prev_slots[i]
+                    _assigned.add(_prev_slots[i])
+            _remaining = sorted(t for t in _hold_set if t not in _assigned)
+            for t in _remaining:
+                for i in range(2):
+                    if _new_slots[i] is None:
+                        _new_slots[i] = t
+                        break
+            _cls_slots[_m] = _new_slots
+            _prev_slots = _new_slots
+        _slot_assignments[_cls] = _cls_slots
+
     # ── 白盒化管道说明：Top-3 → Top-2 筛选逻辑 ──────────────────────
     st.markdown(
         "<div style='margin-top:24px; margin-bottom:8px;'>"
@@ -527,33 +553,35 @@ if _arena_hist:
             _mo_st = _all_streaks[_cls].get(_mo, {})
 
             _all_recs = _entry.get(_cls, [])[:3]
-            _hold_recs = [r for r in _all_recs if r["ticker"] in _hold_set]
-            _hold_recs.sort(key=lambda r: _mo_st.get(r["ticker"], 0), reverse=True)
+            _rec_map = {r["ticker"]: r for r in _all_recs if r["ticker"] in _hold_set}
+            _slots = _slot_assignments[_cls].get(_mo, [None, None])
 
             _t2_set = set(_t2_list)
-            _spans = []
-            for _rec in _hold_recs:
-                _tk = _rec["ticker"]
-                _s = _mo_st.get(_tk, 0)
-                _txt = _tk + "(" + str(_s) + "月)"
+            _slot_spans = ["", ""]
+            for _si, _slot_tk in enumerate(_slots):
+                if not _slot_tk or _slot_tk not in _rec_map:
+                    continue
+                _s = _mo_st.get(_slot_tk, 0)
+                _txt = _slot_tk + "(" + str(_s) + "月)"
                 if not _is_diff:
-                    # 稳居 Top-2，无守擂压力 → 白
-                    _spans.append("<span style='color:#ddd;'>" + _txt + "</span>")
-                elif _tk not in _t2_set:
-                    # 守擂中但已跌出 Top-2（不在中括号里）→ 红
-                    _spans.append(
+                    _slot_spans[_si] = "<span style='color:#ddd;'>" + _txt + "</span>"
+                elif _slot_tk not in _t2_set:
+                    _slot_spans[_si] = (
                         "<span style='color:#E74C3C; font-weight:600;'>" + _txt + "</span>"
                     )
                 else:
-                    # 守擂中且仍在 Top-2 → 绿
-                    _spans.append(
+                    _slot_spans[_si] = (
                         "<span style='color:#2ECC71; font-weight:600;'>" + _txt + "</span>"
                     )
 
-            _cell_html = (
-                " / ".join(_spans) if _spans
-                else "<span style='color:#555;'>—</span>"
-            )
+            if not _slot_spans[0] and not _slot_spans[1]:
+                _cell_html = "<span style='color:#555;'>—</span>"
+            else:
+                _cell_html = (
+                    "<span style='display:inline-block; min-width:105px;'>"
+                    + (_slot_spans[0] or "&nbsp;") + "</span>"
+                    + _slot_spans[1]
+                )
             if _is_diff and _t2_list:
                 _cell_html += (
                     " <span style='color:#E67E22; font-size:12px;'>"
