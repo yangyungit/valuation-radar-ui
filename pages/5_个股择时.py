@@ -547,7 +547,7 @@ if _arena_data:
                 mode="lines",
                 line=dict(color=_color, width=2),
                 name=f"{_cn}（{_s_m}→{_e_m}）",
-                showlegend=True,
+                showlegend=False,
             ))
 
             running_return = float(_seg_cum.iloc[-1])
@@ -582,7 +582,7 @@ if _arena_data:
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(30,30,30,0.6)",
             font=dict(color="#ccc", size=13),
-            legend=dict(font=dict(size=11), orientation="h", y=-0.28),
+            showlegend=False,
         )
         return fig
 
