@@ -511,9 +511,14 @@ if _arena_data:
             except Exception:
                 pass
 
-    # ── 绘制分段着色 K 线图 ───────────────────────────────────────────
-    def _build_kline_fig(segs: list, title: str) -> go.Figure:
+    # ── 绘制首尾相接拼接 K 线图（整数 x 轴，各段顺序衔接）────────────
+    def _build_stitched_kline_fig(segs: list, slot_name: str) -> go.Figure:
         fig = go.Figure()
+        x_offset = 0
+        tick_vals: list = []
+        tick_texts: list = []
+        boundary_xs: list = []
+
         for _ci, (_tk, _s_m, _e_m) in enumerate(segs):
             _wkd = _a_price_cache.get(_tk)
             if _wkd is None or _wkd.empty:
@@ -527,33 +532,55 @@ if _arena_data:
             _seg_wk = _seg_wk.dropna(subset=["Open", "High", "Low", "Close"])
             if _seg_wk.empty:
                 continue
+
+            _n = len(_seg_wk)
+            _x_vals = list(range(x_offset, x_offset + _n))
             _color = _SLOT_COLORS[_ci % len(_SLOT_COLORS)]
             _cn = _name_map.get(_tk, _tk)
+
             fig.add_trace(go.Candlestick(
-                x=_seg_wk.index,
+                x=_x_vals,
                 open=_seg_wk["Open"],
                 high=_seg_wk["High"],
                 low=_seg_wk["Low"],
                 close=_seg_wk["Close"],
-                name=f"{_cn}({_s_m}→{_e_m})",
+                name=f"{_cn}（{_s_m}→{_e_m}）",
                 increasing_line_color=_color,
                 decreasing_line_color=_color,
                 increasing_fillcolor=_color,
                 decreasing_fillcolor=_color,
                 showlegend=True,
             ))
+
+            tick_vals.append(x_offset + _n // 2)
+            tick_texts.append(f"{_cn}<br>{_s_m}→{_e_m}")
+
+            if x_offset > 0:
+                boundary_xs.append(x_offset - 0.5)
+
+            x_offset += _n
+
+        for _bx in boundary_xs:
+            fig.add_vline(x=_bx, line_dash="dash",
+                          line_color="rgba(200,200,200,0.35)", line_width=1)
+
         fig.update_layout(
-            title=title,
+            title=f"{slot_name} — 持仓段首尾相接 K 线（共 {len(segs)} 段）",
+            xaxis=dict(
+                tickvals=tick_vals,
+                ticktext=tick_texts,
+                tickfont=dict(size=11),
+                gridcolor="rgba(100,100,100,0.3)",
+            ),
+            yaxis=dict(gridcolor="rgba(100,100,100,0.3)"),
             xaxis_rangeslider_visible=False,
-            height=420,
-            margin=dict(l=10, r=10, t=40, b=10),
+            height=520,
+            margin=dict(l=10, r=10, t=44, b=70),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(30,30,30,0.6)",
             font=dict(color="#ccc", size=13),
-            legend=dict(font=dict(size=11), orientation="h", y=-0.22),
+            legend=dict(font=dict(size=11), orientation="h", y=-0.28),
         )
-        fig.update_xaxes(gridcolor="rgba(100,100,100,0.3)")
-        fig.update_yaxes(gridcolor="rgba(100,100,100,0.3)")
         return fig
 
     # ── 计算每列总收益与最大回撤 ──────────────────────────────────────
@@ -625,14 +652,12 @@ if _arena_data:
     with _dd_c3:
         st.metric("A 级合成最大回撤", f"-{_dd_combined:.1f}%")
 
-    _chart_col_left, _chart_col_right = st.columns(2)
-    with _chart_col_left:
-        st.subheader("左列持仓")
-        _fig_left = _build_kline_fig(_seg_left, "左列（Slot 0）K 线图")
+    _tab_left, _tab_right = st.tabs(["📊 左列持仓 (Slot 0)", "📊 右列持仓 (Slot 1)"])
+    with _tab_left:
+        _fig_left = _build_stitched_kline_fig(_seg_left, "左列 (Slot 0)")
         st.plotly_chart(_fig_left, use_container_width=True)
-    with _chart_col_right:
-        st.subheader("右列持仓")
-        _fig_right = _build_kline_fig(_seg_right, "右列（Slot 1）K 线图")
+    with _tab_right:
+        _fig_right = _build_stitched_kline_fig(_seg_right, "右列 (Slot 1)")
         st.plotly_chart(_fig_right, use_container_width=True)
 
     # ═══════════════════════════════════════════════════════════════════
