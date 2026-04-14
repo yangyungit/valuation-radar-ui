@@ -9,21 +9,7 @@ import os
 import json
 from datetime import datetime, timedelta
 import requests as _requests
-try:
-    from api_client import fetch_core_data, get_global_data, push_macro_regime
-except Exception as _import_err:
-    import traceback as _tb
-    # #region agent log 65f777
-    import json as _json, time as _time
-    try:
-        with open("/Users/zhanghao/yangyun/Code_Projects/valuation-radar-ui/.cursor/debug-65f777.log", "a") as _f:
-            _f.write(_json.dumps({"sessionId": "65f777", "timestamp": int(_time.time()*1000), "location": "1_宏观定调.py:12", "message": "ImportError", "data": {"error": str(_import_err), "tb": _tb.format_exc()}, "hypothesisId": "A-B"}) + "\n")
-    except Exception:
-        pass
-    # #endregion agent log 65f777
-    st.error(f"**[诊断] ImportError 完整信息：** `{_import_err}`")
-    st.code(_tb.format_exc(), language="python")
-    st.stop()
+from api_client import fetch_core_data, get_global_data, push_macro_regime
 
 
 def _fetch_fred_series(series_id: str, start_date, end_date, api_key: str) -> pd.Series:
