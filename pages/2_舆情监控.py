@@ -2308,7 +2308,7 @@ if active_phase == 5:
         df_radar["mention_count"] = pd.to_numeric(df_radar["mention_count"], errors="coerce").fillna(0)
 
 
-        v5_sub1, v5_sub2 = st.tabs(["🎯 四象限雷达", "📡 主线雷达"])
+        v5_sub1, v5_sub2 = st.tabs(["🎯 四象限雷达", "📊 L2板块历史热度"])
 
         # =====================================================================
         # Sub-tab 1: Quadrant Radar (rewritten v3)
@@ -2819,7 +2819,7 @@ if active_phase == 5:
                 ))
                 fig_regime.update_layout(
                     title=dict(
-                        text="L2 板块象限迁移全景图（颜色 = 当日所处四象限）",
+                        text=f"各板块历史热度状态一览（近 {_radar_days} 天）",
                         font=dict(size=15, color="#ccc"),
                         x=0,
                     ),
