@@ -653,6 +653,50 @@ def push_conviction_state(cls: str, state: dict, holders: list) -> bool:
 
 
 # ==========================================
+# 3c. Arena 月度档案 API 客户端
+# ==========================================
+
+def fetch_arena_history() -> dict:
+    """从后端读取全量 arena 月度档案。失败时返回 {}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/arena/history", timeout=15)
+        r.raise_for_status()
+        return r.json().get("history", {})
+    except Exception:
+        return {}
+
+
+def push_arena_history_batch(history: dict) -> bool:
+    """批量 upsert arena 月度档案到后端。返回是否成功。"""
+    if IS_PROD_REMOTE:
+        return False
+    if not history:
+        return True
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/arena/history/batch",
+            json={"history": history},
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json().get("success", False)
+    except Exception:
+        return False
+
+
+def clear_arena_history_backend() -> bool:
+    """清空后端全部 arena 月度档案。返回是否成功。"""
+    if IS_PROD_REMOTE:
+        return False
+    try:
+        r = requests.delete(f"{API_BASE_URL}/api/v1/arena/history", timeout=10)
+        r.raise_for_status()
+        return r.json().get("success", False)
+    except Exception:
+        return False
+
+
+# ==========================================
 # 3b. 宏观 Regime 缓存 API 客户端
 # ==========================================
 

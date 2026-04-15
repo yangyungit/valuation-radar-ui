@@ -14,6 +14,9 @@ from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         fetch_l2_l3_detail, get_batch_ticker_cooccurrence,
                         fetch_conviction_state as _api_fetch_conv,
                         push_conviction_state as _api_push_conv,
+                        fetch_arena_history as _api_fetch_history,
+                        push_arena_history_batch as _api_push_history_batch,
+                        clear_arena_history_backend as _api_clear_history,
                         fetch_current_regime, push_screen_results,
                         API_BASE_URL, IS_PROD_REMOTE)
 from screener_engine import (
@@ -237,6 +240,7 @@ def _derive_monthly_regimes(probs: dict) -> tuple:
 
 # ─────────────────────────────────────────────────────────────────
 #  历史榜单持久化（History Persistence）
+#  主存储：universe.db（后端），本地 JSON 仅作离线备用
 # ─────────────────────────────────────────────────────────────────
 _HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "arena_history.json")
 _HORSEMEN_VERDICT_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "horsemen_monthly_verdict.json")
@@ -300,71 +304,62 @@ def _save_prev_classification(grades_map: dict) -> None:
 
 
 def _load_arena_history() -> dict:
-    """从 JSON 文件加载历史月度 Top 3 记录。"""
+    """从后端加载历史月度 Top 3 记录（主），本地 JSON 作离线降级备用。
+    返回格式：{"YYYY-MM": {"A": [...], "B": [...], ...}, ...}
+    注意：不含 _conviction_* / _holders_* 等旧格式内嵌键。
+    """
+    history = _api_fetch_history()
+    if history:
+        return history
+    # 降级：从本地 JSON 读（过滤掉旧格式的内嵌信念键）
     try:
         if os.path.exists(_HISTORY_FILE):
             with open(_HISTORY_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                raw = json.load(f)
+            return {k: v for k, v in raw.items() if not k.startswith("_")}
     except Exception:
         pass
     return {}
 
 
-def _record_arena_history(cls: str, top3_records: list, month_key: str = None) -> None:
-    """将某月某赛道的 Top 3 写入历史文件（自动覆盖同月同赛道旧数据）。
-    month_key 为 None 时默认使用当前月份（YYYY-MM）。
-    top3_records 中若含 conviction/status 字段会一并保存。
-    """
-    if month_key is None:
-        month_key = datetime.now().strftime("%Y-%m")
-    history = _load_arena_history()
-    if month_key not in history:
-        history[month_key] = {}
-    rec_list = []
+def _make_record_list(top3_records: list) -> list:
+    """将 top3 条目标准化为存储格式。"""
+    result = []
     for r in top3_records:
         entry = {"ticker": r["ticker"], "name": r["name"], "score": r.get("score", 0.0)}
         if "conviction" in r:
             entry["conviction"] = r["conviction"]
         if "status" in r:
             entry["status"] = r["status"]
-        rec_list.append(entry)
-    history[month_key][cls] = rec_list
-    try:
-        os.makedirs(os.path.dirname(_HISTORY_FILE), exist_ok=True)
-        with open(_HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+        result.append(entry)
+    return result
+
+
+def _record_arena_history(cls: str, top3_records: list, month_key: str = None,
+                          _batch_buf: dict | None = None) -> None:
+    """将某月某赛道的 Top 3 写入后端（实时）或暂存至 _batch_buf（回填批量）。
+    _batch_buf 不为 None 时只写入内存字典，由调用方负责批量推送。
+    """
+    if month_key is None:
+        month_key = datetime.now().strftime("%Y-%m")
+    rec_list = _make_record_list(top3_records)
+    if _batch_buf is not None:
+        if month_key not in _batch_buf:
+            _batch_buf[month_key] = {}
+        _batch_buf[month_key][cls] = rec_list
+    else:
+        _api_push_history_batch({month_key: {cls: rec_list}})
 
 
 def _save_conviction_state(cls: str, state: dict, holders: list) -> None:
-    """持久化信念状态：优先写入后端 universe.db，同时保留本地 JSON 作为缓存。"""
-    # 1. 后端持久化（主存储，防止前端文件意外丢失）
-    # 直连生产环境时禁止写入，api_client 层已拦截，此处双重保护
+    """持久化信念状态到后端 universe.db（唯一存储源）。"""
     if not IS_PROD_REMOTE:
         _api_push_conv(cls, state, holders)
-    # 2. 本地 JSON 同步写入（供离线/断网时回退）
-    history = _load_arena_history()
-    history[f"_conviction_{cls}"] = state
-    history[f"_holders_{cls}"] = holders
-    try:
-        os.makedirs(os.path.dirname(_HISTORY_FILE), exist_ok=True)
-        with open(_HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
 
 
 def _load_conviction_state(cls: str) -> tuple[dict, list]:
-    """加载信念状态：优先从后端 universe.db 读取，失败时降级到本地 JSON。"""
-    state, holders = _api_fetch_conv(cls)
-    if state:
-        return state, holders
-    # 降级：从本地 JSON 读取
-    history = _load_arena_history()
-    state   = history.get(f"_conviction_{cls}", {})
-    holders = history.get(f"_holders_{cls}", [])
-    return state, holders
+    """从后端 universe.db 读取信念状态。"""
+    return _api_fetch_conv(cls)
 
 
 @st.cache_data(ttl=3600 * 6, show_spinner=False)
@@ -384,10 +379,16 @@ def _fetch_backfill_prices(tickers: tuple) -> tuple:
 
 def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                             monthly_probs: dict = None,
-                            meta_data: dict = None) -> tuple:
+                            meta_data: dict = None,
+                            warmup_months: int = 12) -> tuple:
     """
     用历史价格数据回填过去 N 个月各赛道的 Top 3。
     Point-in-Time 模式：每个月末重新执行并行分类（含滞后带），消除前视偏差。
+
+    warmup_months: 热身阶段月数。这段时间只积累信念状态，不写入档案。
+      目的：让信念值从 0 爬升到稳态区间（~55-100），避免前 N 个月记录的
+      信念值虚低（否则入选门槛 55 根本达不到，只能靠 cold-start 凑数）。
+      数学上：holder_decay=0.80，达到 90% 稳态需 ≈ 11 个月，取 12 个月足够。
     monthly_probs: {"YYYY-MM": {"Soft": f, "Hot": f, "Stag": f, "Rec": f}}
     meta_data: {ticker: {"mcap": float, "div_yield": float}} — 当前快照用作近似。
     返回 (saved_month_count, error_msg)
@@ -417,8 +418,10 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
     if m == 0:
         m, y = 12, y - 1
 
+    # 构建总月份列表：warmup + 正式记录，合并倒序后一起处理
+    total_months = months_back + warmup_months
     month_ends: list = []
-    for _ in range(months_back):
+    for _ in range(total_months):
         last_day = calendar.monthrange(y, m)[1]
         target   = pd.Timestamp(y, m, last_day)
         avail    = price_df.index[price_df.index <= target]
@@ -431,19 +434,26 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
     # Chronological order for hysteresis chain
     month_ends.reverse()
 
+    # 热身阶段月份 key 集合（不写入档案）
+    warmup_keys: set = {mk for mk, _ in month_ends[:warmup_months]}
+
     spy_col = "SPY" if "SPY" in price_df.columns else None
     saved   = 0
     prev_grades_map: dict = {}
 
-    # A 组信念积累状态（回填时从头构建）
+    # A 组信念积累状态（从头构建，包含热身阶段）
     _bf_conv_state_a: dict  = {}
     _bf_conv_holders_a: list = []
 
-    # B 组信念积累状态（回填时从头构建）
+    # B 组信念积累状态（从头构建，包含热身阶段）
     _bf_conv_state: dict  = {}
     _bf_conv_holders: list = []
 
+    # 批量缓冲：回填期间在内存中积攒，每 6 个正式月或末尾统一推送
+    _bf_history_buf: dict = {}
+
     for month_key, me_date in month_ends:
+        _is_warmup = month_key in warmup_keys
         loc = price_df.index.get_loc(me_date)
         if loc < 120:
             continue
@@ -660,15 +670,23 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                      "score": float(r["竞技得分"])}
                     for _, r in df_scored.head(3).iterrows()
                 ]
-            _record_arena_history(cls, top3, month_key=month_key)
+            # 热身阶段只更新信念状态，不写入档案
+            if not _is_warmup:
+                _record_arena_history(cls, top3, month_key=month_key,
+                                      _batch_buf=_bf_history_buf)
 
-        saved += 1
-        # Checkpoint：每 6 个月持久化一次信念状态，防止中断丢失
-        if saved % 6 == 0:
-            _save_conviction_state("A", _bf_conv_state_a, _bf_conv_holders_a)
-            _save_conviction_state("B", _bf_conv_state, _bf_conv_holders)
+        if not _is_warmup:
+            saved += 1
+            # Checkpoint：每 6 个正式月批量推送档案 + 持久化信念状态
+            if saved % 6 == 0:
+                _api_push_history_batch(_bf_history_buf)
+                _bf_history_buf.clear()
+                _save_conviction_state("A", _bf_conv_state_a, _bf_conv_holders_a)
+                _save_conviction_state("B", _bf_conv_state, _bf_conv_holders)
 
-    # 回填结束后最终持久化 A/B 组信念状态
+    # 回填结束：推送剩余档案 + 最终持久化信念状态
+    if _bf_history_buf:
+        _api_push_history_batch(_bf_history_buf)
     _save_conviction_state("A", _bf_conv_state_a, _bf_conv_holders_a)
     _save_conviction_state("B", _bf_conv_state, _bf_conv_holders)
     return saved, ""
@@ -2508,12 +2526,15 @@ with st.sidebar:
         with _c1:
             if st.button("确认删除", type="primary"):
                 try:
-                    if os.path.exists(_HISTORY_FILE):
-                        os.remove(_HISTORY_FILE)
+                    # 清空后端 arena_history 表
+                    _api_clear_history()
                     # 同步清零 A/B 组信念状态，防止删除历史后残留信念积分影响公平性
                     if not IS_PROD_REMOTE:
                         _api_push_conv("A", {}, [])
                         _api_push_conv("B", {}, [])
+                    # 同步删除本地 JSON 备份
+                    if os.path.exists(_HISTORY_FILE):
+                        os.remove(_HISTORY_FILE)
                     st.session_state.pop("_confirm_delete_history", None)
                     st.success("历史档案及 A/B 组信念状态已同步清空！")
                     st.rerun()
@@ -3635,7 +3656,8 @@ with _bf_col3:
     )
 
 if _do_backfill:
-    with st.spinner(f"正在下载 {len(all_assets)} 只标的约 6 年历史数据并逐月 PIT 分拣 + 评分…"):
+    with st.spinner(f"正在下载 {len(all_assets)} 只标的约 6 年历史数据并逐月 PIT 分拣 + 评分…"
+                    f"（含 12 个月信念热身期，共计算 {_bf_months + 12} 个月）"):
         _bf_meta = get_stock_metadata(tuple(all_assets.keys()))
         _bf_saved, _bf_err = _backfill_arena_history(
             all_assets, months_back=_bf_months,
@@ -3644,6 +3666,7 @@ if _do_backfill:
                 or st.session_state.get("horsemen_monthly_probs", {})
             ),
             meta_data=_bf_meta,
+            warmup_months=12,
         )
     if _bf_err:
         st.error(f"回填失败：{_bf_err}")

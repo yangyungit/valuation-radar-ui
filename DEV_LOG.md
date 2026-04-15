@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-04-15
+
+### Arena 历史档案迁移至后端 + 回填 Warm-up 修复
+
+**背景**：历史月度 Top 3 档案此前存于前端本地 `data/arena_history.json`，信念状态存于后端 `universe.db`。两个存储源各自读写导致「打架」：实时渲染覆盖写 DB 信念状态后，与本地 JSON 不同步，多次回填后信念值退化为仅 1 个月的积累（等于 `score × 0.22`）。
+
+**本次变更**：
+
+1. **`universe_manager.py`**：新增 `arena_history` 表（主键 `month_key + cls`），及 `get_arena_history` / `upsert_arena_batch` / `clear_arena_history` 三个函数。
+2. **`api_server.py`**：新增三个端点 `GET/POST batch/DELETE /api/v1/arena/history`，与 `conviction_state` 位于同一 DB 文件，完全同步。
+3. **`api_client.py`**：新增 `fetch_arena_history` / `push_arena_history_batch` / `clear_arena_history_backend`。
+4. **`pages/3_资产细筛.py`**：
+   - `_load_arena_history`：主走后端 API，本地 JSON 仅作离线降级备用。
+   - `_record_arena_history`：新增 `_batch_buf` 参数，回填期间只写内存，每 6 个正式月或末尾统一批推。
+   - `_save_conviction_state` / `_load_conviction_state`：移除本地 JSON 双写，信念状态只存 DB。
+   - 清除按钮：改为调用 `_api_clear_history()` 清空后端表，同时删本地 JSON 备份。
+5. **回填 Warm-up**：`_backfill_arena_history` 新增 `warmup_months=12` 参数。回填时实际处理 `months_back + 12` 个月，前 12 个月只积累信念状态不写档案，使信念值在记录起点前达到稳态（~90% 稳态需 ≈ 11 个月，`holder_decay=0.80`）。
+6. **数据迁移**：已将原 `arena_history.json` 的 61 个月数据（243 行）一次性导入 `universe.db`。
+
+**影响范围**：`pages/3_资产细筛.py`、`api_client.py`、`universe_manager.py`、`api_server.py`。需重启后端才能激活新端点。
+
+---
+
 ## 2026-04-14
 
 ### 新增「A 组信念守擂持仓 K 线图」Section（5_个股择时.py）
