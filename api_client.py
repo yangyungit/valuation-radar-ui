@@ -709,22 +709,42 @@ def compute_macro_regime_api(z_window: int = 750) -> dict:
         "horsemen_monthly_table": [ records ],
         "horsemen_daily_verdict": { date_str: verdict_cn }
     }
-    失败时返回 {}。
+    失败时返回 {}（前端将回退本地计算）。
+    Render 免费套餐冷启动约需 15-30s，502/504 时自动重试一次。
     """
-    try:
-        r = requests.post(
-            f"{API_BASE_URL}/api/v1/macro/compute",
-            json={"z_window": z_window},
-            timeout=300,
+    import time
+    last_exc = None
+    for attempt in range(2):
+        try:
+            if attempt > 0:
+                time.sleep(15)   # 等待 Render 冷启动完成后重试
+            r = requests.post(
+                f"{API_BASE_URL}/api/v1/macro/compute",
+                json={"z_window": z_window},
+                timeout=300,
+            )
+            r.raise_for_status()
+            resp = r.json()
+            if resp.get("success"):
+                fetch_current_regime.clear()
+            return resp
+        except Exception as e:
+            last_exc = e
+            err_str = str(e)
+            # 502/504 是 Render 冷启动或代理超时的典型症状，值得重试
+            if attempt == 0 and any(code in err_str for code in ("502", "504", "Connection")):
+                continue
+            break
+    # 区分"服务器繁忙/冷启动"与"真实错误"，给出更明确的提示
+    err_msg = str(last_exc)
+    if any(code in err_msg for code in ("502", "504")):
+        st.info(
+            "ℹ️ 云端计算引擎正在冷启动（Render 免费套餐闲置后自动休眠），"
+            "已切换本地计算模式，结果完全一致。刷新页面可重试联网版本。"
         )
-        r.raise_for_status()
-        resp = r.json()
-        if resp.get("success"):
-            fetch_current_regime.clear()
-        return resp
-    except Exception as e:
-        st.warning(f"⚠️ 后端 regime 计算失败，将回退本地计算: {e}")
-        return {}
+    else:
+        st.warning(f"⚠️ 后端 regime 计算失败，已回退本地计算: {last_exc}")
+    return {}
 
 
 @st.cache_data(ttl=3600 * 4)
