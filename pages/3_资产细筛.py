@@ -18,6 +18,7 @@ from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         push_arena_history_batch as _api_push_history_batch,
                         clear_arena_history_backend as _api_clear_history,
                         fetch_current_regime, push_screen_results,
+                        run_classification_api,
                         API_BASE_URL, IS_PROD_REMOTE)
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
@@ -2639,13 +2640,24 @@ _hyst_thresholds = {
 }
 
 with st.spinner("⚙️ 正在执行并行 ABCD 分类（含滞后带）…"):
-    _date_idx = len(_price_df) - 1
-    all_assets = classify_all_at_date(
-        _price_df, _date_idx, _SCREEN_TICKERS, _meta_live,
-        tic_map=_TIC_MAP, prev_grades_map=_prev_grades_map,
-        z_seed_tickers=_Z_SEED_TICKERS,
+    _cls_result = run_classification_api(
+        screen_tickers=_SCREEN_TICKERS,
+        meta_data=_meta_live,
+        prev_grades_map=_prev_grades_map,
+        z_seed_tickers=list(_Z_SEED_TICKERS),
         thresholds=_hyst_thresholds,
     )
+    if _cls_result.get("success"):
+        all_assets = _cls_result["abcd_classified_assets"]
+    else:
+        st.warning(f"⚠️ 后端分类 API 失败，回退本地计算: {_cls_result.get('error','')}", icon="⚠️")
+        _date_idx = len(_price_df) - 1
+        all_assets = classify_all_at_date(
+            _price_df, _date_idx, _SCREEN_TICKERS, _meta_live,
+            tic_map=_TIC_MAP, prev_grades_map=_prev_grades_map,
+            z_seed_tickers=_Z_SEED_TICKERS,
+            thresholds=_hyst_thresholds,
+        )
 
 _new_grades_map = {
     t: info.get("qualifying_grades", [])

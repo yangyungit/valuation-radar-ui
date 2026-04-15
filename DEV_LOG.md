@@ -4,6 +4,31 @@
 
 ## 2026-04-15
 
+### Session State 后沉 Step 4 & Step 5 正式完成（yfinance 后端化）
+
+**背景**：Step 4 / Step 5 的妥协记录遗留两个问题：
+1. `POST /api/v1/screen/run-classification` 端点仍要求前端传 price_df（1-3MB 序列化）；
+2. `POST /api/v1/macro/compute` 端点仍要求前端传 price_records；Page 1 / Page 0 仍在 Streamlit 进程内调 yfinance。
+
+**本次变更**：
+
+#### 后端（valuation-radar）
+
+- **`macro_engine.py`**：新增 `REGIME_TICKERS`（17 个四大剧本计算所需 ETF）+ `fetch_regime_price_data(years=12)` 函数（后端直拉 yfinance）；`compute_macro_regime()` 返回值追加 `_horsemen_monthly_table`（月度裁决表 records，供 Page 1 渲染图表）和 `_horsemen_daily_verdict`（日度裁决 dict，供比值图染色）。
+- **`api_server.py - /macro/compute`**：`price_records` 为空时调 `fetch_regime_price_data()` 自拉数据；从返回包中 pop 两个图表字段（不写 DB）并在 HTTP 响应中单独返回；FRED 自拉逻辑不变。
+- **`api_server.py - /screen/run-classification`**：`price_records` 为空时根据 `screen_tickers + z_seed_tickers + SPY` 自拉 yfinance 3 年数据，完成后端独立分类；向后兼容旧路径（传 price_records 仍可用）。
+
+#### 前端（valuation-radar-ui）
+
+- **`api_client.py`**：新增 `compute_macro_regime_api(z_window=750)`（POST `/macro/compute`，空 body，TTL=4h）；`run_classification_api` 签名改为 `price_df=None`（末尾可选参数），默认走后端自拉路径，向后兼容。
+- **`pages/1_宏观定调.py`**：新增 `compute_macro_regime_api` 调用（在 FRED 拉取后）；移除本地 `_build_horsemen_history()` 函数定义，改从 API 响应重建 `df_hist_horsemen` 和 `_horsemen_daily`；session_state 写入改为直接从 API `data` 字段取值；`push_macro_regime` 降级为仅在 API 不可用时的 fallback 路径。本地 yfinance 下载保留（`df` 仍用于宏观时钟等图表渲染）。
+- **`pages/3_资产细筛.py`**：实时分类入口（原 line 2643）改为调 `run_classification_api(screen_tickers, ...)`，不再传 price_df；失败时回退本地 `classify_all_at_date`。历史回填（`_backfill_arena_history`）保留本地计算（需逐月截面，无法简单 API 化）。
+- **`pages/0_宏观雷达.py`**：完全重写，移除所有本地 yfinance / ASSET_GROUPS / `calculate_metrics()` / 本地 `generate_deep_insight()`，改为单一 `fetch_macro_radar()` API 调用；保留 HTML 样式的 insight 渲染函数（使用后端返回的 plain-text 拼装）。
+
+**影响范围**：`macro_engine.py`、`api_server.py`、`api_client.py`、`pages/0_宏观雷达.py`、`pages/1_宏观定调.py`、`pages/3_资产细筛.py`。需重启后端才能激活新端点逻辑。
+
+---
+
 ### Arena 历史档案迁移至后端 + 回填 Warm-up 修复
 
 **背景**：历史月度 Top 3 档案此前存于前端本地 `data/arena_history.json`，信念状态存于后端 `universe.db`。两个存储源各自读写导致「打架」：实时渲染覆盖写 DB 信念状态后，与本地 JSON 不同步，多次回填后信念值退化为仅 1 个月的积累（等于 `score × 0.22`）。

@@ -701,6 +701,33 @@ def clear_arena_history_backend() -> bool:
 # ==========================================
 
 @st.cache_data(ttl=3600 * 4)
+def compute_macro_regime_api(z_window: int = 750) -> dict:
+    """调用后端 POST /api/v1/macro/compute，后端自拉 yfinance + FRED，返回完整 regime 数据包。
+    响应格式：{
+        "success": True,
+        "data": { regime_dict },
+        "horsemen_monthly_table": [ records ],
+        "horsemen_daily_verdict": { date_str: verdict_cn }
+    }
+    失败时返回 {}。
+    """
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/macro/compute",
+            json={"z_window": z_window},
+            timeout=300,
+        )
+        r.raise_for_status()
+        resp = r.json()
+        if resp.get("success"):
+            fetch_current_regime.clear()
+        return resp
+    except Exception as e:
+        st.warning(f"⚠️ 后端 regime 计算失败，将回退本地计算: {e}")
+        return {}
+
+
+@st.cache_data(ttl=3600 * 4)
 def fetch_macro_radar() -> dict:
     """从后端获取宏观雷达指标（Z-Score/RS/趋势结构）。
     后端自行下载 yfinance 数据并计算，前端零感知。
@@ -776,7 +803,6 @@ def push_screen_results(payload: dict) -> bool:
 
 
 def run_classification_api(
-    price_df,
     screen_tickers: list,
     meta_data: dict,
     prev_grades_map: dict = None,
@@ -788,14 +814,19 @@ def run_classification_api(
     conv_holders_b: list = None,
     conv_config_a: dict = None,
     conv_config_b: dict = None,
+    price_df=None,
 ) -> dict:
-    """将 price_df 序列化后调用后端 /api/v1/screen/run-classification。
+    """调用后端 /api/v1/screen/run-classification。
+    price_df=None 时后端自拉 yfinance（推荐）；传入 price_df 时仍走旧序列化路径（向后兼容）。
     返回 {"success": True, "abcd_classified_assets": ..., "selected_a": ..., "selected_b": ...}。
     失败时返回 {"success": False, "error": ...}。
     """
     try:
-        price_records = price_df.to_dict(orient="index")
-        price_records = {str(k): v for k, v in price_records.items()}
+        if price_df is not None:
+            price_records = price_df.to_dict(orient="index")
+            price_records = {str(k): v for k, v in price_records.items()}
+        else:
+            price_records = {}
         payload = {
             "price_records":   price_records,
             "screen_tickers":  screen_tickers,

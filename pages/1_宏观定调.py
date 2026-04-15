@@ -9,7 +9,7 @@ import os
 import json
 from datetime import datetime, timedelta
 import requests as _requests
-from api_client import fetch_core_data, get_global_data, push_macro_regime
+from api_client import fetch_core_data, get_global_data, push_macro_regime, compute_macro_regime_api
 
 
 def _fetch_fred_series(series_id: str, start_date, end_date, api_key: str) -> pd.Series:
@@ -242,6 +242,9 @@ with st.spinner("📡 正在接入 FRED 官方宏观数据管道 (INDPRO + PAYEM
         _fred_ok = False
     if not _fred_ok:
         st.warning("⚠️ FRED 数据暂时不可用，信用利差与核心CPI将降级为 ETF 代理指标。")
+
+with st.spinner("🔬 正在调用后端四大剧本引擎（自拉 yfinance + FRED）..."):
+    _regime_api = compute_macro_regime_api(z_window=z_window)
 
 if not df.empty and len(df) > 750:
     
@@ -941,75 +944,79 @@ if not df.empty and len(df) > 750:
     _REGIME_BG_C   = {"软着陆": "rgba(46,204,113,0.15)", "再通胀": "rgba(231,76,60,0.15)", "滞胀": "rgba(241,196,15,0.15)", "衰退": "rgba(52,152,219,0.15)"}
     _REGIME_EMO    = {"软着陆": "🚗", "再通胀": "🔥", "滞胀": "🚨", "衰退": "❄️"}
 
-    # 四大剧本 24 条件历史裁决（全局复用：染色图 + 历史裁决表）
-    def _build_horsemen_history(df_data, df_fred, window=750):
-        def _z(s):
-            mu = s.rolling(window=window).mean()
-            sg = s.rolling(window=window).std()
-            return (s - mu) / sg.where(sg > 0)
-        _z_cg = _z((df_data['CPER'] / df_data['GLD'].replace(0, np.nan)).rolling(20).mean())
-        _z_xi = _z((df_data['XLI']  / df_data['XLU'].replace(0, np.nan)).rolling(20).mean())
-        if not df_fred.empty and 'HY_Spread' in df_fred.columns:
-            _z_cr = _z(df_fred['HY_Spread'].reindex(df_data.index).ffill().rolling(20).mean()) * -1
+    # 四大剧本历史裁决：优先从后端 API 获取（后端已自拉 yfinance + FRED，本页无需重算）
+    if _regime_api and _regime_api.get("horsemen_monthly_table"):
+        _ht = _regime_api["horsemen_monthly_table"]
+        df_hist_horsemen = pd.DataFrame(_ht)
+        if "月份" in df_hist_horsemen.columns:
+            df_hist_horsemen = df_hist_horsemen.set_index("月份")
+        df_hist_horsemen.index.name = "月份"
+        _dv = _regime_api.get("horsemen_daily_verdict", {})
+        if _dv:
+            _horsemen_daily = pd.Series(
+                list(_dv.values()),
+                index=pd.to_datetime(list(_dv.keys())),
+            ).sort_index()
         else:
-            _z_cr = _z((df_data['HYG'] / df_data['IEF'].replace(0, np.nan)).rolling(20).mean())
-        _g = pd.DataFrame({'a': _z_cg, 'b': _z_xi, 'c': _z_cr}).mean(axis=1)
-        if not df_fred.empty and 'T10YIE' in df_fred.columns:
-            _z_ti = _z(df_fred['T10YIE'].reindex(df_data.index).ffill().rolling(20).mean())
-        else:
-            _z_ti = _z((df_data['TIP'] / df_data['IEF'].replace(0, np.nan)).rolling(20).mean())
-        _z_co = _z((df_data['DBC'] / df_data['IEF'].replace(0, np.nan)).rolling(20).mean())
-        _i = pd.DataFrame({'a': _z_ti, 'b': _z_co}).mean(axis=1)
-        _z_xlk_xle   = _z((df_data['XLK']  / df_data['XLE'].replace(0, np.nan)).rolling(20).mean())
-        _z_xly_xlp   = _z((df_data['XLY']  / df_data['XLP'].replace(0, np.nan)).rolling(20).mean())
-        _z_gld_spy   = _z((df_data['GLD']  / df_data['SPY'].replace(0, np.nan)).rolling(20).mean())
-        _z_vlue_mtum = _z((df_data['VLUE'] / df_data['MTUM'].replace(0, np.nan)).rolling(20).mean())
-        _z_tlt_shy   = _z((df_data['TLT']  / df_data['SHY'].replace(0, np.nan)).rolling(20).mean())
-        _z_xlp_spy   = _z((df_data['XLP']  / df_data['SPY'].replace(0, np.nan)).rolling(20).mean())
-        _z_ief_hyg   = _z((df_data['IEF']  / df_data['HYG'].replace(0, np.nan)).rolling(20).mean())
-        def _quad_h(gv, iv):
-            if abs(gv) < 0.5 and abs(iv) < 0.5: return "软着陆"
-            elif gv > 0 and iv <= 0:  return "软着陆"
-            elif gv > 0 and iv > 0:   return "再通胀"
-            elif gv <= 0 and iv > 0:  return "滞胀"
-            else:                     return "衰退"
-        _ds = pd.DataFrame({
-            'g': _g, 'i': _i, 'z_cr': _z_cr, 'z_xlk_xle': _z_xlk_xle, 'z_xly_xlp': _z_xly_xlp,
-            'z_cg': _z_cg, 'z_ti': _z_ti, 'z_co': _z_co, 'z_gld_spy': _z_gld_spy,
-            'z_vlue_mtum': _z_vlue_mtum, 'z_tlt_shy': _z_tlt_shy, 'z_xlp_spy': _z_xlp_spy,
-            'z_ief_hyg': _z_ief_hyg,
-        }).dropna()
-        _ds['quad'] = _ds.apply(lambda r: _quad_h(r['g'], r['i']), axis=1)
-        _ds['score_a'] = ((_ds['quad'] == "软着陆").astype(int) + (_ds['g'] > 0).astype(int) + ((_ds['i'] <= 0) | (_ds['i'].abs() < 0.5)).astype(int) + (_ds['z_xlk_xle'] > 0).astype(int) + (_ds['z_cr'] > 0).astype(int) + (_ds['z_xly_xlp'] > 0).astype(int))
-        _ds['score_b'] = ((_ds['quad'] == "再通胀").astype(int) + (_ds['g'] > 0).astype(int) + (_ds['i'] > 0).astype(int) + (_ds['z_cg'] > 0).astype(int) + (_ds['z_ti'] > 0).astype(int) + (_ds['z_co'] > 0).astype(int))
-        _ds['score_c'] = ((_ds['quad'] == "滞胀").astype(int) + (_ds['g'] <= 0).astype(int) + (_ds['i'] > 0).astype(int) + (_ds['z_gld_spy'] > 0).astype(int) + (_ds['z_vlue_mtum'] > 0).astype(int) + (_ds['z_xly_xlp'] < 0).astype(int))
-        _ds['score_d'] = ((_ds['quad'] == "衰退").astype(int) + (_ds['g'] <= 0).astype(int) + (_ds['i'] <= 0).astype(int) + (_ds['z_tlt_shy'] > 0).astype(int) + (_ds['z_xlp_spy'] > 0).astype(int) + (_ds['z_ief_hyg'] > 0).astype(int))
-        _ds['prob_a'] = (_ds['score_a'] / 6 * 100).round().astype(int)
-        _ds['prob_b'] = (_ds['score_b'] / 6 * 100).round().astype(int)
-        _ds['prob_c'] = (_ds['score_c'] / 6 * 100).round().astype(int)
-        _ds['prob_d'] = (_ds['score_d'] / 6 * 100).round().astype(int)
-        def _winner(r):
-            p = {'软着陆': r['prob_a'], '再通胀': r['prob_b'], '滞胀': r['prob_c'], '衰退': r['prob_d']}
-            return max(p, key=p.get)
-        _ds['剧本裁决'] = _ds.apply(_winner, axis=1)
-        try:
-            _dm = _ds.resample('ME').last().dropna()
-        except Exception:
-            _dm = _ds.resample('M').last().dropna()
-        _dm = _dm.tail(120).sort_index(ascending=False)
-        _dm.index = _dm.index.strftime('%Y-%m')
-        _dm.index.name = '月份'
-        out = _dm[['剧本裁决', 'prob_a', 'prob_b', 'prob_c', 'prob_d']].copy()
-        out.columns = ['剧本裁决', '软着陆%', '再通胀%', '滞胀%', '衰退%']
-        return out, _ds['剧本裁决']
+            _horsemen_daily = pd.Series(dtype=str)
+    else:
+        # 降级：API 不可用时本地计算
+        st.sidebar.warning("⚠️ 后端 regime API 不可用，已回退本地计算", icon="⚠️")
+        def _bh_fallback(df_data, df_fred, window=750):
+            def _z(s):
+                mu = s.rolling(window=window).mean()
+                sg = s.rolling(window=window).std()
+                return (s - mu) / sg.where(sg > 0)
+            _z_cg = _z((df_data['CPER'] / df_data['GLD'].replace(0, np.nan)).rolling(20).mean())
+            _z_xi = _z((df_data['XLI']  / df_data['XLU'].replace(0, np.nan)).rolling(20).mean())
+            _z_cr = (_z(df_fred['HY_Spread'].reindex(df_data.index).ffill().rolling(20).mean()) * -1
+                     if not df_fred.empty and 'HY_Spread' in df_fred.columns
+                     else _z((df_data['HYG'] / df_data['IEF'].replace(0, np.nan)).rolling(20).mean()))
+            _g = pd.DataFrame({'a': _z_cg, 'b': _z_xi, 'c': _z_cr}).mean(axis=1)
+            _z_ti = (_z(df_fred['T10YIE'].reindex(df_data.index).ffill().rolling(20).mean())
+                     if not df_fred.empty and 'T10YIE' in df_fred.columns
+                     else _z((df_data['TIP'] / df_data['IEF'].replace(0, np.nan)).rolling(20).mean()))
+            _z_co = _z((df_data['DBC'] / df_data['IEF'].replace(0, np.nan)).rolling(20).mean())
+            _i = pd.DataFrame({'a': _z_ti, 'b': _z_co}).mean(axis=1)
+            _z_xlk_xle   = _z((df_data['XLK']  / df_data['XLE'].replace(0, np.nan)).rolling(20).mean())
+            _z_xly_xlp   = _z((df_data['XLY']  / df_data['XLP'].replace(0, np.nan)).rolling(20).mean())
+            _z_gld_spy   = _z((df_data['GLD']  / df_data['SPY'].replace(0, np.nan)).rolling(20).mean())
+            _z_vlue_mtum = _z((df_data['VLUE'] / df_data['MTUM'].replace(0, np.nan)).rolling(20).mean())
+            _z_tlt_shy   = _z((df_data['TLT']  / df_data['SHY'].replace(0, np.nan)).rolling(20).mean())
+            _z_xlp_spy   = _z((df_data['XLP']  / df_data['SPY'].replace(0, np.nan)).rolling(20).mean())
+            _z_ief_hyg   = _z((df_data['IEF']  / df_data['HYG'].replace(0, np.nan)).rolling(20).mean())
+            def _qh(gv, iv):
+                if abs(gv) < 0.5 and abs(iv) < 0.5: return "软着陆"
+                elif gv > 0 and iv <= 0: return "软着陆"
+                elif gv > 0 and iv > 0: return "再通胀"
+                elif gv <= 0 and iv > 0: return "滞胀"
+                else: return "衰退"
+            _ds = pd.DataFrame({'g': _g, 'i': _i, 'z_cr': _z_cr, 'z_xlk_xle': _z_xlk_xle, 'z_xly_xlp': _z_xly_xlp,
+                'z_cg': _z_cg, 'z_ti': _z_ti, 'z_co': _z_co, 'z_gld_spy': _z_gld_spy,
+                'z_vlue_mtum': _z_vlue_mtum, 'z_tlt_shy': _z_tlt_shy, 'z_xlp_spy': _z_xlp_spy, 'z_ief_hyg': _z_ief_hyg}).dropna()
+            _ds['quad'] = _ds.apply(lambda r: _qh(r['g'], r['i']), axis=1)
+            _ds['score_a'] = ((_ds['quad'] == "软着陆").astype(int) + (_ds['g'] > 0).astype(int) + ((_ds['i'] <= 0) | (_ds['i'].abs() < 0.5)).astype(int) + (_ds['z_xlk_xle'] > 0).astype(int) + (_ds['z_cr'] > 0).astype(int) + (_ds['z_xly_xlp'] > 0).astype(int))
+            _ds['score_b'] = ((_ds['quad'] == "再通胀").astype(int) + (_ds['g'] > 0).astype(int) + (_ds['i'] > 0).astype(int) + (_ds['z_cg'] > 0).astype(int) + (_ds['z_ti'] > 0).astype(int) + (_ds['z_co'] > 0).astype(int))
+            _ds['score_c'] = ((_ds['quad'] == "滞胀").astype(int) + (_ds['g'] <= 0).astype(int) + (_ds['i'] > 0).astype(int) + (_ds['z_gld_spy'] > 0).astype(int) + (_ds['z_vlue_mtum'] > 0).astype(int) + (_ds['z_xly_xlp'] < 0).astype(int))
+            _ds['score_d'] = ((_ds['quad'] == "衰退").astype(int) + (_ds['g'] <= 0).astype(int) + (_ds['i'] <= 0).astype(int) + (_ds['z_tlt_shy'] > 0).astype(int) + (_ds['z_xlp_spy'] > 0).astype(int) + (_ds['z_ief_hyg'] > 0).astype(int))
+            for _sc, _n in [('score_a','prob_a'),('score_b','prob_b'),('score_c','prob_c'),('score_d','prob_d')]:
+                _ds[_n] = (_ds[_sc] / 6 * 100).round().astype(int)
+            _ds['剧本裁决'] = _ds.apply(lambda r: max({'软着陆': r['prob_a'], '再通胀': r['prob_b'], '滞胀': r['prob_c'], '衰退': r['prob_d']}, key=lambda k: {'软着陆': r['prob_a'], '再通胀': r['prob_b'], '滞胀': r['prob_c'], '衰退': r['prob_d']}[k]), axis=1)
+            try: _dm = _ds.resample('ME').last().dropna()
+            except Exception: _dm = _ds.resample('M').last().dropna()
+            _dm = _dm.tail(120).sort_index(ascending=False)
+            _dm.index = _dm.index.strftime('%Y-%m')
+            _dm.index.name = '月份'
+            out = _dm[['剧本裁决', 'prob_a', 'prob_b', 'prob_c', 'prob_d']].copy()
+            out.columns = ['剧本裁决', '软着陆%', '再通胀%', '滞胀%', '衰退%']
+            return out, _ds['剧本裁决']
+        df_hist_horsemen, _horsemen_daily = _bh_fallback(df, df_fred_clock, window=z_window)
 
     def _style_horsemen_df(styler):
         def _color(val):
             cmap = {'软着陆': '#2ECC71', '再通胀': '#E74C3C', '滞胀': '#F1C40F', '衰退': '#3498DB'}
             return f'color: {cmap.get(val, "#888")}; font-weight: bold;' if val in cmap else ''
         return styler.map(_color, subset=['剧本裁决'])
-
-    df_hist_horsemen, _horsemen_daily = _build_horsemen_history(df, df_fred_clock, window=z_window)
 
     _RATIO_OPTIONS = {
         "🔬 科技/能源比 (XLK/XLE)": ("XLK", "XLE", "XLK / XLE 比值"),
@@ -1385,56 +1392,55 @@ if not df.empty and len(df) > 750:
     prob_c = round(sum(_cond_c) / len(_cond_c) * 100)
     prob_d = round(sum(_cond_d) / len(_cond_d) * 100)
 
-    # 全局宏观剧本写入 session_state — 以四大剧本历史裁决表为唯一数据源 (SSOT)
-    # df_hist_horsemen 已在本页宏观时钟染色图前统一计算，月度频率，最新行 = iloc[0]
-    _cn_to_en = {"软着陆": "Soft", "再通胀": "Hot", "滞胀": "Stag", "衰退": "Rec"}
-    if df_hist_horsemen.empty:
-        _horsemen_en_winner = "Soft"
-        _horsemen_probs = {"Soft": 1.0, "Hot": 0.0, "Stag": 0.0, "Rec": 0.0}
+    # 全局宏观剧本写入 session_state — 以后端 API 返回结果为 SSOT（已持久化到 universe.db）
+    if _regime_api and _regime_api.get("data"):
+        _r = _regime_api["data"]
+        st.session_state["current_macro_regime"]     = _r.get("current_macro_regime",     "Soft")
+        st.session_state["current_macro_regime_raw"] = _r.get("current_macro_regime_raw", "Soft")
+        st.session_state["smoothed_regime_probs"]    = _r.get("smoothed_regime_probs",    {})
+        st.session_state["live_regime_label"]        = _r.get("live_regime_label",        "Soft")
+        st.session_state["horsemen_monthly_probs"]   = _r.get("horsemen_monthly_probs",   {})
+        _horsemen_en_winner = _r.get("current_macro_regime", "Soft")
     else:
-        _horsemen_en_winner = _cn_to_en.get(df_hist_horsemen['剧本裁决'].iloc[0], "Soft")
-        _horsemen_probs = {
-            "Soft": df_hist_horsemen['软着陆%'].iloc[0] / 100.0,
-            "Hot":  df_hist_horsemen['再通胀%'].iloc[0] / 100.0,
-            "Stag": df_hist_horsemen['滞胀%'].iloc[0] / 100.0,
-            "Rec":  df_hist_horsemen['衰退%'].iloc[0] / 100.0,
+        # 降级：从本地 df_hist_horsemen 计算（API 不可用时）
+        _cn_to_en = {"软着陆": "Soft", "再通胀": "Hot", "滞胀": "Stag", "衰退": "Rec"}
+        if df_hist_horsemen.empty:
+            _horsemen_en_winner = "Soft"
+            _horsemen_probs = {"Soft": 1.0, "Hot": 0.0, "Stag": 0.0, "Rec": 0.0}
+        else:
+            _horsemen_en_winner = _cn_to_en.get(df_hist_horsemen['剧本裁决'].iloc[0], "Soft")
+            _horsemen_probs = {
+                "Soft": df_hist_horsemen['软着陆%'].iloc[0] / 100.0,
+                "Hot":  df_hist_horsemen['再通胀%'].iloc[0] / 100.0,
+                "Stag": df_hist_horsemen['滞胀%'].iloc[0]   / 100.0,
+                "Rec":  df_hist_horsemen['衰退%'].iloc[0]   / 100.0,
+            }
+        _sorted_for_d = sorted(_horsemen_probs.items(), key=lambda x: x[1], reverse=True)
+        _d_raw_regime = (
+            _sorted_for_d[1][0]
+            if len(_sorted_for_d) >= 2 and _sorted_for_d[1][1] > 0.60
+            else _horsemen_en_winner
+        )
+        st.session_state["current_macro_regime"]     = _horsemen_en_winner
+        st.session_state["current_macro_regime_raw"] = _d_raw_regime
+        st.session_state["smoothed_regime_probs"]    = _horsemen_probs
+        st.session_state["live_regime_label"]        = _horsemen_en_winner
+        st.session_state["horsemen_monthly_probs"] = {
+            month_str: {
+                "Soft": float(row["软着陆%"]) / 100.0,
+                "Hot":  float(row["再通胀%"]) / 100.0,
+                "Stag": float(row["滞胀%"])   / 100.0,
+                "Rec":  float(row["衰退%"])   / 100.0,
+            }
+            for month_str, row in df_hist_horsemen.iterrows()
         }
-    # D 组剧本规则：第二高概率若 >60% 则用之，否则同 B/C（最高概率剧本）
-    _sorted_for_d = sorted(_horsemen_probs.items(), key=lambda x: x[1], reverse=True)
-    _d_raw_regime = (
-        _sorted_for_d[1][0]
-        if len(_sorted_for_d) >= 2 and _sorted_for_d[1][1] > 0.60
-        else _horsemen_en_winner
-    )
-    # Page 4 读取: current_macro_regime / current_macro_regime_raw (宏观剧本设定 selectbox 默认值)
-    st.session_state["current_macro_regime"]     = _horsemen_en_winner
-    st.session_state["current_macro_regime_raw"] = _d_raw_regime
-    # Page 6 读取: smoothed_regime_probs (驱动卫星池激活门控) / live_regime_label (现任剧本标签)
-    st.session_state["smoothed_regime_probs"]    = _horsemen_probs
-    st.session_state["live_regime_label"]        = _horsemen_en_winner
-    # Page 6 回测引擎读取: horsemen_monthly_probs — 月度历史裁决表概率查找表
-    # 格式: {"YYYY-MM": {"Soft": f, "Hot": f, "Stag": f, "Rec": f}}
-    # 回测在每个历史月份用此表代替 calculate_macro_scores，确保两边信号源一致
-    st.session_state["horsemen_monthly_probs"] = {
-        month_str: {
-            "Soft": float(row["软着陆%"]) / 100.0,
-            "Hot":  float(row["再通胀%"]) / 100.0,
-            "Stag": float(row["滞胀%"])   / 100.0,
-            "Rec":  float(row["衰退%"])   / 100.0,
-        }
-        for month_str, row in df_hist_horsemen.iterrows()
-    }
-
-    # write-through：同步推送 regime 数据包到后端持久化，消灭 Page 3/6 的 session_state 依赖
-    _push_ok = push_macro_regime({
-        "current_macro_regime":     _horsemen_en_winner,
-        "current_macro_regime_raw": _d_raw_regime,
-        "smoothed_regime_probs":    _horsemen_probs,
-        "live_regime_label":        _horsemen_en_winner,
-        "horsemen_monthly_probs":   st.session_state["horsemen_monthly_probs"],
-    })
-    if not _push_ok:
-        st.sidebar.warning("⚠️ 宏观剧本未能写入后端缓存（后端未运行？），Page 3/6 本次仍依赖 session_state。", icon="⚠️")
+        push_macro_regime({
+            "current_macro_regime":     _horsemen_en_winner,
+            "current_macro_regime_raw": _d_raw_regime,
+            "smoothed_regime_probs":    _horsemen_probs,
+            "live_regime_label":        _horsemen_en_winner,
+            "horsemen_monthly_probs":   st.session_state["horsemen_monthly_probs"],
+        })
 
     # 持久化月度裁决（与上方「四大剧本历史裁决表」同一套月度 resample 结果），供 Page 4 历史榜并列展示
     _horsemen_verdict_file = os.path.join(os.path.dirname(__file__), "..", "data", "horsemen_monthly_verdict.json")
