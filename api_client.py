@@ -548,6 +548,11 @@ def fetch_batch_backfill_status():
     return _narrative_get("/api/v1/narrative/batch_backfill_status")
 
 
+def fetch_data_coverage(days: int = 180) -> dict:
+    """查询指定天数内数据覆盖率（工作日维度）。"""
+    return _narrative_get("/api/v1/narrative/data_coverage", params={"days": days})
+
+
 def fetch_crawler_status():
     return _narrative_get("/api/v1/narrative/crawler_status")
 
@@ -735,6 +740,11 @@ def fetch_l2_l3_detail(days=7):
 
 def fetch_quadrant_history(days=30):
     return _narrative_get("/api/v1/narrative/quadrant_history", params={"days": days})
+
+
+def fetch_l2_daily_profile(l2_sector: str, days: int = 180):
+    return _narrative_get("/api/v1/narrative/l2_daily_profile",
+                          params={"l2_sector": l2_sector, "days": days})
 
 
 @st.cache_data(ttl=60)

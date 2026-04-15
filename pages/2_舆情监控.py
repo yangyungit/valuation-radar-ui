@@ -48,6 +48,7 @@ from api_client import (
     fetch_borderline_terms,
     fetch_l2_l3_detail,
     fetch_quadrant_history,
+    fetch_l2_daily_profile,
     post_dictionary_batch_delete,
     post_dictionary_batch_mark_noise,
     post_dictionary_rename_l2,
@@ -56,6 +57,7 @@ from api_client import (
     fetch_core_data,
     trigger_batch_backfill,
     fetch_batch_backfill_status,
+    fetch_data_coverage,
     trigger_retroactive_screen,
 )
 from datetime import date as _date, timedelta as _timedelta
@@ -430,62 +432,6 @@ with st.sidebar:
         else:
             st.warning(result.get("message", "服务器未返回有效状态，请稍后重试"))
         st.rerun()
-
-    st.divider()
-
-    # --- 批量历史回填 ---
-    st.markdown(
-        '<div style="display:flex;align-items:center;gap:8px;margin:8px 0">'
-        '<span style="font-size:14px;font-weight:700;color:#ccc">📦 历史批量回填</span>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    bf_status = fetch_batch_backfill_status()
-    bf_running = bf_status.get("running", False)
-    prev_bf_running = st.session_state.get("_backfill_was_running", False)
-
-    if prev_bf_running and not bf_running:
-        st.session_state["_backfill_was_running"] = False
-        st.cache_data.clear()
-        st.rerun()
-
-    if bf_running:
-        st.session_state["_backfill_was_running"] = True
-        _bf_done = bf_status.get("done", 0)
-        _bf_total = bf_status.get("total", 0)
-        _bf_cur = bf_status.get("current_date", "?")
-        _bf_pct = int(_bf_done / _bf_total * 100) if _bf_total > 0 else 0
-        st.progress(_bf_pct / 100, text=f"⏳ 回填中 {_bf_done}/{_bf_total} ({_bf_pct}%)")
-        st.caption(f"当前日期: {_bf_cur} | 跳过: {bf_status.get('skipped',0)} | 失败: {bf_status.get('failed',0)}")
-        time.sleep(15)
-        st.rerun()
-    else:
-        _bf_finished = bf_status.get("finished_at")
-        _bf_started = bf_status.get("started_at")
-        if _bf_finished:
-            _bf_done = bf_status.get("done", 0)
-            _bf_skip = bf_status.get("skipped", 0)
-            _bf_fail = bf_status.get("failed", 0)
-            st.success(f"上次完成 ✅ {_bf_done} 天 | ⏭️ {_bf_skip} 跳过 | ❌ {_bf_fail} 失败")
-            if bf_status.get("last_error"):
-                st.caption(f"最后错误: {bf_status['last_error'][:80]}")
-        elif _bf_started:
-            st.info("上次回填已启动但未完成（可能服务重启中断）")
-
-        _bf_days = st.slider("回填天数", min_value=30, max_value=365, value=180, step=30,
-                             key="bf_days_slider",
-                             help="从今天往前推算，回填这么多天（已有数据自动跳过）")
-        _bf_force = st.checkbox("重跑 DATA_MISSING 的日期", value=False, key="bf_force_missing")
-
-        if st.button("🚀 启动服务端回填", disabled=bf_running, use_container_width=True):
-            _bf_resp = trigger_batch_backfill(days=_bf_days, force_missing=_bf_force)
-            if _bf_resp.get("status") == "started":
-                st.session_state["_backfill_was_running"] = True
-                st.success(f"已触发！{_bf_resp.get('start_date')} → {_bf_resp.get('end_date')}")
-            else:
-                st.error(f"触发失败: {_bf_resp.get('message') or _bf_resp.get('error', '未知')}")
-            st.rerun()
 
     st.divider()
 
@@ -2317,6 +2263,41 @@ if active_phase == 5:
     # --- Available history dates for date picker ---
     _hist_dates_set = sorted({qr["date"] for qr in qh_data})
 
+    # L2 中文名映射（两个子 Tab 共用）
+    _L2_ZH: dict[str, str] = {
+        # --- 22 个种子板块 ---
+        "Aerospace_&_Defense":           "航空航天与国防",
+        "Agri_&_Agriculture":            "农业与农产品",
+        "Biopharma_Ecosystem":           "生物医药生态",
+        "Commodities":                   "大宗商品",
+        "Consumer_&_Retail":             "消费与零售",
+        "Critical_Minerals_&_Metals":    "关键矿产与金属",
+        "Crypto_Assets":                 "加密资产",
+        "Cybersecurity_&_Data":          "网络安全与数据",
+        "Energy_&_Power":                "能源与电力",
+        "Event_&_Earnings_Catalysts":    "事件与业绩催化",
+        "Financials_&_Private_Credit":   "金融与私募信贷",
+        "Future_Mobility_&_Space":       "未来出行与航天",
+        "Healthcare_Services_&_MedTech": "医疗服务与医疗科技",
+        "Heavy_Industry":                "重工业",
+        "Housing_&_Homebuilders":        "住房与地产",
+        "Macro_Liquidity":               "宏观流动性",
+        "Nuclear_&_AI_Power":            "核能与AI电力",
+        "Semi_Memory_&_Cycles":          "半导体存储与周期",
+        "Trade_&_Geopolitics":           "贸易与地缘政治",
+        "US_Industrial_Reshoring":       "美国制造业回流",
+        "AI_Infrastructure":             "AI基础设施",
+        "AI_Monetization":               "AI商业化",
+    }
+
+    def _l2_zh(sec: str, record: dict | None = None) -> str:
+        """三级 fallback：① API 返回的 l2_sector_zh → ② 本地字典 → ③ 格式化英文名"""
+        if record is not None and record.get("l2_sector_zh"):
+            return record["l2_sector_zh"]
+        if sec in _L2_ZH:
+            return _L2_ZH[sec]
+        return sec.replace("_", " ").replace("&", "&")
+
     if l2l3_data:
         df_radar = pd.DataFrame(l2l3_data)
         if "sentiment_momentum" in df_radar.columns and "heat_momentum" not in df_radar.columns:
@@ -2327,7 +2308,7 @@ if active_phase == 5:
         df_radar["mention_count"] = pd.to_numeric(df_radar["mention_count"], errors="coerce").fillna(0)
 
 
-        (v5_sub1,) = st.tabs(["🎯 四象限雷达"])
+        v5_sub1, v5_sub2 = st.tabs(["🎯 四象限雷达", "📡 主线雷达"])
 
         # =====================================================================
         # Sub-tab 1: Quadrant Radar (rewritten v3)
@@ -2390,29 +2371,6 @@ if active_phase == 5:
                     df_snap = df_radar.copy()
 
             # L2 sector English → Chinese display name map
-            _L2_ZH: dict[str, str] = {
-                "Aerospace_&_Defense":        "航空航天与国防",
-                "Agri_&_Agriculture":         "农业与农产品",
-                "Biopharma_Ecosystem":        "生物医药生态",
-                "Commodities":                "大宗商品",
-                "Consumer_&_Retail":          "消费与零售",
-                "Critical_Minerals_&_Metals": "关键矿产与金属",
-                "Crypto_Assets":              "加密资产",
-                "Cybersecurity_&_Data":       "网络安全与数据",
-                "Energy_&_Power":             "能源与电力",
-                "Event_&_Earnings_Catalysts": "事件与业绩催化",
-                "Financials_&_Private_Credit":"金融与私募信贷",
-                "Future_Mobility_&_Space":    "未来出行与航天",
-                "Healthcare_Services_&_MedTech": "医疗服务与医疗科技",
-                "Heavy_Industry":             "重工业",
-                "Housing_&_Homebuilders":     "住房与地产",
-                "Macro_Liquidity":            "宏观流动性",
-                "Nuclear_&_AI_Power":         "核能与AI电力",
-                "Semi_Memory_&_Cycles":       "半导体存储与周期",
-                "Trade_&_Geopolitics":        "贸易与地缘政治",
-                "US_Industrial_Reshoring":    "美国制造业回流",
-            }
-
             # --- Build scatter plot ---
             fig_quad = go.Figure()
 
@@ -2452,7 +2410,7 @@ if active_phase == 5:
                                 )
                     if not kw_lines:
                         kw_lines = "  (无活跃 L3 词)<br>"
-                    _zh_name = _L2_ZH.get(row["l2_sector"], row["l2_sector"])
+                    _zh_name = _l2_zh(row["l2_sector"], row)
                     hover_text = (
                         f"<b>{_zh_name}</b><br>"
                         f"热力排名: #{int(row.get('heat_rank', 0))} "
@@ -2580,6 +2538,7 @@ if active_phase == 5:
 
                 _narr_rank_rows.append({
                     "l2_sector": row.get("l2_sector", ""),
+                    "l2_sector_zh": row.get("l2_sector_zh", ""),
                     "score": narr_score,
                     "composite_heat": ch,
                     "heat_momentum": hm,
@@ -2592,7 +2551,7 @@ if active_phase == 5:
             _narr_rank_rows.sort(key=lambda x: -x["score"])
 
             # Horizontal bar chart
-            _bar_sectors = [_L2_ZH.get(r["l2_sector"], r["l2_sector"]) for r in _narr_rank_rows]
+            _bar_sectors = [_l2_zh(r["l2_sector"], r) for r in _narr_rank_rows]
             _bar_scores = [r["score"] for r in _narr_rank_rows]
             _bar_colors = [
                 "#E74C3C" if r["heat_type"] == "concentrated" else "#3498DB"
@@ -2646,6 +2605,620 @@ if active_phase == 5:
                 }
             st.session_state["narrative_heat_ranking"] = _narr_ranking_dict
 
+        # =====================================================================
+        # Sub-tab 2: 主线雷达 — L2 Narrative Regime Radar (300-day historical)
+        # =====================================================================
+        with v5_sub2:
+            # ------------------------------------------------------------------
+            # 第一层：回填运行中进度轮询（仅 running 时可见）
+            # ------------------------------------------------------------------
+            _bf_status = fetch_batch_backfill_status()
+            _bf_running = _bf_status.get("running", False)
+            _prev_bf_running = st.session_state.get("_backfill_was_running", False)
+
+            if _prev_bf_running and not _bf_running:
+                st.session_state["_backfill_was_running"] = False
+                st.cache_data.clear()
+                st.rerun()
+
+            if _bf_running:
+                st.session_state["_backfill_was_running"] = True
+                _bf_done_n = _bf_status.get("done", 0)
+                _bf_total_n = _bf_status.get("total", 0)
+                _bf_cur_n = _bf_status.get("current_date", "?")
+                _bf_pct_n = int(_bf_done_n / _bf_total_n * 100) if _bf_total_n > 0 else 0
+                st.progress(_bf_pct_n / 100, text=f"⏳ 回填中 {_bf_done_n}/{_bf_total_n} ({_bf_pct_n}%)")
+                st.caption(f"当前日期: {_bf_cur_n} | 跳过: {_bf_status.get('skipped', 0)} | 失败: {_bf_status.get('failed', 0)}")
+                time.sleep(15)
+                st.rerun()
+
+            # ------------------------------------------------------------------
+            # 第二层：观察窗口滑块 + 详细数据覆盖率
+            # ------------------------------------------------------------------
+            _ctrl_col1, _ctrl_col2 = st.columns([2, 3])
+            with _ctrl_col1:
+                _radar_days = st.select_slider(
+                    "观察窗口",
+                    options=[30, 60, 90, 120, 180, 270, 365],
+                    value=180,
+                    key="regime_radar_days",
+                    help="从今天往前推算的观察窗口，与下方回填天数匹配才能看到完整历史",
+                )
+            with _ctrl_col2:
+                _rcov = fetch_data_coverage(_radar_days)
+                if _rcov.get("error"):
+                    st.caption(f"⚠️ 无法获取覆盖率: {_rcov['error'][:60]}")
+                else:
+                    _rcov_total = _rcov.get("total_workdays", 0)
+                    _rcov_ok = _rcov.get("ok_days", 0)
+                    _rcov_miss = _rcov.get("missing_days", 0)
+                    _rcov_absent = _rcov.get("absent_days", 0)
+                    _rcov_pct = _rcov.get("coverage_pct", 0.0)
+                    _rcov_gaps = _rcov.get("recent_gaps", [])
+                    _rcov_color = (
+                        "#4caf50" if _rcov_pct >= 90
+                        else "#ff9800" if _rcov_pct >= 50
+                        else "#f44336"
+                    )
+                    _rcov_label = (
+                        f"数据充足，仅 {_rcov_miss + _rcov_absent} 天缺口" if _rcov_pct >= 90
+                        else f"建议补填，{_rcov_miss + _rcov_absent} 天待补" if _rcov_pct >= 50
+                        else f"大量缺口，{_rcov_miss + _rcov_absent} 天待补"
+                    )
+                    _rcov_gap_str = "、".join(g[5:] for g in _rcov_gaps) if _rcov_gaps else "无"
+                    st.markdown(
+                        f"""<div style="margin-top:22px;font-size:13px;line-height:1.6;color:#ccc;
+                            background:#1e1e2e;border-left:3px solid {_rcov_color};
+                            padding:6px 10px;border-radius:4px;">
+                          <span style="color:{_rcov_color};font-weight:700;">
+                            📊 {_rcov_ok}/{_rcov_total} 工作日已有数据 ({_rcov_pct}%)</span>
+                          &nbsp;—&nbsp;{_rcov_label}<br>
+                          <span style="font-size:13px;color:#aaa;">
+                            ✅ 有效 {_rcov_ok}天 &nbsp;⚠️ 空数据 {_rcov_miss}天
+                            &nbsp;⬜ 未跑 {_rcov_absent}天</span><br>
+                          <span style="font-size:13px;color:#888;">
+                            最近缺口：{_rcov_gap_str}</span>
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
+
+            # ------------------------------------------------------------------
+            # 第三层：历史回填操作区（折叠）
+            # ------------------------------------------------------------------
+            with st.expander("📦 历史回填", expanded=False):
+                _bf_finished = _bf_status.get("finished_at")
+                _bf_started = _bf_status.get("started_at")
+                if _bf_finished:
+                    _bf_done_s = _bf_status.get("done", 0)
+                    _bf_skip_s = _bf_status.get("skipped", 0)
+                    _bf_fail_s = _bf_status.get("failed", 0)
+                    st.success(f"上次完成 ✅ {_bf_done_s} 天 | ⏭️ {_bf_skip_s} 跳过 | ❌ {_bf_fail_s} 失败")
+                    if _bf_status.get("last_error"):
+                        st.caption(f"最后错误: {_bf_status['last_error'][:80]}")
+                elif _bf_started:
+                    st.info("上次回填已启动但未完成（可能服务重启中断）")
+
+                _exp_col1, _exp_col2, _exp_col3 = st.columns([3, 2, 2])
+                with _exp_col1:
+                    _bf_days = st.slider(
+                        "回填天数", min_value=30, max_value=365, value=180, step=30,
+                        key="bf_days_slider",
+                        help="从今天往前推算，回填这么多天（已有数据自动跳过）",
+                    )
+                with _exp_col2:
+                    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                    _bf_force = st.checkbox("重跑 DATA_MISSING 的日期", value=False, key="bf_force_missing")
+                with _exp_col3:
+                    st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
+                    if st.button("🚀 启动服务端回填", disabled=_bf_running, use_container_width=True):
+                        _bf_resp = trigger_batch_backfill(days=_bf_days, force_missing=_bf_force)
+                        if _bf_resp.get("status") == "started":
+                            st.session_state["_backfill_was_running"] = True
+                            st.success(f"已触发！{_bf_resp.get('start_date')} → {_bf_resp.get('end_date')}")
+                        else:
+                            st.error(f"触发失败: {_bf_resp.get('message') or _bf_resp.get('error', '未知')}")
+                        st.rerun()
+
+            st.markdown("---")
+
+            # ------------------------------------------------------------------
+            # 拉取历史象限数据
+            # ------------------------------------------------------------------
+            _rr_qh_resp = fetch_quadrant_history(days=_radar_days)
+            _rr_qh_data = _rr_qh_resp.get("data", [])
+
+            if not _rr_qh_data:
+                st.warning("暂无历史象限数据，请展开上方「历史回填」面板启动回填后再查看。")
+            else:
+                # 象限颜色映射（与四象限雷达保持完全一致）
+                _Q_COLORS = {
+                    "风口正劲": "#E74C3C",
+                    "暗流涌动": "#2ECC71",
+                    "见顶预警": "#F39C12",
+                    "无人问津": "#444444",
+                }
+                _Q_NUMS = {
+                    "风口正劲": 3,
+                    "暗流涌动": 2,
+                    "见顶预警": 1,
+                    "无人问津": 0,
+                }
+
+                # 整理成 pivot 矩阵
+                _rr_df = pd.DataFrame(_rr_qh_data)
+                _rr_df["date"] = _rr_df["date"].astype(str)
+                _rr_df["quadrant_num"] = _rr_df["quadrant"].map(_Q_NUMS).fillna(-1).astype(int)
+
+                # 按 L2 统计高热天数 → 排序（主线排最上）
+                _hot_days = (
+                    _rr_df[_rr_df["quadrant"] == "风口正劲"]
+                    .groupby("l2_sector")["date"].count()
+                    .rename("hot_days")
+                )
+                _all_sectors = _rr_df["l2_sector"].unique().tolist()
+                _sector_order = sorted(
+                    _all_sectors,
+                    key=lambda s: _hot_days.get(s, 0),
+                    reverse=True,
+                )
+
+                _all_dates = sorted(_rr_df["date"].unique().tolist())
+                _pivot = _rr_df.pivot_table(
+                    index="l2_sector", columns="date",
+                    values="quadrant_num", aggfunc="first",
+                ).reindex(index=_sector_order, columns=_all_dates)
+                _pivot_vals = _pivot.values.tolist()
+
+                # 中文行标签
+                _y_labels = [_l2_zh(s) for s in _sector_order]
+
+                # 构造离散色阶
+                _colorscale = [
+                    [0.0,  "#1a1a2e"],   # -1: 无数据
+                    [0.25, "#1a1a2e"],
+                    [0.25, "#444444"],   # 0: 无人问津
+                    [0.50, "#444444"],
+                    [0.50, "#F39C12"],   # 1: 见顶预警
+                    [0.625,"#F39C12"],
+                    [0.625,"#2ECC71"],   # 2: 暗流涌动
+                    [0.75, "#2ECC71"],
+                    [0.75, "#E74C3C"],   # 3: 风口正劲
+                    [1.0,  "#E74C3C"],
+                ]
+
+                # hover 文字
+                _hover_matrix = []
+                for sec in _sector_order:
+                    row_hovers = []
+                    for dt in _all_dates:
+                        sub = _rr_df[(_rr_df["l2_sector"] == sec) & (_rr_df["date"] == dt)]
+                        if sub.empty:
+                            row_hovers.append("无数据")
+                        else:
+                            r = sub.iloc[0]
+                            row_hovers.append(
+                                f"{_l2_zh(sec)}<br>"
+                                f"日期: {dt}<br>"
+                                f"象限: {r['quadrant']}<br>"
+                                f"综合热力: {r['composite_heat']:.3f}<br>"
+                                f"词频动量: {r['heat_momentum']:+.3f}"
+                            )
+                    _hover_matrix.append(row_hovers)
+
+                fig_regime = go.Figure(go.Heatmap(
+                    z=_pivot_vals,
+                    x=_all_dates,
+                    y=_y_labels,
+                    colorscale=_colorscale,
+                    zmin=-1, zmax=3,
+                    showscale=False,
+                    hovertemplate="%{customdata}<extra></extra>",
+                    customdata=_hover_matrix,
+                    xgap=1,
+                    ygap=2,
+                ))
+                fig_regime.update_layout(
+                    title=dict(
+                        text="L2 板块象限迁移全景图（颜色 = 当日所处四象限）",
+                        font=dict(size=15, color="#ccc"),
+                        x=0,
+                    ),
+                    height=max(340, len(_sector_order) * 28 + 80),
+                    plot_bgcolor="#111111",
+                    paper_bgcolor="#111111",
+                    font=dict(color="#ddd", size=13),
+                    xaxis=dict(
+                        title="日期",
+                        tickangle=-45,
+                        tickfont=dict(size=11),
+                        gridcolor="rgba(80,80,80,0.2)",
+                        nticks=min(20, len(_all_dates)),
+                    ),
+                    yaxis=dict(tickfont=dict(size=13), autorange="reversed"),
+                    margin=dict(l=180, r=20, t=50, b=60),
+                )
+                st.plotly_chart(fig_regime, use_container_width=True)
+
+                # 图例说明
+                st.markdown(
+                    """<div style="display:flex;gap:20px;margin:-8px 0 12px 0;font-size:13px;">
+                      <span><span style="display:inline-block;width:12px;height:12px;
+                            background:#E74C3C;border-radius:2px;margin-right:5px;"></span>风口正劲</span>
+                      <span><span style="display:inline-block;width:12px;height:12px;
+                            background:#2ECC71;border-radius:2px;margin-right:5px;"></span>暗流涌动</span>
+                      <span><span style="display:inline-block;width:12px;height:12px;
+                            background:#F39C12;border-radius:2px;margin-right:5px;"></span>见顶预警</span>
+                      <span><span style="display:inline-block;width:12px;height:12px;
+                            background:#444;border-radius:2px;margin-right:5px;"></span>无人问津</span>
+                      <span><span style="display:inline-block;width:12px;height:12px;
+                            background:#1a1a2e;border:1px solid #555;border-radius:2px;
+                            margin-right:5px;"></span>无数据</span>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+                st.markdown("---")
+
+                # ------------------------------------------------------------------
+                # 第二层 + 第三层：L2 下钻（时序图 + 诊断卡）
+                # ------------------------------------------------------------------
+                st.markdown("#### 🔍 板块深度剖析")
+                _drill_col_sel, _ = st.columns([2, 3])
+                with _drill_col_sel:
+                    _selected_l2 = st.selectbox(
+                        "选择 L2 板块",
+                        options=_sector_order,
+                        format_func=_l2_zh,
+                        key="regime_radar_l2_select",
+                    )
+
+                if _selected_l2:
+                    # 拉取该 L2 的逐日历史
+                    _profile_resp = fetch_l2_daily_profile(
+                        l2_sector=_selected_l2, days=_radar_days
+                    )
+                    _profile_data = _profile_resp.get("data", [])
+
+                    if not _profile_data:
+                        st.info(f"「{_l2_zh(_selected_l2)}」暂无历史数据。")
+                    else:
+                        _prof_df = pd.DataFrame(_profile_data)
+                        _prof_df["date"] = pd.to_datetime(_prof_df["date"])
+                        _prof_df = _prof_df.sort_values("date")
+                        _prof_df["composite_heat"] = _prof_df["composite_heat"].astype(float).clip(0, 1)
+                        _prof_df["heat_momentum"] = _prof_df["heat_momentum"].astype(float)
+                        _prof_df["attention_z_score"] = _prof_df["attention_z_score"].astype(float)
+                        _prof_df["avg_sentiment"] = _prof_df["avg_sentiment"].astype(float)
+
+                        _chart_col, _card_col = st.columns([2, 1])
+
+                        # ---- 左：三线叠加时序图 ----
+                        with _chart_col:
+                            _zh_title = _l2_zh(_selected_l2)
+                            st.markdown(
+                                f"<div style='font-size:15px;font-weight:700;"
+                                f"color:#ccc;margin-bottom:8px;'>"
+                                f"📈 {_zh_title} — 历史趋势剖面</div>",
+                                unsafe_allow_html=True,
+                            )
+
+                            fig_drill = go.Figure()
+
+                            # 背景象限色带（半透明矩形，按日期分段）
+                            _q_bg_color = {
+                                "风口正劲": "rgba(231,76,60,0.08)",
+                                "暗流涌动": "rgba(46,204,113,0.08)",
+                                "见顶预警": "rgba(243,156,18,0.08)",
+                                "无人问津": "rgba(68,68,68,0.06)",
+                            }
+                            _prev_q = None
+                            _seg_start = None
+                            for _, prow in _prof_df.iterrows():
+                                _cur_q = prow["quadrant"]
+                                if _cur_q != _prev_q:
+                                    if _prev_q is not None and _seg_start is not None:
+                                        fig_drill.add_vrect(
+                                            x0=_seg_start, x1=prow["date"],
+                                            fillcolor=_q_bg_color.get(_prev_q, "rgba(0,0,0,0)"),
+                                            line_width=0, layer="below",
+                                        )
+                                    _seg_start = prow["date"]
+                                    _prev_q = _cur_q
+                            if _prev_q is not None and _seg_start is not None:
+                                fig_drill.add_vrect(
+                                    x0=_seg_start,
+                                    x1=_prof_df["date"].iloc[-1],
+                                    fillcolor=_q_bg_color.get(_prev_q, "rgba(0,0,0,0)"),
+                                    line_width=0, layer="below",
+                                )
+
+                            # z=2.0 D 组共振触发线（参考 y3 轴，用 add_shape 精确引用）
+                            fig_drill.add_shape(
+                                type="line",
+                                x0=0, x1=1, xref="paper",
+                                y0=2.0, y1=2.0, yref="y3",
+                                line=dict(color="#F39C12", width=1.5, dash="dot"),
+                                opacity=0.7,
+                            )
+                            fig_drill.add_annotation(
+                                x=1, xref="paper",
+                                y=2.0, yref="y3",
+                                text="D组共振触发线 z=2.0",
+                                showarrow=False,
+                                xanchor="right",
+                                font=dict(size=13, color="#F39C12"),
+                            )
+
+                            # 综合热力（面积图，左轴 0-1）
+                            fig_drill.add_trace(go.Scatter(
+                                x=_prof_df["date"],
+                                y=_prof_df["composite_heat"],
+                                name="综合热力",
+                                fill="tozeroy",
+                                fillcolor="rgba(52,152,219,0.15)",
+                                line=dict(color="#3498DB", width=2),
+                                yaxis="y1",
+                                hovertemplate=(
+                                    "<b>%{x|%Y-%m-%d}</b><br>"
+                                    "综合热力: %{y:.3f}<extra></extra>"
+                                ),
+                            ))
+
+                            # 词频动量（折线，右轴，正绿负红 → 用单条线 + 颜色渐变替代）
+                            _mom_vals = _prof_df["heat_momentum"].tolist()
+                            _mom_colors = [
+                                "#2ECC71" if v >= 0 else "#E74C3C" for v in _mom_vals
+                            ]
+                            fig_drill.add_trace(go.Scatter(
+                                x=_prof_df["date"],
+                                y=_prof_df["heat_momentum"],
+                                name="词频动量",
+                                mode="lines",
+                                line=dict(color="#2ECC71", width=1.5, dash="dash"),
+                                yaxis="y2",
+                                hovertemplate=(
+                                    "<b>%{x|%Y-%m-%d}</b><br>"
+                                    "词频动量: %{y:+.3f}<extra></extra>"
+                                ),
+                            ))
+
+                            # y=0 动量基准线（参考 y2 轴）
+                            fig_drill.add_shape(
+                                type="line",
+                                x0=0, x1=1, xref="paper",
+                                y0=0, y1=0, yref="y2",
+                                line=dict(color="#888", width=1, dash="dot"),
+                                opacity=0.5,
+                            )
+
+                            # 注意力 Z 值（虚线，右轴覆盖动量轴，橙色）
+                            fig_drill.add_trace(go.Scatter(
+                                x=_prof_df["date"],
+                                y=_prof_df["attention_z_score"],
+                                name="注意力 Z 值",
+                                mode="lines",
+                                line=dict(color="#F39C12", width=2, dash="dot"),
+                                yaxis="y3",
+                                hovertemplate=(
+                                    "<b>%{x|%Y-%m-%d}</b><br>"
+                                    "注意力 Z: %{y:.2f}<extra></extra>"
+                                ),
+                            ))
+
+                            fig_drill.update_layout(
+                                height=360,
+                                plot_bgcolor="#111111",
+                                paper_bgcolor="#111111",
+                                font=dict(color="#ddd", size=13),
+                                legend=dict(
+                                    orientation="h",
+                                    yanchor="bottom", y=1.02,
+                                    xanchor="left", x=0,
+                                    font=dict(size=13),
+                                ),
+                                xaxis=dict(
+                                    showgrid=True,
+                                    gridcolor="rgba(80,80,80,0.2)",
+                                    tickangle=-30,
+                                    tickfont=dict(size=11),
+                                ),
+                                yaxis=dict(
+                                    title="综合热力 (0-1)",
+                                    range=[0, 1.05],
+                                    side="left",
+                                    showgrid=True,
+                                    gridcolor="rgba(80,80,80,0.2)",
+                                    tickfont=dict(size=11),
+                                    title_font=dict(size=13),
+                                ),
+                                yaxis2=dict(
+                                    title="词频动量",
+                                    overlaying="y",
+                                    side="right",
+                                    showgrid=False,
+                                    tickfont=dict(size=11),
+                                    title_font=dict(size=13),
+                                    zeroline=False,
+                                ),
+                                yaxis3=dict(
+                                    title="Z 值",
+                                    overlaying="y",
+                                    side="right",
+                                    position=0.85,
+                                    showgrid=False,
+                                    tickfont=dict(size=11),
+                                    title_font=dict(size=13),
+                                    zeroline=False,
+                                ),
+                                margin=dict(l=60, r=80, t=40, b=50),
+                                hovermode="x unified",
+                            )
+                            st.plotly_chart(fig_drill, use_container_width=True)
+
+                        # ---- 右：结构性诊断卡 ----
+                        with _card_col:
+                            st.markdown(
+                                f"<div style='font-size:15px;font-weight:700;"
+                                f"color:#ccc;margin-bottom:12px;'>"
+                                f"🩺 结构性诊断</div>",
+                                unsafe_allow_html=True,
+                            )
+
+                            _total_days = len(_prof_df)
+
+                            # 主线指数（高热天 / 总天数）
+                            _hot_cnt = (_prof_df["quadrant"] == "风口正劲").sum()
+                            _hot_pct = round(_hot_cnt / max(_total_days, 1) * 100, 1)
+                            _hot_label = (
+                                "🔥 强主线" if _hot_pct >= 30
+                                else "📈 中强" if _hot_pct >= 15
+                                else "❄️ 弱主线"
+                            )
+
+                            # 当前状态（最近 7 天主导象限）
+                            _recent7 = _prof_df.tail(7)
+                            _cur_dominant = (
+                                _recent7["quadrant"].value_counts().idxmax()
+                                if not _recent7.empty else "—"
+                            )
+                            _cur_q_color = _Q_COLORS.get(_cur_dominant, "#888")
+
+                            # 当前连续象限停留天数
+                            _last_q = _prof_df["quadrant"].iloc[-1] if _total_days > 0 else "—"
+                            _dwell_cnt = 0
+                            for _qval in reversed(_prof_df["quadrant"].tolist()):
+                                if _qval == _last_q:
+                                    _dwell_cnt += 1
+                                else:
+                                    break
+
+                            # 历史每次停留中位数（用于对比）
+                            _runs, _cur_run, _prev_qval = [], 0, None
+                            for _qval in _prof_df["quadrant"].tolist():
+                                if _qval == _prev_qval:
+                                    _cur_run += 1
+                                else:
+                                    if _prev_qval is not None:
+                                        _runs.append(_cur_run)
+                                    _cur_run = 1
+                                    _prev_qval = _qval
+                            if _cur_run > 0:
+                                _runs.append(_cur_run)
+                            _run_median = (
+                                sorted(_runs)[len(_runs) // 2] if _runs else 1
+                            )
+                            _persist_label = (
+                                "高于历史均值 📶" if _dwell_cnt >= _run_median
+                                else "低于历史均值 ⬇️"
+                            )
+
+                            # 脉冲 vs 趋势（当前"风口正劲"连续天数 vs 历史高热停留中位数）
+                            _hot_runs = []
+                            _hr_run, _hr_q = 0, None
+                            for _qv in _prof_df["quadrant"].tolist():
+                                if _qv == _hr_q:
+                                    _hr_run += 1
+                                else:
+                                    if _hr_q == "风口正劲" and _hr_run > 0:
+                                        _hot_runs.append(_hr_run)
+                                    _hr_run = 1
+                                    _hr_q = _qv
+                            if _hr_q == "风口正劲" and _hr_run > 0:
+                                _hot_runs.append(_hr_run)
+                            _hot_median = (
+                                sorted(_hot_runs)[len(_hot_runs) // 2]
+                                if _hot_runs else 1
+                            )
+                            _pulse_label = (
+                                "📈 趋势型" if _dwell_cnt >= _hot_median and _last_q == "风口正劲"
+                                else "⚡ 脉冲型" if _last_q == "风口正劲"
+                                else "—"
+                            )
+
+                            # 二次启动力（无人问津 → 风口/暗流 的转换次数）
+                            _relaunch_cnt = 0
+                            _prev_was_cold = False
+                            for _qval in _prof_df["quadrant"].tolist():
+                                if _prev_was_cold and _qval in ("风口正劲", "暗流涌动"):
+                                    _relaunch_cnt += 1
+                                _prev_was_cold = (_qval == "无人问津")
+                            _relaunch_label = (
+                                "🔄 高周期轮动" if _relaunch_cnt >= 3
+                                else "🔁 有轮动迹象" if _relaunch_cnt >= 1
+                                else "➡️ 单次型"
+                            )
+
+                            # Z-score 极值
+                            _z_vals = _prof_df["attention_z_score"].dropna()
+                            _z_cur = float(_z_vals.iloc[-1]) if len(_z_vals) > 0 else 0.0
+                            _z_max = float(_z_vals.max()) if len(_z_vals) > 0 else 0.0
+
+                            # 情绪趋势
+                            _sent_vals = _prof_df["avg_sentiment"].dropna()
+                            if len(_sent_vals) >= 30:
+                                _sent_recent = float(_sent_vals.tail(30).mean())
+                                _sent_prev = float(_sent_vals.iloc[-60:-30].mean()) if len(_sent_vals) >= 60 else float(_sent_vals.mean())
+                                _sent_delta = _sent_recent - _sent_prev
+                                _sent_label = (
+                                    "↗️ 情绪转暖" if _sent_delta > 0.03
+                                    else "↘️ 情绪转冷" if _sent_delta < -0.03
+                                    else "➡️ 情绪持平"
+                                )
+                            else:
+                                _sent_label = "数据不足"
+
+                            # 今日实时广度（来自 l2l3_data）
+                            _today_l2_row = next(
+                                (r for r in l2l3_data if r.get("l2_sector") == _selected_l2),
+                                None,
+                            )
+                            _breadth_txt = "—"
+                            _heat_type_txt = "—"
+                            if _today_l2_row:
+                                _al3 = _today_l2_row.get("active_l3_count", "?")
+                                _tl3 = _today_l2_row.get("total_l3_count", "?")
+                                _breadth_txt = f"{_al3} / {_tl3} 活跃 L3"
+                                _ht = _today_l2_row.get("heat_type", "distributed")
+                                _heat_type_txt = (
+                                    "集中式 🔴" if _ht == "concentrated"
+                                    else "分布式 🔵"
+                                )
+
+                            # 渲染诊断卡
+                            def _diag_row(label, value, note=""):
+                                _note_html = (
+                                    f'<span style="font-size:11px;color:#888;">{note}</span>'
+                                    if note else ""
+                                )
+                                return (
+                                    f'<div style="display:flex;justify-content:space-between;'
+                                    f'align-items:baseline;padding:6px 0;'
+                                    f'border-bottom:1px solid rgba(255,255,255,0.06);">'
+                                    f'<span style="font-size:13px;color:#aaa;">{label}</span>'
+                                    f'<span style="font-size:13px;font-weight:600;color:#eee;">'
+                                    f'{value}</span>{_note_html}</div>'
+                                )
+
+                            _card_html = f"""
+<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);
+     border-radius:10px;padding:14px 16px;font-family:sans-serif;">
+  <div style="font-size:13px;font-weight:700;color:{_cur_q_color};
+       margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.1);">
+    当前象限：{_cur_dominant}
+  </div>
+  {_diag_row("主线指数", f"{_hot_pct}%  {_hot_label}")}
+  {_diag_row("连续停留", f"{_dwell_cnt} 天  {_persist_label}")}
+  {_diag_row("脉冲/趋势", _pulse_label)}
+  {_diag_row("二次启动力", f"{_relaunch_cnt} 次  {_relaunch_label}")}
+  {_diag_row("Z 值", f"当前 {_z_cur:.1f}  /  峰值 {_z_max:.1f}")}
+  {_diag_row("情绪趋势", _sent_label)}
+  <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.08);">
+    <div style="font-size:11px;color:#666;margin-bottom:4px;">📸 今日实时快照</div>
+    {_diag_row("广度质量", _breadth_txt)}
+    {_diag_row("热度类型", _heat_type_txt)}
+  </div>
+</div>"""
+                            st.markdown(_card_html, unsafe_allow_html=True)
 
     else:
         st.info("暂无数据。请先在侧边栏触发 NLP 流水线，待数据采集完成后刷新。")

@@ -1,6 +1,6 @@
 {
   "source": "macro_page_four_horsemen_monthly",
-  "updated_at": "2026-04-07T18:41:02",
+  "updated_at": "2026-04-15T14:34:07",
   "months": {
     "2026-04": {
       "verdict_cn": "滞胀",
@@ -19,10 +19,10 @@
       "Rec": 0.17
     },
     "2026-02": {
-      "verdict_cn": "软着陆",
-      "verdict_en": "Soft",
+      "verdict_cn": "再通胀",
+      "verdict_en": "Hot",
       "Soft": 0.67,
-      "Hot": 0.67,
+      "Hot": 0.83,
       "Stag": 0.5,
       "Rec": 0.0
     },
@@ -45,16 +45,16 @@
     "2025-11": {
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
-      "Soft": 0.83,
-      "Hot": 0.17,
+      "Soft": 0.67,
+      "Hot": 0.0,
       "Stag": 0.33,
-      "Rec": 0.33
+      "Rec": 0.5
     },
     "2025-10": {
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
       "Soft": 0.67,
-      "Hot": 0.17,
+      "Hot": 0.0,
       "Stag": 0.33,
       "Rec": 0.5
     },
@@ -62,35 +62,11 @@
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
       "Soft": 0.83,
-      "Hot": 0.17,
-      "Stag": 0.33,
-      "Rec": 0.33
+      "Hot": 0.33,
+      "Stag": 0.5,
+      "Rec": 0.17
     },
     "2025-08": {
-      "verdict_cn": "软着陆",
-      "verdict_en": "Soft",
-      "Soft": 0.83,
-      "Hot": 0.17,
-      "Stag": 0.33,
-      "Rec": 0.33
-    },
-    "2025-07": {
-      "verdict_cn": "软着陆",
-      "verdict_en": "Soft",
-      "Soft": 0.67,
-      "Hot": 0.67,
-      "Stag": 0.33,
-      "Rec": 0.0
-    },
-    "2025-06": {
-      "verdict_cn": "软着陆",
-      "verdict_en": "Soft",
-      "Soft": 1.0,
-      "Hot": 0.5,
-      "Stag": 0.33,
-      "Rec": 0.0
-    },
-    "2025-05": {
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
       "Soft": 0.83,
@@ -98,7 +74,23 @@
       "Stag": 0.5,
       "Rec": 0.17
     },
-    "2025-04": {
+    "2025-07": {
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 1.0,
+      "Hot": 0.5,
+      "Stag": 0.33,
+      "Rec": 0.0
+    },
+    "2025-06": {
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 0.83,
+      "Hot": 0.0,
+      "Stag": 0.33,
+      "Rec": 0.33
+    },
+    "2025-05": {
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
       "Soft": 0.67,
@@ -106,7 +98,23 @@
       "Stag": 0.33,
       "Rec": 0.5
     },
+    "2025-04": {
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 0.5,
+      "Hot": 0.0,
+      "Stag": 0.33,
+      "Rec": 0.5
+    },
     "2025-03": {
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 0.83,
+      "Hot": 0.0,
+      "Stag": 0.33,
+      "Rec": 0.33
+    },
+    "2025-02": {
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
       "Soft": 1.0,
@@ -114,19 +122,11 @@
       "Stag": 0.33,
       "Rec": 0.0
     },
-    "2025-02": {
+    "2025-01": {
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
-      "Soft": 0.67,
+      "Soft": 1.0,
       "Hot": 0.67,
-      "Stag": 0.33,
-      "Rec": 0.0
-    },
-    "2025-01": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.67,
-      "Hot": 0.83,
       "Stag": 0.17,
       "Rec": 0.0
     },
@@ -134,121 +134,121 @@
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
       "Soft": 1.0,
-      "Hot": 0.5,
-      "Stag": 0.17,
-      "Rec": 0.0
+      "Hot": 0.17,
+      "Stag": 0.0,
+      "Rec": 0.17
     },
     "2024-11": {
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
       "Soft": 1.0,
-      "Hot": 0.5,
-      "Stag": 0.17,
-      "Rec": 0.0
+      "Hot": 0.17,
+      "Stag": 0.0,
+      "Rec": 0.17
     },
     "2024-10": {
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
       "Soft": 1.0,
-      "Hot": 0.5,
-      "Stag": 0.33,
-      "Rec": 0.0
+      "Hot": 0.17,
+      "Stag": 0.17,
+      "Rec": 0.17
     },
     "2024-09": {
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
-      "Soft": 0.67,
-      "Hot": 0.17,
+      "Soft": 0.5,
+      "Hot": 0.0,
       "Stag": 0.5,
-      "Rec": 0.33
+      "Rec": 0.5
     },
     "2024-08": {
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
-      "Soft": 0.83,
-      "Hot": 0.33,
-      "Stag": 0.33,
-      "Rec": 0.17
+      "Soft": 0.5,
+      "Hot": 0.0,
+      "Stag": 0.5,
+      "Rec": 0.5
     },
     "2024-07": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.67,
-      "Hot": 0.83,
-      "Stag": 0.17,
-      "Rec": 0.0
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 1.0,
+      "Hot": 0.33,
+      "Stag": 0.0,
+      "Rec": 0.17
     },
     "2024-06": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.5,
-      "Hot": 0.83,
-      "Stag": 0.33,
-      "Rec": 0.0
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 0.83,
+      "Hot": 0.33,
+      "Stag": 0.17,
+      "Rec": 0.17
     },
     "2024-05": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.5,
-      "Hot": 0.83,
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 0.67,
+      "Hot": 0.67,
       "Stag": 0.33,
       "Rec": 0.0
     },
     "2024-04": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.5,
-      "Hot": 0.83,
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 0.67,
+      "Hot": 0.67,
       "Stag": 0.33,
       "Rec": 0.0
     },
     "2024-03": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.67,
-      "Hot": 0.83,
-      "Stag": 0.17,
-      "Rec": 0.0
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 1.0,
+      "Hot": 0.33,
+      "Stag": 0.0,
+      "Rec": 0.17
     },
     "2024-02": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.67,
-      "Hot": 0.83,
-      "Stag": 0.17,
-      "Rec": 0.0
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 1.0,
+      "Hot": 0.33,
+      "Stag": 0.0,
+      "Rec": 0.17
     },
     "2024-01": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.67,
-      "Hot": 0.83,
-      "Stag": 0.33,
-      "Rec": 0.0
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 1.0,
+      "Hot": 0.33,
+      "Stag": 0.17,
+      "Rec": 0.17
     },
     "2023-12": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.5,
-      "Hot": 0.83,
-      "Stag": 0.33,
-      "Rec": 0.0
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 0.83,
+      "Hot": 0.33,
+      "Stag": 0.17,
+      "Rec": 0.17
     },
     "2023-11": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.5,
-      "Hot": 0.83,
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 0.83,
+      "Hot": 0.5,
       "Stag": 0.33,
       "Rec": 0.0
     },
     "2023-10": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.33,
-      "Hot": 0.83,
-      "Stag": 0.5,
-      "Rec": 0.0
+      "verdict_cn": "滞胀",
+      "verdict_en": "Stag",
+      "Soft": 0.0,
+      "Hot": 0.5,
+      "Stag": 0.83,
+      "Rec": 0.17
     },
     "2023-09": {
       "verdict_cn": "再通胀",
@@ -259,49 +259,49 @@
       "Rec": 0.0
     },
     "2023-08": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.33,
-      "Hot": 0.83,
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 0.67,
+      "Hot": 0.67,
       "Stag": 0.5,
       "Rec": 0.0
     },
     "2023-07": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.33,
-      "Hot": 0.83,
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 0.67,
+      "Hot": 0.5,
       "Stag": 0.5,
       "Rec": 0.0
     },
     "2023-06": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.33,
-      "Hot": 0.83,
+      "verdict_cn": "软着陆",
+      "verdict_en": "Soft",
+      "Soft": 0.5,
+      "Hot": 0.5,
       "Stag": 0.5,
       "Rec": 0.0
     },
     "2023-05": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
+      "verdict_cn": "滞胀",
+      "verdict_en": "Stag",
       "Soft": 0.33,
-      "Hot": 0.83,
-      "Stag": 0.67,
-      "Rec": 0.17
+      "Hot": 0.33,
+      "Stag": 0.83,
+      "Rec": 0.33
     },
     "2023-04": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
+      "verdict_cn": "滞胀",
+      "verdict_en": "Stag",
       "Soft": 0.33,
-      "Hot": 0.83,
-      "Stag": 0.67,
-      "Rec": 0.17
+      "Hot": 0.5,
+      "Stag": 0.83,
+      "Rec": 0.33
     },
     "2023-03": {
       "verdict_cn": "再通胀",
       "verdict_en": "Hot",
-      "Soft": 0.33,
+      "Soft": 0.17,
       "Hot": 1.0,
       "Stag": 0.67,
       "Rec": 0.17
@@ -325,7 +325,7 @@
     "2022-12": {
       "verdict_cn": "再通胀",
       "verdict_en": "Hot",
-      "Soft": 0.33,
+      "Soft": 0.17,
       "Hot": 1.0,
       "Stag": 0.5,
       "Rec": 0.17
@@ -333,58 +333,58 @@
     "2022-11": {
       "verdict_cn": "再通胀",
       "verdict_en": "Hot",
-      "Soft": 0.33,
+      "Soft": 0.17,
       "Hot": 1.0,
       "Stag": 0.5,
       "Rec": 0.17
     },
     "2022-10": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.33,
-      "Hot": 1.0,
-      "Stag": 0.5,
-      "Rec": 0.17
+      "verdict_cn": "滞胀",
+      "verdict_en": "Stag",
+      "Soft": 0.0,
+      "Hot": 0.67,
+      "Stag": 0.83,
+      "Rec": 0.33
     },
     "2022-09": {
       "verdict_cn": "滞胀",
       "verdict_en": "Stag",
-      "Soft": 0.17,
+      "Soft": 0.0,
       "Hot": 0.5,
       "Stag": 0.83,
       "Rec": 0.33
     },
     "2022-08": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.33,
-      "Hot": 1.0,
-      "Stag": 0.5,
-      "Rec": 0.17
+      "verdict_cn": "滞胀",
+      "verdict_en": "Stag",
+      "Soft": 0.0,
+      "Hot": 0.67,
+      "Stag": 0.83,
+      "Rec": 0.33
     },
     "2022-07": {
       "verdict_cn": "滞胀",
       "verdict_en": "Stag",
-      "Soft": 0.17,
+      "Soft": 0.0,
       "Hot": 0.5,
       "Stag": 0.83,
       "Rec": 0.33
     },
     "2022-06": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.33,
-      "Hot": 1.0,
-      "Stag": 0.5,
-      "Rec": 0.17
+      "verdict_cn": "滞胀",
+      "verdict_en": "Stag",
+      "Soft": 0.0,
+      "Hot": 0.67,
+      "Stag": 0.83,
+      "Rec": 0.33
     },
     "2022-05": {
-      "verdict_cn": "再通胀",
-      "verdict_en": "Hot",
-      "Soft": 0.33,
-      "Hot": 1.0,
-      "Stag": 0.5,
-      "Rec": 0.17
+      "verdict_cn": "滞胀",
+      "verdict_en": "Stag",
+      "Soft": 0.0,
+      "Hot": 0.67,
+      "Stag": 0.83,
+      "Rec": 0.33
     },
     "2022-04": {
       "verdict_cn": "再通胀",
@@ -499,9 +499,9 @@
       "Rec": 0.0
     },
     "2021-02": {
-      "verdict_cn": "软着陆",
-      "verdict_en": "Soft",
-      "Soft": 0.83,
+      "verdict_cn": "再通胀",
+      "verdict_en": "Hot",
+      "Soft": 0.67,
       "Hot": 0.83,
       "Stag": 0.17,
       "Rec": 0.17
@@ -517,7 +517,7 @@
     "2020-12": {
       "verdict_cn": "软着陆",
       "verdict_en": "Soft",
-      "Soft": 0.83,
+      "Soft": 1.0,
       "Hot": 0.33,
       "Stag": 0.0,
       "Rec": 0.5
@@ -651,17 +651,17 @@
       "Rec": 0.83
     },
     "2019-07": {
-      "verdict_cn": "软着陆",
-      "verdict_en": "Soft",
-      "Soft": 0.67,
+      "verdict_cn": "衰退",
+      "verdict_en": "Rec",
+      "Soft": 0.5,
       "Hot": 0.0,
       "Stag": 0.17,
       "Rec": 0.67
     },
     "2019-06": {
-      "verdict_cn": "软着陆",
-      "verdict_en": "Soft",
-      "Soft": 0.67,
+      "verdict_cn": "衰退",
+      "verdict_en": "Rec",
+      "Soft": 0.5,
       "Hot": 0.0,
       "Stag": 0.17,
       "Rec": 0.67
@@ -672,15 +672,7 @@
       "Soft": 0.67,
       "Hot": 0.0,
       "Stag": 0.17,
-      "Rec": 0.67
-    },
-    "2019-04": {
-      "verdict_cn": "软着陆",
-      "verdict_en": "Soft",
-      "Soft": 1.0,
-      "Hot": 0.5,
-      "Stag": 0.0,
-      "Rec": 0.33
+      "Rec": 0.5
     }
   }
 }

@@ -48,19 +48,36 @@
     ],
     "D": [
       {
-        "ticker": "OXY",
-        "name": "西方石油",
-        "score": 64.8
+        "ticker": "SPIR",
+        "name": "Spire Global",
+        "score": 67.0
+      },
+      {
+        "ticker": "AMD",
+        "name": "超威半导体",
+        "score": 56.4
       },
       {
         "ticker": "WDC",
         "name": "西部数据",
-        "score": 62.8
+        "score": 54.0
+      }
+    ],
+    "C": [
+      {
+        "ticker": "MU",
+        "name": "美光科技",
+        "score": 83.0
       },
       {
-        "ticker": "PBR",
-        "name": "巴西石油",
-        "score": 62.1
+        "ticker": "WDC",
+        "name": "西部数据",
+        "score": 78.0
+      },
+      {
+        "ticker": "VRT",
+        "name": "维谛技术",
+        "score": 78.0
       }
     ]
   },
