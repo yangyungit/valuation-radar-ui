@@ -822,6 +822,18 @@ def push_screen_results(payload: dict) -> bool:
         return False
 
 
+def _sanitize_floats(obj):
+    """递归将 dict/list 中的 NaN/Inf float 替换为 0.0，确保 JSON 可序列化。"""
+    import math
+    if isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_floats(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return 0.0
+    return obj
+
+
 def run_classification_api(
     screen_tickers: list,
     meta_data: dict,
@@ -850,16 +862,16 @@ def run_classification_api(
         payload = {
             "price_records":   price_records,
             "screen_tickers":  screen_tickers,
-            "meta_data":       meta_data or {},
-            "prev_grades_map": prev_grades_map or {},
+            "meta_data":       _sanitize_floats(meta_data or {}),
+            "prev_grades_map": _sanitize_floats(prev_grades_map or {}),
             "z_seed_tickers":  list(z_seed_tickers or []),
-            "thresholds":      thresholds or {},
-            "conv_state_a":    conv_state_a or {},
+            "thresholds":      _sanitize_floats(thresholds or {}),
+            "conv_state_a":    _sanitize_floats(conv_state_a or {}),
             "conv_holders_a":  conv_holders_a or [],
-            "conv_state_b":    conv_state_b or {},
+            "conv_state_b":    _sanitize_floats(conv_state_b or {}),
             "conv_holders_b":  conv_holders_b or [],
-            "conv_config_a":   conv_config_a or {},
-            "conv_config_b":   conv_config_b or {},
+            "conv_config_a":   _sanitize_floats(conv_config_a or {}),
+            "conv_config_b":   _sanitize_floats(conv_config_b or {}),
         }
         r = requests.post(
             f"{API_BASE_URL}/api/v1/screen/run-classification",
