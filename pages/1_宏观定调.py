@@ -57,6 +57,18 @@ USER_GROUPS_DEF = core_data.get("USER_GROUPS_DEF", {})
 # 1. 实装 SPY 5阶状态机（强多头/多头回调/上涨力竭/强空头/震荡）。
 # 2. SSOT 对齐缓存，消除 Z-Score 漂移与缩进报错。
 
+
+def _get_fred_key() -> str:
+    """安全读取 FRED API Key：优先环境变量，回退 st.secrets，两者均无则返回空串。"""
+    key = os.environ.get("FRED_API_KEY", "")
+    if not key:
+        try:
+            key = st.secrets.get("FRED_API_KEY", "")
+        except Exception:
+            pass
+    return key or ""
+
+
 st.set_page_config(page_title="宏观定调中心", layout="wide", page_icon="🧭")
 
 with st.sidebar:
@@ -74,6 +86,13 @@ with st.sidebar:
         st.cache_data.clear()
         st.success("所有页面缓存已清除！")
         st.rerun()
+    st.markdown("---")
+    st.caption("🔑 FRED_API_KEY 检测")
+    _sidebar_key = _get_fred_key()
+    if _sidebar_key:
+        st.success(f"已检测到 Key（末4位：...{_sidebar_key[-4:]}）")
+    else:
+        st.error("未检测到 FRED_API_KEY\n环境变量或 secrets.toml 均未配置")
 
 years_to_fetch = 10  # 10年原始数据，扣除750日预热后约7年着色范围，三大比例图视野充足
 z_window = 750       # 统一使用 3Y (750日) 中期战略基准
@@ -160,7 +179,7 @@ MACRO_TICKERS_CORE.sort()
 def get_liquidity_data():
     end_date = datetime.now()
     start_date = end_date - timedelta(days=3650)
-    fred_key = os.environ.get("FRED_API_KEY", "") or st.secrets.get("FRED_API_KEY", "")
+    fred_key = _get_fred_key()
     try:
         if not fred_key:
             raise RuntimeError("FRED_API_KEY 未配置")
@@ -199,7 +218,7 @@ def get_clock_fred_data():
     通胀侧双锚: CPILFESL (核心CPI), PCEPILFE (核心PCE) — 均计算 YoY
     市场侧:    BAMLH0A0HYM2 (HY信用利差, 日度), T10YIE (10年隐含通胀预期, 日度)
     """
-    fred_key = os.environ.get("FRED_API_KEY", "") or st.secrets.get("FRED_API_KEY", "")
+    fred_key = _get_fred_key()
     if not fred_key:
         raise RuntimeError("FRED_API_KEY 未配置，FRED 数据不可用")
     end_date = datetime.now()
@@ -234,14 +253,34 @@ with st.spinner(f"⏳ 正在拉取宏观数据管道 ({years_to_fetch}年历史 
     df = get_global_data(MACRO_TICKERS_CORE, years=years_to_fetch)
 
 with st.spinner("📡 正在接入 FRED 官方宏观数据管道 (INDPRO + PAYEMS + RSAFS + CPI + PCE + HY Spread)..."):
+    _fred_err_msg = ""
     try:
         df_fred_clock = get_clock_fred_data()
         _fred_ok = not df_fred_clock.empty
-    except Exception:
+        if not _fred_ok:
+            _fred_err_msg = "FRED 返回了空数据集"
+    except RuntimeError as _e:
         df_fred_clock = _FRED_EMPTY
         _fred_ok = False
+        _fred_err_msg = str(_e)
+    except Exception as _e:
+        df_fred_clock = _FRED_EMPTY
+        _fred_ok = False
+        _fred_err_msg = f"网络请求异常 ({type(_e).__name__})"
     if not _fred_ok:
-        st.warning("⚠️ FRED 数据暂时不可用，信用利差与核心CPI将降级为 ETF 代理指标。")
+        _has_key = bool(_get_fred_key())
+        if not _has_key:
+            st.warning(
+                "⚠️ **FRED_API_KEY 未配置**，所有 FRED 官方数据（HY利差、CPI、PCE、非农、工业生产、零售销售）"
+                "均已降级为 ETF 代理指标。\n\n"
+                "如需接入官方数据，请在环境变量或 `.streamlit/secrets.toml` 中设置 `FRED_API_KEY`，"
+                "可在 [fred.stlouisfed.org/docs/api/api_key.html](https://fred.stlouisfed.org/docs/api/api_key.html) 免费申请。"
+            )
+        else:
+            st.warning(
+                f"⚠️ **FRED 数据请求失败**（{_fred_err_msg}），已自动切换至 ETF 代理指标。"
+                " 可点击侧边栏「清除缓存」后重试。"
+            )
 
 with st.spinner("🔬 正在调用后端四大剧本引擎（自拉 yfinance + FRED）..."):
     _regime_api = compute_macro_regime_api(z_window=z_window)
@@ -648,17 +687,33 @@ if not df.empty and len(df) > 750:
     if usd_val > 0: usd_txt = "💪 美元走强"; usd_cls = "status-red"
     else: usd_txt = "🍃 美元走弱"; usd_cls = "status-green"
 
+    def _strength_label(z):
+        az = abs(z)
+        if az < 0.3:   return "中性",  "#888"
+        elif az < 0.8: return ("偏强↑" if z > 0 else "偏弱↓"), "#F39C12"
+        elif az < 1.5: return ("较强↑" if z > 0 else "较弱↓"), "#E67E22"
+        else:          return ("极强↑" if z > 0 else "极弱↓"), ("#2ECC71" if z > 0 else "#E74C3C")
+
+    # CSS 颜色映射：status-green → #2ECC71 | status-red → #E74C3C | status-grey → #95A5A6
+    _CLS_COLOR = {"status-green": "#2ECC71", "status-red": "#E74C3C", "status-grey": "#95A5A6"}
+
     c1, c2, c3, c4 = st.columns(4)
     def draw_card(col, title, val, txt, cls, desc):
+        str_label, str_color = _strength_label(val)
+        txt_color = _CLS_COLOR.get(cls, "#ddd")
         with col:
-            st.markdown(f"**{title}**")
-            st.markdown(f"<div class='metric-value'>{val:+.2f}σ</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='{cls}'>{txt}</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='font-size:13px; color:#aaa; margin-bottom:4px;'>{title}</div>"
+                f"<div style='font-size:20px; font-weight:bold; color:{txt_color}; margin-bottom:5px;'>{txt}</div>"
+                f"<span style='font-size:16px; font-weight:bold; color:{txt_color};'>{val:+.2f}</span>"
+                f"<span style='font-size:13px; color:{str_color}; margin-left:6px;'>{str_label}</span>",
+                unsafe_allow_html=True
+            )
             st.caption(desc)
-    draw_card(c1, "增长预期 (TLT/SHY Z)", tlt_shy_diff, rate_txt, rate_cls, "Z>0: 长债历史性跑赢短债 → 衰退/降息定价")
-    draw_card(c2, "风险偏好 (HYG/IEF Z)", hyg_ief_diff, risk_txt, risk_cls, "Z>0: 信用债历史性领涨 → Risk-On")
-    draw_card(c3, "通胀预期 (TIP/IEF Z)", tip_ief_diff, inf_txt, inf_cls, "Z>0: 通胀保值债领跑 → 通胀预期升温")
-    draw_card(c4, "美元压力 (UUP/SHY Z)", usd_val, usd_txt, usd_cls, "Z>0: 美元历史性走强 → 流动性收紧")
+    draw_card(c1, "增长预期", tlt_shy_diff, rate_txt, rate_cls, "TLT/SHY 3年相对强弱：长债跑赢短债=降息预期升温")
+    draw_card(c2, "风险偏好", hyg_ief_diff, risk_txt, risk_cls, "HYG/IEF 3年相对强弱：信用债跑赢国债=Risk-On")
+    draw_card(c3, "通胀预期", tip_ief_diff, inf_txt, inf_cls, "TIP/IEF 3年相对强弱：通胀保值债领跑=通胀升温")
+    draw_card(c4, "美元强弱", usd_val, usd_txt, usd_cls, "UUP/SHY 3年相对强弱：美元历史性走强=流动性收紧")
     
     st.markdown("---")
     
