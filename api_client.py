@@ -860,7 +860,7 @@ def run_classification_api(
         else:
             price_records = {}
         payload = {
-            "price_records":   price_records,
+            "price_records":   _sanitize_floats(price_records),
             "screen_tickers":  screen_tickers,
             "meta_data":       _sanitize_floats(meta_data or {}),
             "prev_grades_map": _sanitize_floats(prev_grades_map or {}),
