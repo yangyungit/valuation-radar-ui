@@ -2646,6 +2646,7 @@ with st.spinner("⚙️ 正在执行并行 ABCD 分类（含滞后带）…"):
         prev_grades_map=_prev_grades_map,
         z_seed_tickers=list(_Z_SEED_TICKERS),
         thresholds=_hyst_thresholds,
+        price_df=_price_df,
     )
     if _cls_result.get("success"):
         all_assets = _cls_result["abcd_classified_assets"]
