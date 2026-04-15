@@ -1426,13 +1426,15 @@ if not df.empty and len(df) > 750:
     }
 
     # write-through：同步推送 regime 数据包到后端持久化，消灭 Page 3/6 的 session_state 依赖
-    push_macro_regime({
+    _push_ok = push_macro_regime({
         "current_macro_regime":     _horsemen_en_winner,
         "current_macro_regime_raw": _d_raw_regime,
         "smoothed_regime_probs":    _horsemen_probs,
         "live_regime_label":        _horsemen_en_winner,
         "horsemen_monthly_probs":   st.session_state["horsemen_monthly_probs"],
     })
+    if not _push_ok:
+        st.sidebar.warning("⚠️ 宏观剧本未能写入后端缓存（后端未运行？），Page 3/6 本次仍依赖 session_state。", icon="⚠️")
 
     # 持久化月度裁决（与上方「四大剧本历史裁决表」同一套月度 resample 结果），供 Page 4 历史榜并列展示
     _horsemen_verdict_file = os.path.join(os.path.dirname(__file__), "..", "data", "horsemen_monthly_verdict.json")

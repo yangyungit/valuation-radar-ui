@@ -2481,7 +2481,7 @@ with st.sidebar:
             icon="✅"
         )
     else:
-        st.info("尚未从 Page 1 获取宏观剧本，请先访问「1 宏观定调」页面。", icon="ℹ️")
+        st.info("后端缓存暂无宏观剧本（首次启动或后端未运行），已默认「Soft」，可手动调整。", icon="ℹ️")
     if _ss_regime_raw:
         _raw_label = _regime_labels.get(_ss_regime_raw, _ss_regime_raw)
         st.info(f"🔭 原始信号 (D 组)：**{_ss_regime_raw} — {_raw_label}**", icon="📡")
