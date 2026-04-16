@@ -409,7 +409,7 @@ _TOOL_SYMBOLS = {
 if _arena_data:
     # ── 惰性换手持仓推算：与 Page 4「历史月度 Top-2 胜出者」保持一致 ──
     # 守擂缓冲区大小从 Page 4 slider 的 session_state 读取
-    _buffer_n: int = st.session_state.get("arena_buffer_n", 3)
+    _buffer_n: int = st.session_state.get("confirmed_buffer_n", 3)
     _tm_months = sorted(k for k in _arena_data if not k.startswith("_"))
     _tm_hold: dict = {}
     _score_anomalies: list = []
