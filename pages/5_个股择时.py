@@ -406,10 +406,22 @@ _TOOL_SYMBOLS = {
 }
 
 
+_ARENA_CONFIG_FILE_P5 = os.path.join(os.path.dirname(__file__), "..", "data", "arena_config.json")
+
+def _load_buffer_n_p5() -> int:
+    try:
+        if os.path.exists(_ARENA_CONFIG_FILE_P5):
+            with open(_ARENA_CONFIG_FILE_P5, "r", encoding="utf-8") as _cf:
+                return int(json.load(_cf).get("buffer_n", 3))
+    except Exception:
+        pass
+    return 3
+
+
 if _arena_data:
     # ── 惰性换手持仓推算：与 Page 4「历史月度 Top-2 胜出者」保持一致 ──
-    # 守擂缓冲区大小从 Page 4 slider 的 session_state 读取
-    _buffer_n: int = st.session_state.get("confirmed_buffer_n", 3)
+    # 守擂缓冲区大小从持久化配置文件 data/arena_config.json 读取（Page 4 写入）
+    _buffer_n: int = _load_buffer_n_p5()
     _tm_months = sorted(k for k in _arena_data if not k.startswith("_"))
     _tm_hold: dict = {}
     _score_anomalies: list = []

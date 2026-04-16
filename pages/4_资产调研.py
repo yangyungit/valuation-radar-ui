@@ -441,8 +441,26 @@ if _arena_hist:
         unsafe_allow_html=True,
     )
 
+    _ARENA_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "arena_config.json")
+
+    def _load_buffer_n() -> int:
+        try:
+            if os.path.exists(_ARENA_CONFIG_FILE):
+                with open(_ARENA_CONFIG_FILE, "r", encoding="utf-8") as _cf:
+                    return int(json.load(_cf).get("buffer_n", 3))
+        except Exception:
+            pass
+        return 3
+
+    def _save_buffer_n(n: int) -> None:
+        try:
+            with open(_ARENA_CONFIG_FILE, "w", encoding="utf-8") as _cf:
+                json.dump({"buffer_n": n}, _cf)
+        except Exception:
+            pass
+
     if "confirmed_buffer_n" not in st.session_state:
-        st.session_state["confirmed_buffer_n"] = 3
+        st.session_state["confirmed_buffer_n"] = _load_buffer_n()
 
     _buf_col, _btn_col, _info_col = st.columns([1, 1, 3])
     with _buf_col:
@@ -459,6 +477,7 @@ if _arena_hist:
         st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
         if st.button("✅ 确认", key="confirm_buffer_n"):
             st.session_state["confirmed_buffer_n"] = int(_input_n)
+            _save_buffer_n(int(_input_n))
             st.toast(f"缓冲区已更新为 Top-{int(_input_n)}，历史换仓历史已重算 ✅", icon="🔄")
     _buffer_n: int = st.session_state["confirmed_buffer_n"]
     with _info_col:
