@@ -363,7 +363,7 @@ def _record_arena_history(cls: str, records: list, month_key: str = None,
     """
     if month_key is None:
         month_key = datetime.now().strftime("%Y-%m")
-    rec_list = _make_record_list(top3_records)
+    rec_list = _make_record_list(records)
     if _batch_buf is not None:
         if month_key not in _batch_buf:
             _batch_buf[month_key] = {}
