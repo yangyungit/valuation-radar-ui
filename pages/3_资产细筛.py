@@ -2592,10 +2592,10 @@ with st.sidebar:
         st.cache_data.clear()
         st.success("所有页面缓存已清除！历史档案文件不受影响。")
         st.rerun()
-    if st.button("⚠️ 仅清除历史月度 Top 3"):
+    if st.button("⚠️ 仅清除历史月度 Top 10"):
         st.session_state["_confirm_delete_history"] = True
     if st.session_state.get("_confirm_delete_history"):
-        st.warning("此操作将删除所有赛道历史月度 Top 3 记录，不可撤销。")
+        st.warning("此操作将删除所有赛道历史月度 Top 10 记录，不可撤销。")
         _c1, _c2 = st.columns(2)
         with _c1:
             if st.button("确认删除", type="primary"):
@@ -3702,12 +3702,12 @@ elif _sel4 == "D":
 
 
 # ─────────────────────────────────────────────────────────────────
-#  历史榜单 — 只显示当前选中赛道（_sel4）的月度 Top 3
+#  历史榜单 — 只显示当前选中赛道（_sel4）的月度 Top 10
 # ─────────────────────────────────────────────────────────────────
 _hist_meta = CLASS_META[_sel4]
 st.markdown("---")
 st.markdown(
-    f"### 📅 {_hist_meta['icon']} {_hist_meta['label']} — 历史月度 Top 3",
+    f"### 📅 {_hist_meta['icon']} {_hist_meta['label']} — 历史月度 Top 10",
 )
 _hist_macro_note = (
     "本赛道评分不受宏观剧本变化影响，四剧本裁决列仅供市场环境参考。"
@@ -3779,14 +3779,14 @@ _REGIME_BADGE_EMPTY = ("<span style='color:#444; font-size:13px;'>—</span>", "
 
 
 def _compute_streaks(history: dict, cls: str) -> dict:
-    """按时间正序遍历，计算每个月每个标的在该赛道 Top 3 的连续在榜月数。
+    """按时间正序遍历，计算每个月每个标的在该赛道 Top 10 的连续在榜月数。
     返回 {month: {ticker: streak_count}}。"""
     sorted_months = sorted(k for k in history if not k.startswith("_"))
     prev_tickers: set = set()
     prev_streaks: dict = {}
     result: dict = {}
     for mo in sorted_months:
-        recs = history[mo].get(cls, [])[:3]
+        recs = history[mo].get(cls, [])[:10]
         cur_tickers = {r["ticker"] for r in recs}
         cur_streaks = {}
         for tk in cur_tickers:
@@ -3936,6 +3936,7 @@ else:
             f"<div style='flex:1; padding-left:4px;'>🥇 冠军</div>"
             f"<div style='flex:1; padding-left:4px;'>🥈 亚军</div>"
             f"<div style='flex:1; padding-left:4px;'>🥉 季军</div>"
+            f"<div style='flex:2; padding-left:4px; color:#666;'>#4 — #10 候补</div>"
             f"</div>"
         )
         # Pre-compute verdicts to enable look-ahead shift detection
@@ -3974,6 +3975,24 @@ else:
                     _row += _hist_cell(_recs[_ri], _medal_colors[_ri], _mo_streaks.get(_recs[_ri]["ticker"], 0))
                 else:
                     _row += _hist_empty()
+            # #4-#10 候补：灰色小字紧凑排列
+            _rest = _recs[3:10]
+            if _rest:
+                _rest_items = []
+                for _ri2, _rec2 in enumerate(_rest, start=4):
+                    _rest_items.append(
+                        f"<span style='color:#666; white-space:nowrap;'>"
+                        f"<span style='color:#555;'>#{_ri2}</span> {_rec2['ticker']}</span>"
+                    )
+                _rest_html = (
+                    f"<div style='flex:2; display:flex; flex-wrap:wrap; gap:4px 10px; "
+                    f"align-items:baseline; padding-left:4px; font-size:13px;'>"
+                    + "".join(_rest_items)
+                    + "</div>"
+                )
+            else:
+                _rest_html = "<div style='flex:2; font-size:13px; color:#333; padding-left:4px;'>—</div>"
+            _row += _rest_html
             _row += "</div>"
             _data_rows += _row
 
