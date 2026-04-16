@@ -409,6 +409,9 @@ _TOOL_SYMBOLS = {
 _ARENA_CONFIG_FILE_P5 = os.path.join(os.path.dirname(__file__), "..", "data", "arena_config.json")
 
 def _load_buffer_n_p5() -> int:
+    """优先 session_state（同会话 Page 4 已写入），回退磁盘文件，兜底默认 3。"""
+    if "confirmed_buffer_n" in st.session_state:
+        return int(st.session_state["confirmed_buffer_n"])
     try:
         if os.path.exists(_ARENA_CONFIG_FILE_P5):
             with open(_ARENA_CONFIG_FILE_P5, "r", encoding="utf-8") as _cf:
@@ -420,7 +423,6 @@ def _load_buffer_n_p5() -> int:
 
 if _arena_data:
     # ── 惰性换手持仓推算：与 Page 4「历史月度 Top-2 胜出者」保持一致 ──
-    # 守擂缓冲区大小从持久化配置文件 data/arena_config.json 读取（Page 4 写入）
     _buffer_n: int = _load_buffer_n_p5()
     _tm_months = sorted(k for k in _arena_data if not k.startswith("_"))
     _tm_hold: dict = {}
