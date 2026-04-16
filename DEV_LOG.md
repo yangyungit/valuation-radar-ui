@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-04-16 (h)
+
+### 修复 Page 4 守擂缓冲区 Top-N 变更无法传递到 Page 5 A 组图表
+
+**Bug — 调整 Page 4 守擂缓冲区 Top-N 后 Page 5 累计收益率图不更新**
+- **根因 1**：Page 5 独立计算 `_p5_min_depth` 时仅检查 A/B/C/D 四个赛道，缺少 Z 类，与 Page 4（含 Z）不一致，可能导致二次钳位将用户设定值覆盖。
+- **根因 2**：Page 5 没有提供缓冲区控件，用户必须回 Page 4 点「确认」按钮才能变更，且无法在 Page 5 直观验证生效的实际值。
+- **根因 3**：Page 4 的 `_save_buffer_n()` 未调用 `os.makedirs`，如果 `data/` 目录不存在则静默写入失败，跨会话持久化失效。
+- **修复**：
+  1. Page 5 深度检查补上 Z 类，与 Page 4 保持完全一致。
+  2. Page 5 A 组图表区域新增 `st.number_input` 控件（key=`p5_buffer_n_input`），修改后图表立即重算，同时通过 `confirmed_buffer_n` session_state 和 `arena_config.json` 双向同步至 Page 4。
+  3. 引入 `_p5_buffer_synced` 哨兵变量，正确区分「Page 4 外部变更」和「Page 5 本地变更」两种同步方向，避免循环覆盖。
+  4. Page 4/5 的 `_save_buffer_n` 均加入 `os.makedirs(exist_ok=True)` 保护。
+- **影响范围**：`pages/4_资产调研.py`、`pages/5_个股择时.py`。
+
+---
+
 ## 2026-04-16 (g)
 
 ### 修复 Page 5 A 组信念守擂数据源不同步 + 清缓存按钮形同虚设

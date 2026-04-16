@@ -454,6 +454,7 @@ if _arena_hist:
 
     def _save_buffer_n(n: int) -> None:
         try:
+            os.makedirs(os.path.dirname(_ARENA_CONFIG_FILE), exist_ok=True)
             with open(_ARENA_CONFIG_FILE, "w", encoding="utf-8") as _cf:
                 json.dump({"buffer_n": n}, _cf)
         except Exception:

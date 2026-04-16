@@ -427,6 +427,15 @@ def _load_buffer_n_p5() -> int:
     return 3
 
 
+def _save_buffer_n_p5(n: int) -> None:
+    try:
+        os.makedirs(os.path.dirname(_ARENA_CONFIG_FILE_P5), exist_ok=True)
+        with open(_ARENA_CONFIG_FILE_P5, "w", encoding="utf-8") as _cf:
+            json.dump({"buffer_n": n}, _cf)
+    except Exception:
+        pass
+
+
 if _arena_data:
     # ── 检测数据深度（以最近月份为准，旧月份由切片自动兜底）────────
     _p5_sorted_months = sorted(
@@ -435,13 +444,23 @@ if _arena_data:
     _p5_latest = _p5_sorted_months[0] if _p5_sorted_months else None
     _p5_depths = []
     if _p5_latest and _p5_latest in _arena_data:
-        for _c_p5 in ["A", "B", "C", "D"]:
+        for _c_p5 in ["A", "B", "C", "D", "Z"]:
             _rr_p5 = _arena_data[_p5_latest].get(_c_p5, [])
             if _rr_p5:
                 _p5_depths.append(len(_rr_p5))
     _p5_min_depth = min(_p5_depths) if _p5_depths else 3
-    _buffer_n_raw: int = _load_buffer_n_p5()
-    _buffer_n: int = min(_buffer_n_raw, _p5_min_depth)
+    _p5_max_buffer_n = max(2, _p5_min_depth)
+
+    _auth_buffer = min(_load_buffer_n_p5(), _p5_max_buffer_n)
+    if "p5_buffer_n_input" not in st.session_state:
+        st.session_state["p5_buffer_n_input"] = _auth_buffer
+        st.session_state["_p5_buffer_synced"] = _auth_buffer
+    else:
+        _last_synced = st.session_state.get("_p5_buffer_synced")
+        if _auth_buffer != _last_synced:
+            st.session_state["p5_buffer_n_input"] = _auth_buffer
+            st.session_state["_p5_buffer_synced"] = _auth_buffer
+    _buffer_n: int = min(int(st.session_state["p5_buffer_n_input"]), _p5_max_buffer_n)
     _tm_months = sorted(k for k in _arena_data if not k.startswith("_"))
     _tm_hold: dict = {}
     _score_anomalies: list = []
@@ -786,28 +805,31 @@ if _arena_data:
         if _tm_hold["A"].get(_a_months_with_hold[_i]) != _tm_hold["A"].get(_a_months_with_hold[_i - 1])
     )
 
-    _w_col, _b_col = st.columns(2)
+    _buf_col_p5, _w_col, _b_col = st.columns([1, 1.2, 2])
+    with _buf_col_p5:
+        st.number_input(
+            "守擂缓冲区 Top-N",
+            min_value=2,
+            max_value=_p5_max_buffer_n,
+            step=1,
+            key="p5_buffer_n_input",
+            help=f"数据深度 {_p5_min_depth} 条/赛道/月。修改后图表立即更新，与 Page 4 双向同步。",
+        )
+        _effective_p5 = min(int(st.session_state["p5_buffer_n_input"]), _p5_max_buffer_n)
+        if _effective_p5 != st.session_state.get("confirmed_buffer_n"):
+            st.session_state["confirmed_buffer_n"] = _effective_p5
+            _save_buffer_n_p5(_effective_p5)
+            st.session_state["_p5_buffer_synced"] = _effective_p5
     with _w_col:
         st.radio(
             "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
             horizontal=True, key="a_weight_mode",
         )
     with _b_col:
-        _depth_note = (
-            f"（数据深度 {_p5_min_depth}，已钳位）"
-            if _buffer_n < _buffer_n_raw else "（在 Page 4 白盒中调节）"
-        )
         st.caption(
-            f"守擂缓冲区: Top-{_buffer_n}{_depth_note}｜"
+            f"守擂缓冲区: Top-{_buffer_n}（数据深度上限 {_p5_min_depth}）｜"
             f"本期换仓次数: **{_switch_count}** 次"
         )
-        if _buffer_n < _buffer_n_raw:
-            st.warning(
-                f"⚠️ Page 4 设定缓冲区为 Top-{_buffer_n_raw}，但历史数据深度仅 "
-                f"{_p5_min_depth} 条/赛道/月，已自动钳位至 Top-{_buffer_n}。"
-                "请在 Page 3 重新回填以扩展数据深度。",
-                icon="🔒",
-            )
 
     _kpi_c1, _kpi_c2, _kpi_c3, _kpi_c4 = st.columns(4)
     with _kpi_c1:
