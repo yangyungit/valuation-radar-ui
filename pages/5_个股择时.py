@@ -408,7 +408,8 @@ _TOOL_SYMBOLS = {
 
 if _arena_data:
     # ── 惰性换手持仓推算：与 Page 4「历史月度 Top-2 胜出者」保持一致 ──
-    # 规则：上期持仓若全部仍在 Top-3 则保留不动，否则直接换成当月 Top-2
+    # 守擂缓冲区大小从 Page 4 slider 的 session_state 读取
+    _buffer_n: int = st.session_state.get("arena_buffer_n", 3)
     _tm_months = sorted(k for k in _arena_data if not k.startswith("_"))
     _tm_hold: dict = {}
     _score_anomalies: list = []
@@ -418,11 +419,11 @@ if _arena_data:
         _cm: dict = {}
         for _m in _tm_months:
             _recs = _arena_data[_m].get(_c, [])
-            _t3 = {r["ticker"] for r in _recs[:3]}
+            _t3 = {r["ticker"] for r in _recs[:_buffer_n]}
             _t2 = {r["ticker"] for r in _recs[:2]}
 
             if _c == "B":
-                for _r in _recs[:3]:
+                for _r in _recs[:_buffer_n]:
                     if _r.get("score", 999) == 0 or _r.get("score") is None:
                         _score_anomalies.append({
                             "month": _m, "ticker": _r["ticker"],
@@ -436,7 +437,7 @@ if _arena_data:
                 if len(_survivors) >= 2:
                     _hold = _survivors
                 elif len(_survivors) == 1:
-                    _fill = next((r["ticker"] for r in _recs[:3] if r["ticker"] not in _survivors), None)
+                    _fill = next((r["ticker"] for r in _recs[:_buffer_n] if r["ticker"] not in _survivors), None)
                     _hold = _survivors | {_fill} if _fill else _t2
                 else:
                     _hold = _t2
@@ -496,6 +497,46 @@ if _arena_data:
 
     _seg_left = _build_a_slot_segments(0)
     _seg_right = _build_a_slot_segments(1)
+
+    # ── 信念在榜连续月数计算 ────────────────────────────────────────────
+    def _compute_streaks_p5(cls: str, top_n: int) -> dict:
+        """返回 {month: {ticker: 连续在 Top-N 内的月数}}"""
+        _months_s = sorted(k for k in _arena_data if not k.startswith("_"))
+        _res_s: dict = {}
+        _prev_tk_s: set = set()
+        _prev_st_s: dict = {}
+        for _ms in _months_s:
+            _recs_s = _arena_data[_ms].get(cls, [])
+            _cur_tk_s = {r["ticker"] for r in _recs_s[:top_n]}
+            _cur_st_s: dict = {}
+            for _t_s in _cur_tk_s:
+                _cur_st_s[_t_s] = _prev_st_s.get(_t_s, 0) + 1 if _t_s in _prev_tk_s else 1
+            _res_s[_ms] = _cur_st_s
+            _prev_tk_s = _cur_tk_s
+            _prev_st_s = _cur_st_s
+        return _res_s
+
+    def _compute_slot_weights(slot_assignments: dict, streaks: dict, months: list) -> dict:
+        """返回 {month: (w_left, w_right)}，streak 更长的 slot 权重更高（限制在 30%-70%）"""
+        _sw_res: dict = {}
+        for _m_sw in months:
+            _slots_sw = slot_assignments.get(_m_sw, [None, None])
+            _tk_l, _tk_r = _slots_sw[0], _slots_sw[1]
+            _s_l = streaks.get(_m_sw, {}).get(_tk_l, 1) if _tk_l else 1
+            _s_r = streaks.get(_m_sw, {}).get(_tk_r, 1) if _tk_r else 1
+            _total_sw = _s_l + _s_r
+            if _total_sw == 0:
+                _sw_res[_m_sw] = (0.5, 0.5)
+            else:
+                _raw_l = _s_l / _total_sw
+                _w_l = max(0.30, min(0.70, _raw_l))
+                _sw_res[_m_sw] = (_w_l, 1.0 - _w_l)
+        return _sw_res
+
+    # 提前读取权重模式（session_state，供下方 NAV 合成使用；radio 控件在图表标题下方渲染）
+    _weight_mode: str = st.session_state.get("a_weight_mode", "等权 50/50")
+    _a_streaks_full = _compute_streaks_p5("A", _buffer_n)
+    _a_slot_weights = _compute_slot_weights(_a_slot_assignments, _a_streaks_full, _tm_months)
 
     # ── 拉取 A 组所有标的 OHLCV ───────────────────────────────────────
     _a_tickers_all = sorted({
@@ -665,21 +706,40 @@ if _arena_data:
     _ret_left, _dd_left, _nav_left = _calc_slot_stats(_seg_left)
     _ret_right, _dd_right, _nav_right = _calc_slot_stats(_seg_right)
 
-    # ── 合成 A 级整体（半仓等权）──────────────────────────────────────
+    # ── 合成 A 级整体（等权或信念倾斜）────────────────────────────────
     _ret_combined, _dd_combined = 0.0, 0.0
+    _nav_combined: pd.Series = pd.Series(dtype=float)
     if not _nav_left.empty and not _nav_right.empty:
         _idx_union = _nav_left.index.union(_nav_right.index)
         _nl = _nav_left.reindex(_idx_union).ffill().bfill()
         _nr = _nav_right.reindex(_idx_union).ffill().bfill()
-        _nav_combined = 0.5 * _nl + 0.5 * _nr
+        if _weight_mode.startswith("信念倾斜"):
+            _month_keys_arr = _idx_union.strftime("%Y-%m")
+            _w_left_arr = pd.Series(
+                [_a_slot_weights.get(_mk, (0.5, 0.5))[0] for _mk in _month_keys_arr],
+                index=_idx_union, dtype=float,
+            )
+            _w_right_arr = 1.0 - _w_left_arr
+            _nav_combined = (_w_left_arr * _nl + _w_right_arr * _nr).astype(float)
+        else:
+            _nav_combined = 0.5 * _nl + 0.5 * _nr
         _ret_combined = (float(_nav_combined.iloc[-1]) / float(_nav_combined.iloc[0]) - 1) * 100
         _peak_c = _nav_combined.cummax()
         _dd_c = (_peak_c - _nav_combined) / _peak_c.replace(0, float("nan"))
         _dd_combined = float(_dd_c.max()) * 100
     elif not _nav_left.empty:
         _ret_combined, _dd_combined = _ret_left, _dd_left
+        _nav_combined = _nav_left.copy()
     elif not _nav_right.empty:
         _ret_combined, _dd_combined = _ret_right, _dd_right
+        _nav_combined = _nav_right.copy()
+
+    # ── 换仓次数统计 ────────────────────────────────────────────────
+    _a_months_with_hold = [m for m in _tm_months if _tm_hold["A"].get(m)]
+    _switch_count = sum(
+        1 for _i in range(1, len(_a_months_with_hold))
+        if _tm_hold["A"].get(_a_months_with_hold[_i]) != _tm_hold["A"].get(_a_months_with_hold[_i - 1])
+    )
 
     # ═══════════════════════════════════════════════════════════════════
     #  Section: A 组信念守擂持仓 K 线图
@@ -687,13 +747,27 @@ if _arena_data:
     st.header("📈 A 组信念守擂持仓累计收益率图")
     st.caption("左列 / 右列对应 Page 4 历史月度 Top-2 胜出者的 slot-stable 分配（各段累计收益率首尾相接，不同颜色区分持仓期）")
 
-    _kpi_c1, _kpi_c2, _kpi_c3 = st.columns(3)
+    _w_col, _b_col = st.columns(2)
+    with _w_col:
+        st.radio(
+            "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
+            horizontal=True, key="a_weight_mode",
+        )
+    with _b_col:
+        st.caption(
+            f"守擂缓冲区: Top-{_buffer_n}（在 Page 4 白盒中调节）｜"
+            f"本期换仓次数: **{_switch_count}** 次"
+        )
+
+    _kpi_c1, _kpi_c2, _kpi_c3, _kpi_c4 = st.columns(4)
     with _kpi_c1:
         st.metric("左列总收益", f"{_ret_left:+.1f}%")
     with _kpi_c2:
         st.metric("右列总收益", f"{_ret_right:+.1f}%")
     with _kpi_c3:
         st.metric("A 级合成总收益", f"{_ret_combined:+.1f}%")
+    with _kpi_c4:
+        st.metric("换仓次数", f"{_switch_count} 次")
 
     _dd_c1, _dd_c2, _dd_c3 = st.columns(3)
     with _dd_c1:
@@ -703,13 +777,59 @@ if _arena_data:
     with _dd_c3:
         st.metric("A 级合成最大回撤", f"-{_dd_combined:.1f}%")
 
-    _tab_left, _tab_right = st.tabs(["📈 左列收益率曲线 (Slot 0)", "📈 右列收益率曲线 (Slot 1)"])
+    if _weight_mode.startswith("信念倾斜") and _a_slot_weights:
+        _avg_wl = sum(v[0] for v in _a_slot_weights.values()) / max(len(_a_slot_weights), 1)
+        _avg_wr = 1.0 - _avg_wl
+        st.caption(
+            f"信念倾斜模式：历史月均权重 左列 **{_avg_wl*100:.0f}%** / 右列 **{_avg_wr*100:.0f}%**"
+            "（streak 更长的 slot 权重更高，范围限制在 30%-70%）"
+        )
+
+    _tab_left, _tab_right, _tab_combined = st.tabs([
+        "📈 左列 (Slot 0)", "📈 右列 (Slot 1)", "📊 合成收益率",
+    ])
     with _tab_left:
         _fig_left = _build_stitched_kline_fig(_seg_left, "左列 (Slot 0)", _spy_wk_a)
         st.plotly_chart(_fig_left, use_container_width=True)
     with _tab_right:
         _fig_right = _build_stitched_kline_fig(_seg_right, "右列 (Slot 1)", _spy_wk_a)
         st.plotly_chart(_fig_right, use_container_width=True)
+    with _tab_combined:
+        if not _nav_combined.empty:
+            _fig_comb = go.Figure()
+            _nav_pct = (_nav_combined / float(_nav_combined.iloc[0]) - 1) * 100
+            _fig_comb.add_trace(go.Scatter(
+                x=_nav_pct.index, y=_nav_pct.values,
+                mode="lines", name=f"A 级合成（{_weight_mode.split('（')[0]}）",
+                line=dict(color="#F1C40F", width=2),
+            ))
+            if _spy_wk_a is not None and not _spy_wk_a.empty:
+                _spy_mask_c = (
+                    (_spy_wk_a.index >= _nav_combined.index[0])
+                    & (_spy_wk_a.index <= _nav_combined.index[-1])
+                )
+                _spy_seg_c = _spy_wk_a[_spy_mask_c]["Close"].astype(float).dropna()
+                if len(_spy_seg_c) >= 2:
+                    _spy_pct_c = (_spy_seg_c / float(_spy_seg_c.iloc[0]) - 1) * 100
+                    _fig_comb.add_trace(go.Scatter(
+                        x=_spy_pct_c.index, y=_spy_pct_c.values,
+                        mode="lines", name="SPY",
+                        line=dict(color="#888", width=1.5, dash="dot"),
+                    ))
+            _fig_comb.update_layout(
+                title=f"A 级合成收益率（{_weight_mode}）",
+                xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
+                yaxis=dict(title="累计收益率 (%)", ticksuffix="%", gridcolor="rgba(100,100,100,0.3)"),
+                height=520,
+                margin=dict(l=10, r=10, t=44, b=60),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(30,30,30,0.6)",
+                font=dict(color="#ccc", size=13),
+                showlegend=True,
+            )
+            st.plotly_chart(_fig_comb, use_container_width=True)
+        else:
+            st.info("暂无足够数据生成合成收益率图。")
 
     # ═══════════════════════════════════════════════════════════════════
     #  Section 0: 资产细筛盈利统计

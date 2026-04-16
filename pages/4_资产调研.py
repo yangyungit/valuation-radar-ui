@@ -426,6 +426,8 @@ if _arena_hist:
 
     _all_streaks = {c: _compute_streaks_p4(c) for c in ["A", "B", "C", "D", "Z"]}
 
+    _buffer_n: int = st.session_state.get("arena_buffer_n", 3)
+
     _holdings_map: dict = {}
     for _cls in ["A", "B", "C", "D", "Z"]:
         _months_asc = sorted(k for k in _arena_hist if not k.startswith("_"))
@@ -434,14 +436,14 @@ if _arena_hist:
         for _m in _months_asc:
             _recs = _arena_hist[_m].get(_cls, [])
             _t2_set = {r["ticker"] for r in _recs[:2]}
-            _t3_set = {r["ticker"] for r in _recs[:3]}
+            _t3_set = {r["ticker"] for r in _recs[:_buffer_n]}
             _t2_list = [r["ticker"] for r in _recs[:2]]
             if _prev_hold:
                 _survivors = _prev_hold & _t3_set
                 if len(_survivors) >= 2:
                     _hold = _survivors
                 elif len(_survivors) == 1:
-                    _fill = next((r["ticker"] for r in _recs[:3] if r["ticker"] not in _survivors), None)
+                    _fill = next((r["ticker"] for r in _recs[:_buffer_n] if r["ticker"] not in _survivors), None)
                     _hold = _survivors | {_fill} if _fill else _t2_set
                 else:
                     _hold = _t2_set
@@ -483,28 +485,41 @@ if _arena_hist:
             _prev_slots = _new_slots
         _slot_assignments[_cls] = _cls_slots
 
-    # ── 白盒化管道说明：Top-3 → Top-2 筛选逻辑 ──────────────────────
+    # ── 白盒化管道说明：Top-N → Top-2 筛选逻辑 ──────────────────────
     st.markdown(
         "<div style='margin-top:24px; margin-bottom:8px;'>"
         "<span style='font-size:18px; font-weight:bold; color:#eee;'>"
-        "🔬 选股管道白盒（Top-3 → 最终持仓）"
+        f"🔬 选股管道白盒（Top-{_buffer_n} → 最终持仓）"
         "</span>"
         "<span style='font-size:13px; color:#888; margin-left:12px;'>"
-        "展示每月如何从 Page 3 竞技场 Top-3 收窄为最终 Top-2 持仓"
+        f"展示每月如何从 Page 3 竞技场 Top-{_buffer_n} 收窄为最终 Top-2 持仓"
         "</span></div>",
         unsafe_allow_html=True,
     )
+
+    _buf_col, _info_col = st.columns([1, 3])
+    with _buf_col:
+        st.slider(
+            "守擂缓冲区 Top-N", 2, 6, _buffer_n,
+            key="arena_buffer_n",
+            help="上期持仓在本月 Top-N 内即保留不换仓（越大越不易触发换仓）",
+        )
+    with _info_col:
+        st.caption(
+            f"当前缓冲区：Top-{_buffer_n}。调整后页面将以新参数重新计算换仓历史。"
+            "持仓目标（Top-2）保持不变，只有守擂"宽容度"发生变化。"
+        )
 
     # 规则说明卡片
     st.markdown(
         "<div style='background:#1a1a2e; border:1px solid #3a3a5c; border-radius:8px;"
         " padding:14px 18px; margin-bottom:16px; font-size:13px; color:#ccc; line-height:1.8;'>"
         "<b style='color:#F1C40F; font-size:14px;'>📐 换仓规则（持仓稳定性协议）</b><br>"
-        "① Page 3 竞技场每月产出各赛道 <b>Top-3</b> 综合评分排名。<br>"
-        "② 若上月持仓的所有标的仍出现在本月 Top-3 之内，则 <b style='color:#2ECC71;'>维持不动（信念守擂制）</b>——"
-        "在位者只要守住 Top-3 席位即可保留持仓，减少无谓换手。<br>"
-        "③ 若任意一只持仓跌出 Top-3，则全部换仓，采用本月 <b style='color:#F39C12;'>Top-2</b> 作为新持仓。<br>"
-        "④ 历史表格中 <code>[Top2→X/Y]</code> 标注代表当月 <b style='color:#E67E22;'>守擂生效</b>——上月持仓仍在 Top-3 内未触发换仓，"
+        f"① Page 3 竞技场每月产出各赛道 <b>Top-{_buffer_n}</b> 综合评分排名（缓冲区大小可调）。<br>"
+        f"② 若上月持仓的所有标的仍出现在本月 Top-{_buffer_n} 之内，则 <b style='color:#2ECC71;'>维持不动（信念守擂制）</b>——"
+        f"在位者只要守住 Top-{_buffer_n} 席位即可保留持仓，减少无谓换手。<br>"
+        "③ 若任意一只持仓跌出缓冲区，则全部换仓，采用本月 <b style='color:#F39C12;'>Top-2</b> 作为新持仓。<br>"
+        "④ 历史表格中 <code>[Top2→X/Y]</code> 标注代表当月 <b style='color:#E67E22;'>守擂生效</b>——上月持仓仍在缓冲区内未触发换仓，"
         "但 Top-2 排名已更新为 X/Y，括号内为本期真实前两名供参考。"
         "</div>",
         unsafe_allow_html=True,
@@ -552,7 +567,7 @@ if _arena_hist:
             _is_diff = _h.get("diff", False)
             _mo_st = _all_streaks[_cls].get(_mo, {})
 
-            _all_recs = _entry.get(_cls, [])[:3]
+            _all_recs = _entry.get(_cls, [])[:_buffer_n]
             _rec_map = {r["ticker"]: r for r in _all_recs if r["ticker"] in _hold_set}
             _slots = _slot_assignments[_cls].get(_mo, [None, None])
 

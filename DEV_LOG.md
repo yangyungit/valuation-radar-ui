@@ -2,7 +2,45 @@
 
 ---
 
+## 2026-04-16
+
+### A 组权重与换仓门槛可调化
+
+**背景**：守擂缓冲区阈值（Top-3）和 A 组合成 NAV 权重（50/50 等权）均为硬编码，无法在 UI 中探索参数敏感性。
+
+**Page 4 改动**（`pages/4_资产调研.py`）：
+- `_holdings_map` 和 `_slot_assignments` 计算前读取 `st.session_state.get("arena_buffer_n", 3)` 为 `_buffer_n`
+- 将所有 `_recs[:3]` / `_entry.get(_cls, [])[:3]` 改为 `_recs[:_buffer_n]`
+- 在白盒标题下方新增 `st.slider("守擂缓冲区 Top-N", 2, 6, key="arena_buffer_n")`，以及信息 caption
+- 白盒标题、规则说明卡片中的 "Top-3" 全部改为 `f"Top-{_buffer_n}"` 动态显示
+
+**Page 5 改动**（`pages/5_个股择时.py`）：
+- `_tm_hold` 计算前读取 `st.session_state.get("arena_buffer_n", 3)`，所有 `_recs[:3]` 改为 `_recs[:_buffer_n]`
+- 新增 `_compute_streaks_p5(cls, top_n)` 函数：计算每月每标的在 Top-N 内的连续在榜月数
+- 新增 `_compute_slot_weights(slot_assignments, streaks, months)` 函数：按 streak 为 Slot 0/1 分配权重（30%-70% 区间限制）
+- NAV 合成支持两种模式：等权 50/50 / 信念倾斜（按月映射 streak 权重，向量化实现）
+- A 组图表标题下方新增合成权重 radio 控件 + 缓冲区信息 caption
+- KPI 行新增"换仓次数"指标；信念倾斜模式下显示历史月均权重分布
+- Tabs 新增"合成收益率"第三 Tab（含 SPY benchmark 对比线）
+
+**数据流**：Page 4 slider → `session_state["arena_buffer_n"]` → Page 5 惰性换手重算；Page 5 radio → `session_state["a_weight_mode"]` → NAV 合成分支。
+
+---
+
 ## 2026-04-15
+
+### 后端 macro_engine 加进程内缓存（修复 yfinance 429 超时）
+
+**背景**：`POST /api/v1/macro/compute` 每次调用都从零重新下载 18个ETF×12年价格 + 7条FRED序列，叠加 Render 免费套餐 yfinance 429限流（20s等待重试×多批次），导致 Page 1 经常触发 300s 超时、回退本地计算，且 Page 6 因此读不到最新剧本。
+
+**修改**：在 `valuation-radar/macro_engine.py` 对三个重下载函数加进程内 dict 缓存（TTL=4小时）：
+- `fetch_regime_price_data()` → `_price_regime_cache`
+- `get_clock_fred_data()` → `_fred_clock_cache`
+- `compute_radar_metrics()` → `_radar_price_cache`
+
+**效果**：Render 实例冷启动后第一次调用正常走网络，后续4小时内任何页面访问直接命中缓存，彻底消除 yfinance 429 叠加超时问题。
+
+---
 
 ### Session State 后沉 Step 4 & Step 5 正式完成（yfinance 后端化）
 
