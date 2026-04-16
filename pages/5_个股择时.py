@@ -428,8 +428,16 @@ def _load_buffer_n_p5() -> int:
 
 
 if _arena_data:
-    # ── 惰性换手持仓推算：与 Page 4「历史月度 Top-2 胜出者」保持一致 ──
-    _buffer_n: int = _load_buffer_n_p5()
+    # ── 检测数据深度并钳位 buffer_n ──────────────────────────────────
+    _p5_depths = []
+    for _mk_p5 in [k for k in _arena_data if not k.startswith("_")]:
+        for _c_p5 in ["A", "B", "C", "D"]:
+            _rr_p5 = _arena_data[_mk_p5].get(_c_p5, [])
+            if _rr_p5:
+                _p5_depths.append(len(_rr_p5))
+    _p5_min_depth = min(_p5_depths) if _p5_depths else 3
+    _buffer_n_raw: int = _load_buffer_n_p5()
+    _buffer_n: int = min(_buffer_n_raw, _p5_min_depth)
     _tm_months = sorted(k for k in _arena_data if not k.startswith("_"))
     _tm_hold: dict = {}
     _score_anomalies: list = []
@@ -781,10 +789,21 @@ if _arena_data:
             horizontal=True, key="a_weight_mode",
         )
     with _b_col:
+        _depth_note = (
+            f"（数据深度 {_p5_min_depth}，已钳位）"
+            if _buffer_n < _buffer_n_raw else "（在 Page 4 白盒中调节）"
+        )
         st.caption(
-            f"守擂缓冲区: Top-{_buffer_n}（在 Page 4 白盒中调节）｜"
+            f"守擂缓冲区: Top-{_buffer_n}{_depth_note}｜"
             f"本期换仓次数: **{_switch_count}** 次"
         )
+        if _buffer_n < _buffer_n_raw:
+            st.warning(
+                f"⚠️ Page 4 设定缓冲区为 Top-{_buffer_n_raw}，但历史数据深度仅 "
+                f"{_p5_min_depth} 条/赛道/月，已自动钳位至 Top-{_buffer_n}。"
+                "请在 Page 3 重新回填以扩展数据深度。",
+                icon="🔒",
+            )
 
     _kpi_c1, _kpi_c2, _kpi_c3, _kpi_c4 = st.columns(4)
     with _kpi_c1:

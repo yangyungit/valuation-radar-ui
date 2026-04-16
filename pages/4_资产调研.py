@@ -459,31 +459,56 @@ if _arena_hist:
         except Exception:
             pass
 
+    # ── 检测历史数据实际深度（每月每赛道存了几条记录）──────────────
+    _data_depths = []
+    for _mk in [k for k in _arena_hist if not k.startswith("_")]:
+        for _c in ["A", "B", "C", "D", "Z"]:
+            _recs_depth = _arena_hist[_mk].get(_c, [])
+            if _recs_depth:
+                _data_depths.append(len(_recs_depth))
+    _min_data_depth = min(_data_depths) if _data_depths else 3
+    _max_buffer_n = max(2, _min_data_depth)
+
     if "confirmed_buffer_n" not in st.session_state:
-        st.session_state["confirmed_buffer_n"] = _load_buffer_n()
+        st.session_state["confirmed_buffer_n"] = min(_load_buffer_n(), _max_buffer_n)
 
     _buf_col, _btn_col, _info_col = st.columns([1, 1, 3])
     with _buf_col:
         _input_n = st.number_input(
             "守擂缓冲区 Top-N",
             min_value=2,
-            max_value=10,
-            value=st.session_state["confirmed_buffer_n"],
+            max_value=_max_buffer_n,
+            value=min(st.session_state["confirmed_buffer_n"], _max_buffer_n),
             step=1,
             key="arena_buffer_n_input",
-            help="上期持仓在本月 Top-N 内即保留不换仓（越大越不易触发换仓）",
+            help=(
+                f"上期持仓在本月 Top-N 内即保留不换仓（越大越不易触发换仓）。"
+                f"当前历史数据每赛道存储深度为 {_min_data_depth} 条，上限受此约束。"
+            ),
         )
     with _btn_col:
         st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
         if st.button("✅ 确认", key="confirm_buffer_n"):
-            st.session_state["confirmed_buffer_n"] = int(_input_n)
-            _save_buffer_n(int(_input_n))
-            st.toast(f"缓冲区已更新为 Top-{int(_input_n)}，历史换仓历史已重算 ✅", icon="🔄")
+            _clamped_n = min(int(_input_n), _max_buffer_n)
+            st.session_state["confirmed_buffer_n"] = _clamped_n
+            _save_buffer_n(_clamped_n)
+            st.toast(f"缓冲区已更新为 Top-{_clamped_n}，历史换仓历史已重算 ✅", icon="🔄")
     _buffer_n: int = st.session_state["confirmed_buffer_n"]
+
+    if _min_data_depth <= 3:
+        st.warning(
+            f"⚠️ **数据深度不足**：历史档案每赛道仅存储 **{_min_data_depth}** 条候选记录，"
+            f"守擂缓冲区上限被锁定在 **Top-{_max_buffer_n}**。"
+            f"如需支持更大缓冲区，请前往 **Page 3 → 历史回填**（当前代码已配置 Top-10 存储深度，"
+            f"重新回填后此上限将自动放开）。",
+            icon="🔒",
+        )
+
     with _info_col:
         st.caption(
             f"展示每月如何从 Page 3 竞技场 Top-{_buffer_n} 收窄为最终 Top-2 持仓。"
-            f"当前缓冲区 Top-{_buffer_n}，修改数值后点击「确认」重新计算换仓历史。"
+            f"当前缓冲区 Top-{_buffer_n}（数据深度上限 {_min_data_depth}），"
+            "修改数值后点击「确认」重新计算换仓历史。"
             "持仓目标（Top-2）保持不变，只有守擂「宽容度」发生变化。"
         )
 
