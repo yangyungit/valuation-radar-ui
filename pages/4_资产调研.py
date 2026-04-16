@@ -459,14 +459,14 @@ if _arena_hist:
         except Exception:
             pass
 
-    # ── 检测历史数据实际深度（每月每赛道存了几条记录）──────────────
-    _data_depths = []
-    for _mk in [k for k in _arena_hist if not k.startswith("_")]:
+    # ── 检测历史数据实际深度（以最近月份为准，旧月份由切片自动兜底）──
+    _latest_depths = []
+    if _latest_month and _latest_month in _arena_hist:
         for _c in ["A", "B", "C", "D", "Z"]:
-            _recs_depth = _arena_hist[_mk].get(_c, [])
+            _recs_depth = _arena_hist[_latest_month].get(_c, [])
             if _recs_depth:
-                _data_depths.append(len(_recs_depth))
-    _min_data_depth = min(_data_depths) if _data_depths else 3
+                _latest_depths.append(len(_recs_depth))
+    _min_data_depth = min(_latest_depths) if _latest_depths else 3
     _max_buffer_n = max(2, _min_data_depth)
 
     if "confirmed_buffer_n" not in st.session_state:

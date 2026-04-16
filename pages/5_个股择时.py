@@ -428,11 +428,15 @@ def _load_buffer_n_p5() -> int:
 
 
 if _arena_data:
-    # ── 检测数据深度并钳位 buffer_n ──────────────────────────────────
+    # ── 检测数据深度（以最近月份为准，旧月份由切片自动兜底）────────
+    _p5_sorted_months = sorted(
+        [k for k in _arena_data if not k.startswith("_")], reverse=True,
+    )
+    _p5_latest = _p5_sorted_months[0] if _p5_sorted_months else None
     _p5_depths = []
-    for _mk_p5 in [k for k in _arena_data if not k.startswith("_")]:
+    if _p5_latest and _p5_latest in _arena_data:
         for _c_p5 in ["A", "B", "C", "D"]:
-            _rr_p5 = _arena_data[_mk_p5].get(_c_p5, [])
+            _rr_p5 = _arena_data[_p5_latest].get(_c_p5, [])
             if _rr_p5:
                 _p5_depths.append(len(_rr_p5))
     _p5_min_depth = min(_p5_depths) if _p5_depths else 3
