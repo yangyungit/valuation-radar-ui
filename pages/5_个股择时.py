@@ -6,7 +6,8 @@ import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from api_client import fetch_core_data, fetch_vcp_analysis, fetch_screen_results
+from api_client import (fetch_core_data, fetch_vcp_analysis, fetch_screen_results,
+                        fetch_arena_history)
 
 core_data = fetch_core_data()
 TIC_MAP = core_data.get("TIC_MAP", {})
@@ -27,19 +28,6 @@ st.markdown("""
     .timing-box { background: rgba(46,204,113,0.06); border-left: 4px solid #2ECC71; padding: 18px 20px; border-radius: 0 8px 8px 0; margin: 10px 0 18px 0; font-size: 14px; color: #ddd; line-height: 1.8; }
 </style>
 """, unsafe_allow_html=True)
-
-# ── Sidebar ──
-with st.sidebar:
-    st.header("🛠️ 系统维护")
-    if st.button("🔄 仅清除当前页缓存"):
-        fetch_core_data.clear()
-        fetch_vcp_analysis.clear()
-        st.success("当前页缓存已清除！")
-        st.rerun()
-    if st.button("🗑️ 清除所有页面缓存"):
-        st.cache_data.clear()
-        st.success("所有页面缓存已清除！")
-        st.rerun()
 
 # ── VCP 目标选择逻辑（数据预处理，不渲染 UI）──
 _screen_cache_p5 = fetch_screen_results()
@@ -76,15 +64,17 @@ if p4_routed:
 st.title("🎯 Layer 5: 个股择时")
 st.caption("竞技场择时回顾 ➡️ VCP 形态猎杀 ➡️ TWAP 最优建仓执行")
 
-# ── Load Arena History Data ──
+# ── Load Arena History Data（主：后端 API，降级：本地 JSON）──
 _ARENA_HIST_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "arena_history.json")
-_arena_data: dict = {}
-try:
-    if os.path.exists(_ARENA_HIST_PATH):
-        with open(_ARENA_HIST_PATH, "r", encoding="utf-8") as _af:
-            _arena_data = json.load(_af)
-except Exception:
-    pass
+_arena_data: dict = fetch_arena_history()
+if not _arena_data:
+    try:
+        if os.path.exists(_ARENA_HIST_PATH):
+            with open(_ARENA_HIST_PATH, "r", encoding="utf-8") as _af:
+                _raw = json.load(_af)
+            _arena_data = {k: v for k, v in _raw.items() if not k.startswith("_")}
+    except Exception:
+        pass
 
 _CLS_CLR = {"A": "#2ECC71", "B": "#3498DB", "C": "#F39C12", "D": "#E74C3C"}
 _CLS_LBL = {
@@ -127,6 +117,22 @@ def _fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
         except TypeError:
             w.index = w.index.tz_convert(None)
     return w
+
+
+# ── Sidebar（必须在 _fetch_weekly_ohlcv 定义之后）──
+with st.sidebar:
+    st.header("🛠️ 系统维护")
+    if st.button("🔄 仅清除当前页缓存"):
+        fetch_core_data.clear()
+        fetch_vcp_analysis.clear()
+        fetch_screen_results.clear()
+        _fetch_weekly_ohlcv.clear()
+        st.toast("当前页缓存已清除！")
+        st.rerun()
+    if st.button("🗑️ 清除所有页面缓存"):
+        st.cache_data.clear()
+        st.toast("所有页面缓存已清除！")
+        st.rerun()
 
 
 # ── 择时策略接口标准 ──────────────────────────────────────────────────

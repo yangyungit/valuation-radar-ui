@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-04-16 (g)
+
+### 修复 Page 5 A 组信念守擂数据源不同步 + 清缓存按钮形同虚设
+
+**Bug 1 — A 组信念守擂持仓累计收益率图显示错误标的**
+- **根因**：Page 5 第 80-87 行直接读本地 `arena_history.json` 文件，而 Page 3 的主存储已迁至后端 API (`universe.db`)，本地 JSON 仅在 API 写入失败时作 fallback 写入。正常运行时本地 JSON 是陈旧的，导致 Page 5 与 Page 3 的「历史月度 Top-2 胜出者」不一致。
+- **修复**：改为调用 `fetch_arena_history()`（与 Page 3 的 `_api_fetch_history()` 同源），API 失败时才降级读本地 JSON，并过滤 `_` 前缀旧格式键。
+
+**Bug 2 — 「仅清除当前页缓存」按钮点击无反应**
+- **根因**：按钮仅清除 `fetch_core_data` 和 `fetch_vcp_analysis`，遗漏了 A 组图表实际依赖的 `fetch_screen_results` 和 `_fetch_weekly_ohlcv`（价格数据）。加之 `st.success()` 后立即 `st.rerun()` 导致提示消息一闪而过。
+- **修复**：补齐四个缓存清除；将 `st.success` 替换为 `st.toast`（跨 rerun 持久化提示）；sidebar 代码块移至 `_fetch_weekly_ohlcv` 定义之后以避免 NameError。
+
+---
+
 ## 2026-04-16 (f)
 
 ### 修复 Page 6 SyntaxError + Page 5 A 组板块静默消失
