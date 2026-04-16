@@ -426,8 +426,31 @@ if _arena_hist:
 
     _all_streaks = {c: _compute_streaks_p4(c) for c in ["A", "B", "C", "D", "Z"]}
 
-    _buffer_n: int = st.session_state.get("arena_buffer_n", 3)
+    # ── 白盒化管道说明：Top-N → Top-2 筛选逻辑 ──────────────────────
+    # 注意：slider 必须在计算之前渲染并捕获返回值，否则换仓历史不会随 N 变化
+    st.markdown(
+        "<div style='margin-top:24px; margin-bottom:8px;'>"
+        "<span style='font-size:18px; font-weight:bold; color:#eee;'>"
+        "🔬 选股管道白盒（Top-N → 最终持仓）"
+        "</span></div>",
+        unsafe_allow_html=True,
+    )
 
+    _buf_col, _info_col = st.columns([1, 3])
+    with _buf_col:
+        _buffer_n: int = st.slider(
+            "守擂缓冲区 Top-N", 2, 6, 3,
+            key="arena_buffer_n",
+            help="上期持仓在本月 Top-N 内即保留不换仓（越大越不易触发换仓）",
+        )
+    with _info_col:
+        st.caption(
+            f"展示每月如何从 Page 3 竞技场 Top-{_buffer_n} 收窄为最终 Top-2 持仓。"
+            f"当前缓冲区 Top-{_buffer_n}，调整后以新参数重新计算换仓历史。"
+            "持仓目标（Top-2）保持不变，只有守擂「宽容度」发生变化。"
+        )
+
+    # ── 以 slider 返回值（_buffer_n）驱动下方所有计算 ──────────────
     _holdings_map: dict = {}
     for _cls in ["A", "B", "C", "D", "Z"]:
         _months_asc = sorted(k for k in _arena_hist if not k.startswith("_"))
@@ -484,31 +507,6 @@ if _arena_hist:
             _cls_slots[_m] = _new_slots
             _prev_slots = _new_slots
         _slot_assignments[_cls] = _cls_slots
-
-    # ── 白盒化管道说明：Top-N → Top-2 筛选逻辑 ──────────────────────
-    st.markdown(
-        "<div style='margin-top:24px; margin-bottom:8px;'>"
-        "<span style='font-size:18px; font-weight:bold; color:#eee;'>"
-        f"🔬 选股管道白盒（Top-{_buffer_n} → 最终持仓）"
-        "</span>"
-        "<span style='font-size:13px; color:#888; margin-left:12px;'>"
-        f"展示每月如何从 Page 3 竞技场 Top-{_buffer_n} 收窄为最终 Top-2 持仓"
-        "</span></div>",
-        unsafe_allow_html=True,
-    )
-
-    _buf_col, _info_col = st.columns([1, 3])
-    with _buf_col:
-        st.slider(
-            "守擂缓冲区 Top-N", 2, 6, _buffer_n,
-            key="arena_buffer_n",
-            help="上期持仓在本月 Top-N 内即保留不换仓（越大越不易触发换仓）",
-        )
-    with _info_col:
-        st.caption(
-            f"当前缓冲区：Top-{_buffer_n}。调整后页面将以新参数重新计算换仓历史。"
-            "持仓目标（Top-2）保持不变，只有守擂「宽容度」发生变化。"
-        )
 
     # 规则说明卡片
     st.markdown(
