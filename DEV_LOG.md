@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-04-16 (f)
+
+### 修复 Page 6 SyntaxError + Page 5 A 组板块静默消失
+
+**Page 6 问题（SyntaxError — 页面完全无法加载）**：
+- `pages/6_仓位配置.py` 第 597 行 f-string 内部含反斜杠转义 `\"#888\"`，Python < 3.12 不支持此语法（PEP 701）。`ast.parse` 阶段即失败，整个页面无法编译。
+- `fetch_screen_results` 函数在第 267 行调用但未被 import。
+
+**Page 6 修复**：
+- 将 f-string 内的 `\"#888\"` 提取为外部变量 `_fallback_clr`，兼容 Python 3.9+
+- 补全 `fetch_screen_results` 到 import 语句
+
+**Page 5 问题（A 组守擂图表板块消失）**：
+- A 组整段预计算（~300行：惰性换手、slot 分配、价格拉取、NAV 合成等）全部在 `st.header()` 之前执行，任何未捕获异常都会导致板块静默消失，用户看不到任何报错。
+- 数据字段访问使用 `r["ticker"]` 硬取，若回填数据中存在缺失字段则触发 KeyError。
+
+**Page 5 修复**：
+- 将 `st.header()` 提前到预计算之前渲染，确保标题始终可见
+- 价格拉取段增加外层 try/except，失败时显示错误消息而非静默跳过
+- 所有 `r["ticker"]` 改为 `r.get("ticker", "")` 防御式访问
+
+---
+
 ## 2026-04-16 (e)
 
 ### 修复 Render 环境下 arena 回填/信念写入被 IS_PROD_REMOTE 硬性阻断

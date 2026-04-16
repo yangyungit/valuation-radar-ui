@@ -433,15 +433,15 @@ if _arena_data:
         _cm: dict = {}
         for _m in _tm_months:
             _recs = _arena_data[_m].get(_c, [])
-            _t3 = {r["ticker"] for r in _recs[:_buffer_n]}
-            _t2 = {r["ticker"] for r in _recs[:2]}
+            _t3 = {r.get("ticker", "") for r in _recs[:_buffer_n]} - {""}
+            _t2 = {r.get("ticker", "") for r in _recs[:2]} - {""}
 
             if _c == "B":
                 for _r in _recs[:_buffer_n]:
                     if _r.get("score", 999) == 0 or _r.get("score") is None:
                         _score_anomalies.append({
-                            "month": _m, "ticker": _r["ticker"],
-                            "name": _r.get("name", _r["ticker"]),
+                            "month": _m, "ticker": _r.get("ticker", "?"),
+                            "name": _r.get("name", _r.get("ticker", "?")),
                             "rank": _recs.index(_r) + 1,
                             "conviction": _r.get("conviction", "—"),
                         })
@@ -451,7 +451,7 @@ if _arena_data:
                 if len(_survivors) >= 2:
                     _hold = _survivors
                 elif len(_survivors) == 1:
-                    _fill = next((r["ticker"] for r in _recs[:_buffer_n] if r["ticker"] not in _survivors), None)
+                    _fill = next((r.get("ticker") for r in _recs[:_buffer_n] if r.get("ticker") and r["ticker"] not in _survivors), None)
                     _hold = _survivors | {_fill} if _fill else _t2
                 else:
                     _hold = _t2
@@ -557,14 +557,18 @@ if _arena_data:
         tk for slots in _a_slot_assignments.values() for tk in slots if tk
     })
     _a_price_cache: dict = {}
-    with st.spinner("正在获取 A 组 K 线数据..."):
-        for _tk in _a_tickers_all:
-            try:
-                _wkd = _fetch_weekly_ohlcv(_tk)
-                if not _wkd.empty:
-                    _a_price_cache[_tk] = _wkd
-            except Exception:
-                pass
+    _a_section_error: str | None = None
+    try:
+        with st.spinner("正在获取 A 组 K 线数据..."):
+            for _tk in _a_tickers_all:
+                try:
+                    _wkd = _fetch_weekly_ohlcv(_tk)
+                    if not _wkd.empty:
+                        _a_price_cache[_tk] = _wkd
+                except Exception:
+                    pass
+    except Exception as _e:
+        _a_section_error = f"A 组价格数据拉取失败: {_e}"
 
     _spy_wk_a: pd.DataFrame = pd.DataFrame()
     try:
@@ -717,6 +721,15 @@ if _arena_data:
         _max_dd = float(_dd.max()) * 100
         return _total_ret, _max_dd, _nav
 
+    # ═══════════════════════════════════════════════════════════════════
+    #  Section: A 组信念守擂持仓 K 线图
+    # ═══════════════════════════════════════════════════════════════════
+    st.header("📈 A 组信念守擂持仓累计收益率图")
+    st.caption("左列 / 右列对应 Page 4 历史月度 Top-2 胜出者的 slot-stable 分配（各段累计收益率首尾相接，不同颜色区分持仓期）")
+
+    if _a_section_error:
+        st.error(_a_section_error)
+
     _ret_left, _dd_left, _nav_left = _calc_slot_stats(_seg_left)
     _ret_right, _dd_right, _nav_right = _calc_slot_stats(_seg_right)
 
@@ -754,12 +767,6 @@ if _arena_data:
         1 for _i in range(1, len(_a_months_with_hold))
         if _tm_hold["A"].get(_a_months_with_hold[_i]) != _tm_hold["A"].get(_a_months_with_hold[_i - 1])
     )
-
-    # ═══════════════════════════════════════════════════════════════════
-    #  Section: A 组信念守擂持仓 K 线图
-    # ═══════════════════════════════════════════════════════════════════
-    st.header("📈 A 组信念守擂持仓累计收益率图")
-    st.caption("左列 / 右列对应 Page 4 历史月度 Top-2 胜出者的 slot-stable 分配（各段累计收益率首尾相接，不同颜色区分持仓期）")
 
     _w_col, _b_col = st.columns(2)
     with _w_col:

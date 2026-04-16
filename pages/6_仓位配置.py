@@ -6,7 +6,7 @@ import numpy as np
 import json
 import os
 
-from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_funnel_scores, fetch_funnel_v2_scores, fetch_rolling_backtest, fetch_current_regime
+from api_client import fetch_core_data, get_global_data, get_stock_metadata, fetch_funnel_scores, fetch_funnel_v2_scores, fetch_rolling_backtest, fetch_current_regime, fetch_screen_results
 
 core_data = fetch_core_data()
 
@@ -591,8 +591,9 @@ if st.session_state.get("use_funnel_v2", False) and _cross_group_map:
     _badge_rows = []
     for _t, _grades in sorted(_cross_group_map.items()):
         _cn = TIC_MAP.get(_t, _t)
+        _fallback_clr = "#888"
         _badges_html = " ".join(
-            f"<span style='background:{_GRADE_COLORS.get(g, \"#888\")};color:#fff;"
+            f"<span style='background:{_GRADE_COLORS.get(g, _fallback_clr)};color:#fff;"
             f"border-radius:4px;padding:2px 7px;font-size:13px;font-weight:bold;'>{g}</span>"
             for g in _grades
         )
