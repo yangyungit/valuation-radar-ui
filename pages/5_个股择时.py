@@ -511,15 +511,25 @@ if _arena_data:
             except Exception:
                 pass
 
+    _spy_wk_a: pd.DataFrame = pd.DataFrame()
+    try:
+        _spy_wk_a = _fetch_weekly_ohlcv("SPY")
+    except Exception:
+        pass
+
     # ── 绘制首尾相接拼接累计收益率线形图（整数 x 轴，各段顺序衔接）────────────
-    def _build_stitched_kline_fig(segs: list, slot_name: str) -> go.Figure:
+    def _build_stitched_kline_fig(segs: list, slot_name: str, spy_wk: pd.DataFrame = None) -> go.Figure:
         fig = go.Figure()
         x_offset = 0
         tick_vals: list = []
         tick_texts: list = []
         boundary_xs: list = []
         name_annotations: list = []
-        running_return = 0.0  # 累计收益率起点 0%
+        running_return = 0.0
+        spy_close = spy_wk["Close"].astype(float).dropna() if spy_wk is not None and not spy_wk.empty else None
+        spy_x_all: list = []
+        spy_y_all: list = []
+        spy_running_return = 0.0
 
         for _ci, (_tk, _s_m, _e_m) in enumerate(segs):
             _wkd = _a_price_cache.get(_tk)
@@ -553,6 +563,18 @@ if _arena_data:
 
             running_return = float(_seg_cum.iloc[-1])
 
+            if spy_close is not None:
+                _spy_seg = spy_close.reindex(_closes.index, method="ffill")
+                _spy_seg = _spy_seg.bfill().dropna()
+                if len(_spy_seg) >= 2:
+                    _spy_pct = (_spy_seg / float(_spy_seg.iloc[0]) - 1) * 100
+                    _spy_cum = spy_running_return + _spy_pct
+                    for _si, _sdt in enumerate(_closes.index):
+                        if _sdt in _spy_seg.index:
+                            spy_x_all.append(x_offset + _si)
+                            spy_y_all.append(float(_spy_cum.loc[_sdt]))
+                    spy_running_return = float(_spy_cum.iloc[-1])
+
             # x 轴只显示时间区间，名称单独以 annotation 显示在图表顶部
             tick_vals.append(x_offset + _n // 2)
             tick_texts.append(f"{_s_m}→{_e_m}")
@@ -578,8 +600,18 @@ if _arena_data:
             fig.add_vline(x=_bx, line_dash="dash",
                           line_color="rgba(200,200,200,0.35)", line_width=1)
 
+        if spy_x_all:
+            fig.add_trace(go.Scatter(
+                x=spy_x_all,
+                y=spy_y_all,
+                mode="lines",
+                line=dict(color="rgba(180,180,180,0.4)", width=2, dash="dot"),
+                name=f"SPY 同期 {spy_running_return:+.1f}%",
+            ))
+            fig.data = fig.data[-1:] + fig.data[:-1]
+
         fig.update_layout(
-            title=f"{slot_name} — 持仓段首尾相接累计收益率（共 {len(segs)} 段）",
+            title=f"{slot_name} — 累计收益率（共 {len(segs)} 段）",
             xaxis=dict(
                 tickvals=tick_vals,
                 ticktext=tick_texts,
@@ -598,7 +630,7 @@ if _arena_data:
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(30,30,30,0.6)",
             font=dict(color="#ccc", size=13),
-            showlegend=False,
+            showlegend=bool(spy_x_all),
         )
         return fig
 
@@ -673,10 +705,10 @@ if _arena_data:
 
     _tab_left, _tab_right = st.tabs(["📈 左列收益率曲线 (Slot 0)", "📈 右列收益率曲线 (Slot 1)"])
     with _tab_left:
-        _fig_left = _build_stitched_kline_fig(_seg_left, "左列 (Slot 0)")
+        _fig_left = _build_stitched_kline_fig(_seg_left, "左列 (Slot 0)", _spy_wk_a)
         st.plotly_chart(_fig_left, use_container_width=True)
     with _tab_right:
-        _fig_right = _build_stitched_kline_fig(_seg_right, "右列 (Slot 1)")
+        _fig_right = _build_stitched_kline_fig(_seg_right, "右列 (Slot 1)", _spy_wk_a)
         st.plotly_chart(_fig_right, use_container_width=True)
 
     # ═══════════════════════════════════════════════════════════════════
