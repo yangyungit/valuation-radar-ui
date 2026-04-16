@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import os, json
 import plotly.graph_objects as go
-from api_client import fetch_core_data, fetch_screen_results
+from api_client import fetch_core_data, fetch_screen_results, fetch_arena_history as _fetch_arena_history
 
 st.set_page_config(page_title="资产矩阵与雷达", layout="wide", page_icon="📡")
 
@@ -393,12 +393,19 @@ st.header("2️⃣ 资产排名概览")
 # ─────────────────────────────────────────────────────────────────
 _ARENA_HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "arena_history.json")
 _arena_hist: dict = {}
+# 优先从后端 API 读取（支持 Top-10 候选数据），降级到本地 JSON 离线备用
 try:
-    if os.path.exists(_ARENA_HISTORY_FILE):
-        with open(_ARENA_HISTORY_FILE, "r", encoding="utf-8") as _f:
-            _arena_hist = json.load(_f)
+    _arena_hist = _fetch_arena_history() or {}
 except Exception:
-    pass
+    _arena_hist = {}
+if not _arena_hist:
+    try:
+        if os.path.exists(_ARENA_HISTORY_FILE):
+            with open(_ARENA_HISTORY_FILE, "r", encoding="utf-8") as _f:
+                _raw = json.load(_f)
+            _arena_hist = {k: v for k, v in _raw.items() if not k.startswith("_")}
+    except Exception:
+        pass
 
 if _arena_hist:
     _sorted_months = sorted(
