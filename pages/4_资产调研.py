@@ -436,17 +436,29 @@ if _arena_hist:
         unsafe_allow_html=True,
     )
 
-    _buf_col, _info_col = st.columns([1, 3])
+    if "confirmed_buffer_n" not in st.session_state:
+        st.session_state["confirmed_buffer_n"] = 3
+
+    _buf_col, _btn_col, _info_col = st.columns([1, 1, 3])
     with _buf_col:
-        _buffer_n: int = st.slider(
-            "守擂缓冲区 Top-N", 2, 6, 3,
-            key="arena_buffer_n",
+        _input_n = st.number_input(
+            "守擂缓冲区 Top-N",
+            min_value=2,
+            max_value=10,
+            value=st.session_state["confirmed_buffer_n"],
+            step=1,
+            key="arena_buffer_n_input",
             help="上期持仓在本月 Top-N 内即保留不换仓（越大越不易触发换仓）",
         )
+    with _btn_col:
+        st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
+        if st.button("✅ 确认", key="confirm_buffer_n"):
+            st.session_state["confirmed_buffer_n"] = int(_input_n)
+    _buffer_n: int = st.session_state["confirmed_buffer_n"]
     with _info_col:
         st.caption(
             f"展示每月如何从 Page 3 竞技场 Top-{_buffer_n} 收窄为最终 Top-2 持仓。"
-            f"当前缓冲区 Top-{_buffer_n}，调整后以新参数重新计算换仓历史。"
+            f"当前缓冲区 Top-{_buffer_n}，修改数值后点击「确认」重新计算换仓历史。"
             "持仓目标（Top-2）保持不变，只有守擂「宽容度」发生变化。"
         )
 
