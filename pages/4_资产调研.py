@@ -454,6 +454,7 @@ if _arena_hist:
         st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
         if st.button("✅ 确认", key="confirm_buffer_n"):
             st.session_state["confirmed_buffer_n"] = int(_input_n)
+            st.toast(f"缓冲区已更新为 Top-{int(_input_n)}，历史换仓历史已重算 ✅", icon="🔄")
     _buffer_n: int = st.session_state["confirmed_buffer_n"]
     with _info_col:
         st.caption(
@@ -536,10 +537,14 @@ if _arena_hist:
     )
 
     st.markdown(
-        "<div style='margin-top:24px; margin-bottom:8px;'>"
+        "<div style='margin-top:24px; margin-bottom:8px; display:flex; align-items:center; gap:12px;'>"
         "<span style='font-size:18px; font-weight:bold; color:#eee;'>"
         f"📅 历史月度 Top-2 胜出者（共 {len(_sorted_months)} 个月）"
-        "</span></div>",
+        "</span>"
+        f"<span style='font-size:13px; font-weight:600; color:#F1C40F; "
+        f"background:#2e2400; border:1px solid #F1C40F55; border-radius:999px; "
+        f"padding:2px 12px;'>守擂缓冲区：Top-{_buffer_n}</span>"
+        "</div>",
         unsafe_allow_html=True,
     )
 
