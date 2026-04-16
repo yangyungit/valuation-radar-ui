@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-04-16 (c)
+
+### 大盘趋势状态机叠加四大剧本背景色带
+
+**变动内容**：在"大盘趋势状态机"图表（`_render_mtm_tab`）中叠加四大剧本历史裁决的背景色带，实现宏观基本面维度与技术形态维度正交双维同框展示。
+
+**实现方式**：
+- 在 `_MTM_INDEX_YLABEL` 定义后，提前从 `_regime_api["horsemen_daily_verdict"]` 计算 `_horsemen_daily_mtm`（日度剧本序列）和 `_REGIME_BG_C_MTM`（背景色字典），确保在函数调用时已在闭包作用域内。
+- 在 `_render_mtm_tab` 函数内，将 `_horsemen_daily_mtm` reindex 到当前 ticker 的 `_df` 时间轴并 `ffill()`，遍历生成 `_bg_shapes` 列表（每段剧本一个 `type="rect"` shape）。
+- 将 `shapes=_bg_shapes` 注入 `_fig.update_layout`，并加判空保护（`_horsemen_daily_mtm` 为空时跳过，K线不受影响）。
+- 图表标题更新为"技术形态 × 剧本背景双维叠加"，并在白盒区增加"图层说明"卡片，解释两套颜色系统的含义及不一致时的信号价值。
+
+**影响范围**：仅 `pages/1_宏观定调.py`，SPY 和 QQQ 两个 Tab 均受益，无 API 变更。
+
+---
+
 ## 2026-04-16 (b)
 
 ### Arena 历史存储扩容 Top-3 → Top-10 & 连续在榜月数 bug 修复

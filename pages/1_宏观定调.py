@@ -534,6 +534,19 @@ if not df.empty and len(df) > 750:
     }
     _MTM_INDEX_YLABEL = {"SPY": "SPY 收盘价 ($)", "QQQ": "QQQ 收盘价 ($)"}
 
+    # 提前备好剧本背景色与日度裁决序列，供 _render_mtm_tab 闭包引用
+    _REGIME_BG_C_MTM = {
+        "软着陆": "rgba(46,204,113,0.15)",
+        "再通胀": "rgba(231,76,60,0.15)",
+        "滞胀":   "rgba(241,196,15,0.15)",
+        "衰退":   "rgba(52,152,219,0.15)",
+    }
+    _dv_mtm = (_regime_api or {}).get("horsemen_daily_verdict", {})
+    _horsemen_daily_mtm = (
+        pd.Series(list(_dv_mtm.values()), index=pd.to_datetime(list(_dv_mtm.keys()))).sort_index()
+        if _dv_mtm else pd.Series(dtype=str)
+    )
+
     def _classify_mtm(row):
         c, m60, m200 = row['close'], row['ma60'], row['ma200']
         if c > m60 and m60 > m200:   return "主升狂飙"
@@ -579,6 +592,31 @@ if not df.empty and len(df) > 750:
                 </div>
             </div>
             """, unsafe_allow_html=True)
+
+            # ── 剧本背景色带：将 _horsemen_daily_mtm 对齐到当前 ticker 时间轴 ──
+            _bg_shapes = []
+            if not _horsemen_daily_mtm.empty:
+                _regime_aligned = _horsemen_daily_mtm.reindex(_df.index).ffill().dropna()
+                _prev_regime = None
+                _seg_start   = None
+                for _dt, _reg in _regime_aligned.items():
+                    if _reg != _prev_regime:
+                        if _prev_regime is not None and _seg_start is not None:
+                            _bg_shapes.append(dict(
+                                type="rect", x0=_seg_start, x1=_dt,
+                                y0=0, y1=1, yref="paper",
+                                fillcolor=_REGIME_BG_C_MTM.get(_prev_regime, "rgba(128,128,128,0.1)"),
+                                line_width=0, layer="below"
+                            ))
+                        _prev_regime = _reg
+                        _seg_start   = _dt
+                if _prev_regime is not None and _seg_start is not None:
+                    _bg_shapes.append(dict(
+                        type="rect", x0=_seg_start, x1=_df.index[-1],
+                        y0=0, y1=1, yref="paper",
+                        fillcolor=_REGIME_BG_C_MTM.get(_prev_regime, "rgba(128,128,128,0.1)"),
+                        line_width=0, layer="below"
+                    ))
 
             _change_pts = [0]
             for _i in range(1, len(_df)):
@@ -627,7 +665,8 @@ if not df.empty and len(df) > 750:
                 hovermode="x unified",
                 xaxis=dict(showgrid=False),
                 yaxis=dict(title=_MTM_INDEX_YLABEL.get(ticker, f"{ticker} 收盘价 ($)"), showgrid=True, gridcolor='rgba(255,255,255,0.06)'),
-                title=dict(text=f"{ticker} 历史路况：分段染色折线图", font=dict(size=14), x=0.01, xanchor='left'),
+                title=dict(text=f"{ticker} 历史路况：技术形态 × 剧本背景双维叠加", font=dict(size=14), x=0.01, xanchor='left'),
+                shapes=_bg_shapes if _bg_shapes else [],
             )
             st.plotly_chart(_fig, use_container_width=True)
 
@@ -637,8 +676,16 @@ if not df.empty and len(df) > 750:
                 <div style='font-size:13px; color:#aaa; margin-bottom:5px;'>🧠 当前阶段白盒解读</div>
                 <div style='font-size:14px; color:#ddd; line-height:1.75;'>{_desc}</div>
             </div>
+            <div style='background:#111; border:1px solid #2a2a2a; border-radius:6px; padding:10px 18px; margin-top:6px;'>
+                <div style='font-size:13px; color:#888; line-height:1.7;'>
+                    📌 <b style='color:#bbb;'>图层说明：</b>
+                    背景色带 = 四大剧本宏观裁决（基本面维度）；
+                    折线颜色 = 技术形态状态机（价格维度）。
+                    两者不一致时信号最有价值：🟢背景+🔴折线 = 基本面好但技术超跌，潜在抄底窗口；🔴背景+🟢折线 = 宏观恶化但技术仍强，需警惕。
+                </div>
+            </div>
             <div style='background:#111; border:1px solid #2a2a2a; border-radius:6px; padding:14px 18px; margin-top:8px;'>
-                <div style='font-size:13px; color:#888; margin-bottom:10px; letter-spacing:0.3px;'>📐 四色染色判断标准（Close / MA60 / MA200）</div>
+                <div style='font-size:13px; color:#888; margin-bottom:10px; letter-spacing:0.3px;'>📐 折线四色判断标准（Close / MA60 / MA200）</div>
                 <div style='display:grid; grid-template-columns:1fr 1fr; gap:8px;'>
                     <div style='background:#1a1a1a; border-left:3px solid #2ECC71; border-radius:4px; padding:8px 12px;'>
                         <div style='font-size:13px; font-weight:bold; color:#2ECC71; margin-bottom:3px;'>🟢 主升狂飙 · Full Throttle</div>
