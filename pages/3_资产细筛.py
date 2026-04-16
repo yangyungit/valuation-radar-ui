@@ -533,8 +533,6 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                     daily_ret_a = p_1yr_a.pct_change().dropna()
                     roll_max_a = p_1yr_a.cummax()
                     max_dd_a = float((p_1yr_a / roll_max_a - 1.0).min()) if not p_1yr_a.empty else 0.0
-                    vol_a = float(daily_ret_a.std()) if len(daily_ret_a) > 10 else 0.30
-                    ann_vol_a = vol_a * np.sqrt(252) if vol_a > 1e-9 else 0.30
                     spy_corr_a = 0.5
                     if len(spy_slice) >= 60:
                         spy_ret_a = spy_slice.pct_change().dropna()
@@ -544,11 +542,44 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                             _c = float(aligned_a.iloc[:, 0].corr(aligned_a.iloc[:, 1]))
                             if not (np.isnan(_c) or np.isinf(_c)):
                                 spy_corr_a = _c
+                    # 带鱼质量：PIT 价格切片重算（4 子分量，与 core_engine.ScorecardA 同源）
+                    ribbon_score_a = 0.0
+                    try:
+                        if len(p) >= 80:
+                            ma20_r = p.rolling(20).mean().dropna()
+                            ma60_r = p.rolling(60).mean().dropna()
+                            rmin = min(len(ma20_r), len(ma60_r))
+                            if rmin >= 80:
+                                ma20_r = ma20_r.iloc[-rmin:]
+                                ma60_r = ma60_r.iloc[-rmin:]
+                                spread_r = (ma20_r - ma60_r) / ma60_r.replace(0, np.nan)
+                                spr120 = spread_r.dropna().iloc[-120:]
+                                rs1 = float(np.clip(1.0 - float(spr120.std()) / 0.05, 0.0, 1.0)) if len(spr120) >= 30 else 0.0
+                                cross_r = (ma20_r > ma60_r).values[::-1]
+                                streak_r = int(np.argmin(cross_r)) if not np.all(cross_r) else len(cross_r)
+                                rs2 = float(np.clip(streak_r / 252.0, 0.0, 1.0))
+                                ma60_tail_r = ma60_r.iloc[-61:] if len(ma60_r) >= 61 else ma60_r
+                                pch_r = (ma60_tail_r.diff() / ma60_tail_r.shift(1)).dropna()
+                                if len(pch_r) >= 20:
+                                    mch_r = float(pch_r.abs().mean())
+                                    cv_r = float(pch_r.std()) / mch_r if mch_r > 1e-9 else 10.0
+                                    rs3 = float(np.clip(1.0 / (1.0 + cv_r), 0.0, 1.0))
+                                else:
+                                    rs3 = 0.0
+                                ptail_r = p.iloc[-60:] if len(p) >= 60 else p
+                                ma20t_r = ptail_r.rolling(20).mean().dropna()
+                                ap_r = ptail_r.iloc[-len(ma20t_r):]
+                                dev_r = (ap_r.values - ma20t_r.values) / ma20t_r.replace(0, np.nan).values
+                                dstd_r = float(np.nanstd(dev_r)) if len(dev_r) > 5 else 0.05
+                                rs4 = float(np.clip(1.0 - dstd_r / 0.05, 0.0, 1.0))
+                                ribbon_score_a = float(np.clip(0.30*rs1 + 0.35*rs2 + 0.25*rs3 + 0.10*rs4, 0.0, 1.0))
+                    except Exception:
+                        ribbon_score_a = 0.0
                     row.update({
                         "FCF收益率": 0.0,
                         "最大回撤_raw": max_dd_a,
                         "SPY相关性": spy_corr_a,
-                        "年化波动率": ann_vol_a,
+                        "带鱼质量": ribbon_score_a,
                     })
 
                 elif cls == "B":
