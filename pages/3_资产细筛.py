@@ -49,11 +49,10 @@ _Z_SEED_TICKERS     = set(_core_data.get("Z_SEED_TICKERS", []))
 st.set_page_config(page_title="同类资产竞技场", layout="wide", page_icon="🏆")
 
 if IS_PROD_REMOTE:
-    st.error(
-        "🔒 **直连生产环境（只读模式）**  \n"
-        "当前通过 `RADAR_API_URL` 直连 Render 生产后端。"
-        "本页所有信念状态写操作已被禁用，不会影响生产数据库。",
-        icon="🚫",
+    st.info(
+        "🌐 **生产环境** — 正在通过 `RADAR_API_URL` 连接 Render 后端。"
+        "归档/信念写入正常，仅「清空历史」等破坏性操作被禁用。",
+        icon="ℹ️",
     )
 
 # ─────────────────────────────────────────────────────────────────
@@ -356,10 +355,29 @@ def _expand_arena_records(base_records: list, df_scored: pd.DataFrame,
     return expanded
 
 
+def _save_history_to_local_json(batch: dict) -> None:
+    """将 arena history 批量数据合并写入本地 JSON（后端不可用时的兜底）。"""
+    try:
+        existing: dict = {}
+        if os.path.exists(_HISTORY_FILE):
+            with open(_HISTORY_FILE, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+        for mk, cls_map in batch.items():
+            if mk not in existing:
+                existing[mk] = {}
+            for cls, recs in cls_map.items():
+                existing[mk][cls] = recs
+        with open(_HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(existing, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 def _record_arena_history(cls: str, records: list, month_key: str = None,
                           _batch_buf: dict | None = None) -> None:
     """将某月某赛道的排名记录写入后端（实时）或暂存至 _batch_buf（回填批量）。
     _batch_buf 不为 None 时只写入内存字典，由调用方负责批量推送。
+    实时写入（_batch_buf 为 None）时，若后端推送失败则回退写本地 JSON。
     """
     if month_key is None:
         month_key = datetime.now().strftime("%Y-%m")
@@ -369,13 +387,15 @@ def _record_arena_history(cls: str, records: list, month_key: str = None,
             _batch_buf[month_key] = {}
         _batch_buf[month_key][cls] = rec_list
     else:
-        _api_push_history_batch({month_key: {cls: rec_list}})
+        payload = {month_key: {cls: rec_list}}
+        ok = _api_push_history_batch(payload)
+        if not ok:
+            _save_history_to_local_json(payload)
 
 
 def _save_conviction_state(cls: str, state: dict, holders: list) -> None:
     """持久化信念状态到后端 universe.db（唯一存储源）。"""
-    if not IS_PROD_REMOTE:
-        _api_push_conv(cls, state, holders)
+    _api_push_conv(cls, state, holders)
 
 
 def _load_conviction_state(cls: str) -> tuple[dict, list]:
@@ -731,14 +751,16 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
             saved += 1
             # Checkpoint：每 6 个正式月批量推送档案 + 持久化信念状态
             if saved % 6 == 0:
-                _api_push_history_batch(_bf_history_buf)
+                if not _api_push_history_batch(_bf_history_buf):
+                    _save_history_to_local_json(_bf_history_buf)
                 _bf_history_buf.clear()
                 _save_conviction_state("A", _bf_conv_state_a, _bf_conv_holders_a)
                 _save_conviction_state("B", _bf_conv_state, _bf_conv_holders)
 
     # 回填结束：推送剩余档案 + 最终持久化信念状态
     if _bf_history_buf:
-        _api_push_history_batch(_bf_history_buf)
+        if not _api_push_history_batch(_bf_history_buf):
+            _save_history_to_local_json(_bf_history_buf)
     _save_conviction_state("A", _bf_conv_state_a, _bf_conv_holders_a)
     _save_conviction_state("B", _bf_conv_state, _bf_conv_holders)
     return saved, ""

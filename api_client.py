@@ -638,8 +638,6 @@ def fetch_conviction_state(cls: str) -> tuple[dict, list]:
 
 def push_conviction_state(cls: str, state: dict, holders: list) -> bool:
     """将信念状态推送到后端 universe.db 持久化。返回是否成功。"""
-    if IS_PROD_REMOTE:
-        return False
     try:
         r = requests.post(
             f"{API_BASE_URL}/api/v1/conviction_state/{cls}",
@@ -668,8 +666,6 @@ def fetch_arena_history() -> dict:
 
 def push_arena_history_batch(history: dict) -> bool:
     """批量 upsert arena 月度档案到后端。返回是否成功。"""
-    if IS_PROD_REMOTE:
-        return False
     if not history:
         return True
     try:
@@ -775,8 +771,6 @@ def fetch_current_regime() -> dict:
 
 def push_macro_regime(payload: dict) -> bool:
     """将 Page 1 计算出的 regime 数据包推送到后端持久化。返回是否成功。"""
-    if IS_PROD_REMOTE:
-        return False
     try:
         r = requests.post(
             f"{API_BASE_URL}/api/v1/macro/regime",
@@ -807,8 +801,6 @@ def fetch_screen_results() -> dict:
 
 def push_screen_results(payload: dict) -> bool:
     """将 Page 3 的 ABCD 分类 + Arena 竞选结果推送到后端持久化。返回是否成功。"""
-    if IS_PROD_REMOTE:
-        return False
     try:
         r = requests.post(
             f"{API_BASE_URL}/api/v1/screen/results",

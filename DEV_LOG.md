@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-04-16 (e)
+
+### 修复 Render 环境下 arena 回填/信念写入被 IS_PROD_REMOTE 硬性阻断
+
+**问题**：用户在 Render 上多次执行「回填历史数据」后发现 `arena_history` 仍为旧 Top-3 数据，Top-10 扩容始终未生效。根因：`api_client.py` 中 `IS_PROD_REMOTE` 标志在 Render 环境下为 `True`，`push_arena_history_batch` / `push_conviction_state` / `push_screen_results` / `push_macro_regime` 四个写函数在入口处直接 `return False`，**HTTP 请求根本没有发出**，数据全部丢失。回填函数不检查推送返回值，报告"回填完成"——**假成功**。
+
+**修复**（`api_client.py`）：
+- 移除 `push_arena_history_batch`、`push_conviction_state`、`push_screen_results`、`push_macro_regime` 四个函数中的 `IS_PROD_REMOTE` 硬阻断，允许正常业务写入
+- 保留 `clear_arena_history_backend`（破坏性 DELETE）的 `IS_PROD_REMOTE` 保护不变
+- `_narrative_post` 保持现有软保护（`prod_write_confirmed` 勾选后可写）不变
+
+**修复**（`pages/3_资产细筛.py`）：
+- `_save_conviction_state` 移除 `if not IS_PROD_REMOTE` 条件，在所有环境下均正常写入
+- Page 3 顶部横幅从"只读模式"改为"生产环境"提示，说明归档/信念写入正常，仅破坏性操作被禁用
+- 新增 `_save_history_to_local_json(batch)` 兜底函数：API 推送失败时回退写本地 JSON
+- 回填路径三处 push 调用均检查返回值，失败时回退本地 JSON
+
+**影响范围**：`api_client.py`、`pages/3_资产细筛.py`。部署后需重新执行一次「回填历史数据」。
+
+---
+
 ## 2026-04-16 (d)
 
 ### 修复 A 组回填缺失「带鱼质量」因子
