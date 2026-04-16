@@ -407,14 +407,14 @@ if _arena_hist:
     )
     _latest_month = _sorted_months[0] if _sorted_months else None
 
-    def _compute_streaks_p4(cls: str) -> dict:
-        """按时间正序遍历，计算每月每个标的在该赛道 Top 3 的连续在榜月数。"""
+    def _compute_streaks_p4(cls: str, top_n: int = 3) -> dict:
+        """按时间正序遍历，计算每月每个标的在该赛道 Top-N 的连续在榜月数。"""
         _months_asc = sorted(k for k in _arena_hist if not k.startswith("_"))
         _prev_tk: set = set()
         _prev_st: dict = {}
         _res: dict = {}
         for _m in _months_asc:
-            _recs = _arena_hist[_m].get(cls, [])[:3]
+            _recs = _arena_hist[_m].get(cls, [])[:top_n]
             _cur_tk = {r["ticker"] for r in _recs}
             _cur_st = {}
             for _t in _cur_tk:
@@ -423,8 +423,6 @@ if _arena_hist:
             _prev_tk = _cur_tk
             _prev_st = _cur_st
         return _res
-
-    _all_streaks = {c: _compute_streaks_p4(c) for c in ["A", "B", "C", "D", "Z"]}
 
     # ── 白盒化管道说明：Top-N → Top-2 筛选逻辑 ──────────────────────
     # 注意：slider 必须在计算之前渲染并捕获返回值，否则换仓历史不会随 N 变化
@@ -464,6 +462,8 @@ if _arena_hist:
         )
 
     # ── 以 slider 返回值（_buffer_n）驱动下方所有计算 ──────────────
+    _all_streaks = {c: _compute_streaks_p4(c, _buffer_n) for c in ["A", "B", "C", "D", "Z"]}
+
     _holdings_map: dict = {}
     for _cls in ["A", "B", "C", "D", "Z"]:
         _months_asc = sorted(k for k in _arena_hist if not k.startswith("_"))

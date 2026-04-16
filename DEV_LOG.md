@@ -2,6 +2,28 @@
 
 ---
 
+## 2026-04-16 (b)
+
+### Arena 历史存储扩容 Top-3 → Top-10 & 连续在榜月数 bug 修复
+
+**问题**：Page 4「守擂缓冲区 Top-N」滑块从 3 改为 5 时，「历史月度 Top-2 胜出者」表格完全不变。排查发现 `arena_history` 每赛道每月**只存储了 3 条记录**，`[:5]` 和 `[:3]` 切到的数据完全相同，导致缓冲区参数无效。
+
+**Page 3 改动**（`pages/3_资产细筛.py`）：
+- 新增常量 `_ARENA_SAVE_N = 10` 与辅助函数 `_expand_arena_records()`，将信念引擎选出的 Top-3 用 scorecard 补齐至 10 条
+- 7 个 `_record_arena_history()` 调用点全部改为传入扩展后的列表（A/B 组信念选出 + scorecard 补齐；C/D/Z 组直接 `head(10)`）
+- 回填路径同步修改，C/D/Z 用 `head(_ARENA_SAVE_N)`，A/B 用 `_expand_arena_records`
+
+**Page 4 改动**（`pages/4_资产调研.py`）：
+- `_compute_streaks_p4(cls)` 新增 `top_n` 参数，原硬编码 `[:3]` 改为 `[:top_n]`
+- `_all_streaks` 计算从定义时（slider 之前）移至 `_buffer_n` 确定之后，传入 `_buffer_n`
+- 连续在榜月数（X月）现在随缓冲区大小联动
+
+**后端无改动**：`universe_manager.py` / `api_server.py` 的读写管道透传 JSON，不截断记录数。`core_engine.py` 的 `[:3]` 是投资组合构建逻辑，语义正确保持不变。
+
+**生效前提**：需在 Page 3 重新执行「回填历史数据」，使 61 个月的存量数据从 3 条扩充至 10 条。
+
+---
+
 ## 2026-04-16
 
 ### A 组权重与换仓门槛可调化

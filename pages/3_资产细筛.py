@@ -37,6 +37,8 @@ from conviction_engine import (
     get_status_label as _conv_status_label,
 )
 
+_ARENA_SAVE_N = 10
+
 _core_data = fetch_core_data()
 _MACRO_TAGS_MAP     = _core_data.get("MACRO_TAGS_MAP", {})
 _NARRATIVE_HEAT_MAP = _core_data.get("NARRATIVE_THEMES_HEAT", {})
@@ -336,9 +338,27 @@ def _make_record_list(top3_records: list) -> list:
     return result
 
 
-def _record_arena_history(cls: str, top3_records: list, month_key: str = None,
+def _expand_arena_records(base_records: list, df_scored: pd.DataFrame,
+                          n: int = _ARENA_SAVE_N) -> list:
+    """将 base_records（通常 3 条）用 df_scored 补齐至 n 条，保留原始排序。"""
+    if len(base_records) >= n or df_scored.empty:
+        return base_records[:n]
+    existing = {r["ticker"] for r in base_records}
+    expanded = list(base_records)
+    for _, row in df_scored.iterrows():
+        if len(expanded) >= n:
+            break
+        tk = row["Ticker"]
+        if tk not in existing:
+            expanded.append({"ticker": tk, "name": row["名称"],
+                             "score": float(row["竞技得分"])})
+            existing.add(tk)
+    return expanded
+
+
+def _record_arena_history(cls: str, records: list, month_key: str = None,
                           _batch_buf: dict | None = None) -> None:
-    """将某月某赛道的 Top 3 写入后端（实时）或暂存至 _batch_buf（回填批量）。
+    """将某月某赛道的排名记录写入后端（实时）或暂存至 _batch_buf（回填批量）。
     _batch_buf 不为 None 时只写入内存字典，由调用方负责批量推送。
     """
     if month_key is None:
@@ -636,12 +656,12 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                     config=CONVICTION_A_CONFIG,
                 )
                 _bf_conv_holders_a = [s["ticker"] for s in selected_a]
-                top3 = [
+                top3 = _expand_arena_records([
                     {"ticker": s["ticker"], "name": s["name"],
                      "score": s.get("factor_score", 0.0),
                      "conviction": s["conviction"], "status": s["status"]}
                     for s in selected_a
-                ]
+                ], df_scored)
             elif cls == "B":
                 # ── B 组：信念积累 + 冠军守擂 ──
                 _bf_factor_scores = {
@@ -659,17 +679,17 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                     factor_scores=_bf_factor_scores,
                 )
                 _bf_conv_holders = [s["ticker"] for s in selected]
-                top3 = [
+                top3 = _expand_arena_records([
                     {"ticker": s["ticker"], "name": s["name"],
                      "score": s.get("factor_score", 0.0),
                      "conviction": s["conviction"], "status": s["status"]}
                     for s in selected
-                ]
+                ], df_scored)
             else:
                 top3 = [
                     {"ticker": r["Ticker"], "name": r["名称"],
                      "score": float(r["竞技得分"])}
-                    for _, r in df_scored.head(3).iterrows()
+                    for _, r in df_scored.head(_ARENA_SAVE_N).iterrows()
                 ]
             # 热身阶段只更新信念状态，不写入档案
             if not _is_warmup:
@@ -2378,7 +2398,7 @@ def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
             for _, row in df_scored.head(3).iterrows()
         ]
         st.session_state["p4_arena_leaders"] = leaders
-        _record_arena_history(cls, leaders[cls])
+        _record_arena_history(cls, _expand_arena_records(leaders[cls], df_scored))
 
         # 全局数据流：将 Top-3 Ticker 写入 arena_winners，供 Page 6 消费
         _aw = st.session_state.get("arena_winners", {})
@@ -2891,7 +2911,7 @@ if _sel4 == "A":
                 for s in _rt_selected_a
             ]
             st.session_state["p4_arena_leaders"] = leaders
-            _record_arena_history("A", leaders["A"])
+            _record_arena_history("A", _expand_arena_records(leaders["A"], df_scored_a))
             _save_conviction_state("A", _rt_conv_state_a, _rt_new_holders_a)
 
             _aw = st.session_state.get("arena_winners", {})
@@ -3041,7 +3061,7 @@ elif _sel4 == "B":
                 for s in _rt_selected
             ]
             st.session_state["p4_arena_leaders"] = leaders
-            _record_arena_history("B", leaders["B"])
+            _record_arena_history("B", _expand_arena_records(leaders["B"], df_scored_b))
             _save_conviction_state("B", _rt_conv_state, _rt_new_holders)
 
             _aw = st.session_state.get("arena_winners", {})
@@ -3153,7 +3173,7 @@ elif _sel4 == "C":
                 for _, row in df_scored_c.head(3).iterrows()
             ]
             st.session_state["p4_arena_leaders"] = leaders
-            _record_arena_history("C", leaders["C"])
+            _record_arena_history("C", _expand_arena_records(leaders["C"], df_scored_c))
 
             # 全局数据流：C 组 Top-3 Ticker → arena_winners
             _aw = st.session_state.get("arena_winners", {})
@@ -3234,7 +3254,7 @@ elif _sel4 == "Z":
                 for _, row in df_scored_z.head(3).iterrows()
             ]
             st.session_state["p4_arena_leaders"] = leaders_z
-            _record_arena_history("Z", leaders_z["Z"])
+            _record_arena_history("Z", _expand_arena_records(leaders_z["Z"], df_scored_z))
 
             _aw_z = st.session_state.get("arena_winners", {})
             _aw_z["Z"] = [row["Ticker"] for _, row in df_scored_z.head(3).iterrows()]
@@ -3369,7 +3389,7 @@ elif _sel4 == "D":
                 for _, row in df_scored_d.head(3).iterrows()
             ]
             st.session_state["p4_arena_leaders"] = leaders
-            _record_arena_history("D", leaders["D"])
+            _record_arena_history("D", _expand_arena_records(leaders["D"], df_scored_d))
 
             # 全局数据流：D 组 Top-3 Ticker → arena_winners
             _aw = st.session_state.get("arena_winners", {})
