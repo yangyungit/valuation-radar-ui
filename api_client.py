@@ -876,6 +876,83 @@ def run_classification_api(
         return {"success": False, "error": str(exc)}
 
 
+@st.cache_data(ttl=1800)
+def get_arena_a_scores(tickers: tuple, meta_data_hash: str = "") -> dict:
+    """调用后端 /api/v1/arena/score_a，返回 {ticker: molt_score}（新公式 45/20/20/15）。
+    meta_data_hash 仅用于 cache key 区分（传 json.dumps(meta_data) 的 hash 字符串）。
+    """
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/arena/score_a",
+            json={"tickers": list(tickers), "meta_data": {}},
+            timeout=120,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return data.get("scores", {}) if data.get("success") else {}
+    except Exception:
+        return {}
+
+
+def arena_backfill_score(
+    price_df,
+    vol_df=None,
+    meta_data: dict = None,
+    month_specs: list = None,
+    z_seed_tickers: list = None,
+    thresholds: dict = None,
+    conv_config_a: dict = None,
+    conv_config_b: dict = None,
+    arena_save_n: int = 10,
+) -> dict:
+    """调用后端 /api/v1/arena/backfill_score（批量回填 Arena 评分）。
+
+    Args:
+        price_df:       含所有标的 + SPY 的历史价格 DataFrame（index=DatetimeIndex）
+        vol_df:         历史成交量 DataFrame（D 组 Vol_Z 需要）
+        meta_data:      {ticker: {mcap, div_yield, fcf_yield, fcf_source}}
+        month_specs:    [{month_key, date_idx, macro_regime, macro_scores, is_warmup}, ...]
+        z_seed_tickers: Z 组候选标的列表
+        thresholds:     screener 门槛（可空）
+        conv_config_a:  A 组信念引擎参数（空则用后端默认）
+        conv_config_b:  B 组信念引擎参数（空则用后端默认）
+        arena_save_n:   每月每赛道保存条数（默认 10）
+
+    Returns:
+        后端响应 dict，成功时包含 arena_records / conv_state_a / conv_holders_a 等字段。
+        失败时 {"success": False, "error": ...}。
+    """
+    try:
+        price_records = price_df.to_dict(orient="index")
+        price_records = {str(k): v for k, v in price_records.items()}
+
+        vol_records = {}
+        if vol_df is not None and not vol_df.empty:
+            vol_records = vol_df.to_dict(orient="index")
+            vol_records = {str(k): v for k, v in vol_records.items()}
+
+        payload = {
+            "price_records":  _sanitize_floats(price_records),
+            "vol_records":    _sanitize_floats(vol_records),
+            "meta_data":      _sanitize_floats(meta_data or {}),
+            "month_specs":    month_specs or [],
+            "z_seed_tickers": list(z_seed_tickers or []),
+            "thresholds":     _sanitize_floats(thresholds or {}),
+            "conv_config_a":  _sanitize_floats(conv_config_a or {}),
+            "conv_config_b":  _sanitize_floats(conv_config_b or {}),
+            "arena_save_n":   arena_save_n,
+        }
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/arena/backfill_score",
+            json=payload,
+            timeout=300,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
 # ==========================================
 # 4. 叙事引擎 API 客户端 (Narrative Engine)
 # ==========================================

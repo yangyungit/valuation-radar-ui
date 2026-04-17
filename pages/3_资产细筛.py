@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         get_arena_a_factors, get_arena_b_factors,
                         get_arena_c_factors, get_arena_d_factors,
+                        get_arena_a_scores as _api_get_arena_a_scores,
                         fetch_l2_l3_detail, get_batch_ticker_cooccurrence,
                         fetch_conviction_state as _api_fetch_conv,
                         push_conviction_state as _api_push_conv,
@@ -19,6 +20,7 @@ from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         clear_arena_history_backend as _api_clear_history,
                         fetch_current_regime, push_screen_results,
                         run_classification_api,
+                        arena_backfill_score as _api_arena_backfill_score,
                         API_BASE_URL, IS_PROD_REMOTE)
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
@@ -464,15 +466,18 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
                             meta_data: dict = None,
                             warmup_months: int = 12) -> tuple:
     """
-    用历史价格数据回填过去 N 个月各赛道的 Top 3。
-    Point-in-Time 模式：每个月末重新执行并行分类（含滞后带），消除前视偏差。
+    用历史价格数据回填过去 N 个月各赛道的 Top N。
+    评分引擎已后移至后端 /api/v1/arena/backfill_score（ScorecardA + arena_scoring）。
 
-    warmup_months: 热身阶段月数。这段时间只积累信念状态，不写入档案。
-      目的：让信念值从 0 爬升到稳态区间（~55-100），避免前 N 个月记录的
-      信念值虚低（否则入选门槛 55 根本达不到，只能靠 cold-start 凑数）。
-      数学上：holder_decay=0.80，达到 90% 稳态需 ≈ 11 个月，取 12 个月足够。
+    本函数负责：
+      1. 下载历史价格（含 SPY）
+      2. 构建 month_specs 列表（含 date_idx + macro_regime + is_warmup）
+      3. 一次性调用后端端点
+      4. 遍历 response 写入 arena_history + 持久化 conviction_state
+
+    warmup_months: 热身阶段月数（与后端共用，后端不返回热身月的 arena_records）。
     monthly_probs: {"YYYY-MM": {"Soft": f, "Hot": f, "Stag": f, "Rec": f}}
-    meta_data: {ticker: {"mcap": float, "div_yield": float}} — 当前快照用作近似。
+    meta_data: {ticker: {"mcap": float, "div_yield": float, "fcf_yield": float, ...}}
     返回 (saved_month_count, error_msg)
     """
     ticker_names: dict = {}
@@ -500,7 +505,7 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
     if m == 0:
         m, y = 12, y - 1
 
-    # 构建总月份列表：warmup + 正式记录，合并倒序后一起处理
+    # 构建总月份列表：warmup + 正式记录，时间正序
     total_months = months_back + warmup_months
     month_ends: list = []
     for _ in range(total_months):
@@ -512,298 +517,68 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
         m -= 1
         if m == 0:
             m, y = 12, y - 1
+    month_ends.reverse()  # 时间正序
 
-    # Chronological order for hysteresis chain
-    month_ends.reverse()
-
-    # 热身阶段月份 key 集合（不写入档案）
     warmup_keys: set = {mk for mk, _ in month_ends[:warmup_months]}
 
-    spy_col = "SPY" if "SPY" in price_df.columns else None
-    saved   = 0
-    prev_grades_map: dict = {}
-
-    # A 组信念积累状态（从头构建，包含热身阶段）
-    _bf_conv_state_a: dict  = {}
-    _bf_conv_holders_a: list = []
-
-    # B 组信念积累状态（从头构建，包含热身阶段）
-    _bf_conv_state: dict  = {}
-    _bf_conv_holders: list = []
-
-    # 批量缓冲：回填期间在内存中积攒，每 6 个正式月或末尾统一推送
-    _bf_history_buf: dict = {}
-
+    # 构建 month_specs 列表传给后端
+    month_specs: list = []
     for month_key, me_date in month_ends:
-        _is_warmup = month_key in warmup_keys
         loc = price_df.index.get_loc(me_date)
         if loc < 120:
             continue
-
-        pit_assets = classify_all_at_date(
-            price_df, loc, list(all_tickers), meta_data,
-            tic_map=ticker_names, prev_grades_map=prev_grades_map,
-            z_seed_tickers=_Z_SEED_TICKERS,
-        )
-
-        prev_grades_map = {
-            t: info.get("qualifying_grades", [])
-            for t, info in pit_assets.items()
-        }
-
-        cls_tickers: dict = {"A": [], "B": [], "C": [], "D": [], "Z": []}
-        for t, info in pit_assets.items():
-            for g in info.get("qualifying_grades", []):
-                if g in cls_tickers:
-                    cls_tickers[g].append(t)
-
         _m_probs = (monthly_probs or {}).get(month_key, {})
         bc_regime, _ = _derive_monthly_regimes(_m_probs)
+        month_specs.append({
+            "month_key":    month_key,
+            "date_idx":     int(loc),
+            "macro_regime": bc_regime,
+            "macro_scores": _m_probs,
+            "is_warmup":    month_key in warmup_keys,
+        })
 
-        p_slice   = price_df.iloc[: loc + 1]
-        v_slice   = vol_df.iloc[: loc + 1] if not vol_df.empty else pd.DataFrame()
-        spy_slice = p_slice[spy_col].dropna().astype(float) if spy_col else pd.Series(dtype=float)
+    if not month_specs:
+        return 0, "无有效月份可回填"
 
-        for cls, tickers in cls_tickers.items():
-            if not tickers:
-                continue
-            rows: list = []
-            for t in tickers:
-                if t not in p_slice.columns:
-                    continue
-                p = p_slice[t].dropna().astype(float)
-                if len(p) < 60:
-                    continue
+    # 调用后端评分端点（一次 HTTP，服务端循环 61 个月）
+    resp = _api_arena_backfill_score(
+        price_df=price_df,
+        vol_df=vol_df if not vol_df.empty else None,
+        meta_data=meta_data,
+        month_specs=month_specs,
+        z_seed_tickers=list(_Z_SEED_TICKERS),
+        arena_save_n=_ARENA_SAVE_N,
+    )
+    if not resp.get("success"):
+        err = resp.get("error", "未知错误")
+        return 0, f"后端回填端点失败：{err}"
 
-                mom20      = float((p.iloc[-1] / p.iloc[-21] - 1) * 100) if len(p) >= 21 else 0.0
-                ma20       = float(p.tail(20).mean())
-                ma60       = float(p.tail(60).mean())
-                is_bullish = bool(ma20 > ma60)
-                window     = min(252, len(p))
-                mu, sigma  = p.tail(window).mean(), p.tail(window).std()
-                z_score    = float((p.iloc[-1] - mu) / sigma) if sigma > 0 else 0.0
+    arena_records_resp = resp.get("arena_records", {})
+    conv_state_a  = resp.get("conv_state_a", {})
+    conv_holders_a = resp.get("conv_holders_a", [])
+    conv_state_b  = resp.get("conv_state_b", {})
+    conv_holders_b = resp.get("conv_holders_b", [])
 
-                row: dict = {
-                    "Ticker": t, "名称": ticker_names.get(t, t),
-                    "Z-Score": z_score, "20日动量": mom20,
-                    "趋势健康": is_bullish, "股息率": 0.0,
-                }
+    # 遍历响应，写入 arena_history（每 6 个月 checkpoint 批量推送）
+    _bf_history_buf: dict = {}
+    saved = 0
+    for month_key, cls_map in sorted(arena_records_resp.items()):
+        for cls, records in cls_map.items():
+            _record_arena_history(cls, records, month_key=month_key,
+                                  _batch_buf=_bf_history_buf)
+        saved += 1
+        if saved % 6 == 0:
+            if not _api_push_history_batch(_bf_history_buf):
+                _save_history_to_local_json(_bf_history_buf)
+            _bf_history_buf.clear()
 
-                if cls == "A":
-                    p_1yr_a = p.tail(min(252, len(p)))
-                    daily_ret_a = p_1yr_a.pct_change().dropna()
-                    roll_max_a = p_1yr_a.cummax()
-                    max_dd_a = float((p_1yr_a / roll_max_a - 1.0).min()) if not p_1yr_a.empty else 0.0
-                    spy_corr_a = 0.5
-                    if len(spy_slice) >= 60:
-                        spy_ret_a = spy_slice.pct_change().dropna()
-                        spy_ret_a = spy_ret_a.iloc[-min(252, len(spy_ret_a)):]
-                        aligned_a = pd.concat([daily_ret_a, spy_ret_a], axis=1).dropna()
-                        if len(aligned_a) > 30:
-                            _c = float(aligned_a.iloc[:, 0].corr(aligned_a.iloc[:, 1]))
-                            if not (np.isnan(_c) or np.isinf(_c)):
-                                spy_corr_a = _c
-                    # 带鱼质量：PIT 价格切片重算（4 子分量，与 core_engine.ScorecardA 同源）
-                    ribbon_score_a = 0.0
-                    try:
-                        if len(p) >= 80:
-                            ma20_r = p.rolling(20).mean().dropna()
-                            ma60_r = p.rolling(60).mean().dropna()
-                            rmin = min(len(ma20_r), len(ma60_r))
-                            if rmin >= 80:
-                                ma20_r = ma20_r.iloc[-rmin:]
-                                ma60_r = ma60_r.iloc[-rmin:]
-                                spread_r = (ma20_r - ma60_r) / ma60_r.replace(0, np.nan)
-                                spr120 = spread_r.dropna().iloc[-120:]
-                                rs1 = float(np.clip(1.0 - float(spr120.std()) / 0.05, 0.0, 1.0)) if len(spr120) >= 30 else 0.0
-                                cross_r = (ma20_r > ma60_r).values[::-1]
-                                streak_r = int(np.argmin(cross_r)) if not np.all(cross_r) else len(cross_r)
-                                rs2 = float(np.clip(streak_r / 252.0, 0.0, 1.0))
-                                ma60_tail_r = ma60_r.iloc[-61:] if len(ma60_r) >= 61 else ma60_r
-                                pch_r = (ma60_tail_r.diff() / ma60_tail_r.shift(1)).dropna()
-                                if len(pch_r) >= 20:
-                                    mch_r = float(pch_r.abs().mean())
-                                    cv_r = float(pch_r.std()) / mch_r if mch_r > 1e-9 else 10.0
-                                    rs3 = float(np.clip(1.0 / (1.0 + cv_r), 0.0, 1.0))
-                                else:
-                                    rs3 = 0.0
-                                ptail_r = p.iloc[-60:] if len(p) >= 60 else p
-                                ma20t_r = ptail_r.rolling(20).mean().dropna()
-                                ap_r = ptail_r.iloc[-len(ma20t_r):]
-                                dev_r = (ap_r.values - ma20t_r.values) / ma20t_r.replace(0, np.nan).values
-                                dstd_r = float(np.nanstd(dev_r)) if len(dev_r) > 5 else 0.05
-                                rs4 = float(np.clip(1.0 - dstd_r / 0.05, 0.0, 1.0))
-                                ribbon_score_a = float(np.clip(0.30*rs1 + 0.35*rs2 + 0.25*rs3 + 0.10*rs4, 0.0, 1.0))
-                    except Exception:
-                        ribbon_score_a = 0.0
-                    row.update({
-                        "FCF收益率": 0.0,
-                        "最大回撤_raw": max_dd_a,
-                        "SPY相关性": spy_corr_a,
-                        "带鱼质量": ribbon_score_a,
-                    })
-
-                elif cls == "B":
-                    p_1yr = p.tail(min(252, len(p)))
-                    daily_ret_b = p_1yr.pct_change().dropna()
-                    vol_b = float(daily_ret_b.std()) if len(daily_ret_b) > 10 else 1.0
-                    ann_vol_b = vol_b * np.sqrt(252)
-                    sharpe_b = float(daily_ret_b.mean() / vol_b * np.sqrt(252)) if vol_b > 1e-9 else 0.0
-                    roll_max_b = p_1yr.cummax()
-                    max_dd_b = float((p_1yr / roll_max_b - 1.0).min()) if not p_1yr.empty else 0.0
-                    eps_stability_b = 1.0 / max(ann_vol_b, 0.01)
-                    spy_ret120_b = float((spy_slice.iloc[-1] / spy_slice.iloc[-121] - 1) * 100) if len(spy_slice) >= 121 else 0.0
-                    ret120_b     = float((p.iloc[-1] / p.iloc[-121] - 1) * 100) if len(p) >= 121 else 0.0
-                    rs120d_b     = ret120_b - spy_ret120_b
-                    row.update({
-                        "股息率": 0.0,
-                        "最大回撤_raw": max_dd_b,
-                        "夏普比率": sharpe_b,
-                        "RS120d": rs120d_b,
-                        "市值对数": 9.0,
-                        "EPS稳定性": eps_stability_b,
-                        "Revenue增速": 0.0,
-                    })
-
-                elif cls == "Z":
-                    p_1yr_z = p.tail(min(252, len(p)))
-                    daily_ret_z = p_1yr_z.pct_change().dropna()
-                    vol_z_ann = float(daily_ret_z.std() * np.sqrt(252)) if len(daily_ret_z) > 10 else 0.3
-                    roll_max_z = p_1yr_z.cummax()
-                    max_dd_z = float((p_1yr_z / roll_max_z - 1.0).min()) if not p_1yr_z.empty else 0.0
-                    eps_stab_z = 1.0 / max(vol_z_ann, 0.01)
-                    sharpe_z = (float(daily_ret_z.mean()) / float(daily_ret_z.std()) * np.sqrt(252)) if (len(daily_ret_z) > 10 and daily_ret_z.std() > 1e-9) else 0.0
-                    price_ret_z = float(p_1yr_z.iloc[-1] / p_1yr_z.iloc[0] - 1) if len(p_1yr_z) >= 2 else 0.0
-                    row.update({
-                        "股息率": meta_data.get(t, {}).get("div_yield", 0.0),
-                        "年化波动率": vol_z_ann,
-                        "最大回撤_raw": max_dd_z,
-                        "EPS稳定性": eps_stab_z,
-                        "夏普比率": sharpe_z,
-                        "净值趋势_1Y": price_ret_z,
-                    })
-
-                elif cls == "C":
-                    spy_ret120 = float((spy_slice.iloc[-1] / spy_slice.iloc[-121] - 1) * 100) if len(spy_slice) >= 121 else 0.0
-                    ret120     = float((p.iloc[-1] / p.iloc[-121] - 1) * 100) if len(p) >= 121 else 0.0
-                    spy_ret250 = float((spy_slice.iloc[-1] / spy_slice.iloc[-251] - 1) * 100) if len(spy_slice) >= 251 else 0.0
-                    ret250     = float((p.iloc[-1] / p.iloc[-251] - 1) * 100) if len(p) >= 251 else 0.0
-                    row.update({
-                        "EPS增速": z_score * 10,
-                        "RS120d": ret120 - spy_ret120,
-                        "RS250d": ret250 - spy_ret250,
-                        "市值对数": 9.0,
-                    })
-
-                elif cls == "D":
-                    spy_ret20  = float((spy_slice.iloc[-1] / spy_slice.iloc[-21] - 1) * 100) if len(spy_slice) >= 21 else 0.0
-                    ret20      = float((p.iloc[-1] / p.iloc[-21] - 1) * 100) if len(p) >= 21 else 0.0
-                    ma60_dist  = float((p.iloc[-1] / ma60 - 1) * 100) if ma60 > 0 else 0.0
-                    vol_z      = 0.0
-                    if not v_slice.empty and t in v_slice.columns:
-                        v = v_slice[t].dropna().astype(float)
-                        if len(v) >= 10:
-                            mu_v, sig_v = v.mean(), v.std()
-                            vol_z = float((v.tail(5).mean() - mu_v) / sig_v) if sig_v > 0 else 0.0
-                    row.update({"Vol_Z": vol_z, "RS_20d": ret20 - spy_ret20, "MA60偏离": ma60_dist})
-
-                rows.append(row)
-
-            if not rows:
-                continue
-
-            df_cls = pd.DataFrame(rows)
-            if cls == "A":
-                df_scored = compute_scorecard_a(df_cls)
-            elif cls == "B":
-                df_scored = compute_scorecard_b(df_cls, bc_regime)
-            elif cls == "Z":
-                df_scored = compute_scorecard_z(df_cls)
-            elif cls == "C":
-                df_scored = compute_scorecard_c(df_cls, bc_regime)
-            elif cls == "D":
-                df_scored = compute_scorecard_d(df_cls)
-            else:
-                df_scored = compute_arena_scores(df_cls, cls)
-
-            if df_scored.empty:
-                continue
-
-            if cls == "A":
-                # ── A 组：信念积累 + 冠军守擂（压舱石版） ──
-                _bf_factor_scores_a = {
-                    r["Ticker"]: float(r["竞技得分"])
-                    for _, r in df_scored.iterrows()
-                }
-                _bf_conv_state_a = _conv_update(
-                    _bf_conv_state_a, _bf_factor_scores_a,
-                    current_holders=_bf_conv_holders_a,
-                    config=CONVICTION_A_CONFIG,
-                )
-                _bf_names_a = {r["Ticker"]: r["名称"] for _, r in df_scored.iterrows()}
-                selected_a, _ = _conv_select(
-                    _bf_conv_state_a, _bf_conv_holders_a,
-                    ticker_names=_bf_names_a,
-                    factor_scores=_bf_factor_scores_a,
-                    config=CONVICTION_A_CONFIG,
-                )
-                _bf_conv_holders_a = [s["ticker"] for s in selected_a]
-                top3 = _expand_arena_records([
-                    {"ticker": s["ticker"], "name": s["name"],
-                     "score": s.get("factor_score", 0.0),
-                     "conviction": s["conviction"], "status": s["status"]}
-                    for s in selected_a
-                ], df_scored)
-            elif cls == "B":
-                # ── B 组：信念积累 + 冠军守擂 ──
-                _bf_factor_scores = {
-                    r["Ticker"]: float(r["竞技得分"])
-                    for _, r in df_scored.iterrows()
-                }
-                _bf_conv_state = _conv_update(
-                    _bf_conv_state, _bf_factor_scores,
-                    current_holders=_bf_conv_holders,
-                )
-                _bf_names = {r["Ticker"]: r["名称"] for _, r in df_scored.iterrows()}
-                selected, _ = _conv_select(
-                    _bf_conv_state, _bf_conv_holders,
-                    ticker_names=_bf_names,
-                    factor_scores=_bf_factor_scores,
-                )
-                _bf_conv_holders = [s["ticker"] for s in selected]
-                top3 = _expand_arena_records([
-                    {"ticker": s["ticker"], "name": s["name"],
-                     "score": s.get("factor_score", 0.0),
-                     "conviction": s["conviction"], "status": s["status"]}
-                    for s in selected
-                ], df_scored)
-            else:
-                top3 = [
-                    {"ticker": r["Ticker"], "name": r["名称"],
-                     "score": float(r["竞技得分"])}
-                    for _, r in df_scored.head(_ARENA_SAVE_N).iterrows()
-                ]
-            # 热身阶段只更新信念状态，不写入档案
-            if not _is_warmup:
-                _record_arena_history(cls, top3, month_key=month_key,
-                                      _batch_buf=_bf_history_buf)
-
-        if not _is_warmup:
-            saved += 1
-            # Checkpoint：每 6 个正式月批量推送档案 + 持久化信念状态
-            if saved % 6 == 0:
-                if not _api_push_history_batch(_bf_history_buf):
-                    _save_history_to_local_json(_bf_history_buf)
-                _bf_history_buf.clear()
-                _save_conviction_state("A", _bf_conv_state_a, _bf_conv_holders_a)
-                _save_conviction_state("B", _bf_conv_state, _bf_conv_holders)
-
-    # 回填结束：推送剩余档案 + 最终持久化信念状态
     if _bf_history_buf:
         if not _api_push_history_batch(_bf_history_buf):
             _save_history_to_local_json(_bf_history_buf)
-    _save_conviction_state("A", _bf_conv_state_a, _bf_conv_holders_a)
-    _save_conviction_state("B", _bf_conv_state, _bf_conv_holders)
+
+    # 持久化信念状态
+    _save_conviction_state("A", conv_state_a, conv_holders_a)
+    _save_conviction_state("B", conv_state_b, conv_holders_b)
     return saved, ""
 
 
@@ -897,46 +672,6 @@ def compute_arena_scores(df: pd.DataFrame, cls: str) -> pd.DataFrame:
     result["排名"] = range(1, len(result) + 1)
     return result
 
-
-def compute_scorecard_a(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    ScorecardA -- A 组「避风港防御指数」评分体系 (满分 100 分)
-
-    Score_A = (30 x InvMaxDD) + (20 x FCFYield)
-            + (20 x InvSPYCorr) + (30 x RibbonQuality)
-
-    需要 df 已含 "最大回撤_raw", "FCF收益率", "SPY相关性", "带鱼质量" 四列。
-    """
-    if df.empty:
-        return df
-
-    result = df.copy()
-
-    dd_raw = result.get("最大回撤_raw", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f1_norm = _anchor_norm(-dd_raw.abs(), *FACTOR_ANCHORS["max_dd_inv"])
-
-    fcf_raw = result.get("FCF收益率", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f2_norm = _anchor_norm(fcf_raw, *FACTOR_ANCHORS["fcf_yield"])
-
-    corr_raw = result.get("SPY相关性", pd.Series(0.5, index=result.index)).astype(float).fillna(0.5)
-    f3_norm = _anchor_norm(-corr_raw, *FACTOR_ANCHORS["spy_corr_inv"])
-
-    ribbon_raw = result.get("带鱼质量", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f4_norm = _anchor_norm(ribbon_raw, *FACTOR_ANCHORS["ribbon_quality"])
-
-    result["因子1_分"] = (0.30 * f1_norm).round(1)
-    result["因子2_分"] = (0.20 * f2_norm).round(1)
-    result["因子3_分"] = (0.20 * f3_norm).round(1)
-    result["因子4_分"] = (0.30 * f4_norm).round(1)
-
-    result["竞技得分"] = (
-        result["因子1_分"] + result["因子2_分"] + result["因子3_分"]
-        + result["因子4_分"]
-    ).round(1)
-
-    result = result.sort_values("竞技得分", ascending=False).reset_index(drop=True)
-    result["排名"] = range(1, len(result) + 1)
-    return result
 
 
 def compute_scorecard_c(df: pd.DataFrame, macro_regime: str) -> pd.DataFrame:
@@ -2469,10 +2204,7 @@ def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
         return
 
     # ── 计算评分 ─────────────────────────────────────────────────
-    if cls == "A":
-        df_scored = compute_scorecard_a(df_cls)
-    else:
-        df_scored = compute_arena_scores(df_cls, cls)
+    df_scored = compute_arena_scores(df_cls, cls)
 
     # ── 赛道统计 ─────────────────────────────────────────────────
     n_total    = len(df_scored)
@@ -2964,7 +2696,16 @@ if _sel4 == "A":
         df_a["年化波动率"]   = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("ann_vol",     0.30)))
         df_a["带鱼质量"]    = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("ribbon_score", 0.0)))
 
-        df_scored_a = compute_scorecard_a(df_a)
+        # ── 使用后端 ScorecardA（新公式：45/20/20/15，3年回溯，DCR）──
+        with st.spinner("正在调用后端 ScorecardA 新公式评分…"):
+            _new_a_scores = _api_get_arena_a_scores(tuple(df_a["Ticker"].tolist()))
+        if _new_a_scores:
+            df_a["竞技得分"] = df_a["Ticker"].map(lambda t: float(_new_a_scores.get(t, 0.0)))
+        else:
+            st.toast("⚠️ ScorecardA 后端不可达，得分置零（请检查后端服务）", icon="⚠️")
+            df_a["竞技得分"] = 0.0
+        df_scored_a = df_a.sort_values("竞技得分", ascending=False).reset_index(drop=True)
+        df_scored_a["排名"] = range(1, len(df_scored_a) + 1)
 
         n_a = len(df_scored_a)
         _rt_selected_a = []
@@ -3807,6 +3548,34 @@ if _do_backfill:
         st.error(f"回填失败：{_bf_err}")
     else:
         st.success(f"回填完成！已写入 {_bf_saved} 个月的历史档案。")
+        # ── Phase 4 等价性断言：B/C/D/Z 新旧榜单比对 ──
+        _api_fetch_history.clear()
+        _new_hist  = _api_fetch_history()
+        _old_hist  = _history  # 回填前快照（页面级变量）
+        _mismatch_details: list = []
+        for _mk in sorted(set(_new_hist) & set(_old_hist)):
+            for _cls in ("B", "C", "D", "Z"):
+                _new_recs = [r["ticker"] for r in (_new_hist.get(_mk, {}).get(_cls, []) or [])[:3]]
+                _old_recs = [r["ticker"] for r in (_old_hist.get(_mk, {}).get(_cls, []) or [])[:3]]
+                if _new_recs and _old_recs and _new_recs != _old_recs:
+                    _score_diff = [
+                        (r["ticker"], round(r.get("score", 0) - next(
+                            (o.get("score", 0) for o in (_old_hist.get(_mk, {}).get(_cls, []) or [])
+                             if o["ticker"] == r["ticker"]), 0), 2))
+                        for r in (_new_hist.get(_mk, {}).get(_cls, []) or [])[:5]
+                        if any(o["ticker"] == r["ticker"] for o in (_old_hist.get(_mk, {}).get(_cls, []) or []))
+                    ]
+                    _mismatch_details.append(f"{_mk}/{_cls}: 新={_new_recs} 旧={_old_recs} 分差前5={_score_diff}")
+        if _mismatch_details:
+            st.error(
+                f"🚨 **等价性断言失败**：B/C/D/Z 搬家前后榜单不一致（共 {len(_mismatch_details)} 处），"
+                "请人工核查 arena_scoring.py 是否与前端公式完全一致：",
+                icon="🚨",
+            )
+            for _line in _mismatch_details[:10]:
+                st.markdown(f"- `{_line}`")
+        else:
+            st.success("✅ 等价性断言通过：B/C/D/Z Top 3 与旧库完全一致，可安全上线。")
         st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)

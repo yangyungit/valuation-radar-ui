@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-04-17 | Arena 评分引擎后移（PR B：前端切换 + 等价性校验）
+
+**根因**：`pages/3_资产细筛.py` 同时维护着与后端 `core_engine.ScorecardA` 分叉的前端影子打分代码（旧公式 30/20/20/30，1 年回溯，SPY 相关性），回填路径从未用上 commit c326d7d 的抗噪重构成果。
+
+**本次改动**：
+- `_backfill_arena_history` 全面重写：删除 350 行原始因子预计算 + 打分守擂段，改为一次 HTTP 调 `POST /api/v1/arena/backfill_score`，服务端循环 N 个月，前端只遍历响应写 `_record_arena_history`
+- A 组实时路径：删除 `compute_scorecard_a`（旧公式），改为调 `POST /api/v1/arena/score_a`（ScorecardA 新公式：45/20/20/15，3年最大回撤，2年 DCR）；后端不可达时得分置零并 toast 告警
+- 新增 `arena_backfill_score()` + `get_arena_a_scores()` 封装函数至 `api_client.py`
+- 新增 import `arena_backfill_score as _api_arena_backfill_score` + `get_arena_a_scores as _api_get_arena_a_scores`
+- 回填完成后加等价性断言：B/C/D/Z Top3 新旧对比，分差前 5 标的以红字展示
+
+**B/C/D/Z 实时路径现状**：同公式、无正确性问题，前端降级副本暂保留（待后续 PR 清除，届时删除 `compute_scorecard_b/c/d/z` + `FACTOR_ANCHORS` + 共享常量）
+
+**影响范围**：`pages/3_资产细筛.py`（回填函数、A 组实时路径、import）、`api_client.py`
+
+---
+
 ## 2026-04-17 | A 组因子抗噪重构 + 换仓归因诊断 + 净收益标注
 
 **背景**：A 组 15 次换仓收益不佳。根因定位：ScorecardA 全用 1 年窗口，而 B 组用 3 年窗口，月间噪声放大约 2.5 倍；F4 Ribbon 权重 30% 叠加 60 天内部窗口，是最大噪声源。
