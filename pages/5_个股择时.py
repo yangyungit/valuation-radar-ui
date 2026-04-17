@@ -66,16 +66,34 @@ st.title("🎯 Layer 5: 个股择时")
 st.caption("竞技场择时回顾 ➡️ VCP 形态猎杀 ➡️ TWAP 最优建仓执行")
 
 # ── Load Arena History Data（主：后端 API，降级：本地 JSON）──
+# 约束 2（禁止静默失败）：降级到本地必须红字告警，否则用户会误以为在看最新数据
 _ARENA_HIST_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "arena_history.json")
 _arena_data: dict = fetch_arena_history()
+_arena_is_fallback: bool = False
+_arena_local_mtime: str = ""
 if not _arena_data:
     try:
         if os.path.exists(_ARENA_HIST_PATH):
             with open(_ARENA_HIST_PATH, "r", encoding="utf-8") as _af:
                 _raw = json.load(_af)
             _arena_data = {k: v for k, v in _raw.items() if not k.startswith("_")}
+            _arena_is_fallback = bool(_arena_data)
+            if _arena_is_fallback:
+                import datetime as _dt
+                _arena_local_mtime = _dt.datetime.fromtimestamp(
+                    os.path.getmtime(_ARENA_HIST_PATH)
+                ).strftime("%Y-%m-%d %H:%M")
     except Exception:
         pass
+
+if _arena_is_fallback:
+    st.toast("⚠️ Render 后端 arena_history 为空，已降级本地陈旧快照", icon="🚨")
+    st.error(
+        f"🚨 **数据降级告警**：后端 `arena_history` 表当前返回空，Page 5 已 fallback 到本地快照 "
+        f"`data/arena_history.json`（最后修改 **{_arena_local_mtime}**）。"
+        "\n\n图表与榜单**不反映最新分类结果**，请先访问 **Page 3 资产细筛** 重新跑分类并回填，"
+        "或登录 Render 排查 `universe.db.arena_history` 表。"
+    )
 
 _CLS_CLR = {"A": "#2ECC71", "B": "#3498DB", "C": "#F39C12", "D": "#E74C3C"}
 _CLS_LBL = {

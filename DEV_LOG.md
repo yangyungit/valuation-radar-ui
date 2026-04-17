@@ -2,6 +2,34 @@
 
 ---
 
+## 2026-04-17 | Page 4 / 5 arena_history 降级静默失败告警（约束 2 补丁）
+
+**触发现象**：主理人在 Page 5 切换"合成权重"后发现 A 组累计收益率图和 Page 4 的 Top-N 持仓榜显示内容不一致，怀疑 Page 5 又读回了本地 JSON。
+
+**诊断过程**（按 `.cursorrules` 真相源判别协议）：
+1. `git config user.email` = `z@yang-yun.com`、分支 `main` —— 主理人场景，真相源 Render。
+2. `curl https://valuation-radar-server.onrender.com/api/v1/arena/history` → `{"success":true,"history":{}}`，**后端 `arena_history` 表当前为空**。
+3. `curl /api/v1/screen/results` → `data` 里也没有 `A/B/C/D` leaders。
+4. 本地 `data/arena_history.json` 最后修改 4-08 21:49，61 个月 snapshot 老数据。
+
+**根因**：Page 4 / 5 的 `fetch_arena_history()` 拿到空字典后，**静默 fallback 到本地陈旧 JSON**，没有任何红字提醒，用户被"Page 3 当前 session 写入的 `p4_arena_leaders`"与"Page 5 渲染的本地快照"并存的假象误导，误以为 Page 5 数据源比 Page 4 落后。
+
+**违反的硬约束**（见 `../valuation-radar/DATA_CONSISTENCY_PROTOCOL.md`）：
+- 约束 2（禁止静默失败）：降级路径没打 `fallback=true` 标签，没 `st.toast` 红字。
+
+### 本次补丁（仅改前端告警逻辑，不掩盖后端空表的真问题）
+
+1. **Page 5 `pages/5_个股择时.py`**：`fetch_arena_history()` 返回空后，fallback 本地 JSON 时读取文件 mtime，触发 `st.toast` + `st.error` 红字，明确告知"正在使用 mm-dd HH:MM 的陈旧快照"，并引导去 Page 3 重跑或查 Render。
+2. **Page 4 `pages/4_资产调研.py`**：同样的告警模板，覆盖历史 Top-N 换仓表路径。
+3. **Page 6 暂不改**：它只从本地 JSON 收集 ticker 池扩展（`_arena_extra_tickers`），不消费排名语义，加告警反而噪音。
+
+### 后续跟进
+
+- 主理人需要去 Render 前端访问 Page 3 重跑分类，让 `_record_arena_history` → `push_arena_history_batch` 回填 61 个月历史数据。
+- 写后校验：下一步给 `push_arena_history_batch` 也补一个"写完立刻 `fetch_arena_history.clear()` + 重读比对月份数"的 verify 钩子，防止再次静默成功但实际没落库。
+
+---
+
 ## 2026-04-17 | 数据一致性治理阶段性沉淀 ⭐
 
 **背景**：2026-04-13 至 2026-04-16 共出现 8 次数据一致性 bug（见本文件 4-15 / 4-16 (b)/(d)/(e)/(f)/(g)/(h) 六条记录）。复盘后发现结构性根因是"真相源分裂 × 静默失败 × 硬编码散落 × 跨页面约定脆弱"的乘法级复杂度，需要系统性治理而非逐条打补丁。

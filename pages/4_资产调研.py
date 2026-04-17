@@ -394,6 +394,8 @@ st.header("2️⃣ 资产排名概览")
 # ─────────────────────────────────────────────────────────────────
 _ARENA_HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "arena_history.json")
 _arena_hist: dict = {}
+_arena_hist_is_fallback: bool = False
+_arena_hist_local_mtime: str = ""
 # 优先从后端 API 读取（支持 Top-10 候选数据），降级到本地 JSON 离线备用
 try:
     _arena_hist = _fetch_arena_history() or {}
@@ -405,8 +407,24 @@ if not _arena_hist:
             with open(_ARENA_HISTORY_FILE, "r", encoding="utf-8") as _f:
                 _raw = json.load(_f)
             _arena_hist = {k: v for k, v in _raw.items() if not k.startswith("_")}
+            _arena_hist_is_fallback = bool(_arena_hist)
+            if _arena_hist_is_fallback:
+                import datetime as _dt_p4
+                _arena_hist_local_mtime = _dt_p4.datetime.fromtimestamp(
+                    os.path.getmtime(_ARENA_HISTORY_FILE)
+                ).strftime("%Y-%m-%d %H:%M")
     except Exception:
         pass
+
+# 约束 2（禁止静默失败）：降级到本地必须红字告警
+if _arena_hist_is_fallback:
+    st.toast("⚠️ Render 后端 arena_history 为空，已降级本地陈旧快照", icon="🚨")
+    st.error(
+        f"🚨 **数据降级告警**：后端 `arena_history` 表当前返回空，Page 4 历史 Top-N 换仓表已 fallback 到本地快照 "
+        f"`data/arena_history.json`（最后修改 **{_arena_hist_local_mtime}**）。"
+        "\n\n历史榜单**不反映最新分类结果**，请先访问 **Page 3 资产细筛** 重新跑分类并回填，"
+        "或登录 Render 排查 `universe.db.arena_history` 表。"
+    )
 
 if _arena_hist:
     _sorted_months = sorted(
