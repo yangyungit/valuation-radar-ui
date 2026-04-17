@@ -153,6 +153,23 @@ with st.sidebar:
         st.toast("所有页面缓存已清除！")
         st.rerun()
 
+    st.divider()
+    st.subheader("💸 摩擦成本参数")
+    _p5_commission_pct = st.slider(
+        "佣金率 (%)", min_value=0.00, max_value=0.50,
+        value=0.03, step=0.01, format="%.2f",
+        key="p5_commission_rate",
+        help="单边佣金率（富途/盈透级别约 0.03%）",
+    )
+    _p5_slippage_pct = st.slider(
+        "滑点率 (%)", min_value=0.00, max_value=0.50,
+        value=0.10, step=0.01, format="%.2f",
+        key="p5_slippage_rate",
+        help="单边滑点率（A 级流动性 ETF/蓝筹约 0.10%）",
+    )
+    # 摩擦成本公式：换仓次数 × 2(标的) × 2(进出) × (佣金+滑点) / 100
+    _p5_per_switch_friction = 4.0 * (_p5_commission_pct + _p5_slippage_pct) / 100.0
+
 
 # ── 择时策略接口标准 ──────────────────────────────────────────────────
 class TimingResult(NamedTuple):
@@ -911,6 +928,14 @@ if _arena_data:
     with _kpi_c4:
         st.metric("换仓次数", f"{_switch_count} 次")
 
+    _a_friction_pct = _switch_count * _p5_per_switch_friction * 100
+    _a_net_ret = _ret_combined - _a_friction_pct
+    st.caption(
+        f"净收益 **{_a_net_ret:+.1f}%**（已扣换仓摩擦 **-{_a_friction_pct:.1f}%**，"
+        f"佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%，"
+        f"共 {_switch_count} 次 × 4腿）"
+    )
+
     _dd_c1, _dd_c2, _dd_c3 = st.columns(3)
     with _dd_c1:
         st.metric("左列最大回撤", f"-{_dd_left:.1f}%")
@@ -1041,6 +1066,14 @@ if _arena_data:
         st.metric("B 级合成总收益", f"{_b_ret_combined:+.1f}%")
     with _b_kpi_c4:
         st.metric("换仓次数", f"{_b_switch_count} 次")
+
+    _b_friction_pct = _b_switch_count * _p5_per_switch_friction * 100
+    _b_net_ret = _b_ret_combined - _b_friction_pct
+    st.caption(
+        f"净收益 **{_b_net_ret:+.1f}%**（已扣换仓摩擦 **-{_b_friction_pct:.1f}%**，"
+        f"佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%，"
+        f"共 {_b_switch_count} 次 × 4腿）"
+    )
 
     _b_dd_c1, _b_dd_c2, _b_dd_c3 = st.columns(3)
     with _b_dd_c1:
