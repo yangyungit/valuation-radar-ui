@@ -2,6 +2,47 @@
 
 ---
 
+## 2026-04-17 | 数据一致性治理阶段性沉淀 ⭐
+
+**背景**：2026-04-13 至 2026-04-16 共出现 8 次数据一致性 bug（见本文件 4-15 / 4-16 (b)/(d)/(e)/(f)/(g)/(h) 六条记录）。复盘后发现结构性根因是"真相源分裂 × 静默失败 × 硬编码散落 × 跨页面约定脆弱"的乘法级复杂度，需要系统性治理而非逐条打补丁。
+
+### 本次交付物（一次性立四根柱子）
+
+1. **正本数据流图**：[`../valuation-radar/DATA_FLOW.md`](../valuation-radar/DATA_FLOW.md) — 5 个核心字段（arena_history / conviction_state / screen_results / macro_regime / arena_buffer_n）各一张 mermaid 子图，标注权威源/降级源/TTL + 全局不变量清单 5 条。
+2. **正本一致性协议**：[`../valuation-radar/DATA_CONSISTENCY_PROTOCOL.md`](../valuation-radar/DATA_CONSISTENCY_PROTOCOL.md) — 五条硬约束（SSOT / 禁止静默失败 / 破坏性 vs 业务性写入分级 / 跨层契约显式化 / 写后校验），每条配正反例。
+3. **后端 `.cursorrules` 新增第 8 条"数据一致性协议"**，前端 `.cursorrules` 顶部加指针指向后端正本，避免双份分裂。
+4. **契约审计改造（Page 3 / Page 1）**：
+   - 中间层三函数（`_save_history_to_local_json` / `_record_arena_history` / `_save_conviction_state`）全部改为返回 `bool`，失败内置 `st.toast` 红字告警。
+   - `_save_conviction_state` 新增 `verify=True` 参数实现写后立即读一次校验（holders 数量比对），作为未来关键路径模板。
+   - Page 3 `_sync_arena_to_backend` / 首次 `push_screen_results` 调用点加返回值检查。
+   - Page 1 `push_macro_regime` 调用点加返回值检查。
+5. **集中 session_state 契约**：新建 [`shared_state.py`](shared_state.py)，`SharedKeys` 常量类覆盖跨页面 8 个 key；Page 4 / Page 5 示范迁移了 `CONFIRMED_BUFFER_N` / `P5_BUFFER_SYNCED` 两处，替代字符串字面量。
+
+### 六条经验教训（写给未来的自己）
+
+1. **单一真相源（SSOT）是生死线**，不是建议。每份数据必须有且仅有一个权威存储。
+2. **静默失败比真实失败危险 10 倍**——假成功会在三周后以玄学形式报复，必须让失败响亮。
+3. **部署环境保护按操作类型分级**：只阻断破坏性操作（DELETE/DROP/CLEAR_ALL），不得阻断业务写入。4-16(e) 是这条教训的血证。
+4. **显式契约 > 隐式约定**：存储上限、schema 字段、共享 key 必须集中定义、后端校验、前端引用；散落多处必埋雷。
+5. **写后立即读一次校验**成本极低、收益极高，应该成为关键路径的默认做法。
+6. **先画拓扑图再写代码**：当系统超过"3 存储 × 2 环境 × 7 页面"这个量级，没有数据流图就是在盲飞。
+
+### 未决清单（后续单独推进，避免单次 PR 过大）
+
+- Page 3 其它 session_state key（`abcd_classified_assets` / `arena_winners` / `p4_arena_leaders`）迁移到 `SharedKeys`
+- Page 0/1/6 的宏观剧本 key 迁移到 `SharedKeys`
+- 后端 API schema 增加 `_ARENA_SAVE_N` 上限校验（当前仅前端约定）
+- 回填路径（`_backfill_arena_history`）checkpoint 失败累计汇总（当前每次 toast 可能刷屏，虽然实测 60 月 / 6 = 10 次尚可接受）
+- 本地 JSON fallback 写入增加 `fallback=true` 元数据标签，权威源恢复后合并而非覆盖
+
+### 影响范围
+
+- 新增：`valuation-radar/DATA_FLOW.md`、`valuation-radar/DATA_CONSISTENCY_PROTOCOL.md`、`valuation-radar-ui/shared_state.py`
+- 修改：`valuation-radar/.cursorrules`、`valuation-radar-ui/.cursorrules`、`pages/1_宏观定调.py`、`pages/3_资产细筛.py`、`pages/4_资产调研.py`、`pages/5_个股择时.py`
+- 零行为变更：所有改造均为纯增强（加返回值检查、加 toast、加常量引用），不改现有业务逻辑
+
+---
+
 ## 2026-04-16 (h)
 
 ### 修复 Page 4 守擂缓冲区 Top-N 变更无法传递到 Page 5 A 组图表

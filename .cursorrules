@@ -2,8 +2,47 @@
 
 本文件是 `valuation-radar-ui` 前端项目的专属规则，与后端 `valuation-radar/.cursorrules` 联合生效。
 
+## 📐 数据一致性协议指针 ⭐ 最高优先级
+**数据一致性协议与核心字段数据流图以后端仓库为正本，前端不保存副本。** 任何改动涉及 `push_*` / `_save_*` / `_record_*` / `_sync_*` 函数、跨页面 `session_state` 共享、本地 JSON 降级兜底的逻辑时，**动手前必须先读**：
+* 数据流图：`../valuation-radar/DATA_FLOW.md`
+* 硬约束：`../valuation-radar/DATA_CONSISTENCY_PROTOCOL.md`
+* 后端 `.cursorrules` 第 8 条为摘要版，详细正反例见上述两份 md。
+
+跨页面共享的 `session_state` key 必须使用 `shared_state.py` 的 `SharedKeys` 常量，**禁止字符串字面量散落**。
+
 ## 🗣️ 交流语言规范
 * **必须使用中文**与主理人交流，包括所有回复、解释、问题和建议。代码注释、变量名、API 字段等技术内容保持英文不变。
+
+## 🌐 真相源判别协议 (Source-of-Truth Protocol) ⭐ 最高优先级
+项目是**双人协作**，两人共用同一 GitHub 仓库，但**日常真相源完全不同**，不要混为一谈：
+
+| 角色 | git user.email | 常用分支 | 真相源 | 调试习惯 |
+|---|---|---|---|---|
+| **主理人（杨云）** | `z@yang-yun.com`（或 user.name = `yangyungit`） | `main` / 主链 | **Render 生产环境** ⭐ | 99% 时间在线上操作 |
+| **同事（傲阳）** | 非上述身份 | 支链 / feature 分支 | **本地 localhost** | 大部分时间本地调试 |
+
+**每次涉及运行时数据（`universe.db` / `arena_history` / `conviction_state` / `screen_results` 等）排障前，必须先跑一次识别命令：**
+
+```bash
+git config user.email && git branch --show-current
+```
+
+### 主理人场景（email = z@yang-yun.com 或 main 分支）
+* **Render 后端地址：** `https://valuation-radar-server.onrender.com`
+* **真相源判定顺序（严格遵守）：**
+  1. **优先：** `curl https://valuation-radar-server.onrender.com/api/v1/xxx` 直接查 Render API
+  2. **其次：** 问主理人前端页面上看到的内容、成功/失败 toast 的原话
+  3. **最后：** 才去翻本地 `universe.db` 的 mtime、本地进程 `ps aux | grep`、本地 JSON 兜底文件
+* **禁止的错误推理链：** 不要用本地 `universe.db` 的 mtime 反推"主理人今天有没有操作过系统"——他大概率在 Render 上操作，本地文件**永远是旧的**，这个时间戳对线上行为毫无证据价值。
+* **本地进程离线 ≠ 系统没跑：** `lsof -iTCP:8000` 没监听、`ps | grep api_server` 无进程，只说明主理人没启动本地副本，**不能推出"Render 后端也没跑"**。Render 是 7×24 托管服务（冷启动 15-30s 唤醒）。
+
+### 同事场景（傲阳，非主理人 email 或在支链分支）
+* **真相源直接在本地：** `universe.db` / `data/arena_history.json` / 本地进程 8000/8501 端口
+* 不要盲目让他 `curl Render`，他的修改很可能还没合并到主链，Render 上根本不会有
+* 调试指令配合本地：`lsof -iTCP:8000`、`ps aux | grep api_server`、本地 SQLite 路径都是有效证据
+
+### 拿不准时的默认行为
+如果 `git config user.email` 返回**不是** `z@yang-yun.com` 也不是明显的傲阳标识，或者当前分支不在 `main`/支链已知命名约定里，**先问一句**"你是主理人还是傲阳？当前在调试 Render 还是本地？"再动手，不要猜。
 
 ## 🖥️ 本地开发环境 (Local Dev Environment)
 * **操作系统兼容性：** 团队采用跨平台协作。当你（AI）需要执行 Shell 命令时，请先侦测当前运行的操作系统（macOS/Linux 使用 bash/zsh，Windows 使用 PowerShell/cmd）并使用对应的兼容命令。

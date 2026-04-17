@@ -355,13 +355,17 @@ def _expand_arena_records(base_records: list, df_scored: pd.DataFrame,
     return expanded
 
 
-def _save_history_to_local_json(batch: dict) -> None:
-    """将 arena history 批量数据合并写入本地 JSON（后端不可用时的兜底）。"""
+def _save_history_to_local_json(batch: dict) -> bool:
+    """将 arena history 批量数据合并写入本地 JSON（后端不可用时的兜底）。
+
+    返回是否写入成功（供约束 2：禁止静默失败）。
+    """
     try:
         existing: dict = {}
         if os.path.exists(_HISTORY_FILE):
             with open(_HISTORY_FILE, "r", encoding="utf-8") as f:
                 existing = json.load(f)
+        os.makedirs(os.path.dirname(_HISTORY_FILE), exist_ok=True)
         for mk, cls_map in batch.items():
             if mk not in existing:
                 existing[mk] = {}
@@ -369,15 +373,22 @@ def _save_history_to_local_json(batch: dict) -> None:
                 existing[mk][cls] = recs
         with open(_HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(existing, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+        return True
+    except Exception as e:
+        print(f"[_save_history_to_local_json] {e}")
+        return False
 
 
 def _record_arena_history(cls: str, records: list, month_key: str = None,
-                          _batch_buf: dict | None = None) -> None:
+                          _batch_buf: dict | None = None) -> bool:
     """将某月某赛道的排名记录写入后端（实时）或暂存至 _batch_buf（回填批量）。
-    _batch_buf 不为 None 时只写入内存字典，由调用方负责批量推送。
+
+    _batch_buf 不为 None 时只写入内存字典（永远返回 True），由调用方负责批量推送。
     实时写入（_batch_buf 为 None）时，若后端推送失败则回退写本地 JSON。
+
+    返回值说明（遵循 DATA_CONSISTENCY_PROTOCOL 约束 2）：
+    - True：后端推送成功，或批量缓冲已收录
+    - False：后端推送失败且本地兜底也失败（双失败）；后端失败但本地兜底成功仍返回 True
     """
     if month_key is None:
         month_key = datetime.now().strftime("%Y-%m")
@@ -386,16 +397,46 @@ def _record_arena_history(cls: str, records: list, month_key: str = None,
         if month_key not in _batch_buf:
             _batch_buf[month_key] = {}
         _batch_buf[month_key][cls] = rec_list
-    else:
-        payload = {month_key: {cls: rec_list}}
-        ok = _api_push_history_batch(payload)
-        if not ok:
-            _save_history_to_local_json(payload)
+        return True
+    payload = {month_key: {cls: rec_list}}
+    ok = _api_push_history_batch(payload)
+    if ok:
+        return True
+    fallback_ok = _save_history_to_local_json(payload)
+    if fallback_ok:
+        st.toast(f"⚠️ {cls} 档案后端写入失败，已降级本地 JSON", icon="warning")
+        return True
+    st.toast(f"🚨 {cls} 档案写入彻底失败（后端+本地兜底均失败）", icon="🚨")
+    return False
 
 
-def _save_conviction_state(cls: str, state: dict, holders: list) -> None:
-    """持久化信念状态到后端 universe.db（唯一存储源）。"""
-    _api_push_conv(cls, state, holders)
+def _save_conviction_state(cls: str, state: dict, holders: list,
+                           verify: bool = False) -> bool:
+    """持久化信念状态到后端 universe.db（唯一存储源）。
+
+    返回值说明（遵循 DATA_CONSISTENCY_PROTOCOL 约束 2 + 5）：
+    - True：推送成功（verify=True 时还要求写后校验通过）
+    - False：推送失败或写后校验不一致；失败时自动 st.toast 红字告警
+
+    verify=True 时执行"写后立即读一次"严格校验样板（约束 5，仅关键路径开启避免拖慢）：
+    - 比对 holders 数量；读回值 < 写入值视为收缩，告警并返回 False
+    """
+    ok = _api_push_conv(cls, state, holders)
+    if not ok:
+        st.toast(f"🚨 {cls} 信念状态写入失败（后端 API 不可达或拒绝）", icon="🚨")
+        return False
+    if verify:
+        try:
+            state_back, holders_back = _api_fetch_conv(cls)
+            if len(holders_back) < len(holders):
+                st.toast(
+                    f"🚨 {cls} 信念写后校验失败：holders {len(holders)} → {len(holders_back)}",
+                    icon="🚨",
+                )
+                return False
+        except Exception as e:
+            print(f"[_save_conviction_state verify] {e}")
+    return True
 
 
 def _load_conviction_state(cls: str) -> tuple[dict, list]:
@@ -2741,11 +2782,13 @@ _save_prev_classification(_new_grades_map)
 
 st.session_state["abcd_classified_assets"] = all_assets
 # write-through：同步到后端（arena_winners 此时尚未计算，先持久化资产分类）
-push_screen_results({
+# 遵循 DATA_CONSISTENCY_PROTOCOL 约束 2：禁止静默失败
+if not push_screen_results({
     "abcd_classified_assets": all_assets,
     "arena_winners": st.session_state.get("arena_winners", {}),
     "p4_arena_leaders": st.session_state.get("p4_arena_leaders", {}),
-})
+}):
+    st.toast("⚠️ ABCD 分类首次同步后端失败，下游页面可能看到陈旧数据", icon="warning")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -2780,13 +2823,19 @@ if not rows:
 
 df_all = pd.DataFrame(rows).astype({"Z-Score": float, "20日动量": float})
 
-def _sync_arena_to_backend() -> None:
-    """write-through：将当前 arena_winners + p4_arena_leaders 同步到后端缓存。"""
-    push_screen_results({
+def _sync_arena_to_backend() -> bool:
+    """write-through：将当前 arena_winners + p4_arena_leaders 同步到后端缓存。
+
+    返回是否成功（遵循 DATA_CONSISTENCY_PROTOCOL 约束 2）。失败时 st.toast 告警。
+    """
+    ok = push_screen_results({
         "abcd_classified_assets": st.session_state.get("abcd_classified_assets", {}),
         "arena_winners":          st.session_state.get("arena_winners", {}),
         "p4_arena_leaders":       st.session_state.get("p4_arena_leaders", {}),
     })
+    if not ok:
+        st.toast("⚠️ Arena 结果同步后端失败，Page 4/5/6 可能看到陈旧数据", icon="warning")
+    return ok
 
 # ─────────────────────────────────────────────────────────────────
 #  全局概览横幅（可点击切换竞技场）

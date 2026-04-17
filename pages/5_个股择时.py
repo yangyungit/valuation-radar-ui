@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from api_client import (fetch_core_data, fetch_vcp_analysis, fetch_screen_results,
                         fetch_arena_history)
+from shared_state import SharedKeys  # 跨页面 session_state key 集中定义（约束 4）
 
 core_data = fetch_core_data()
 TIC_MAP = core_data.get("TIC_MAP", {})
@@ -416,8 +417,8 @@ _ARENA_CONFIG_FILE_P5 = os.path.join(os.path.dirname(__file__), "..", "data", "a
 
 def _load_buffer_n_p5() -> int:
     """优先 session_state（同会话 Page 4 已写入），回退磁盘文件，兜底默认 3。"""
-    if "confirmed_buffer_n" in st.session_state:
-        return int(st.session_state["confirmed_buffer_n"])
+    if SharedKeys.CONFIRMED_BUFFER_N in st.session_state:
+        return int(st.session_state[SharedKeys.CONFIRMED_BUFFER_N])
     try:
         if os.path.exists(_ARENA_CONFIG_FILE_P5):
             with open(_ARENA_CONFIG_FILE_P5, "r", encoding="utf-8") as _cf:
@@ -454,12 +455,12 @@ if _arena_data:
     _auth_buffer = min(_load_buffer_n_p5(), _p5_max_buffer_n)
     if "p5_buffer_n_input" not in st.session_state:
         st.session_state["p5_buffer_n_input"] = _auth_buffer
-        st.session_state["_p5_buffer_synced"] = _auth_buffer
+        st.session_state[SharedKeys.P5_BUFFER_SYNCED] = _auth_buffer
     else:
-        _last_synced = st.session_state.get("_p5_buffer_synced")
+        _last_synced = st.session_state.get(SharedKeys.P5_BUFFER_SYNCED)
         if _auth_buffer != _last_synced:
             st.session_state["p5_buffer_n_input"] = _auth_buffer
-            st.session_state["_p5_buffer_synced"] = _auth_buffer
+            st.session_state[SharedKeys.P5_BUFFER_SYNCED] = _auth_buffer
     _buffer_n: int = min(int(st.session_state["p5_buffer_n_input"]), _p5_max_buffer_n)
     _tm_months = sorted(k for k in _arena_data if not k.startswith("_"))
     _tm_hold: dict = {}

@@ -4,6 +4,7 @@ import numpy as np
 import os, json
 import plotly.graph_objects as go
 from api_client import fetch_core_data, fetch_screen_results, fetch_arena_history as _fetch_arena_history
+from shared_state import SharedKeys  # 跨页面 session_state key 集中定义（约束 4）
 
 st.set_page_config(page_title="资产矩阵与雷达", layout="wide", page_icon="📡")
 
@@ -470,8 +471,8 @@ if _arena_hist:
     _min_data_depth = min(_latest_depths) if _latest_depths else 3
     _max_buffer_n = max(2, _min_data_depth)
 
-    if "confirmed_buffer_n" not in st.session_state:
-        st.session_state["confirmed_buffer_n"] = min(_load_buffer_n(), _max_buffer_n)
+    if SharedKeys.CONFIRMED_BUFFER_N not in st.session_state:
+        st.session_state[SharedKeys.CONFIRMED_BUFFER_N] = min(_load_buffer_n(), _max_buffer_n)
 
     _buf_col, _btn_col, _info_col = st.columns([1, 1, 3])
     with _buf_col:
@@ -479,7 +480,7 @@ if _arena_hist:
             "守擂缓冲区 Top-N",
             min_value=2,
             max_value=_max_buffer_n,
-            value=min(st.session_state["confirmed_buffer_n"], _max_buffer_n),
+            value=min(st.session_state[SharedKeys.CONFIRMED_BUFFER_N], _max_buffer_n),
             step=1,
             key="arena_buffer_n_input",
             help=(
@@ -491,10 +492,10 @@ if _arena_hist:
         st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
         if st.button("✅ 确认", key="confirm_buffer_n"):
             _clamped_n = min(int(_input_n), _max_buffer_n)
-            st.session_state["confirmed_buffer_n"] = _clamped_n
+            st.session_state[SharedKeys.CONFIRMED_BUFFER_N] = _clamped_n
             _save_buffer_n(_clamped_n)
             st.toast(f"缓冲区已更新为 Top-{_clamped_n}，历史换仓历史已重算 ✅", icon="🔄")
-    _buffer_n: int = st.session_state["confirmed_buffer_n"]
+    _buffer_n: int = st.session_state[SharedKeys.CONFIRMED_BUFFER_N]
 
     if _min_data_depth <= 3:
         st.warning(
