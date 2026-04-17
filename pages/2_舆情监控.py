@@ -53,6 +53,7 @@ from api_client import (
     post_dictionary_batch_mark_noise,
     post_dictionary_rename_l2,
     post_dictionary_delete_l2,
+    post_dictionary_export_to_json,
     fetch_crawler_status,
     fetch_core_data,
     trigger_batch_backfill,
@@ -271,7 +272,7 @@ with st.expander("🔬 引擎原理白盒 — NLP 流水线是怎么工作的？
     <div style="font-size:13px;color:#ccc;line-height:1.7">
       后端维护一本<b>动态词典</b>（种子词 + 人工审批词 + TF-IDF 晋升词）。<br>
       对每篇新闻标题 + 摘要做<b>全文字符串扫描</b>，命中词典则记录一条 <code>keyword_match_log</code>：<br><br>
-      <code style="font-size:12px;color:#1ABC9C">
+      <code style="font-size:13px;color:#1ABC9C">
       新闻ID → 关键词 → 来源 → 日期 → 情感分<br>
       </code><br>
       <span style="color:#888">这一步是"旧词统计"（Tab 4）所展示的核心数据，你可以追踪任意一条信号的来源。</span>
@@ -309,7 +310,7 @@ with st.expander("🔬 引擎原理白盒 — NLP 流水线是怎么工作的？
     <div style="font-size:15px;font-weight:700;color:#E74C3C;margin-bottom:10px">⑤ 因子聚合 → 共振信号</div>
     <div style="font-size:13px;color:#ccc;line-height:1.7">
       将上述 NLP 管道输出的<b>舆情强度</b>与价格动量结合，计算双因子共振分：<br><br>
-      <code style="font-size:12px;color:#E74C3C">
+      <code style="font-size:13px;color:#E74C3C">
       共振分 = f(关键词命中频次, 情感得分, 价格RS排名)
       </code><br><br>
       · <b>舆情爆发</b>：某股近 N 天关键词命中量异常放大<br>
@@ -1635,28 +1636,43 @@ if active_phase == 3:
     elif not taxonomy_full_data:
         st.info("叙事词典为空。请先在「主题发现」中生成并批准种子提案以建库。")
     else:
-        v4_sub1, v4_sub2 = st.tabs(["📂 词典全景", "🔇 噪音词管理"])
+        v4_sub1, v4_sub2, v4_sub3 = st.tabs(["📂 词典全景", "🔗 Ticker 关联词管理", "🔇 噪音词管理"])
 
         # ----- Sub-tab: Taxonomy Panorama -----
         with v4_sub1:
-            with st.expander("＋ 新建 L2 板块", expanded=False):
-                nb_col1, nb_col2 = st.columns(2)
-                with nb_col1:
-                    nb_name = st.text_input("板块名称", key="nb_l2_name", placeholder="例: AI_Infrastructure")
-                with nb_col2:
-                    nb_seed = st.text_input("首个 L3 关键词（必填）", key="nb_l2_seed", placeholder="例: GPU cluster")
-                st.caption("新建板块必须附带至少一个关键词，来源自动标记为 approved（人工审批）")
-                if st.button("➕ 创建板块", key="nb_btn", use_container_width=False):
-                    if nb_name.strip() and nb_seed.strip():
-                        res = post_dictionary_add(nb_name.strip(), nb_seed.strip())
-                        if res.get("success"):
-                            st.success(f"已创建板块 [{nb_name.strip()}] 并添加首词 [{nb_seed.strip()}]")
-                            st.cache_data.clear()
-                            st.rerun()
+            toolbar_left, toolbar_right = st.columns([3, 1])
+
+            with toolbar_left:
+                with st.expander("＋ 新建 L2 板块", expanded=False):
+                    nb_col1, nb_col2 = st.columns(2)
+                    with nb_col1:
+                        nb_name = st.text_input("板块名称", key="nb_l2_name", placeholder="例: AI_Infrastructure")
+                    with nb_col2:
+                        nb_seed = st.text_input("首个 L3 关键词（必填）", key="nb_l2_seed", placeholder="例: GPU cluster")
+                    st.caption("新建板块必须附带至少一个关键词，来源自动标记为 approved（人工审批）")
+                    if st.button("➕ 创建板块", key="nb_btn", use_container_width=False):
+                        if nb_name.strip() and nb_seed.strip():
+                            res = post_dictionary_add(nb_name.strip(), nb_seed.strip())
+                            if res.get("success"):
+                                st.success(f"已创建板块 [{nb_name.strip()}] 并添加首词 [{nb_seed.strip()}]")
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error(f"创建失败: {res.get('error')}")
                         else:
-                            st.error(f"创建失败: {res.get('error')}")
+                            st.warning("板块名称和首个关键词均不可为空")
+
+            with toolbar_right:
+                if st.button("💾 导出词典到 JSON", key="btn_export_dict_json", use_container_width=True,
+                             help="将数据库中所有活跃的种子词和 CIO 审批词快照写回 seed_taxonomy.json，便于 Git 版本追踪"):
+                    exp_res = post_dictionary_export_to_json()
+                    if exp_res.get("success"):
+                        st.success(
+                            f"导出成功 ✅ — {exp_res.get('exported_sectors')} 个板块 / "
+                            f"{exp_res.get('exported_keywords')} 个关键词 → seed_taxonomy.json"
+                        )
                     else:
-                        st.warning("板块名称和首个关键词均不可为空")
+                        st.error(f"导出失败：{exp_res.get('error', '未知错误')}")
 
             sm_c1, sm_c2, sm_c3, sm_c4 = st.columns(4)
             sm_c1.metric("L2 板块总数", taxonomy_summary.get("total_l2", 0))
@@ -1793,13 +1809,26 @@ if active_phase == 3:
                         "bottom_up": "孤儿词",
                         "tfidf_auto": "TF-IDF",
                     }
+                    TIER_LABEL = {"T1": "T1 核弹词", "T2": "T2 强信号", "T3": "T3 通用词"}
                     for t in terms:
                         t_status = t.get("status", "active")
                         t_source = _normalize_dict_source(t.get("source", "seed"))
                         ss = STATUS_STYLE.get(t_status, STATUS_STYLE["active"])
                         term_safe = html_lib.escape(t["term"])
                         src_display = src_label_map_short.get(t_source, t_source)
-                        tooltip = html_lib.escape(f"来源: {src_display} · 状态: {t_status}", quote=True)
+
+                        tier = t.get("signal_tier", "T2")
+                        aw = t.get("affinity_weight", 1.0)
+                        csc = t.get("cross_sector_count", 0)
+                        tooltip_parts = [f"来源: {src_display}", f"状态: {t_status}", f"信号: {TIER_LABEL.get(tier, tier)}"]
+                        if aw < 1.0:
+                            tooltip_parts.append(f"亲和度: {aw}")
+                        if csc > 0:
+                            tooltip_parts.append(f"跨板块共享: {csc} 个")
+                        tooltip = html_lib.escape(" · ".join(tooltip_parts), quote=True)
+
+                        tier_prefix = "<span style='color:#F1C40F;font-size:13px'>● </span>" if tier == "T1" else ""
+                        tier_opacity = "opacity:0.65;" if tier == "T3" else ""
 
                         bg = ss["bg"]
                         color = ss["color"]
@@ -1815,8 +1844,8 @@ if active_phase == 3:
                         badges_html += (
                             f"<span title='{tooltip}' style='display:inline-block;"
                             f"{bg_style}color:{color};padding:2px 8px;border-radius:4px;"
-                            f"font-size:13px;margin:2px 3px 2px 0;{fw_style}{italic_style}'>"
-                            f"{term_safe}{suffix_html}</span>"
+                            f"font-size:13px;margin:2px 3px 2px 0;{fw_style}{italic_style}{tier_opacity}'>"
+                            f"{tier_prefix}{term_safe}{suffix_html}</span>"
                         )
 
                     st.markdown(f"""
@@ -1837,10 +1866,10 @@ if active_phase == 3:
                     with st.expander(f"⊕ 添加  ·  📋 批量操作  ·  ✏ 管理  —  {l2_name}", expanded=False):
                         (
                             il_add_tab, il_arc_tab, il_res_tab,
-                            il_mv_tab, il_noise_tab, il_mgr_tab
+                            il_mv_tab, il_noise_tab, il_tier_tab, il_mgr_tab
                         ) = st.tabs([
                             "➕ 添加", "🗄️ 归档", "♻️ 恢复",
-                            "📦 迁移", "🚫 标噪", "✏️ 管理"
+                            "📦 迁移", "🚫 标噪", "🎯 分级", "✏️ 管理"
                         ])
 
                         # ── 添加 ──────────────────────────────────────────────
@@ -2045,6 +2074,66 @@ if active_phase == 3:
                             else:
                                 st.caption("该板块下暂无词条")
 
+                        # ── 分级 ──────────────────────────────────────────────
+                        with il_tier_tab:
+                            active_terms_for_tier = [
+                                t for t in terms
+                                if t.get("status") in ("active", "seed_only")
+                            ]
+                            if not active_terms_for_tier:
+                                st.caption("该板块下暂无活跃词条可分级")
+                            else:
+                                tier_display = []
+                                for t in active_terms_for_tier:
+                                    tier_display.append({
+                                        "词条": t["term"],
+                                        "当前层级": t.get("signal_tier", "T3"),
+                                        "亲和度": t.get("affinity_weight", 1.0),
+                                        "跨板块": t.get("cross_sector_count", 0),
+                                    })
+                                import pandas as _pd_tier
+                                tier_df = _pd_tier.DataFrame(tier_display)
+                                tier_summary = tier_df["当前层级"].value_counts()
+                                t1c = int(tier_summary.get("T1", 0))
+                                t2c = int(tier_summary.get("T2", 0))
+                                t3c = int(tier_summary.get("T3", 0))
+                                st.markdown(
+                                    f"<div style='font-size:13px;color:#aaa;margin-bottom:8px'>"
+                                    f"<span style='color:#F1C40F'>● T1</span> {t1c} &nbsp;·&nbsp; "
+                                    f"T2 {t2c} &nbsp;·&nbsp; "
+                                    f"<span style='opacity:0.65'>T3</span> {t3c}"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+                                selected_tier_terms = st.multiselect(
+                                    "选择词条（可多选）",
+                                    [t["term"] for t in active_terms_for_tier],
+                                    key=f"tier_sel_{_l2_safe}",
+                                )
+                                new_tier = st.selectbox(
+                                    "设为层级",
+                                    ["T1", "T2", "T3"],
+                                    index=1,
+                                    key=f"tier_new_{_l2_safe}",
+                                )
+                                if st.button(
+                                    f"批量设置为 {new_tier}",
+                                    key=f"tier_btn_{_l2_safe}",
+                                    disabled=not selected_tier_terms,
+                                ):
+                                    from api_client import post_dictionary_batch_update_tier
+                                    items = [
+                                        {"l2_sector": l2_name, "l3_keyword": kw, "signal_tier": new_tier}
+                                        for kw in selected_tier_terms
+                                    ]
+                                    res = post_dictionary_batch_update_tier(items)
+                                    if res.get("success"):
+                                        st.success(f"已将 {res.get('processed', 0)} 个词条设为 {new_tier}")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error(f"操作失败: {res.get('error')}")
+
                         # ── 管理 ──────────────────────────────────────────────
                         with il_mgr_tab:
                             em_action = st.radio(
@@ -2104,11 +2193,193 @@ if active_phase == 3:
                 <span style='background:rgba(155,89,182,0.18);color:#9B59B6;padding:1px 7px;border-radius:3px;font-size:13px'>人工审批</span>&nbsp;
                 <span style='background:rgba(243,156,18,0.18);color:#F39C12;padding:1px 7px;border-radius:3px;font-size:13px'>孤儿词提案</span>&nbsp;
                 <span style='background:rgba(26,188,156,0.18);color:#1ABC9C;padding:1px 7px;border-radius:3px;font-size:13px'>TF-IDF晋升</span>
+                <br><b>信号层级：</b>
+                <span style='color:#F1C40F;font-size:13px'>●</span> 金点 = T1 核弹词(3x) &nbsp;·&nbsp;
+                默认 = T2 强信号(2x) &nbsp;·&nbsp;
+                <span style='opacity:0.65;font-size:13px'>浅色</span> = T3 通用词(1x) &nbsp;·&nbsp;
+                悬停词条查看详细信号层级与跨板块共享信息
             </div>
             """, unsafe_allow_html=True)
 
-        # ----- Sub-tab: Noise Words Management (enhanced) -----
+        # ----- Sub-tab: Ticker Affinity Management -----
         with v4_sub2:
+            from api_client import (
+                get_ticker_affinity_list, get_ticker_affinity_stats,
+                post_ticker_affinity_add, post_ticker_affinity_batch_add,
+                post_ticker_affinity_batch_archive, post_ticker_affinity_batch_restore,
+                get_ticker_affinity_suggestions, post_ticker_affinity_batch_approve,
+            )
+
+            tka_stats = get_ticker_affinity_stats()
+            tka_c1, tka_c2, tka_c3, tka_c4 = st.columns(4)
+            tka_c1.metric("配置 Ticker", tka_stats.get("configured_tickers", 0))
+            tka_c2.metric("总条目", tka_stats.get("total", 0))
+            tka_c3.metric("人工添加", tka_stats.get("manual_entries", 0))
+            tka_c4.metric("待审候选", tka_stats.get("auto_pending", 0))
+
+            st.markdown("---")
+
+            # Filter bar
+            tka_filt_col1, tka_filt_col2 = st.columns([1, 2])
+            with tka_filt_col1:
+                tka_filter_ticker = st.text_input(
+                    "筛选 Ticker", "", key="tka_filter_ticker",
+                    placeholder="输入 ticker 如 NVDA",
+                ).strip().upper()
+            with tka_filt_col2:
+                tka_filter_l2 = st.selectbox(
+                    "筛选板块", ["全部"] + sorted(item["l2"] for item in taxonomy_full_data),
+                    key="tka_filter_l2",
+                )
+
+            tka_l2_param = "" if tka_filter_l2 == "全部" else tka_filter_l2
+            tka_data_resp = get_ticker_affinity_list(
+                ticker=tka_filter_ticker, l2_sector=tka_l2_param,
+            )
+            tka_entries = tka_data_resp.get("data", [])
+
+            if not tka_entries:
+                st.info("暂无匹配的 Ticker 关联词条目。可在下方添加。")
+            else:
+                # Group by ticker
+                tka_by_ticker: dict = {}
+                for e in tka_entries:
+                    tk = e.get("ticker", "?")
+                    tka_by_ticker.setdefault(tk, []).append(e)
+
+                for tk in sorted(tka_by_ticker.keys()):
+                    entries = tka_by_ticker[tk]
+                    badge_html = ""
+                    for ent in entries:
+                        kw = html_lib.escape(ent.get("l3_keyword", ""))
+                        w = ent.get("affinity_weight", 1.0)
+                        w_str = f" ({w})" if w < 1.0 else ""
+                        badge_html += (
+                            f"<span style='display:inline-block;background:rgba(52,152,219,0.15);"
+                            f"color:#3498DB;padding:2px 8px;border-radius:4px;"
+                            f"font-size:13px;margin:2px 3px 2px 0'>"
+                            f"{kw}<small style='color:#888'>{w_str}</small></span>"
+                        )
+                    st.markdown(
+                        f"<div style='background:#111;border:1px solid #2a2a2a;border-radius:8px;"
+                        f"padding:12px 16px;margin-bottom:4px'>"
+                        f"<div style='font-size:15px;font-weight:bold;color:#E67E22;margin-bottom:6px'>"
+                        f"🏷️ {html_lib.escape(tk)} "
+                        f"<span style='font-size:13px;color:#888;font-weight:normal'>"
+                        f"{len(entries)} 个关联词</span></div>"
+                        f"<div style='line-height:1.8'>{badge_html}</div></div>",
+                        unsafe_allow_html=True,
+                    )
+
+                    with st.expander(f"操作 — {tk}", expanded=False):
+                        tka_op_tab1, tka_op_tab2, tka_op_tab3 = st.tabs([
+                            "➕ 添加", "📋 批量操作", "🔍 自动发现"
+                        ])
+
+                        _tk_safe = tk.replace("-", "_").replace(".", "_")
+
+                        with tka_op_tab1:
+                            ac1, ac2, ac3 = st.columns([2, 2, 1])
+                            with ac1:
+                                new_kw = st.text_input("关键词", key=f"tka_add_kw_{_tk_safe}")
+                            with ac2:
+                                new_l2 = st.selectbox(
+                                    "板块", sorted(item["l2"] for item in taxonomy_full_data),
+                                    key=f"tka_add_l2_{_tk_safe}",
+                                )
+                            with ac3:
+                                new_w = st.number_input(
+                                    "权重", 0.1, 1.0, 1.0, 0.1,
+                                    key=f"tka_add_w_{_tk_safe}",
+                                )
+                            if st.button("添加", key=f"tka_add_btn_{_tk_safe}"):
+                                if new_kw.strip():
+                                    res = post_ticker_affinity_add(tk, new_l2, new_kw.strip(), new_w)
+                                    if res.get("success"):
+                                        st.success(f"已添加 {new_kw}")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    else:
+                                        st.error(f"失败: {res.get('error')}")
+
+                        with tka_op_tab2:
+                            arch_sel = st.multiselect(
+                                "选择要归档的关联词",
+                                [e["l3_keyword"] for e in entries],
+                                key=f"tka_arch_sel_{_tk_safe}",
+                            )
+                            if st.button("归档选中", key=f"tka_arch_btn_{_tk_safe}", disabled=not arch_sel):
+                                items = [{"ticker": tk, "l3_keyword": kw} for kw in arch_sel]
+                                res = post_ticker_affinity_batch_archive(items)
+                                if res.get("success"):
+                                    st.success(f"已归档 {res.get('processed', 0)} 条")
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                else:
+                                    st.error(f"失败: {res.get('error')}")
+
+                        with tka_op_tab3:
+                            if st.button("发现候选词", key=f"tka_disc_btn_{_tk_safe}"):
+                                sugg_resp = get_ticker_affinity_suggestions(tk)
+                                sugg_data = sugg_resp.get("data", [])
+                                if not sugg_data:
+                                    st.info("暂无候选词（需 co-occurrence 数据积累）")
+                                else:
+                                    st.write(f"发现 {len(sugg_data)} 个候选词：")
+                                    approve_sel = st.multiselect(
+                                        "选择要批准的词",
+                                        [s["l3_keyword"] for s in sugg_data],
+                                        key=f"tka_appr_sel_{_tk_safe}",
+                                    )
+                                    if st.button("批准选中", key=f"tka_appr_btn_{_tk_safe}", disabled=not approve_sel):
+                                        sugg_map = {s["l3_keyword"]: s for s in sugg_data}
+                                        appr_items = [
+                                            {"ticker": tk, "l2_sector": sugg_map[kw]["l2_sector"], "l3_keyword": kw}
+                                            for kw in approve_sel if kw in sugg_map
+                                        ]
+                                        res = post_ticker_affinity_batch_approve(appr_items)
+                                        if res.get("success"):
+                                            st.success(f"已批准 {res.get('processed', 0)} 条")
+                                            st.cache_data.clear()
+                                            st.rerun()
+                                        else:
+                                            st.error(f"失败: {res.get('error')}")
+
+            st.markdown("---")
+            st.markdown("#### 新增 Ticker")
+            init_c1, init_c2 = st.columns(2)
+            with init_c1:
+                init_ticker = st.text_input("Ticker 代码", key="tka_init_ticker", placeholder="如 MRVL").strip().upper()
+            with init_c2:
+                init_l2 = st.selectbox("默认板块", sorted(item["l2"] for item in taxonomy_full_data), key="tka_init_l2")
+
+            init_kws = st.text_area(
+                "初始关联词（每行一个或逗号分隔）",
+                key="tka_init_kws", height=80,
+                placeholder="如: Blackwell, GPU, AI server",
+            )
+            if st.button("初始化 Ticker 关联词", key="tka_init_btn"):
+                if init_ticker:
+                    raw_kws = [k.strip() for k in init_kws.replace("\n", ",").split(",") if k.strip()]
+                    if raw_kws:
+                        items = [
+                            {"ticker": init_ticker, "l2_sector": init_l2, "l3_keyword": kw}
+                            for kw in raw_kws
+                        ]
+                        res = post_ticker_affinity_batch_add(items)
+                        if res.get("success"):
+                            st.success(f"已为 {init_ticker} 添加 {res.get('processed', 0)} 个关联词")
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(f"失败: {res.get('error')}")
+                    else:
+                        st.warning("请输入至少一个关联词")
+                else:
+                    st.warning("请输入 Ticker 代码")
+
+        # ----- Sub-tab: Noise Words Management (enhanced) -----
+        with v4_sub3:
             noise_resp = fetch_noise_words()
             noise_data = noise_resp.get("data", [])
 
@@ -2268,26 +2539,26 @@ if active_phase == 5:
         # --- 22 个种子板块 ---
         "Aerospace_&_Defense":           "航空航天与国防",
         "Agri_&_Agriculture":            "农业与农产品",
+        "AI_Infrastructure":             "AI基础设施",
+        "AI_Monetization":               "AI商业化",
+        "Autonomous_Mobility":           "自动驾驶出行",
         "Biopharma_Ecosystem":           "生物医药生态",
-        "Commodities":                   "大宗商品",
+        "Catalyst_Overlay":              "催化覆盖",
         "Consumer_&_Retail":             "消费与零售",
         "Critical_Minerals_&_Metals":    "关键矿产与金属",
         "Crypto_Assets":                 "加密资产",
         "Cybersecurity_&_Data":          "网络安全与数据",
         "Energy_&_Power":                "能源与电力",
-        "Event_&_Earnings_Catalysts":    "事件与业绩催化",
         "Financials_&_Private_Credit":   "金融与私募信贷",
-        "Future_Mobility_&_Space":       "未来出行与航天",
         "Healthcare_Services_&_MedTech": "医疗服务与医疗科技",
         "Heavy_Industry":                "重工业",
         "Housing_&_Homebuilders":        "住房与地产",
         "Macro_Liquidity":               "宏观流动性",
         "Nuclear_&_AI_Power":            "核能与AI电力",
         "Semi_Memory_&_Cycles":          "半导体存储与周期",
+        "Space_Economy":                 "太空经济",
         "Trade_&_Geopolitics":           "贸易与地缘政治",
         "US_Industrial_Reshoring":       "美国制造业回流",
-        "AI_Infrastructure":             "AI基础设施",
-        "AI_Monetization":               "AI商业化",
     }
 
     def _l2_zh(sec: str, record: dict | None = None) -> str:
@@ -2544,6 +2815,11 @@ if active_phase == 5:
                     "heat_momentum": hm,
                     "mention_count": int(row.get("mention_count", 0)),
                     "heat_type": row.get("heat_type", "distributed"),
+                    "active_l3_count": int(row.get("active_l3_count", 0)),
+                    "total_l3_count": int(row.get("total_l3_count", 0)),
+                    "heat_concentration": float(row.get("heat_concentration", 0)),
+                    "signal_weight_sum": float(row.get("signal_weight_sum", 0)),
+                    "tier_distribution": row.get("tier_distribution", {}),
                     "top_l3": kw_tags,
                     "top_l3_full": top_kws if isinstance(top_kws, list) else [],
                 })
@@ -2592,7 +2868,9 @@ if active_phase == 5:
             )
             st.plotly_chart(fig_bar, use_container_width=True)
 
-            # Write ranking to session_state for Page 3 D-group resonance
+            # Write full L2 factor pack to session_state for Page 3 D-group resonance.
+            # Preserves fine-grained structure (tier, concentration, signal weight)
+            # so downstream can do tier-aware matching without re-fetching the API.
             _narr_ranking_dict = {}
             for r in _narr_rank_rows:
                 _narr_ranking_dict[r["l2_sector"]] = {
@@ -2600,6 +2878,12 @@ if active_phase == 5:
                     "heat": r["composite_heat"],
                     "momentum": r["heat_momentum"],
                     "mention_count": r["mention_count"],
+                    "heat_type": r["heat_type"],
+                    "active_l3_count": r.get("active_l3_count", 0),
+                    "total_l3_count": r.get("total_l3_count", 0),
+                    "heat_concentration": r.get("heat_concentration", 0),
+                    "signal_weight_sum": r.get("signal_weight_sum", 0),
+                    "tier_distribution": r.get("tier_distribution", {}),
                     "top_l3": r["top_l3"],
                     "top_l3_full": r["top_l3_full"],
                 }
@@ -3187,7 +3471,7 @@ if active_phase == 5:
                             # 渲染诊断卡
                             def _diag_row(label, value, note=""):
                                 _note_html = (
-                                    f'<span style="font-size:11px;color:#888;">{note}</span>'
+                                    f'<span style="font-size:13px;color:#888;">{note}</span>'
                                     if note else ""
                                 )
                                 return (
@@ -3213,7 +3497,7 @@ if active_phase == 5:
   {_diag_row("Z 值", f"当前 {_z_cur:.1f}  /  峰值 {_z_max:.1f}")}
   {_diag_row("情绪趋势", _sent_label)}
   <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.08);">
-    <div style="font-size:11px;color:#666;margin-bottom:4px;">📸 今日实时快照</div>
+    <div style="font-size:13px;color:#666;margin-bottom:4px;">📸 今日实时快照</div>
     {_diag_row("广度质量", _breadth_txt)}
     {_diag_row("热度类型", _heat_type_txt)}
   </div>

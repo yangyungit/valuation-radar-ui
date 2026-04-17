@@ -3090,6 +3090,13 @@ elif _sel4 == "D":
                             "score": _ns,
                             "heat": _ch,
                             "momentum": _hm,
+                            "mention_count": int(_nr.get("mention_count", 0)),
+                            "heat_type": _nr.get("heat_type", "distributed"),
+                            "active_l3_count": int(_nr.get("active_l3_count", 0)),
+                            "total_l3_count": int(_nr.get("total_l3_count", 0)),
+                            "heat_concentration": float(_nr.get("heat_concentration", 0)),
+                            "signal_weight_sum": float(_nr.get("signal_weight_sum", 0)),
+                            "tier_distribution": _nr.get("tier_distribution", {}),
                             "top_l3": [kw.get("keyword", "") for kw in (_tl3 or [])[:3] if isinstance(kw, dict)],
                             "top_l3_full": _tl3 if isinstance(_tl3, list) else [],
                         }
