@@ -2707,6 +2707,17 @@ if _sel4 == "A":
         df_scored_a = df_a.sort_values("竞技得分", ascending=False).reset_index(drop=True)
         df_scored_a["排名"] = range(1, len(df_scored_a) + 1)
 
+        # 补充因子分解列，供 _render_leaderboard 渲染横向条形图
+        # 使用 ARENA_CONFIG["A"] 权重（30/20/20/30）做截面 Min-Max，仅用于可视化
+        _dd_inv_n   = _minmax_norm(-df_scored_a["最大回撤_raw"].astype(float))
+        _fcf_n      = _minmax_norm(df_scored_a["FCF收益率"].astype(float))
+        _corr_inv_n = _minmax_norm(-df_scored_a["SPY相关性"].astype(float))
+        _ribbon_n   = _minmax_norm(df_scored_a["带鱼质量"].astype(float))
+        df_scored_a["因子1_分"] = (_dd_inv_n   * 0.30).round(1)
+        df_scored_a["因子2_分"] = (_fcf_n      * 0.20).round(1)
+        df_scored_a["因子3_分"] = (_corr_inv_n * 0.20).round(1)
+        df_scored_a["因子4_分"] = (_ribbon_n   * 0.30).round(1)
+
         n_a = len(df_scored_a)
         _rt_selected_a = []
         _rt_decisions_a = []
