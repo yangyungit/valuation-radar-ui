@@ -922,6 +922,10 @@ def arena_backfill_score(
         后端响应 dict，成功时包含 arena_records / conv_state_a / conv_holders_a 等字段。
         失败时 {"success": False, "error": ...}。
     """
+    # Render 反向代理 30s 超时保护：将 month_specs 切片，每次最多 12 个月
+    _CHUNK = 12
+    specs = month_specs or []
+
     try:
         price_records = price_df.to_dict(orient="index")
         price_records = {str(k): v for k, v in price_records.items()}
@@ -931,24 +935,60 @@ def arena_backfill_score(
             vol_records = vol_df.to_dict(orient="index")
             vol_records = {str(k): v for k, v in vol_records.items()}
 
-        payload = {
-            "price_records":  _sanitize_floats(price_records),
-            "vol_records":    _sanitize_floats(vol_records),
-            "meta_data":      _sanitize_floats(meta_data or {}),
-            "month_specs":    month_specs or [],
-            "z_seed_tickers": list(z_seed_tickers or []),
-            "thresholds":     _sanitize_floats(thresholds or {}),
-            "conv_config_a":  _sanitize_floats(conv_config_a or {}),
-            "conv_config_b":  _sanitize_floats(conv_config_b or {}),
-            "arena_save_n":   arena_save_n,
+        price_payload  = _sanitize_floats(price_records)
+        vol_payload    = _sanitize_floats(vol_records)
+        meta_payload   = _sanitize_floats(meta_data or {})
+        thresh_payload = _sanitize_floats(thresholds or {})
+        cfg_a_payload  = _sanitize_floats(conv_config_a or {})
+        cfg_b_payload  = _sanitize_floats(conv_config_b or {})
+
+        all_arena_records: dict = {}
+        carry: dict = {}
+
+        chunks = [specs[i:i + _CHUNK] for i in range(0, len(specs), _CHUNK)]
+        for chunk in chunks:
+            payload = {
+                "price_records":       price_payload,
+                "vol_records":         vol_payload,
+                "meta_data":           meta_payload,
+                "month_specs":         chunk,
+                "z_seed_tickers":      list(z_seed_tickers or []),
+                "thresholds":          thresh_payload,
+                "conv_config_a":       cfg_a_payload,
+                "conv_config_b":       cfg_b_payload,
+                "arena_save_n":        arena_save_n,
+                "init_conv_state_a":    carry.get("conv_state_a", {}),
+                "init_conv_holders_a":  carry.get("conv_holders_a", []),
+                "init_conv_state_b":    carry.get("conv_state_b", {}),
+                "init_conv_holders_b":  carry.get("conv_holders_b", []),
+                "init_prev_grades_map": carry.get("prev_grades_map", {}),
+            }
+            r = requests.post(
+                f"{API_BASE_URL}/api/v1/arena/backfill_score",
+                json=payload,
+                timeout=300,
+            )
+            r.raise_for_status()
+            data = r.json()
+            if not data.get("success"):
+                return data
+            all_arena_records.update(data.get("arena_records", {}))
+            carry = {
+                "conv_state_a":   data.get("conv_state_a", {}),
+                "conv_holders_a": data.get("conv_holders_a", []),
+                "conv_state_b":   data.get("conv_state_b", {}),
+                "conv_holders_b": data.get("conv_holders_b", []),
+                "prev_grades_map": data.get("prev_grades_map", {}),
+            }
+
+        return {
+            "success":        True,
+            "arena_records":  all_arena_records,
+            "conv_state_a":   carry.get("conv_state_a", {}),
+            "conv_holders_a": carry.get("conv_holders_a", []),
+            "conv_state_b":   carry.get("conv_state_b", {}),
+            "conv_holders_b": carry.get("conv_holders_b", []),
         }
-        r = requests.post(
-            f"{API_BASE_URL}/api/v1/arena/backfill_score",
-            json=payload,
-            timeout=300,
-        )
-        r.raise_for_status()
-        return r.json()
     except Exception as exc:
         return {"success": False, "error": str(exc)}
 

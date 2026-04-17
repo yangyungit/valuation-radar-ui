@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-04-17 | 回填端点分片调用，修复 Render 30s 超时 502
+
+**根因**：`/api/v1/arena/backfill_score` 单次请求循环处理最多 72 个月（60 + 12 warmup）× 全标的，计算时间远超 Render 反向代理 30 秒超时，返回 502 Bad Gateway。
+
+**改动**：
+- `valuation-radar/api_server.py`：`ArenaBackfillRequest` 新增 `init_conv_state_a/b`、`init_conv_holders_a/b`、`init_prev_grades_map` 五个可选字段，handler 用其作为初始状态（默认空值向后兼容）；响应增返 `prev_grades_map`。
+- `valuation-radar-ui/api_client.py`：`arena_backfill_score` 改为每片 ≤ 12 个月分片调用，信念状态与 `prev_grades_map` 在片间传递，结果合并后返回，对调用方（`_backfill_arena_history`）完全透明。
+
+**影响**：72 个月回填拆为 6 次请求，每次 < 25s，无需修改 Render 配置或调用方代码。
+
 ## 2026-04-17 | Arena 评分引擎后移（PR B：前端切换 + 等价性校验）
 
 **根因**：`pages/3_资产细筛.py` 同时维护着与后端 `core_engine.ScorecardA` 分叉的前端影子打分代码（旧公式 30/20/20/30，1 年回溯，SPY 相关性），回填路径从未用上 commit c326d7d 的抗噪重构成果。
