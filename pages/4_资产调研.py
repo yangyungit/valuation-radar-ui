@@ -573,6 +573,24 @@ if _arena_hist:
             _prev_slots = _new_slots
         _slot_assignments[_cls] = _cls_slots
 
+    # 持仓连续月数（ticker 连续出现在 hold 集合中的月数）
+    _hold_streaks: dict = {}
+    for _cls in ["A", "B", "C", "D", "Z"]:
+        _months_asc_h = sorted(k for k in _arena_hist if not k.startswith("_"))
+        _prev_hs: set = set()
+        _prev_hst: dict = {}
+        _cls_hs: dict = {}
+        for _m in _months_asc_h:
+            _cur_hs = _holdings_map[_cls].get(_m, {}).get("hold", set())
+            _cur_hst = {
+                _t: (_prev_hst.get(_t, 0) + 1 if _t in _prev_hs else 1)
+                for _t in _cur_hs
+            }
+            _cls_hs[_m] = _cur_hst
+            _prev_hs = _cur_hs
+            _prev_hst = _cur_hst
+        _hold_streaks[_cls] = _cls_hs
+
     # 规则说明卡片
     st.markdown(
         "<div style='background:#1a1a2e; border:1px solid #3a3a5c; border-radius:8px;"
@@ -632,7 +650,7 @@ if _arena_hist:
             _hold_set = _h.get("hold", set())
             _t2_list = _h.get("top2", [])
             _is_diff = _h.get("diff", False)
-            _mo_st = _all_streaks[_cls].get(_mo, {})
+            _mo_st = _hold_streaks[_cls].get(_mo, {})
 
             _all_recs = _entry.get(_cls, [])[:_buffer_n]
             _rec_map = {r["ticker"]: r for r in _all_recs if r["ticker"] in _hold_set}
