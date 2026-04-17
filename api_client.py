@@ -5,6 +5,9 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import json
 import io
+# #region agent log (debug-b8f727)
+import sys as _dbg_sys; print("[DEBUG-b8f727] api_client loading OK", file=_dbg_sys.stderr)
+# #endregion
 
 # ==========================================
 # 1. 核心机密数据获取 (通过 API 向后厨请求)

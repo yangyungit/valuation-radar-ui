@@ -8,20 +8,29 @@ import requests
 import calendar
 import yfinance as yf
 from datetime import datetime, timedelta
-from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
-                        get_arena_a_factors, get_arena_b_factors,
-                        get_arena_c_factors, get_arena_d_factors,
-                        get_arena_a_scores as _api_get_arena_a_scores,
-                        fetch_l2_l3_detail, get_batch_ticker_cooccurrence,
-                        fetch_conviction_state as _api_fetch_conv,
-                        push_conviction_state as _api_push_conv,
-                        fetch_arena_history as _api_fetch_history,
-                        push_arena_history_batch as _api_push_history_batch,
-                        clear_arena_history_backend as _api_clear_history,
-                        fetch_current_regime, push_screen_results,
-                        run_classification_api,
-                        arena_backfill_score as _api_arena_backfill_score,
-                        API_BASE_URL, IS_PROD_REMOTE)
+# #region agent log (debug-b8f727)
+try:
+    from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
+                            get_arena_a_factors, get_arena_b_factors,
+                            get_arena_c_factors, get_arena_d_factors,
+                            get_arena_a_scores as _api_get_arena_a_scores,
+                            fetch_l2_l3_detail, get_batch_ticker_cooccurrence,
+                            fetch_conviction_state as _api_fetch_conv,
+                            push_conviction_state as _api_push_conv,
+                            fetch_arena_history as _api_fetch_history,
+                            push_arena_history_batch as _api_push_history_batch,
+                            clear_arena_history_backend as _api_clear_history,
+                            fetch_current_regime, push_screen_results,
+                            run_classification_api,
+                            arena_backfill_score as _api_arena_backfill_score,
+                            API_BASE_URL, IS_PROD_REMOTE)
+except Exception as _import_err:
+    import sys, traceback as _tb
+    _full_tb = _tb.format_exc()
+    print(f"[DEBUG-b8f727] api_client import failed: {_import_err}\n{_full_tb}", file=sys.stderr)
+    st.error(f"**[调试] api_client import 失败**\n\n```\n{_full_tb}\n```")
+    st.stop()
+# #endregion
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
     classify_asset_parallel,
