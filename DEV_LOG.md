@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-04-17 | Page 5 新增 B 组累计收益率图平行栏目
+
+**变动内容**：在 `pages/5_个股择时.py` 的"A 组累计收益率图" section 之后，新增结构完全对称的"B 组累计收益率图" section。
+
+- 辅助函数 `_build_a_slot_segments` 重命名为 `_build_slot_segments`，加入 `slot_assignments`/`tm_months` 显式参数；`_build_stitched_kline_fig` 加入 `price_cache`/`name_map` 参数；`_calc_slot_stats` 加入 `price_cache` 参数，彻底去除闭包对 `_a_*` 的依赖。
+- 新增 `_b_slot_assignments`、`_b_streaks_full`、`_b_slot_weights`、`_b_price_cache` 四份 B 组前置数据，基于 `_tm_hold["B"]` 与 `_compute_streaks_p5("B", _buffer_n)` 计算，价格缓存单独拉取。
+- B section 包含：header/caption、KPI 四列（左列/右列总收益、B 级合成总收益、换仓次数）、回撤三列、信念倾斜 caption、左/右/合成三 tab，独立使用 `b_weight_mode` key 和 `b_slot0/1/combined_chart` key。
+- 守擂缓冲区 Top-N 控件唯一（B section 复用顶部已有的 `_buffer_n`，不新增控件）。
+- **影响范围**：纯前端展示层，无后端 API 变动，无数据流变动，无 `DATA_FLOW.md` / `DATA_CONSISTENCY_PROTOCOL.md` 变动。
+
 ## 2026-04-17 | Page 4 / 5 arena_history 降级静默失败告警（约束 2 补丁）
 
 **触发现象**：主理人在 Page 5 切换"合成权重"后发现 A 组累计收益率图和 Page 4 的 Top-N 持仓榜显示内容不一致，怀疑 Page 5 又读回了本地 JSON。
