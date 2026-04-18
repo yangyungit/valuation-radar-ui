@@ -3588,6 +3588,8 @@ with _bf_col3:
     )
 
 if _do_backfill:
+    # 回填前先抓一份快照，用于后续等价性断言比对（_history 页面级变量此时尚未赋值，必须显式取）
+    _old_hist_snapshot: dict = _api_fetch_history() or {}
     with st.spinner(f"正在下载 {len(all_assets)} 只标的约 6 年历史数据并逐月 PIT 分拣 + 评分…"
                     f"（含 12 个月信念热身期，共计算 {_bf_months + 12} 个月）"):
         _bf_meta = get_stock_metadata(tuple(all_assets.keys()))
@@ -3607,7 +3609,7 @@ if _do_backfill:
         # ── Phase 4 等价性断言：B/C/D/Z 新旧榜单比对 ──
         _api_fetch_history.clear()
         _new_hist  = _api_fetch_history()
-        _old_hist  = _history  # 回填前快照（页面级变量）
+        _old_hist  = _old_hist_snapshot  # 回填前快照（在 spinner 之前抓取，避免 NameError）
         _mismatch_details: list = []
         for _mk in sorted(set(_new_hist) & set(_old_hist)):
             for _cls in ("B", "C", "D", "Z"):

@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-04-18 | 修复回填后 NameError：`_history` 页面级变量未定义，提前抓快照
+
+**症状**：Page 3「A 级压舱石 — 历史月度 Top 10」区块，点「🔄 回填历史数据」→ 绿字 `回填完成！已写入 60 个月的历史档案` 正常弹出 → 紧接着整页红 traceback：
+```
+File "/mount/src/valuation-radar-ui/pages/3_资产细筛.py", line 3610, in <module>
+    _old_hist  = _history  # 回填前快照（页面级变量）
+NameError: name '_history' is not defined
+```
+
+**根因**：`_history = _load_arena_history()` 定义在 line 3640，**在** 回填按钮处理块（3590-3635）**之后**。Streamlit 按钮点击触发整页 rerun，自上而下执行到 3610 时 `_history` 尚未赋值，直接 NameError。2026-04-16 F4 改造引入 B/C/D/Z 等价性断言（新旧榜单比对）时，假定 `_history` 是"回填前快照"，**没意识到页面顺序**——回填按钮块跑在 `_load_arena_history` 之前。前序 DEV_LOG `2026-04-18 修复回填"假 502"` 只闭合了 `.clear()` 链路，没捕获到这个紧挨着的 NameError（主理人把红字误认成同一个问题）。
+
+**修复**（`pages/3_资产细筛.py`，最小化）：
+- 在 `if _do_backfill:` 进入 spinner **之前**先显式 `_old_hist_snapshot = _api_fetch_history() or {}` 抓一份真实快照；
+- 等价性断言里 `_old_hist = _old_hist_snapshot`，不再依赖页面末段才赋值的 `_history`。
+
+**不改动的东西**：`_history` 在页面 3640/3787/3790… 处的常规展示逻辑不动；`_api_fetch_history` 的缓存行为不动（60s TTL + push 后主动 `.clear()`）。
+
+**遗留**：Render 日志里密集刷 numpy `RuntimeWarning: invalid value encountered in subtract @ _function_base_impl.py:2882`（`X -= avg[:, None]`）——这是 `corrcoef`/`cov` 在 NaN/Inf 输入上的告警，不 fatal；本次未处理，留给下一条处理后端 `ScorecardA`/`ScorecardD` 相关性计算的输入清洗。
+
+---
+
 ## 2026-04-18 | 同步 ScorecardA F4 s4→s5 改造前端说明文案
 
 **改动**：`pages/3_资产细筛.py` A 组 tooltip 文案中"价格贴轨度"改为"MA60斜率正值"，与后端 `core_engine.ScorecardA` s5 新子项对齐；无逻辑改动，仅 UI 文案同步。
