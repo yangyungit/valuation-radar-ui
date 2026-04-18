@@ -2,6 +2,37 @@
 
 ---
 
+## 2026-04-18 | 熔断下沉：拆除 Page 3 选股端扣分，A 组排行榜改用后端 breakdowns
+
+**决策背景**：熔断（回撤/趋势/估值）属于时点风险管控，语义上属于"择时"而非"选股"。V14 ABCD 重构时直接把熔断扣分写死在 Scorecard 里，导致 A 组排行榜出现负分、条形图归一化错位，且 PFE/AAPL/PBR 等 FCF 扎实但近期回撤较大的标的被系统性压制。
+
+**删除的 5 处扣分（core_engine.py）**：
+1. `ScorecardA.score`：删 `total_score -= 40`（abs_dd > 0.25 触发）
+2. `ScorecardB.score`：删 `total_score -= 30`（3Y 回撤 > 25%）和 `total_score -= 20`（跌破年线）
+3. `ScorecardC.score`：删 `total_score -= 30`（跌破 MA60）
+4. `ScorecardD.score`：删 `total_score -= 30`（跌破 MA20）
+5. `_build_result`：删 `score -= 20.0`（年线乖离 > 80%）
+
+**保留的内容**：所有 `status`/`reason` 标签保留（`🌋 回撤超标` / `🌋 估值熔断` 等），供 UI 展示用。每个 Scorecard 加 `np.clip(0, 100)` 保底。
+
+**ScorecardA 诊断透传**：`score()` 返回 dict 新增 `_diag` 键，包含 `score_dd/score_fcf/score_dcr/score_ribbon/max_dd_3y/status/reason`。`/api/v1/arena/score_a` 端点同步扩展返回 `breakdowns` 字典。`api_client.py` 的 `get_arena_a_scores` 改为返回 `{scores, breakdowns}`。
+
+**前端改动（pages/3_资产细筛.py）**：
+- A 组因子分改为直接取后端 breakdowns，废除原 min-max shadow 归一化方案
+- `最大回撤_raw` 改用 3Y 窗口（与 ScorecardA F1 同口径），降级时回退 1Y 值
+- 新增 `熔断状态` 列；最大回撤单元格 `🌋` 标签 + tooltip 提示
+- `_render_leaderboard` 归一化锚从 `竞技得分.max()` 改为 `因子分加总.max()`，消除负分错位
+
+**⚠️ 技术债 - Page 5 持仓风控模块（TODO）**：
+熔断逻辑已从选股端剥离，接收方 Page 5 尚未建立。将来需补充以下持仓择时风控：
+- 持仓中 A 组标的触发 3Y 回撤 > 25%：发出减仓预警
+- 持仓中 B/C 组标的跌破 MA60/MA250：触发"趋势破坏"预警
+- 年线乖离 > 80%：触发"估值熔断"预警，建议切现金或对冲
+- 实现入口建议：Page 5 新增"持仓风险扫描"区块，遍历当前 leaders 列表，逐一检查上述条件
+
+**操作指引（主理人在 Render 执行）**：
+部署新代码后，删除 Render 端 `conviction_state.json` + `arena_history.json`，在 Page 3 触发一次完整回填（6 片 × 12 月），让信念状态从干净起点重建。
+
 ## 2026-04-17 | 回填端点分片调用，修复 Render 30s 超时 502
 
 **根因**：`/api/v1/arena/backfill_score` 单次请求循环处理最多 72 个月（60 + 12 warmup）× 全标的，计算时间远超 Render 反向代理 30 秒超时，返回 502 Bad Gateway。

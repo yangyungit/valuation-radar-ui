@@ -883,7 +883,7 @@ def run_classification_api(
 
 @st.cache_data(ttl=1800)
 def get_arena_a_scores(tickers: tuple, meta_data_hash: str = "") -> dict:
-    """调用后端 /api/v1/arena/score_a，返回 {ticker: molt_score}（新公式 45/20/20/15）。
+    """调用后端 /api/v1/arena/score_a，返回 {"scores": {ticker: float}, "breakdowns": {ticker: {...}}}。
     meta_data_hash 仅用于 cache key 区分（传 json.dumps(meta_data) 的 hash 字符串）。
     """
     try:
@@ -894,9 +894,11 @@ def get_arena_a_scores(tickers: tuple, meta_data_hash: str = "") -> dict:
         )
         r.raise_for_status()
         data = r.json()
-        return data.get("scores", {}) if data.get("success") else {}
+        if not data.get("success"):
+            return {"scores": {}, "breakdowns": {}}
+        return {"scores": data.get("scores", {}), "breakdowns": data.get("breakdowns", {})}
     except Exception:
-        return {}
+        return {"scores": {}, "breakdowns": {}}
 
 
 def arena_backfill_score(

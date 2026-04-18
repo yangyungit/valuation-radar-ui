@@ -1103,12 +1103,14 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str,
             "</div>"
         )
 
-    max_score = df_scored["竞技得分"].max() if not df_scored.empty else 100.0
+    factor_cols = [f"因子{i}_分" for i in range(1, n_factors + 1)]
+    _factor_sums = df_scored[factor_cols].sum(axis=1) if not df_scored.empty else pd.Series([100.0])
+    max_score = max(float(_factor_sums.max()), 1.0)
     rows_html = ""
     for _, row in df_scored.iterrows():
         rank = int(row["排名"])
         score = row["竞技得分"]
-        bar_pct = score / max(max_score, 1.0) * 100
+        bar_pct = score / max_score * 100
 
         if rank == 1:
             rank_html = "<span style='font-size:16px;'>🥇</span>"
@@ -1133,6 +1135,8 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str,
             dd_pct = row.get("最大回撤_raw", 0.0) * 100
             corr_v = row.get("SPY相关性", 0.5)
             vol_pct = row.get("年化波动率", 0.3) * 100
+            is_fused = row.get("熔断状态", "").startswith("🌋")
+            dd_label = f"🌋 {dd_pct:.1f}%" if is_fused else f"{dd_pct:.1f}%"
             dd_color = "#2ECC71" if abs(dd_pct) < 10 else ("#F1C40F" if abs(dd_pct) < 20 else "#E74C3C")
             corr_color = "#2ECC71" if corr_v < 0.3 else ("#F1C40F" if corr_v < 0.6 else "#E74C3C")
             vol_color = "#2ECC71" if vol_pct < 15 else ("#F1C40F" if vol_pct < 25 else "#E74C3C")
@@ -1156,7 +1160,8 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str,
                 _conv_cell = "<div style='width:90px; text-align:right; color:#555;'>—</div>"
             kpi_cells = (
                 _conv_cell
-                + f"<div style='width:82px; text-align:right; font-weight:bold; color:{dd_color};'>{dd_pct:.1f}%</div>"
+                + f"<div style='width:82px; text-align:right; font-weight:bold; color:{dd_color};'"
+                  f" title='3Y最大回撤 (ScorecardA F1同源)'>{dd_label}</div>"
                 + f"<div style='width:82px; text-align:right; font-weight:bold; color:{corr_color};'>{corr_v:.2f}</div>"
                 + f"<div style='width:82px; text-align:right; font-weight:bold; color:{vol_color};'>{vol_pct:.1f}%</div>"
             )
@@ -2706,7 +2711,9 @@ if _sel4 == "A":
 
         # ── 使用后端 ScorecardA（新公式：45/20/20/15，3年回溯，DCR）──
         with st.spinner("正在调用后端 ScorecardA 新公式评分…"):
-            _new_a_scores = _api_get_arena_a_scores(tuple(df_a["Ticker"].tolist()))
+            _new_a_result  = _api_get_arena_a_scores(tuple(df_a["Ticker"].tolist()))
+        _new_a_scores  = _new_a_result.get("scores", {})
+        _a_breakdowns  = _new_a_result.get("breakdowns", {})
         if _new_a_scores:
             df_a["竞技得分"] = df_a["Ticker"].map(lambda t: float(_new_a_scores.get(t, 0.0)))
         else:
@@ -2715,17 +2722,21 @@ if _sel4 == "A":
         df_scored_a = df_a.sort_values("竞技得分", ascending=False).reset_index(drop=True)
         df_scored_a["排名"] = range(1, len(df_scored_a) + 1)
 
-        # 补充因子分解列，供 _render_leaderboard 渲染横向条形图
-        # 因子分用于 bar 可视化，保持非负（min-max 归一化后乘权重），与竞技得分量纲解耦
-        # 竞技得分可为负数（ScorecardA 绝对打分），不能直接乘进因子分否则 bar 消失
-        _dd_inv_n   = _minmax_norm(-df_scored_a["最大回撤_raw"].astype(float))
-        _fcf_n      = _minmax_norm(df_scored_a["FCF收益率"].astype(float))
-        _corr_inv_n = _minmax_norm(-df_scored_a["SPY相关性"].astype(float))
-        _ribbon_n   = _minmax_norm(df_scored_a["带鱼质量"].astype(float))
-        df_scored_a["因子1_分"] = (_dd_inv_n   * 0.30).round(1)
-        df_scored_a["因子2_分"] = (_fcf_n      * 0.20).round(1)
-        df_scored_a["因子3_分"] = (_corr_inv_n * 0.20).round(1)
-        df_scored_a["因子4_分"] = (_ribbon_n   * 0.30).round(1)
+        # 因子分直接取后端 breakdowns，与 ScorecardA 打分完全同口径
+        df_scored_a["因子1_分"] = df_scored_a["Ticker"].map(
+            lambda t: float(_a_breakdowns.get(t, {}).get("score_dd",     0.0)))
+        df_scored_a["因子2_分"] = df_scored_a["Ticker"].map(
+            lambda t: float(_a_breakdowns.get(t, {}).get("score_fcf",    0.0)))
+        df_scored_a["因子3_分"] = df_scored_a["Ticker"].map(
+            lambda t: float(_a_breakdowns.get(t, {}).get("score_dcr",    0.0)))
+        df_scored_a["因子4_分"] = df_scored_a["Ticker"].map(
+            lambda t: float(_a_breakdowns.get(t, {}).get("score_ribbon", 0.0)))
+        # 最大回撤列改用 3Y，与 ScorecardA F1 同口径；降级时保留原 1Y 值
+        _a_dd_1y = df_scored_a.set_index("Ticker")["最大回撤_raw"].to_dict()
+        df_scored_a["最大回撤_raw"] = df_scored_a["Ticker"].map(
+            lambda t: float(_a_breakdowns.get(t, {}).get("max_dd_3y", _a_dd_1y.get(t, 0.0))))
+        df_scored_a["熔断状态"] = df_scored_a["Ticker"].map(
+            lambda t: str(_a_breakdowns.get(t, {}).get("status", "")))
 
         n_a = len(df_scored_a)
         _rt_selected_a = []
