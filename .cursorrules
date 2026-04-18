@@ -57,6 +57,38 @@ git config user.email && git branch --show-current
 * **记录格式：** 以 `## YYYY-MM-DD` 为日期标题（同一天多条可合并），简述变动内容、原因和影响范围，保持中文叙述。
 * **触发标准：** 凡涉及跨文件改动、新增页面/模块、修改数据流或 API 契约的变动，均视为复杂变动，必须记录；单文件小幅样式调整可免。
 
+## 🚀 Git 工作流：自动提交并推送 (Auto Git Commit/Push) ⭐ 主理人授权
+**默认行为：** 完成一项实质性改动后，**直接**执行 `git add <本次改动的具体文件路径> && git commit && git push` 到**当前分支**（通常是 `main`），**无需再问主理人**。主理人已明确授权——真相源是 GitHub + Streamlit Cloud / Render 自动部署链路，不 push 等于改动没生效。
+
+**严禁 `git add -A` / `git add .`：** 工作区常有未跟踪的本地私有文件（`.python-version`、`macro-radar.code-workspace`、`带鱼.md`、`data/_test_price_cache.pkl` 等）和运行时数据库（`narrative.db` / `universe.db`）；盲加会误提交。必须用**显式文件路径** `git add`，且 `git add` 前先跑一次 `git status` 核对范围。
+
+### 触发标准（满足任一即可提交）
+1. 至少修改 1 个受跟踪文件且 `ReadLints` 无新增错误；
+2. 已在 `DEV_LOG.md` 追加对应条目（若属"复杂变动"）；
+3. 主理人说"推一下/提交吧/改完了/部署上去"。
+
+### Commit message 规范
+* **中文**，动词开头（修复 / 新增 / 重构 / 优化 / 删除 / 补充 / 文档 等）；
+* 首行 ≤ 60 个汉字，概括"改了什么 + 为什么"，不堆砌形容词；
+* 正文（可选）补证据链，如"根因：…；方案：…"；
+* 使用 heredoc 格式：`git commit -m "$(cat <<'EOF' ... EOF)"`；
+* **不签名，不加任何 AI/Cursor 标识/co-author**（保持 git log 整洁）。
+
+### 红线（以下情况必须先停下来问主理人，绝不自作主张）
+1. 强制推送：`git push --force` / `git push --force-with-lease`；
+2. 修改 `git config` / 远端 URL / 分支上游；
+3. 提交涉及 **`.env` / `credentials*` / `secrets*` / `narrative.db` / `universe.db` / `_test_price_cache.pkl`** 等敏感或业务运行时数据的文件——即使 `git status` 已列出也**一律不加入 stage**；
+4. `rebase` / `commit --amend`（主理人未明确要求时）；
+5. 新建 / 切换 / 删除分支；
+6. 单次提交删除文件 > 5 个，或净行数变动 > 500 行——先汇总给主理人确认影响面；
+7. 跨仓库改动（同时改 `valuation-radar-ui` 和 `valuation-radar`）时，**必须两仓分别独立 commit + push**，且先推后端再推前端（避免前端引用后端尚未部署的新契约）。
+
+### 最小纪律
+* **无改动不提交：** `git status` 无变化时不产生空 commit；
+* **推送前跑 lint：** 有 Python / TS 改动必先 `ReadLints`，有新增错误必须修掉再推；
+* **不主动拉远端：** 除非主理人明确要求 `git pull`，不要单方面 merge / rebase 远端；
+* **推送失败不重试 force：** `git push` 被 rejected（非快进），立刻停下来汇报，严禁用 `--force` 强推覆盖主理人或同事的改动。
+
 ## 🏗️ 前端架构约束
 * **物理隔离：** 前端页面 (`pages/`) 严禁存放业务逻辑和因子字典，所有计算必须通过 `api_client.py` 向后端请求。
 * **UI 渲染安全：** 严禁列表推导式直接生成 Streamlit 组件，必须用显式 `for` 循环。
