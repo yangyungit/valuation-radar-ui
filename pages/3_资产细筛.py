@@ -139,8 +139,8 @@ ARENA_CONFIG: dict = {
             "① 极限抗跌（3年最大回撤取倒数，回撤越小得分越高，权重 45%）<br>"
             "② 现金奶牛（自由现金流收益率 FCF/MCap，ETF 回退至股息率，权重 15%）<br>"
             "③ 宏观对冲（2年 Downside Capture Ratio，SPY 跌时资产反涨者满分，权重 10%）<br>"
-            "④ 带鱼质量（内部 0.15·间距稳定 + 0.20·持续天数 + 0.15·斜率稳定 + 0.50·MA60斜率正值，趋势方向主导，权重 30%）<br>"
-            "四维统计指标同时达标方为真正避风港，MA60 斜率让防御股霸榜破局。"
+            "④ 带鱼质量（内部 0.15·间距稳定 + 0.20·持续天数 + 0.15·斜率稳定 + 0.50·RS线斜率，相对SPY强度主导，权重 30%）<br>"
+            "四维统计指标同时达标方为真正避风港，RS线斜率让防御股霸榜破局。"
         ),
     },
     "B": {
@@ -2675,7 +2675,7 @@ if _sel4 == "A":
 
     st.markdown(_conv_explain_html(config=CONVICTION_A_CONFIG), unsafe_allow_html=True)
 
-    with st.expander("📐 底层因子公式（ScorecardA v3 满分 100）", expanded=False):
+    with st.expander("📐 底层因子公式（ScorecardA v4 满分 100）", expanded=False):
         st.markdown("""
         <div style='font-size:14px; color:#ccc; line-height:1.8;'>
         <span style='color:#2ECC71; font-weight:bold;'>Score<sub>A</sub></span> =
@@ -2685,9 +2685,9 @@ if _sel4 == "A":
         <span style='color:#F39C12;'>(30 &times; F4<sub>Ribbon</sub>)</span><br><br>
         <span style='color:#F39C12;'>F4<sub>Ribbon</sub></span> =
         0.15·s1<sub>间距稳定</sub> + 0.20·s2<sub>持续天数</sub> + 0.15·s3<sub>斜率稳定</sub> +
-        <span style='color:#F39C12; font-weight:bold;'>0.50·s5<sub>MA60斜率</sub></span><br>
+        <span style='color:#F39C12; font-weight:bold;'>0.50·s5<sub>RS线MA60斜率</sub></span><br>
         <span style='color:#888; font-size:13px;'>
-        s5 = 最近 60 天 MA60 年化斜率，正值 clip 到 [0, 1]，+15% 为满分阈值。
+        s5 = RS-line（标的/SPY）最近 60 天 MA60 年化斜率，clip 到 [0, 1]，年化跑赢 SPY +5% 为满分阈值。
         此因子分数作为「信念积分的输入信号」，不再直接决定排名；连续多月高分 &rarr; 信念积累 &rarr; 达标入选 &rarr; 守擂留任。
         </span>
         </div>
