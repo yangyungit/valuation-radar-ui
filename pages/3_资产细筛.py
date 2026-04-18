@@ -406,7 +406,7 @@ def _record_arena_history(cls: str, records: list, month_key: str = None,
         return True
     fallback_ok = _save_history_to_local_json(payload)
     if fallback_ok:
-        st.toast(f"⚠️ {cls} 档案后端写入失败，已降级本地 JSON", icon="warning")
+        st.toast(f"⚠️ {cls} 档案后端写入失败，已降级本地 JSON", icon="⚠️")
         return True
     st.toast(f"🚨 {cls} 档案写入彻底失败（后端+本地兜底均失败）", icon="🚨")
     return False
@@ -2520,7 +2520,7 @@ if not push_screen_results({
     "arena_winners": st.session_state.get("arena_winners", {}),
     "p4_arena_leaders": st.session_state.get("p4_arena_leaders", {}),
 }):
-    st.toast("⚠️ ABCD 分类首次同步后端失败，下游页面可能看到陈旧数据", icon="warning")
+    st.toast("⚠️ ABCD 分类首次同步后端失败，下游页面可能看到陈旧数据", icon="⚠️")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -2566,7 +2566,7 @@ def _sync_arena_to_backend() -> bool:
         "p4_arena_leaders":       st.session_state.get("p4_arena_leaders", {}),
     })
     if not ok:
-        st.toast("⚠️ Arena 结果同步后端失败，Page 4/5/6 可能看到陈旧数据", icon="warning")
+        st.toast("⚠️ Arena 结果同步后端失败，Page 4/5/6 可能看到陈旧数据", icon="⚠️")
     return ok
 
 # ─────────────────────────────────────────────────────────────────

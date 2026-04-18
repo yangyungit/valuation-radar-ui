@@ -1543,7 +1543,7 @@ if not df.empty and len(df) > 750:
             "live_regime_label":        _horsemen_en_winner,
             "horsemen_monthly_probs":   st.session_state["horsemen_monthly_probs"],
         }):
-            st.toast("⚠️ 宏观剧本推送后端失败，Page 0/6 可能读到陈旧剧本", icon="warning")
+            st.toast("⚠️ 宏观剧本推送后端失败，Page 0/6 可能读到陈旧剧本", icon="⚠️")
 
     # 持久化月度裁决（与上方「四大剧本历史裁决表」同一套月度 resample 结果），供 Page 4 历史榜并列展示
     _horsemen_verdict_file = os.path.join(os.path.dirname(__file__), "..", "data", "horsemen_monthly_verdict.json")
