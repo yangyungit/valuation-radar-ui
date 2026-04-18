@@ -1197,7 +1197,7 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str,
                 " border-radius:4px; overflow:hidden;'>"
                 f"{factor_bars_html}"
                 "</div>"
-                f"<span style='font-size:13px; color:#555; min-width:24px;"
+                f"<span style='font-size:13px; color:{'#E74C3C' if score < 0 else '#555'}; min-width:24px;"
                 f" text-align:right;'>{score:.0f}</span>"
                 "</div>"
             )
@@ -2716,17 +2716,16 @@ if _sel4 == "A":
         df_scored_a["排名"] = range(1, len(df_scored_a) + 1)
 
         # 补充因子分解列，供 _render_leaderboard 渲染横向条形图
-        # 各因子 min-max 归一化后按权重求原始比例，再乘以竞技得分使总和与得分量纲一致
+        # 因子分用于 bar 可视化，保持非负（min-max 归一化后乘权重），与竞技得分量纲解耦
+        # 竞技得分可为负数（ScorecardA 绝对打分），不能直接乘进因子分否则 bar 消失
         _dd_inv_n   = _minmax_norm(-df_scored_a["最大回撤_raw"].astype(float))
         _fcf_n      = _minmax_norm(df_scored_a["FCF收益率"].astype(float))
         _corr_inv_n = _minmax_norm(-df_scored_a["SPY相关性"].astype(float))
         _ribbon_n   = _minmax_norm(df_scored_a["带鱼质量"].astype(float))
-        _raw_total  = (_dd_inv_n*0.30 + _fcf_n*0.20 + _corr_inv_n*0.20 + _ribbon_n*0.30).clip(lower=1e-6)
-        _score_v    = df_scored_a["竞技得分"].astype(float)
-        df_scored_a["因子1_分"] = (_dd_inv_n   * 0.30 / _raw_total * _score_v).round(1)
-        df_scored_a["因子2_分"] = (_fcf_n      * 0.20 / _raw_total * _score_v).round(1)
-        df_scored_a["因子3_分"] = (_corr_inv_n * 0.20 / _raw_total * _score_v).round(1)
-        df_scored_a["因子4_分"] = (_ribbon_n   * 0.30 / _raw_total * _score_v).round(1)
+        df_scored_a["因子1_分"] = (_dd_inv_n   * 0.30).round(1)
+        df_scored_a["因子2_分"] = (_fcf_n      * 0.20).round(1)
+        df_scored_a["因子3_分"] = (_corr_inv_n * 0.20).round(1)
+        df_scored_a["因子4_分"] = (_ribbon_n   * 0.30).round(1)
 
         n_a = len(df_scored_a)
         _rt_selected_a = []
