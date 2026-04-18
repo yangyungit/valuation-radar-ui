@@ -881,24 +881,28 @@ def run_classification_api(
         return {"success": False, "error": str(exc)}
 
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_arena_a_scores(tickers: tuple, meta_data_hash: str = "") -> dict:
     """调用后端 /api/v1/arena/score_a，返回 {"scores": {ticker: float}, "breakdowns": {ticker: {...}}}。
     meta_data_hash 仅用于 cache key 区分（传 json.dumps(meta_data) 的 hash 字符串）。
+
+    失败/空结果一律抛异常：Streamlit @cache_data 对抛异常的调用不缓存，
+    避免 Render 冷启动/临时网络抖动把空 dict 毒化进 30 分钟缓存。
+    调用方需 try/except 兜底（见 pages/3_资产细筛.py A 组评分段落）。
     """
-    try:
-        r = requests.post(
-            f"{API_BASE_URL}/api/v1/arena/score_a",
-            json={"tickers": list(tickers), "meta_data": {}},
-            timeout=120,
-        )
-        r.raise_for_status()
-        data = r.json()
-        if not data.get("success"):
-            return {"scores": {}, "breakdowns": {}}
-        return {"scores": data.get("scores", {}), "breakdowns": data.get("breakdowns", {})}
-    except Exception:
-        return {"scores": {}, "breakdowns": {}}
+    r = requests.post(
+        f"{API_BASE_URL}/api/v1/arena/score_a",
+        json={"tickers": list(tickers), "meta_data": {}},
+        timeout=30,
+    )
+    r.raise_for_status()
+    data = r.json()
+    if not data.get("success"):
+        raise RuntimeError(f"score_a success=false: {data.get('error', '未知')}")
+    scores = data.get("scores", {})
+    if not scores:
+        raise RuntimeError(f"score_a 返回空 scores（tickers={len(tickers)}）")
+    return {"scores": scores, "breakdowns": data.get("breakdowns", {})}
 
 
 def arena_backfill_score(

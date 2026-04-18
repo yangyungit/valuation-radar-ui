@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-04-18 | 修复 ScorecardA 评分"毒化缓存"陷阱（静默失败 + 30 分钟空字典）
+
+**症状**：用户报告 A 组完整排行榜 24 个选手得分全为 0，点"仅清除当前页缓存"和"清除所有页面缓存"均无效，toast 提示"ScorecardA 后端不可达，得分置零"。直接 `curl https://valuation-radar-server.onrender.com/api/v1/arena/score_a` 返回 `success=true` + 24 个真实评分，Render 日志也有 `POST /api/v1/arena/score_a 200 OK`——后端完全健康。
+
+**根因（违反 `.cursorrules` 第 8 条"禁止静默失败"）**：`api_client.get_arena_a_scores` 的 `except Exception:` 吞掉所有错误并返回 `{"scores": {}, "breakdowns": {}}`，而外层套着 `@st.cache_data(ttl=1800)`——**空 dict 被缓存 30 分钟**。Render 冷启动 / 瞬时网络抖动只要命中一次，用户就要盲等半小时；即使手动 clear 缓存，下一次请求若再次撞到抖动，又会被毒化。且 `except` 未打印任何错误信息，根本无法定位真实故障（`SSLError`/`JSONDecodeError`/`ReadTimeout` 被一锅端）。"仅清除当前页缓存"按钮也漏清了 `get_arena_a_scores` 自身。
+
+**三步最小改动**：
+
+1. **`api_client.py:884-901`**：`get_arena_a_scores` 去静默化——失败/`success=false`/`scores` 为空时一律 `raise RuntimeError`（Streamlit 对抛异常的调用不缓存），彻底杜绝毒化。`timeout=120` → `30`（Render 冷启动最多 30s，120s 徒增用户盲等）。加 `show_spinner=False`（调用方已有 `st.spinner`）。
+
+2. **`pages/3_资产细筛.py:2712-2723`**：调用处补 `try/except Exception as _score_exc`，捕获后把 `type(_score_exc).__name__` + 前 140 字错误透出到 toast，业务侧仍兜底到 `{"scores": {}, "breakdowns": {}}` 走原有"得分置零"分支。下次再踩坑会直接看到真实错因（`ConnectionError` / `JSONDecodeError` / `ReadTimeout` / `SSLError`），不再抓瞎。
+
+3. **`pages/3_资产细筛.py:2359-2369`**：「🔄 仅清除当前页缓存」按钮补上 `_api_get_arena_a_scores.clear()`。用户手动救急不必再依赖"清除所有页面缓存"这个核弹。
+
+**遗留 TODO**：若后续证实 B/C/D/Z 也有类似 "cached API 封装 + 静默 except" 组合，按同模板重构；此次按最小化编辑原则仅修 A 组（症状落点）。
+
+---
+
 ## 2026-04-18 | 熔断下沉：拆除 Page 3 选股端扣分，A 组排行榜改用后端 breakdowns
 
 **决策背景**：熔断（回撤/趋势/估值）属于时点风险管控，语义上属于"择时"而非"选股"。V14 ABCD 重构时直接把熔断扣分写死在 Scorecard 里，导致 A 组排行榜出现负分、条形图归一化错位，且 PFE/AAPL/PBR 等 FCF 扎实但近期回撤较大的标的被系统性压制。

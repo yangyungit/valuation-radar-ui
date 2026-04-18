@@ -2364,6 +2364,7 @@ with st.sidebar:
         get_arena_b_factors.clear()
         get_arena_c_factors.clear()
         get_arena_d_factors.clear()
+        _api_get_arena_a_scores.clear()  # A 组 ScorecardA 评分（Render 冷启动失败曾被毒化 30 分钟）
         st.success("当前页缓存已清除！历史档案文件不受影响。")
         st.rerun()
     if st.button("🗑️ 清除所有页面缓存"):
@@ -2711,13 +2712,21 @@ if _sel4 == "A":
 
         # ── 使用后端 ScorecardA（新公式：45/20/20/15，3年回溯，DCR）──
         with st.spinner("正在调用后端 ScorecardA 新公式评分…"):
-            _new_a_result  = _api_get_arena_a_scores(tuple(df_a["Ticker"].tolist()))
+            try:
+                _new_a_result = _api_get_arena_a_scores(tuple(df_a["Ticker"].tolist()))
+            except Exception as _score_exc:
+                # api_client 层对失败/空结果一律抛异常（避免毒化 @cache_data）
+                st.toast(
+                    f"⚠️ ScorecardA 调用失败 [{type(_score_exc).__name__}]: {str(_score_exc)[:140]}",
+                    icon="⚠️",
+                )
+                _new_a_result = {"scores": {}, "breakdowns": {}}
         _new_a_scores  = _new_a_result.get("scores", {})
         _a_breakdowns  = _new_a_result.get("breakdowns", {})
         if _new_a_scores:
             df_a["竞技得分"] = df_a["Ticker"].map(lambda t: float(_new_a_scores.get(t, 0.0)))
         else:
-            st.toast("⚠️ ScorecardA 后端不可达，得分置零（请检查后端服务）", icon="⚠️")
+            st.toast("⚠️ ScorecardA 得分置零（查看上一条 toast 获取具体错因）", icon="⚠️")
             df_a["竞技得分"] = 0.0
         df_scored_a = df_a.sort_values("竞技得分", ascending=False).reset_index(drop=True)
         df_scored_a["排名"] = range(1, len(df_scored_a) + 1)
