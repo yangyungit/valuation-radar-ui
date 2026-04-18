@@ -2712,10 +2712,21 @@ if _sel4 == "A":
             )
 
         # ── 使用后端 ScorecardA（新公式：45/20/20/15，3年回溯，DCR）──
+        # 把前端已拉到的 fcf_yield 打包成 meta_data 传给后端，否则后端 F2 得分恒为 0（蓝色条缺失）
+        import json as _json
+        _meta_for_a = {
+            str(t): {"fcf_yield": float(_factors_a.get(t, {}).get("fcf_yield", 0.0))}
+            for t in df_a["Ticker"]
+        }
+        _meta_json_a = _json.dumps(_meta_for_a, sort_keys=True)
+
         _score_err_msg = None
         with st.spinner("正在调用后端 ScorecardA 新公式评分…"):
             try:
-                _new_a_result = _api_get_arena_a_scores(tuple(df_a["Ticker"].tolist()))
+                _new_a_result = _api_get_arena_a_scores(
+                    tuple(df_a["Ticker"].tolist()),
+                    meta_data_json=_meta_json_a,
+                )
             except Exception as _score_exc:
                 # api_client 层对失败/空结果一律抛异常（避免毒化 @cache_data）
                 _score_err_msg = f"{type(_score_exc).__name__}: {str(_score_exc)[:240]}"

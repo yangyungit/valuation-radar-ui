@@ -883,17 +883,27 @@ def run_classification_api(
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def get_arena_a_scores(tickers: tuple, meta_data_hash: str = "") -> dict:
+def get_arena_a_scores(tickers: tuple, meta_data_json: str = "") -> dict:
     """调用后端 /api/v1/arena/score_a，返回 {"scores": {ticker: float}, "breakdowns": {ticker: {...}}}。
-    meta_data_hash 仅用于 cache key 区分（传 json.dumps(meta_data) 的 hash 字符串）。
+
+    Args:
+        tickers:         参赛 ticker 元组
+        meta_data_json:  JSON 字符串 '{ticker: {"fcf_yield": float}}'。
+                         必须 hashable 才能作 @st.cache_data 的 cache key，
+                         因此序列化为 str 传入；函数内 json.loads 还原为 dict 再 POST。
+                         为空时 fcf_yield 全部按 0 处理（ScorecardA F2 得分为 0）。
 
     失败/空结果一律抛异常：Streamlit @cache_data 对抛异常的调用不缓存，
     避免 Render 冷启动/临时网络抖动把空 dict 毒化进 30 分钟缓存。
     调用方需 try/except 兜底（见 pages/3_资产细筛.py A 组评分段落）。
     """
+    try:
+        meta_data = json.loads(meta_data_json) if meta_data_json else {}
+    except Exception:
+        meta_data = {}
     r = requests.post(
         f"{API_BASE_URL}/api/v1/arena/score_a",
-        json={"tickers": list(tickers), "meta_data": {}},
+        json={"tickers": list(tickers), "meta_data": meta_data},
         timeout=30,
     )
     r.raise_for_status()

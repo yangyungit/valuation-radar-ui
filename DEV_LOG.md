@@ -2,6 +2,33 @@
 
 ---
 
+## 2026-04-18 | A 组排行榜"蓝色条全缺"修复：前端 fcf_yield 透传给后端 ScorecardA
+
+**症状**：P0b curl_cffi 修复上线后数据回来了，但 24 位参赛选手的 A 组因子贡献堆叠条**全部缺少 F2 股息/FCF 收益率（蓝色）**。后端 `/api/v1/arena/score_a` 返回的 `score_fcf` 对所有 ticker 恒为 `0.0`。
+
+**根因（跨前后端契约断层）**：
+- `ScorecardA.score()`（`core_engine.py:933`）从 `meta.get(ticker, {}).get("fcf_yield", 0.0)` 取 FCF。
+- 后端 `/api/v1/arena/score_a` 端点（`api_server.py:3735`）把 `payload.meta_data` 原样塞进 `sc.score(..., payload.meta_data, ...)`。
+- 但前端 `api_client.get_arena_a_scores` POST 时写死 `"meta_data": {}`（空 dict）——于是每个 ticker 的 `fcf_yield` 回落到 0，F2 得分恒为 0，蓝色条视觉消失。
+- 讽刺的是：前端 `get_arena_a_factors` 早已拉到 `fcf_yield`（还渲染在 A 组表格"FCF 收益率"列里），**只是没传回后端**。
+
+**修复**（最小改动，纯前端）：
+1. `api_client.py:884-913`：`get_arena_a_scores` 第二参数 `meta_data_hash: str` → `meta_data_json: str`（语义更清晰），函数内 `json.loads` 还原 dict 再 POST。`@st.cache_data` 的 cache key 仍然 hashable（字符串），4 小时内 tickers 不变则命中缓存。
+2. `pages/3_资产细筛.py:2714-2733`：调 `_api_get_arena_a_scores` 前先把 `_factors_a` 里每个 ticker 的 `fcf_yield` 摘出来打包成 JSON：
+   ```python
+   _meta_for_a = {t: {"fcf_yield": float(_factors_a.get(t, {}).get("fcf_yield", 0.0))} for t in df_a["Ticker"]}
+   _meta_json_a = json.dumps(_meta_for_a, sort_keys=True)
+   _new_a_result = _api_get_arena_a_scores(tuple(...), meta_data_json=_meta_json_a)
+   ```
+
+**影响**：A 组堆叠条开始显示蓝色（F2），总分会相应抬升（F2 权重 20%）。后端无改动，无需 Render 重启。
+
+**长期风险 / 留痕**：
+- **契约脆弱**：`meta_data` 走字符串 JSON 穿透 `@st.cache_data` 是个 workaround；未来若 ScorecardA 再新增因子依赖的字段（如 sector / mcap），得同步扩 JSON schema，容易遗忘。更干净的做法是后端 `/api/v1/arena/score_a` 自己拉 `get_stock_metadata(tickers)` 兜底，让前端只传 tickers——但这会在 Render 引入额外一次 `yf.Ticker.info` 调用（反爬最严的 endpoint）。取舍留给未来重构。
+- 前端仍直接调 yfinance 拉 fcf_yield，违反"物理隔离"原则，和 P0b 遗留的长期债同源。后端 `/api/v1/arena/factors` 迁移仍未完成。
+
+---
+
 ## 2026-04-18 | 启用 curl_cffi 浏览器指纹，绕 Yahoo Finance 云 IP 401 反爬（前端）
 
 **配套后端同 commit**：`valuation-radar befb6d0`，两仓独立但策略同构。
