@@ -124,8 +124,8 @@ ARENA_CONFIG: dict = {
     "A": {
         "score_name": "避风港防御指数",
         "weights": {
-            "max_dd_inv": 0.30, "fcf_yield": 0.20,
-            "spy_corr_inv": 0.20, "ribbon_quality": 0.30,
+            "max_dd_inv": 0.45, "fcf_yield": 0.15,
+            "spy_corr_inv": 0.10, "ribbon_quality": 0.30,
         },
         "invert_z": False,
         "factor_labels": {
@@ -135,12 +135,12 @@ ARENA_CONFIG: dict = {
             "ribbon_quality": "带鱼质量 (趋势干净度)",
         },
         "logic": (
-            "压舱石的竞技逻辑：防守 + 温和趋势质量四维体系，专抓真实现金流、大盘对冲与均线带鱼形态。<br>"
-            "① 极限抗跌（真实252日最大回撤取倒数，回撤越小得分越高，权重 30%）<br>"
-            "② 现金奶牛（自由现金流收益率 FCF/MCap，ETF 回退至股息率，权重 20%）<br>"
-            "③ 宏观对冲（与SPY日收益率皮尔逊相关系数取倒数，低/负相关得高分，权重 20%）<br>"
-            "④ 带鱼质量（MA间距稳定性+持续天数+斜率稳定性+MA60斜率正值，趋势干净度，权重 30%）<br>"
-            "四维统计指标同时达标方为真正避风港，拒绝一切短期动量噪音。"
+            "压舱石的竞技逻辑：抗跌护城河 + 趋势方向四维体系，专抓真实现金流、大盘对冲与均线带鱼形态。<br>"
+            "① 极限抗跌（3年最大回撤取倒数，回撤越小得分越高，权重 45%）<br>"
+            "② 现金奶牛（自由现金流收益率 FCF/MCap，ETF 回退至股息率，权重 15%）<br>"
+            "③ 宏观对冲（2年 Downside Capture Ratio，SPY 跌时资产反涨者满分，权重 10%）<br>"
+            "④ 带鱼质量（内部 0.15·间距稳定 + 0.20·持续天数 + 0.15·斜率稳定 + 0.50·MA60斜率正值，趋势方向主导，权重 30%）<br>"
+            "四维统计指标同时达标方为真正避风港，MA60 斜率让防御股霸榜破局。"
         ),
     },
     "B": {
@@ -2675,18 +2675,20 @@ if _sel4 == "A":
 
     st.markdown(_conv_explain_html(config=CONVICTION_A_CONFIG), unsafe_allow_html=True)
 
-    with st.expander("📐 底层因子公式（ScorecardA 满分 100）", expanded=False):
+    with st.expander("📐 底层因子公式（ScorecardA v3 满分 100）", expanded=False):
         st.markdown("""
         <div style='font-size:14px; color:#ccc; line-height:1.8;'>
         <span style='color:#2ECC71; font-weight:bold;'>Score<sub>A</sub></span> =
-        <span style='color:#2ECC71;'>(35 &times; InvMaxDD<sub>norm</sub>)</span> +
-        <span style='color:#3498DB;'>(25 &times; DivYield<sub>norm</sub>)</span> +
-        <span style='color:#9B59B6;'>(20 &times; InvSPYCorr<sub>norm</sub>)</span> +
-        <span style='color:#F39C12;'>(20 &times; InvVol<sub>norm</sub>)</span><br>
+        <span style='color:#2ECC71;'>(45 &times; F1<sub>3yDD</sub>)</span> +
+        <span style='color:#3498DB;'>(15 &times; F2<sub>FCF</sub>)</span> +
+        <span style='color:#9B59B6;'>(10 &times; F3<sub>2yDCR</sub>)</span> +
+        <span style='color:#F39C12;'>(30 &times; F4<sub>Ribbon</sub>)</span><br><br>
+        <span style='color:#F39C12;'>F4<sub>Ribbon</sub></span> =
+        0.15·s1<sub>间距稳定</sub> + 0.20·s2<sub>持续天数</sub> + 0.15·s3<sub>斜率稳定</sub> +
+        <span style='color:#F39C12; font-weight:bold;'>0.50·s5<sub>MA60斜率</sub></span><br>
         <span style='color:#888; font-size:13px;'>
-        此因子分数作为「信念积分的输入信号」，不再直接决定排名。
-        连续多月高分 &rarr; 信念积累 &rarr; 达标入选 &rarr; 守擂留任。
-        四维纯统计指标同时达标方为真正避风港，拒绝一切短期噪音。
+        s5 = 最近 60 天 MA60 年化斜率，正值 clip 到 [0, 1]，+15% 为满分阈值。
+        此因子分数作为「信念积分的输入信号」，不再直接决定排名；连续多月高分 &rarr; 信念积累 &rarr; 达标入选 &rarr; 守擂留任。
         </span>
         </div>
         """, unsafe_allow_html=True)
