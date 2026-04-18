@@ -2711,22 +2711,26 @@ if _sel4 == "A":
             )
 
         # ── 使用后端 ScorecardA（新公式：45/20/20/15，3年回溯，DCR）──
+        _score_err_msg = None
         with st.spinner("正在调用后端 ScorecardA 新公式评分…"):
             try:
                 _new_a_result = _api_get_arena_a_scores(tuple(df_a["Ticker"].tolist()))
             except Exception as _score_exc:
                 # api_client 层对失败/空结果一律抛异常（避免毒化 @cache_data）
-                st.toast(
-                    f"⚠️ ScorecardA 调用失败 [{type(_score_exc).__name__}]: {str(_score_exc)[:140]}",
-                    icon="⚠️",
-                )
+                _score_err_msg = f"{type(_score_exc).__name__}: {str(_score_exc)[:240]}"
                 _new_a_result = {"scores": {}, "breakdowns": {}}
         _new_a_scores  = _new_a_result.get("scores", {})
         _a_breakdowns  = _new_a_result.get("breakdowns", {})
         if _new_a_scores:
             df_a["竞技得分"] = df_a["Ticker"].map(lambda t: float(_new_a_scores.get(t, 0.0)))
         else:
-            st.toast("⚠️ ScorecardA 得分置零（查看上一条 toast 获取具体错因）", icon="⚠️")
+            # 常驻 st.error 代替易错过的 st.toast，把真实异常类型和错因永久显示
+            st.error(
+                f"🔴 **ScorecardA 评分失败 → 排行榜得分置零**\n\n"
+                f"**错因：** `{_score_err_msg or 'scores 字段为空（后端 score_a 返回成功但载荷空）'}`\n\n"
+                f"**常见根因：** yfinance 被 Yahoo 反爬封禁（401 Invalid Crumb / 云 IP 黑名单）、"
+                f"Render 冷启动超时、后端 OOM 重启。请查 Render logs 和 Streamlit Cloud app logs 进一步定位。"
+            )
             df_a["竞技得分"] = 0.0
         df_scored_a = df_a.sort_values("竞技得分", ascending=False).reset_index(drop=True)
         df_scored_a["排名"] = range(1, len(df_scored_a) + 1)
