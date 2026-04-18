@@ -2,6 +2,10 @@
 
 ---
 
+## 2026-04-18 | 同步 ScorecardA F4 s4→s5 改造前端说明文案
+
+**改动**：`pages/3_资产细筛.py` A 组 tooltip 文案中"价格贴轨度"改为"MA60斜率正值"，与后端 `core_engine.ScorecardA` s5 新子项对齐；无逻辑改动，仅 UI 文案同步。
+
 ## 2026-04-18 | 修复回填"假 502"：fetch_arena_history 补 @st.cache_data，兑现 DCP 约束 5
 
 **症状**：主理人报 Page 3「回填历史数据」失败，toast 文案 `502 Server Error: Bad Gateway`。实际打 Render 日志看，`POST /api/v1/arena/backfill_score 200 OK`、后续 `/api/v1/arena/history/batch`、`/api/v1/conviction_state/A|B` 全部 200；前端页面也先弹出绿字 `回填完成！已写入 60 个月的历史档案`——**回填其实完全成功**。但紧接着一个红色 traceback 盖满整页：`AttributeError` 指向 `pages/3_资产细筛.py:3608` 的 `_api_fetch_history.clear()`。用户视觉上只看到红报错和上一次 502，误以为"持续 502"。
