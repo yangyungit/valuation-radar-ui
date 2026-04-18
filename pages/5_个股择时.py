@@ -4,6 +4,7 @@ from typing import NamedTuple
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+from _yf_session import YF_SESSION  # curl_cffi 浏览器指纹，绕 Yahoo 401
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from api_client import (fetch_core_data, fetch_vcp_analysis, fetch_screen_results,
@@ -123,7 +124,7 @@ def _get_holding_periods(cls_map: dict, ticker: str) -> list:
 
 @st.cache_data(ttl=3600 * 4, show_spinner=False)
 def _fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
-    h = yf.Ticker(ticker).history(period="5y")
+    h = yf.Ticker(ticker, session=YF_SESSION).history(period="5y")
     if h.empty:
         return pd.DataFrame()
     w = h.resample("W-FRI").agg({
@@ -1611,7 +1612,7 @@ with st.expander("📐 VCP 方法论 (Mark Minervini) — 点击展开核心逻�
 if target_ticker:
     try:
         with st.spinner(f"正在拉取 {target_ticker} 历史数据 (5年)..."):
-            stock = yf.Ticker(target_ticker)
+            stock = yf.Ticker(target_ticker, session=YF_SESSION)
             hist = stock.history(period="5y")
             try:
                 info = stock.info or {}

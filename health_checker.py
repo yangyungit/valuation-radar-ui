@@ -249,6 +249,7 @@ def check_market_data():
     results = []
     try:
         import yfinance as yf
+        from _yf_session import YF_SESSION  # curl_cffi 浏览器指纹，绕 Yahoo 401
     except ImportError:
         results.append(_make("行情数据", "yfinance", CRITICAL,
                              "yfinance 未安装", "pip install yfinance"))
@@ -256,7 +257,7 @@ def check_market_data():
 
     t0 = time.time()
     try:
-        spy = yf.Ticker("SPY").history(period="5d")
+        spy = yf.Ticker("SPY", session=YF_SESSION).history(period="5d")
         ms = (time.time() - t0) * 1000
         if spy.empty:
             results.append(_make("行情数据", "yfinance (SPY)", ERROR,

@@ -2,6 +2,30 @@
 
 ---
 
+## 2026-04-18 | 启用 curl_cffi 浏览器指纹，绕 Yahoo Finance 云 IP 401 反爬（前端）
+
+**配套后端同 commit**：`valuation-radar befb6d0`，两仓独立但策略同构。
+
+**症状**：Streamlit Cloud 前端日志堆满 `HTTP Error 401: Invalid Crumb`；Page 3 资产细筛 A 组排行榜得分全 0 且点任何"清除缓存"按钮都救不回来；后端 Render 服务反复 `Shutting down`。初步以为是 `@st.cache_data` 毒化空字典，排查后发现**根源更深**——Yahoo 2026-04 升级 Crumb v2 反爬，对云 IP 全面封禁，yfinance 默认 session 全 401。
+
+**历史遗留问题暴露**：`.cursorrules` 第 5 条规定"前端严禁存放业务逻辑"，但 `api_client.py` / `pages/1_宏观定调.py` / `pages/3_资产细筛.py` / `pages/5_个股择时.py` 等多处直接 `yf.download` / `yf.Ticker()` 拉 yfinance。这是 V14 前的架构遗留，本次反爬事件把它暴露出来——前端 Streamlit Cloud 和后端 Render 同时被封，得前后端**同步**上浏览器指纹补丁。
+
+**修复**（跨仓全量 P0b）：
+1. 新增 `_yf_session.py`：与后端同构的工具文件，`YF_SESSION = curl_cffi.requests.Session(impersonate="chrome")`，curl_cffi 缺失时降级 None（yfinance 自建默认 Session，向后兼容）。
+2. `requirements.txt`：`yfinance` → `yfinance>=1.3.0`，新增 `curl_cffi`。
+3. 所有业务/诊断文件 yf 调用处加 `session=YF_SESSION`：
+   - `api_client.py`：13 处（2 × `yf.download` + 6 × `yf.Ticker(t)` + 5 × `yf.Ticker("SPY")`）
+   - `pages/3_资产细筛.py`：1 处 `yf.download`
+   - `pages/1_宏观定调.py`：1 处 `yf.download`
+   - `pages/5_个股择时.py`：2 处 `yf.Ticker`
+   - `health_checker.py`：1 处 `yf.Ticker("SPY")`（诊断路径也补齐，避免 health 页误报）
+
+**技术债记录**：前端直连 yfinance 违反物理隔离原则，但本次不做大重构；待 Page 5 风控模块动工时一并把 `api_client.py` 的 `get_arena_X_factors` 全部下沉到后端 `/api/v1/arena/factors` 统一端点（已在 TODO）。
+
+**短期未来风险**：curl_cffi 的 Chrome 指纹若被 Yahoo 进一步识别，本方案会再次失效，届时需切 Polygon.io / Alpha Vantage 付费 API。
+
+---
+
 ## 2026-04-18 | 修复 ScorecardA 评分"毒化缓存"陷阱（静默失败 + 30 分钟空字典）
 
 **症状**：用户报告 A 组完整排行榜 24 个选手得分全为 0，点"仅清除当前页缓存"和"清除所有页面缓存"均无效，toast 提示"ScorecardA 后端不可达，得分置零"。直接 `curl https://valuation-radar-server.onrender.com/api/v1/arena/score_a` 返回 `success=true` + 24 个真实评分，Render 日志也有 `POST /api/v1/arena/score_a 200 OK`——后端完全健康。

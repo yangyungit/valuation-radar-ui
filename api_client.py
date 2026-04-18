@@ -5,6 +5,7 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import json
 import io
+from _yf_session import YF_SESSION  # curl_cffi 浏览器指纹，绕 Yahoo 401 Invalid Crumb
 
 # ==========================================
 # 1. 核心机密数据获取 (通过 API 向后厨请求)
@@ -61,13 +62,13 @@ def get_global_data(tickers, years=4):
     end_date = datetime.now()
     start_date = end_date - timedelta(days=365*years)
     try:
-        data = yf.download(tickers, start=start_date, end=end_date, progress=False)['Close']
+        data = yf.download(tickers, start=start_date, end=end_date, progress=False, session=YF_SESSION)['Close']
         if isinstance(data, pd.DataFrame):
             missing_tickers = [t for t in tickers if t not in data.columns or data[t].isnull().all()]
             if missing_tickers:
                 import time as mod_time
                 mod_time.sleep(1)
-                retry_data = yf.download(missing_tickers, start=start_date, end=end_date, progress=False)
+                retry_data = yf.download(missing_tickers, start=start_date, end=end_date, progress=False, session=YF_SESSION)
                 if 'Close' in retry_data:
                     retry_close = retry_data['Close']
                     if isinstance(retry_close, pd.Series) and len(missing_tickers) == 1:
@@ -112,7 +113,7 @@ def get_stock_metadata(tickers):
 
     def _fetch_one(t):
         try:
-            stock = yf.Ticker(t)
+            stock = yf.Ticker(t, session=YF_SESSION)
             fi = stock.fast_info
             mcap = fi.get('marketCap', 0) or 0
             price = fi.get('regularMarketPrice', 0) or fi.get('previousClose', 1) or 1
@@ -142,7 +143,7 @@ def get_arena_a_factors(tickers: tuple) -> dict:
     import numpy as np
 
     try:
-        spy_hist = yf.Ticker("SPY").history(period="1y")
+        spy_hist = yf.Ticker("SPY", session=YF_SESSION).history(period="1y")
         if not spy_hist.empty and len(spy_hist) >= 60:
             spy_prices = spy_hist["Close"].dropna().astype(float)
             spy_daily_ret = spy_prices.pct_change().dropna()
@@ -153,7 +154,7 @@ def get_arena_a_factors(tickers: tuple) -> dict:
 
     def _fetch_one(t):
         try:
-            stock = yf.Ticker(t)
+            stock = yf.Ticker(t, session=YF_SESSION)
             fi = stock.fast_info
             mcap = fi.get('marketCap', 0) or 0
             price = fi.get('regularMarketPrice', 0) or fi.get('previousClose', 1) or 1
@@ -291,12 +292,12 @@ def get_arena_b_factors(tickers: tuple) -> dict:
     from concurrent.futures import ThreadPoolExecutor
     import numpy as np
 
-    spy_hist = yf.Ticker("SPY").history(period="1y")
+    spy_hist = yf.Ticker("SPY", session=YF_SESSION).history(period="1y")
     spy_prices = spy_hist["Close"].dropna().astype(float) if not spy_hist.empty else pd.Series(dtype=float)
 
     def _fetch_one(t):
         try:
-            stock = yf.Ticker(t)
+            stock = yf.Ticker(t, session=YF_SESSION)
             fi = stock.fast_info
             mcap = fi.get('marketCap', 0) or 0
             if mcap < 1e6:
@@ -384,7 +385,7 @@ def get_arena_c_factors(tickers: tuple) -> dict:
 
     # SPY 基准：120日 + 250日收益
     try:
-        spy_hist = yf.Ticker("SPY").history(period="2y")
+        spy_hist = yf.Ticker("SPY", session=YF_SESSION).history(period="2y")
         spy_prices = spy_hist["Close"].dropna().astype(float) if not spy_hist.empty else pd.Series(dtype=float)
         spy_ret120 = float((spy_prices.iloc[-1] / spy_prices.iloc[-121] - 1) * 100) if len(spy_prices) >= 121 else 0.0
         spy_ret250 = float((spy_prices.iloc[-1] / spy_prices.iloc[-251] - 1) * 100) if len(spy_prices) >= 251 else 0.0
@@ -394,7 +395,7 @@ def get_arena_c_factors(tickers: tuple) -> dict:
 
     def _fetch_one(t):
         try:
-            stock = yf.Ticker(t)
+            stock = yf.Ticker(t, session=YF_SESSION)
             info = {}
             try:
                 info = stock.info or {}
@@ -443,7 +444,7 @@ def get_arena_d_factors(tickers: tuple) -> dict:
 
     # 先取 SPY 基准 20 日收益
     try:
-        spy_hist = yf.Ticker("SPY").history(period="65d")
+        spy_hist = yf.Ticker("SPY", session=YF_SESSION).history(period="65d")
         if not spy_hist.empty and len(spy_hist) >= 21:
             spy_prices = spy_hist["Close"].dropna().astype(float)
             spy_ret20 = float((spy_prices.iloc[-1] / spy_prices.iloc[-21] - 1) * 100)
@@ -454,7 +455,7 @@ def get_arena_d_factors(tickers: tuple) -> dict:
 
     def _fetch_one(t):
         try:
-            hist = yf.Ticker(t).history(period="65d")
+            hist = yf.Ticker(t, session=YF_SESSION).history(period="65d")
             if hist.empty or len(hist) < 10:
                 return t, {"vol_z": 0.0, "rs_20d": 0.0, "ma60_dist": 0.0}
 
@@ -1354,7 +1355,7 @@ def get_etf_rs20d(tickers: tuple) -> dict:
     """计算各 ETF 近 20 日相对 SPY 超额收益，用于 L2 板块偏离检测。"""
     import numpy as np
     try:
-        spy_hist = yf.Ticker("SPY").history(period="30d")
+        spy_hist = yf.Ticker("SPY", session=YF_SESSION).history(period="30d")
         spy_prices = spy_hist["Close"].dropna().astype(float) if not spy_hist.empty else pd.Series(dtype=float)
         spy_ret20 = float((spy_prices.iloc[-1] / spy_prices.iloc[-21] - 1) * 100) if len(spy_prices) >= 21 else 0.0
     except Exception:
@@ -1363,7 +1364,7 @@ def get_etf_rs20d(tickers: tuple) -> dict:
     result = {}
     for t in tickers:
         try:
-            hist = yf.Ticker(t).history(period="30d")
+            hist = yf.Ticker(t, session=YF_SESSION).history(period="30d")
             if hist.empty or len(hist) < 5:
                 result[t] = 0.0
                 continue
