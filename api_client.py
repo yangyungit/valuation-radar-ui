@@ -173,9 +173,13 @@ def get_arena_a_factors(tickers: tuple) -> dict:
             # 2y period to ensure ma60 series has 180+ valid values for ribbon computation
             hist = stock.history(period="2y")
             if hist.empty or len(hist) < 60:
+                import time as _sleep_mod
+                _sleep_mod.sleep(1.0)
+                hist = stock.history(period="1y")
+            if hist.empty or len(hist) < 60:
                 return t, {"fcf_yield": fcf_yield, "div_yield": div_yield,
                            "max_dd_252": 0.0, "spy_corr": 0.5, "ann_vol": 0.30,
-                           "ribbon_score": 0.0}
+                           "ribbon_score": 0.0, "_fallback": True}
 
             prices = hist["Close"].dropna().astype(float)
 
@@ -262,10 +266,11 @@ def get_arena_a_factors(tickers: tuple) -> dict:
             }
         except Exception:
             return t, {"fcf_yield": 0.0, "div_yield": 0.0, "max_dd_252": 0.0,
-                       "spy_corr": 0.5, "ann_vol": 0.30, "ribbon_score": 0.0}
+                       "spy_corr": 0.5, "ann_vol": 0.30, "ribbon_score": 0.0,
+                       "_fallback": True}
 
     result = {}
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         for t, data in executor.map(_fetch_one, tickers):
             result[t] = data
     return result

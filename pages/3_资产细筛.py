@@ -2696,6 +2696,14 @@ if _sel4 == "A":
         df_a["年化波动率"]   = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("ann_vol",     0.30)))
         df_a["带鱼质量"]    = df_a["Ticker"].map(lambda t: float(_factors_a.get(t, {}).get("ribbon_score", 0.0)))
 
+        _a_fallback_tickers = [t for t in df_a["Ticker"] if _factors_a.get(t, {}).get("_fallback")]
+        if _a_fallback_tickers:
+            st.warning(
+                f"⚠️ **{len(_a_fallback_tickers)} 个标的因子数据拉取失败**（yfinance 限速），"
+                f"排行榜中其最大回撤/SPY相关/年化波动显示为占位符：**{', '.join(_a_fallback_tickers)}**。"
+                f"点击侧边栏「清除当前页缓存」后刷新可重试。"
+            )
+
         # ── 使用后端 ScorecardA（新公式：45/20/20/15，3年回溯，DCR）──
         with st.spinner("正在调用后端 ScorecardA 新公式评分…"):
             _new_a_scores = _api_get_arena_a_scores(tuple(df_a["Ticker"].tolist()))
@@ -2708,15 +2716,17 @@ if _sel4 == "A":
         df_scored_a["排名"] = range(1, len(df_scored_a) + 1)
 
         # 补充因子分解列，供 _render_leaderboard 渲染横向条形图
-        # 使用 ARENA_CONFIG["A"] 权重（30/20/20/30）做截面 Min-Max，仅用于可视化
+        # 各因子 min-max 归一化后按权重求原始比例，再乘以竞技得分使总和与得分量纲一致
         _dd_inv_n   = _minmax_norm(-df_scored_a["最大回撤_raw"].astype(float))
         _fcf_n      = _minmax_norm(df_scored_a["FCF收益率"].astype(float))
         _corr_inv_n = _minmax_norm(-df_scored_a["SPY相关性"].astype(float))
         _ribbon_n   = _minmax_norm(df_scored_a["带鱼质量"].astype(float))
-        df_scored_a["因子1_分"] = (_dd_inv_n   * 0.30).round(1)
-        df_scored_a["因子2_分"] = (_fcf_n      * 0.20).round(1)
-        df_scored_a["因子3_分"] = (_corr_inv_n * 0.20).round(1)
-        df_scored_a["因子4_分"] = (_ribbon_n   * 0.30).round(1)
+        _raw_total  = (_dd_inv_n*0.30 + _fcf_n*0.20 + _corr_inv_n*0.20 + _ribbon_n*0.30).clip(lower=1e-6)
+        _score_v    = df_scored_a["竞技得分"].astype(float)
+        df_scored_a["因子1_分"] = (_dd_inv_n   * 0.30 / _raw_total * _score_v).round(1)
+        df_scored_a["因子2_分"] = (_fcf_n      * 0.20 / _raw_total * _score_v).round(1)
+        df_scored_a["因子3_分"] = (_corr_inv_n * 0.20 / _raw_total * _score_v).round(1)
+        df_scored_a["因子4_分"] = (_ribbon_n   * 0.30 / _raw_total * _score_v).round(1)
 
         n_a = len(df_scored_a)
         _rt_selected_a = []
