@@ -660,8 +660,15 @@ def push_conviction_state(cls: str, state: dict, holders: list) -> bool:
 # 3c. Arena 月度档案 API 客户端
 # ==========================================
 
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_arena_history() -> dict:
-    """从后端读取全量 arena 月度档案。失败时返回 {}。"""
+    """从后端读取全量 arena 月度档案。失败时返回 {}。
+
+    挂 @st.cache_data 有两个作用：
+      1. 兑现 DCP 约束 5 "push_* 成功后必须调对应 fetch_*.clear()" 的契约（Page 3 回填成功后
+         会调 `_api_fetch_history.clear()`，没缓存则 AttributeError 崩页）；
+      2. Page 3/4/5 rerun 频繁，60s TTL 内秒回，减少 Render 打扰。写后失效由调用方 clear 保证。
+    """
     try:
         r = requests.get(f"{API_BASE_URL}/api/v1/arena/history", timeout=15)
         r.raise_for_status()

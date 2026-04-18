@@ -2,6 +2,33 @@
 
 ---
 
+## 2026-04-18 | 修复回填"假 502"：fetch_arena_history 补 @st.cache_data，兑现 DCP 约束 5
+
+**症状**：主理人报 Page 3「回填历史数据」失败，toast 文案 `502 Server Error: Bad Gateway`。实际打 Render 日志看，`POST /api/v1/arena/backfill_score 200 OK`、后续 `/api/v1/arena/history/batch`、`/api/v1/conviction_state/A|B` 全部 200；前端页面也先弹出绿字 `回填完成！已写入 60 个月的历史档案`——**回填其实完全成功**。但紧接着一个红色 traceback 盖满整页：`AttributeError` 指向 `pages/3_资产细筛.py:3608` 的 `_api_fetch_history.clear()`。用户视觉上只看到红报错和上一次 502，误以为"持续 502"。
+
+**根因（跨文件契约脱节）**：
+- `pages/3_资产细筛.py:3608` 按 `.cursorrules` DCP 约束 5「push_* 成功后必须调对应 fetch_*.clear() 清缓存」的要求调 `.clear()`。
+- 但 `api_client.fetch_arena_history`（api_client.py:663）是**裸函数**，从未挂 `@st.cache_data` —— `.clear` 属性不存在。
+- 首次 `_do_backfill` 因 Render 冷启动网关抖动撞过一次真 502，主理人重试后走到 200，完整跑完回填；偏偏在"写后校验清缓存"这步把整页崩了。之前 DEV_LOG 2026-04-13 条目 L182 的 TODO「给 push_arena_history_batch 补 fetch_arena_history.clear() + 重读比对」**默认 fetch_arena_history 有 .clear()，从未落地**。
+
+**修复**（1 行装饰器，api_client.py:663）：
+```python
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_arena_history() -> dict:
+```
+- `.clear()` 属性立即可用，Page 3 回填成功后的写后失效链路闭合；
+- TTL 60s 顺便给 Page 3/4/5 rerun 节流（Streamlit 每个 widget 变化都 rerun，原先每次实打实 GET `/arena/history`），写入侧由 `_api_fetch_history.clear()` 主动失效保证跨页一致。
+
+**不改动的东西**：
+- Page 4 / Page 5 调 `fetch_arena_history()` 处零改动——无参缓存透明生效，行为仅从"每次 rerun 发 HTTP"变为"60s 内秒回"，不影响数据正确性。
+- Render 后端零改动。
+
+**遗留 / 未来**：
+- 502 本身仍可能复现（Render 冷启动网关抖动的物理属性），但不再致命——只要重试一次进入 200 路径，页面就会正确落地 `st.success` 而不再被 AttributeError 盖住。如果后续证实 502 **持续复现**（而非本次的瞬时冷启动），再考虑给 `arena_backfill_score` 加 502/503/504 指数退避重试、并把 `_CHUNK` 从 12 降到 6。
+- DCP 约束 5 扫雷 TODO：全仓 grep `@st.cache_data` + 对应 `fetch_*` 函数，确保每个跨页共享读函数都挂了缓存，别再出现"契约约定 .clear() 但实装漏挂装饰器"的脱节。
+
+---
+
 ## 2026-04-18 | A 组排行榜"蓝色条全缺"修复：前端 fcf_yield 透传给后端 ScorecardA
 
 **症状**：P0b curl_cffi 修复上线后数据回来了，但 24 位参赛选手的 A 组因子贡献堆叠条**全部缺少 F2 股息/FCF 收益率（蓝色）**。后端 `/api/v1/arena/score_a` 返回的 `score_fcf` 对所有 ticker 恒为 `0.0`。
