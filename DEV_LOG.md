@@ -4,7 +4,9 @@
 
 ## 2026-04-19 | ScorecardA Harness 定稿同步：A 组前端权重 45/15/10/30 → 20/10/40/30
 
-**动因**：后端 `valuation-radar` 仓 commit `a95015b`（2026-04-18 夜）经 A 组 Harness 三阶段门控回测（OOS 87.8% / 扰动 76.5%）将 ScorecardA 权重定稿为 **F1=20 / F2=10 / F3=40 / F4=30**，DCR 升为首要因子（市场级风控由 SPY 熔断接管）。但前端 Page 3「A 级压舱石 — 避风港防御指数」赛道仍展示旧权重 45/15/10/30，违反"跨层契约显式化"约束。
+**动因**：后端 `valuation-radar` 仓 commit `a95015b`（2026-04-18 夜）经 A 组 Harness 三阶段门控回测（OOS 87.8% / 扰动 76.5%）将 ScorecardA 权重定稿为 **F1=20 / F2=10 / F3=40 / F4=30**，DCR 升为首要因子（市场级风控由 SPY 熔断接管）。但前端 Page 3「A 级压舱石 — 避风港防御指数」赛道仍展示旧权重 45/15/10/30，错位 14 小时主理人才发现。
+
+**根因（事后复盘，订正昨日错标签）**：当时执行后端 commit 的 AI 没有自查前端是否存在硬编码镜像副本，**既有 cursor rules 也未明确覆盖此场景**——`data-consistency.mdc` 约束 4「跨层契约显式化」只管 `_ARENA_SAVE_N` 类后端常量与 `SharedKeys` session_state key，不管 Scorecard 权重的前端展示副本；`core-protocols.mdc` 红线第 7 条只规定跨仓库改动的推送顺序，不强制提醒前端有无副本要改。已于本次同步在 `valuation-radar/.cursor/rules/core-protocols.mdc` 红线追加第 9 条，机械化触发条件 + 具体 grep 清单，避免下次再犯。
 
 **改动**（纯 UI 文案 + 顶部胶囊百分比，不影响实际评分；评分仍由后端 `_api_get_arena_a_scores` 走最新 ScorecardA）：
 1. `pages/3_资产细筛.py:127-128` `ARENA_CONFIG["A"]["weights"]` dict：`0.45/0.15/0.10/0.30` → `0.20/0.10/0.40/0.30`（顶部胶囊百分比由 `cfg_a["weights"]` 动态读取，自动同步）
