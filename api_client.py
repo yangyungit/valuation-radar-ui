@@ -951,8 +951,9 @@ def arena_backfill_score(
         后端响应 dict，成功时包含 arena_records / conv_state_a / conv_holders_a 等字段。
         失败时 {"success": False, "error": ...}。
     """
-    # Render 反向代理 30s 超时保护：将 month_specs 切片，每次最多 12 个月
-    _CHUNK = 12
+    # 切片策略：每批 6 个月（从 12 降到 6，给 Render Starter 512 MB 内存留缓冲）
+    # 每批成功即落盘 → 中途失败前面成功的月份不作废，下次点回填只需补剩余月份
+    _CHUNK = 6
     specs = month_specs or []
 
     try:
@@ -975,7 +976,8 @@ def arena_backfill_score(
         carry: dict = {}
 
         chunks = [specs[i:i + _CHUNK] for i in range(0, len(specs), _CHUNK)]
-        for chunk in chunks:
+        total_chunks = len(chunks)
+        for chunk_idx, chunk in enumerate(chunks, 1):
             payload = {
                 "price_records":       price_payload,
                 "vol_records":         vol_payload,
@@ -992,16 +994,34 @@ def arena_backfill_score(
                 "init_conv_holders_b":  carry.get("conv_holders_b", []),
                 "init_prev_grades_map": carry.get("prev_grades_map", {}),
             }
-            r = requests.post(
-                f"{API_BASE_URL}/api/v1/arena/backfill_score",
-                json=payload,
-                timeout=300,
-            )
-            r.raise_for_status()
-            data = r.json()
+            try:
+                r = requests.post(
+                    f"{API_BASE_URL}/api/v1/arena/backfill_score",
+                    json=payload,
+                    timeout=300,
+                )
+                r.raise_for_status()
+                data = r.json()
+            except Exception as chunk_err:
+                # 本批失败：前面成功批次已落盘，返回部分成功状态
+                return {
+                    "success":        False,
+                    "error":          f"第 {chunk_idx}/{total_chunks} 批失败（{chunk_err}），前 {chunk_idx - 1} 批已落盘",
+                    "arena_records":  all_arena_records,
+                    "partial":        True,
+                    "completed_chunks": chunk_idx - 1,
+                    "total_chunks":   total_chunks,
+                    "conv_state_a":   carry.get("conv_state_a", {}),
+                    "conv_holders_a": carry.get("conv_holders_a", []),
+                    "conv_state_b":   carry.get("conv_state_b", {}),
+                    "conv_holders_b": carry.get("conv_holders_b", []),
+                }
             if not data.get("success"):
-                return data
-            all_arena_records.update(data.get("arena_records", {}))
+                return {**data, "arena_records": all_arena_records, "partial": True,
+                        "completed_chunks": chunk_idx - 1, "total_chunks": total_chunks}
+
+            chunk_records = data.get("arena_records", {})
+            all_arena_records.update(chunk_records)
             carry = {
                 "conv_state_a":   data.get("conv_state_a", {}),
                 "conv_holders_a": data.get("conv_holders_a", []),
@@ -1010,9 +1030,25 @@ def arena_backfill_score(
                 "prev_grades_map": data.get("prev_grades_map", {}),
             }
 
+            # 关键：本批成功即刻落盘，杜绝"中途挂全白跑"
+            if chunk_records:
+                push_ok = push_arena_history_batch(chunk_records)
+                if not push_ok:
+                    # 后端落盘都失败了，继续下一批也没意义，提前返回让前端兜底
+                    return {
+                        "success":        False,
+                        "error":          f"第 {chunk_idx}/{total_chunks} 批回填算完但写入 arena_history 失败",
+                        "arena_records":  all_arena_records,
+                        "partial":        True,
+                        "completed_chunks": chunk_idx - 1,
+                        "total_chunks":   total_chunks,
+                    }
+
         return {
             "success":        True,
             "arena_records":  all_arena_records,
+            "completed_chunks": total_chunks,
+            "total_chunks":   total_chunks,
             "conv_state_a":   carry.get("conv_state_a", {}),
             "conv_holders_a": carry.get("conv_holders_a", []),
             "conv_state_b":   carry.get("conv_state_b", {}),

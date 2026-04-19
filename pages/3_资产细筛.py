@@ -550,32 +550,23 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
         z_seed_tickers=list(_Z_SEED_TICKERS),
         arena_save_n=_ARENA_SAVE_N,
     )
+    # api_client.arena_backfill_score 现已在每批成功后立即 push 到后端 arena_history，
+    # 这里读到的 arena_records 既包含完整成功路径，也包含中途失败时已落盘的部分月份
+    arena_records_resp = resp.get("arena_records", {})
+    saved = len(arena_records_resp)
+
     if not resp.get("success"):
         err = resp.get("error", "未知错误")
+        if resp.get("partial"):
+            done = resp.get("completed_chunks", 0)
+            total = resp.get("total_chunks", 0)
+            return saved, f"部分成功（{done}/{total} 批，已落盘 {saved} 个月）：{err}"
         return 0, f"后端回填端点失败：{err}"
 
-    arena_records_resp = resp.get("arena_records", {})
     conv_state_a  = resp.get("conv_state_a", {})
     conv_holders_a = resp.get("conv_holders_a", [])
     conv_state_b  = resp.get("conv_state_b", {})
     conv_holders_b = resp.get("conv_holders_b", [])
-
-    # 遍历响应，写入 arena_history（每 6 个月 checkpoint 批量推送）
-    _bf_history_buf: dict = {}
-    saved = 0
-    for month_key, cls_map in sorted(arena_records_resp.items()):
-        for cls, records in cls_map.items():
-            _record_arena_history(cls, records, month_key=month_key,
-                                  _batch_buf=_bf_history_buf)
-        saved += 1
-        if saved % 6 == 0:
-            if not _api_push_history_batch(_bf_history_buf):
-                _save_history_to_local_json(_bf_history_buf)
-            _bf_history_buf.clear()
-
-    if _bf_history_buf:
-        if not _api_push_history_batch(_bf_history_buf):
-            _save_history_to_local_json(_bf_history_buf)
 
     # 持久化信念状态
     _save_conviction_state("A", conv_state_a, conv_holders_a)
@@ -3599,7 +3590,12 @@ if _do_backfill:
             meta_data=_bf_meta,
             warmup_months=12,
         )
-    if _bf_err:
+    if _bf_err and "部分成功" in _bf_err:
+        st.warning(
+            f"⚠️ 回填{_bf_err}。前面批次已持久化，可稍后再点一次回填补剩余月份。",
+            icon="⚠️",
+        )
+    elif _bf_err:
         st.error(f"回填失败：{_bf_err}")
     else:
         st.success(f"回填完成！已写入 {_bf_saved} 个月的历史档案。")

@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-04-19 | Page 3 回填改为流式落盘，支持"断点续传"
+
+**动因**：主理人挂好 Render 1 GB 持久盘后首次回填 60 个月，后端处理第 3-5 批时被 Render 代理 502（猜测 Starter 512 MB OOM），前端收到 "Response ended prematurely"，按旧逻辑**前面 2 批成功的 12 个月也全部作废、一行不落盘**。`api_client.arena_backfill_score` 只在所有 6 批都成功后才把结果交给上层 Page 3 写 `arena_history`。
+
+**改法（api_client.py）**：
+1. `_CHUNK` 从 12 降至 6（60 + 12 热身 = 72 月 → 12 批），给 Render Starter 内存留缓冲
+2. 每批成功立刻调 `push_arena_history_batch(chunk_records)` 写后端 SQLite，不再攒到最后一把梭哈
+3. 中途任一批失败直接 `return {success: False, partial: True, completed_chunks: N, ...}`，前面已落盘的部分告诉调用方"已有 N/M 批 OK"
+4. 整体成功路径返回值 shape 向后兼容（仅新增 `completed_chunks/total_chunks/partial` 三个字段）
+
+**改法（`pages/3_资产细筛.py`）**：
+1. `_backfill_arena_history` 去掉末尾的"统一 push"逻辑（已在 api_client 里分批 push），仅保留信念状态 `_save_conviction_state` 两行
+2. 对 `partial: True` 的返回走"部分成功"分支，错误文案形如 "部分成功（4/12 批，已落盘 24 个月）：第 5/12 批失败（HTTPError 502），前 4 批已落盘"
+3. 回填结果展示：`_bf_err` 含"部分成功"字样时降级为 `st.warning`（黄条，非红条），引导主理人再点一次补剩余月份
+
+**收益**：回填中断不再从零重来；Render 偶发 502 / 网络抖动自动恢复只需再点一次按钮；内存峰值减半。
+
+**配套**：后端 `/api/v1/admin/disk_diag` 诊断端点暂时保留（待观察 3-5 天持久盘稳定性后再删）。
+
+---
+
 ## 2026-04-19 | ScorecardA Harness 定稿同步：A 组前端权重 45/15/10/30 → 20/10/40/30
 
 **动因**：后端 `valuation-radar` 仓 commit `a95015b`（2026-04-18 夜）经 A 组 Harness 三阶段门控回测（OOS 87.8% / 扰动 76.5%）将 ScorecardA 权重定稿为 **F1=20 / F2=10 / F3=40 / F4=30**，DCR 升为首要因子（市场级风控由 SPY 熔断接管）。但前端 Page 3「A 级压舱石 — 避风港防御指数」赛道仍展示旧权重 45/15/10/30，错位 14 小时主理人才发现。
