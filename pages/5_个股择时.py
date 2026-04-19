@@ -759,8 +759,8 @@ if _arena_data:
                             x=_x_vals,
                             y=[running_return] * _n,
                             mode="lines",
-                            line=dict(color="#888888", width=2, dash="dot"),
-                            name=f"💰现金（{_s_m}→{_e_m}）",
+                            line=dict(color="#bbbbbb", width=2, dash="dot"),
+                            name=f"💰 空仓（{_s_m}→{_e_m}）",
                             showlegend=False,
                         ))
                         tick_vals.append(x_offset + _n // 2)
@@ -768,9 +768,9 @@ if _arena_data:
                         name_annotations.append(dict(
                             x=x_offset + _n // 2, y=1.0,
                             xref="x", yref="paper",
-                            text="💰现金",
+                            text="💰 空仓",
                             showarrow=False,
-                            font=dict(size=11, color="#888888"),
+                            font=dict(size=13, color="#bbbbbb"),
                             xanchor="center", yanchor="bottom",
                         ))
                         if x_offset > 0:
@@ -831,7 +831,7 @@ if _arena_data:
                 yref="paper",
                 text=_cn,
                 showarrow=False,
-                font=dict(size=11, color=_color),
+                font=dict(size=13, color=_color),
                 xanchor="center",
                 yanchor="bottom",
             ))
@@ -959,7 +959,7 @@ if _arena_data:
     #  Section: A 组信念守擂持仓 K 线图
     # ═══════════════════════════════════════════════════════════════════
     st.header("📈 A 组累计收益率图")
-    st.caption("左列 / 右列对应 Page 4 历史月度 Top-2 胜出者的 slot-stable 分配（各段累计收益率首尾相接，不同颜色区分持仓期）")
+    st.caption("左/右列 = Page 4 月度 Top-2 的 slot-stable 分配；颜色区分持仓期，💰 空仓 = 闸门关")
 
     # 闸门关闭告警（当月最新月份优先显示）
     _a_closed = _gate_closed_by_cls.get("A", [])
@@ -967,9 +967,9 @@ if _arena_data:
         _a_latest_m = _tm_months[-1] if _tm_months else ""
         _a_cur_reason = next((r for m, r in _a_closed if m == _a_latest_m), None)
         if _a_cur_reason is not None:
-            st.error(f"🚧 **A 组闸门关（{_a_latest_m}）**：{_a_cur_reason or '当月不满足持仓条件，本月持有现金'}")
+            st.error(f"🚧 **A 组闸门关（{_a_latest_m}）**：{_a_cur_reason or '本月空仓'}")
         if len(_a_closed) > (1 if _a_cur_reason is not None else 0):
-            with st.expander(f"⚠️ A 组历史闸门关闭（{len(_a_closed)} 个月）", expanded=False):
+            with st.expander(f"⚠️ A 组历史闸门关（{len(_a_closed)} 个月）", expanded=False):
                 for _ag_m, _ag_r in _a_closed:
                     st.markdown(f"- **{_ag_m}**：{_ag_r or '不满足持仓条件'}")
 
@@ -1157,7 +1157,7 @@ if _arena_data:
     #  Section: B 组信念守擂持仓 K 线图
     # ═══════════════════════════════════════════════════════════════════
     st.header("📈 B 组累计收益率图")
-    st.caption("左列 / 右列对应 Page 4 历史月度 Top-2 胜出者的 slot-stable 分配（各段累计收益率首尾相接，不同颜色区分持仓期）")
+    st.caption("左/右列 = Page 4 月度 Top-2 的 slot-stable 分配；颜色区分持仓期，💰 空仓 = 闸门关")
 
     # 闸门关闭告警
     _b_closed = _gate_closed_by_cls.get("B", [])
@@ -1165,9 +1165,9 @@ if _arena_data:
         _b_latest_m = _tm_months[-1] if _tm_months else ""
         _b_cur_reason = next((r for m, r in _b_closed if m == _b_latest_m), None)
         if _b_cur_reason is not None:
-            st.error(f"🚧 **B 组闸门关（{_b_latest_m}）**：{_b_cur_reason or '当月不满足持仓条件，本月持有现金'}")
+            st.error(f"🚧 **B 组闸门关（{_b_latest_m}）**：{_b_cur_reason or '本月空仓'}")
         if len(_b_closed) > (1 if _b_cur_reason is not None else 0):
-            with st.expander(f"⚠️ B 组历史闸门关闭（{len(_b_closed)} 个月）", expanded=False):
+            with st.expander(f"⚠️ B 组历史闸门关（{len(_b_closed)} 个月）", expanded=False):
                 for _bg_m, _bg_r in _b_closed:
                     st.markdown(f"- **{_bg_m}**：{_bg_r or '不满足持仓条件'}")
 

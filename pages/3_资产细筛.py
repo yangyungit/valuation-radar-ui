@@ -2727,6 +2727,15 @@ if _sel4 == "A":
                 _new_a_result = {"scores": {}, "breakdowns": {}}
         _new_a_scores  = _new_a_result.get("scores", {})
         _a_breakdowns  = _new_a_result.get("breakdowns", {})
+        _a_gate_status = str(_new_a_result.get("gate_status", "open"))
+        _a_gate_reason = str(_new_a_result.get("gate_reason", "") or "")
+        if _a_gate_status == "closed":
+            st.error(
+                f"🚧 **A 组闸门关 · 本月空仓休息**"
+                f"{('　' + _a_gate_reason) if _a_gate_reason else ''}"
+            )
+        else:
+            st.success("🟢 A 组闸门开 · 可正常持仓")
         if _new_a_scores:
             df_a["竞技得分"] = df_a["Ticker"].map(lambda t: float(_new_a_scores.get(t, 0.0)))
         else:

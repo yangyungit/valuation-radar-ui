@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-04-19 | Wave 4 前端闸门 UX 收尾（Page 3 实时闸门横幅 + Page 5 CASH 文案/字号）
+
+**动机**：Wave 2 已接入闸门 schema，但 Page 3 A 组排行榜**丢弃了 `gate_status / gate_reason`**（api_client.get_arena_a_scores 返回了，调用方没读）；主理人看排行榜时感知不到"今天闸门是开是关"。同时 Page 5 几处文案违反简洁原则 + CASH annotation `font-size=11` 违反 `.cursor/rules/architecture-constraints.mdc` 的 ≥13px 约束。
+
+**改动**：
+1. `pages/3_资产细筛.py:2728-2740`：A 组 ScorecardA 评分回来后、排行榜渲染前插入 gate 横幅——`closed` 显 `🚧 A 组闸门关 · 本月空仓休息` + reason；`open` 显 `🟢 A 组闸门开 · 可正常持仓`。
+2. `pages/5_个股择时.py`：
+   - CASH 段：颜色 `#888888` → `#bbbbbb`（更易辨），legend 名 `💰现金` → `💰 空仓`，annotation `font-size 11 → 13`（合规）
+   - 非 CASH 段 ticker annotation `font-size 11 → 13`
+   - A/B 组 header caption 从"左列 / 右列对应 Page 4 历史月度 Top-2 胜出者的 slot-stable 分配（各段累计收益率首尾相接，不同颜色区分持仓期）"（47 字）砍到"左/右列 = Page 4 月度 Top-2 的 slot-stable 分配；颜色区分持仓期，💰 空仓 = 闸门关"（≤25 字/句，合规）
+   - 闸门关 st.error 文案：`当月不满足持仓条件，本月持有现金` → `本月空仓`；expander 标题 `历史闸门关闭` → `历史闸门关`
+
+**不改的东西**：Plotly tickfont/legend 的 `size=11` 是 Plotly 内部图形文字，架构约束针对自定义 HTML/CSS 卡片，不改避免图表拥挤。
+
+---
+
 ## 2026-04-19 | Wave 3 Harness 对齐生产（M7 + M8，后端改动，前端无需改）
 
 **上游变更通报**：后端 `tests/harness_a_group/` v6 完成（详情见 `valuation-radar/DEV_LOG.md` 同日条目）。核心变化：
