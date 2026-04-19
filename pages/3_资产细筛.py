@@ -3570,22 +3570,16 @@ st.caption(
 )
 
 # ── 回填控制区 ───────────────────────────────────────────────────
-_bf_col1, _bf_col2, _bf_col3 = st.columns([2, 1, 3])
+_BF_MONTHS = 60
+_bf_col1, _bf_col2 = st.columns([1, 3])
 with _bf_col1:
-    _bf_months = st.selectbox(
-        "回填月数", options=[12, 18, 24, 36, 60], index=2,
-        format_func=lambda x: f"过去 {x} 个月",
-        key="bf_months_sel",
-        help="选择要回填的历史月份数（月数越多下载时间越长）",
-    )
-with _bf_col2:
     _do_backfill = st.button("🔄 回填历史数据", use_container_width=True,
-                             help="用 yfinance 历史价格数据重算每月末各赛道排名并写入档案")
-with _bf_col3:
+                             help="用 yfinance 历史价格数据重算过去 60 个月各赛道排名并写入档案")
+with _bf_col2:
     st.markdown(
         "<div style='font-size:13px; color:#666; padding-top:8px;'>"
-        "注：每月末先 Point-in-Time 重新执行 ABCD 分类（消除前视偏差），再在各赛道内评分。"
-        "首次下载约需 60-120 秒（5年数据量较大）。</div>",
+        "注：固定回填过去 60 个月。每月末先 Point-in-Time 重新执行 ABCD 分类（消除前视偏差），再在各赛道内评分。"
+        "首次下载约需 60-120 秒（5 年数据量较大）。</div>",
         unsafe_allow_html=True,
     )
 
@@ -3593,10 +3587,10 @@ if _do_backfill:
     # 回填前先抓一份快照，用于后续等价性断言比对（_history 页面级变量此时尚未赋值，必须显式取）
     _old_hist_snapshot: dict = _api_fetch_history() or {}
     with st.spinner(f"正在下载 {len(all_assets)} 只标的约 6 年历史数据并逐月 PIT 分拣 + 评分…"
-                    f"（含 12 个月信念热身期，共计算 {_bf_months + 12} 个月）"):
+                    f"（含 12 个月信念热身期，共计算 {_BF_MONTHS + 12} 个月）"):
         _bf_meta = get_stock_metadata(tuple(all_assets.keys()))
         _bf_saved, _bf_err = _backfill_arena_history(
-            all_assets, months_back=_bf_months,
+            all_assets, months_back=_BF_MONTHS,
             monthly_probs=(
                 fetch_current_regime().get("horsemen_monthly_probs")
                 or st.session_state.get("horsemen_monthly_probs", {})
