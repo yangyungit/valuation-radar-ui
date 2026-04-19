@@ -3659,13 +3659,60 @@ _REGIME_BADGE_EMPTY = ("<span style='color:#444; font-size:13px;'>—</span>", "
 def _compute_streaks(history: dict, cls: str) -> dict:
     """按时间正序遍历，计算每个月每个标的在该赛道 Top 10 的连续在榜月数。
     返回 {month: {ticker: streak_count}}。"""
+    import time as _time
+    _dbg_log = "/Users/zhanghao/yangyun/Code_Projects/valuation-radar-ui/.cursor/debug-1941e9.log"
     sorted_months = sorted(k for k in history if not k.startswith("_"))
     prev_tickers: set = set()
     prev_streaks: dict = {}
     result: dict = {}
     for mo in sorted_months:
-        recs = history[mo].get(cls, [])[:10]
-        cur_tickers = {r["ticker"] for r in recs}
+        # #region agent log
+        try:
+            _mo_val = history[mo]
+            _cls_val = _mo_val.get(cls, "__MISSING__") if isinstance(_mo_val, dict) else "__NOT_DICT__"
+            import json as _json
+            _payload = _json.dumps({
+                "sessionId": "1941e9", "hypothesisId": "A",
+                "location": "3_资产细筛.py:_compute_streaks",
+                "message": "data_type_probe",
+                "data": {
+                    "mo": mo, "cls": cls,
+                    "history_mo_type": type(_mo_val).__name__,
+                    "cls_val_type": type(_cls_val).__name__,
+                    "cls_val_preview": str(_cls_val)[:200] if not isinstance(_cls_val, str) else _cls_val,
+                },
+                "timestamp": int(_time.time() * 1000)
+            }, ensure_ascii=False)
+            with open(_dbg_log, "a", encoding="utf-8") as _f:
+                _f.write(_payload + "\n")
+        except Exception:
+            pass
+        # #endregion
+        cls_raw = history[mo].get(cls, [])
+        if isinstance(cls_raw, dict):
+            recs = cls_raw.get("tickers", [])[:10]
+        else:
+            recs = cls_raw[:10]
+        # #region agent log
+        try:
+            _payload2 = _json.dumps({
+                "sessionId": "1941e9", "hypothesisId": "A",
+                "location": "3_资产细筛.py:_compute_streaks:recs",
+                "message": "recs_type_probe",
+                "data": {
+                    "mo": mo, "recs_type": type(recs).__name__,
+                    "recs_len": len(recs) if isinstance(recs, list) else "N/A",
+                    "first_rec_type": type(recs[0]).__name__ if isinstance(recs, list) and recs else "empty",
+                    "first_rec_preview": str(recs[0])[:100] if isinstance(recs, list) and recs else "",
+                },
+                "timestamp": int(_time.time() * 1000)
+            }, ensure_ascii=False)
+            with open(_dbg_log, "a", encoding="utf-8") as _f:
+                _f.write(_payload2 + "\n")
+        except Exception:
+            pass
+        # #endregion
+        cur_tickers = {r["ticker"] for r in recs if isinstance(r, dict) and "ticker" in r}
         cur_streaks = {}
         for tk in cur_tickers:
             cur_streaks[tk] = prev_streaks.get(tk, 0) + 1 if tk in prev_tickers else 1
@@ -3822,7 +3869,31 @@ else:
         _all_verdicts = [_resolve_horsemen_verdict_cn(_mo, _horsemen_archive) for _mo in _cls_months]
         _data_rows = ""
         for _idx, _mo in enumerate(_cls_months):
-            _recs  = _history[_mo].get(_sel4, [])
+            _recs_raw  = _history[_mo].get(_sel4, [])
+            # #region agent log
+            try:
+                import json as _json2, time as _time2
+                _dbg_log2 = "/Users/zhanghao/yangyun/Code_Projects/valuation-radar-ui/.cursor/debug-1941e9.log"
+                _p3 = _json2.dumps({
+                    "sessionId": "1941e9", "hypothesisId": "B",
+                    "location": "3_资产细筛.py:render_loop",
+                    "message": "recs_raw_probe",
+                    "data": {
+                        "mo": _mo, "sel4": _sel4,
+                        "recs_raw_type": type(_recs_raw).__name__,
+                        "recs_raw_preview": str(_recs_raw)[:200],
+                    },
+                    "timestamp": int(_time2.time() * 1000)
+                }, ensure_ascii=False)
+                with open(_dbg_log2, "a", encoding="utf-8") as _f2:
+                    _f2.write(_p3 + "\n")
+            except Exception:
+                pass
+            # #endregion
+            if isinstance(_recs_raw, dict):
+                _recs = _recs_raw.get("tickers", [])
+            else:
+                _recs = _recs_raw
             _mo_streaks = _streaks_map.get(_mo, {})
             _v_cn   = _all_verdicts[_idx]
             _next_v_cn = _all_verdicts[_idx + 1] if _idx + 1 < len(_cls_months) else ""
