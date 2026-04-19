@@ -124,23 +124,23 @@ ARENA_CONFIG: dict = {
     "A": {
         "score_name": "避风港防御指数",
         "weights": {
-            "max_dd_inv": 0.45, "fcf_yield": 0.15,
-            "spy_corr_inv": 0.10, "ribbon_quality": 0.30,
+            "max_dd_inv": 0.20, "fcf_yield": 0.10,
+            "spy_corr_inv": 0.40, "ribbon_quality": 0.30,
         },
         "invert_z": False,
         "factor_labels": {
             "max_dd_inv":     "极限抗跌 (最大回撤倒数)",
             "fcf_yield":      "现金奶牛 (FCF收益率)",
-            "spy_corr_inv":   "宏观对冲 (SPY相关性倒数)",
+            "spy_corr_inv":   "宏观对冲 (DCR下行捕获)",
             "ribbon_quality": "带鱼质量 (趋势干净度)",
         },
         "logic": (
             "压舱石的竞技逻辑：抗跌护城河 + 趋势方向四维体系，专抓真实现金流、大盘对冲与均线带鱼形态。<br>"
-            "① 极限抗跌（3年最大回撤取倒数，回撤越小得分越高，权重 45%）<br>"
-            "② 现金奶牛（自由现金流收益率 FCF/MCap，ETF 回退至股息率，权重 15%）<br>"
-            "③ 宏观对冲（2年 Downside Capture Ratio，SPY 跌时资产反涨者满分，权重 10%）<br>"
+            "① 极限抗跌（3年最大回撤取倒数，回撤越小得分越高，权重 20%）<br>"
+            "② 现金奶牛（自由现金流收益率 FCF/MCap，ETF 回退至股息率，权重 10%）<br>"
+            "③ 宏观对冲（2年 Downside Capture Ratio，SPY 跌时资产反涨者满分，权重 40%）<br>"
             "④ 带鱼质量（内部 0.15·间距稳定 + 0.20·持续天数 + 0.15·斜率稳定 + 0.50·RS线斜率，相对SPY强度主导，权重 30%）<br>"
-            "四维统计指标同时达标方为真正避风港，RS线斜率让防御股霸榜破局。"
+            "权重经 Harness 三阶段门控回测（OOS 87.8% / 扰动 76.5%）数据驱动定稿，DCR 升为首要因子，市场级风控由 SPY 熔断接管。"
         ),
     },
     "B": {
@@ -2679,10 +2679,11 @@ if _sel4 == "A":
         st.markdown("""
         <div style='font-size:14px; color:#ccc; line-height:1.8;'>
         <span style='color:#2ECC71; font-weight:bold;'>Score<sub>A</sub></span> =
-        <span style='color:#2ECC71;'>(45 &times; F1<sub>3yDD</sub>)</span> +
-        <span style='color:#3498DB;'>(15 &times; F2<sub>FCF</sub>)</span> +
-        <span style='color:#9B59B6;'>(10 &times; F3<sub>2yDCR</sub>)</span> +
-        <span style='color:#F39C12;'>(30 &times; F4<sub>Ribbon</sub>)</span><br><br>
+        <span style='color:#2ECC71;'>(20 &times; F1<sub>3yDD</sub>)</span> +
+        <span style='color:#3498DB;'>(10 &times; F2<sub>FCF</sub>)</span> +
+        <span style='color:#9B59B6; font-weight:bold;'>(40 &times; F3<sub>2yDCR</sub>)</span> +
+        <span style='color:#F39C12;'>(30 &times; F4<sub>Ribbon</sub>)</span><br>
+        <span style='color:#888; font-size:13px;'>权重经 Harness 三阶段门控回测定稿（OOS 87.8% / 扰动 76.5%），DCR 升为首要因子；市场级风控由 SPY 熔断（−12% 清仓 / −6% 解除）接管。</span><br><br>
         <span style='color:#F39C12;'>F4<sub>Ribbon</sub></span> =
         0.15·s1<sub>间距稳定</sub> + 0.20·s2<sub>持续天数</sub> + 0.15·s3<sub>斜率稳定</sub> +
         <span style='color:#F39C12; font-weight:bold;'>0.50·s5<sub>RS线MA60斜率</sub></span><br>
