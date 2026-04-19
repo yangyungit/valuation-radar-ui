@@ -2,6 +2,31 @@
 
 ---
 
+## 2026-04-19 | Wave 3 Harness 对齐生产（M7 + M8，后端改动，前端无需改）
+
+**上游变更通报**：后端 `tests/harness_a_group/` v6 完成（详情见 `valuation-radar/DEV_LOG.md` 同日条目）。核心变化：
+1. **M7**：harness `BacktestConfig` 新增 `stickiness=True` / `weight_mode="belief_tilt"` / 默认 `top_n=2`，`portfolio_engine.py` 实现 slot-stable 选股 + 按"连续在榜月数"倾斜的 30/70 权重。
+2. **M8**：harness universe 动态化。`freeze_data.py` 改为拉全 `USER_GROUPS_DEF` + `Z_SEED_POOL`（141 只，原 27 只）；`run_backtest` 换仓日调 `screener_engine.classify_all_at_date` PIT 过滤 A 组合格成员，与生产 `backfill_score` 完全同构，消除 harness 存活偏差。
+
+**harness 三联测结论**（`valuation-radar/runs/20260419_183*`）：
+- Baseline `(0.2/0.1/0.4/0.3)`：final_return +22.5%、max_dd **0.73%**、Calmar 3.127、R² 0.880、Sortino 5.934、J=0.4426 Pass ✅
+- 对比 Wave 1 前基线：final_return -42.2% → +22.5%，max_dd 42.7% → 0.73%，DD 降 98%
+- OOS 保留率 192%（样本外比样本内更好，无过拟合）；扰动邻域 J 保留率 58.5% < 85% 失败 = 离散 top_n=2 机制导致，非权重敏感度问题
+
+**前端影响**：本次改动在 harness 内部（`tests/harness_a_group/` 目录），不涉及 `/api/v1/*` 端点 schema。前端 Wave 2（M3+M4+M5）已接入的闸门 schema 仍然有效，无需改代码。
+
+**四层架构最终状态**（Wave 1 + 2 + 3 全部完成）：
+1. **评分层** 后端 `core_engine.ScorecardA-D`：PIT 因子打分 0-100
+2. **信念层** 后端 `core_engine.update_convictions`：连续在榜累积，闸门关时 holders=[] 走衰减不损伤信念
+3. **闸门层** 后端 `gate_engine.is_tradable`：A/B/C/D 独立判据，二元开关
+4. **守擂层** 前端 Page 5 `pages/5_个股择时.py` + harness `portfolio_engine.py`：slot-stable + 信念倾斜权重 + Top-N 持仓
+
+**长期待办（TODO 冰柜，本次不做）**：
+- **F2 基本面历史数据源评估**：harness `meta.fcf_yield` 当前全历史用今日值（PIT 违规但 F2 权重 0.1 影响可控）。可选 SEC EDGAR 历史回溯 / Compustat 付费 / 改用纯价格代理因子。等生产数据稳定后再评估。
+- **Wave 4（Sonnet 平替）**：前端 Page 5 闸门 UI 文案 + CASH 段样式微调（目前灰色虚线已 OK，视觉可再优化）
+
+---
+
 ## 2026-04-19 | Wave 2 闸门层接入（M3 + M4 + M5）
 
 **M3 — api_client.py 兼容层**：新增 `_normalize_arena_record`，在 `fetch_arena_history` 返回前将旧 list schema 统一升级为新 dict（`tickers / gate_status / gate_reason`）；`get_arena_a_scores` 同步透传 `gate_status / gate_reason`。Page 4 `_compute_streaks_p4` / 深度检查 / holdings 构建 / 表格展示 4 处同步修复，改为 `.get("tickers", [])`。
