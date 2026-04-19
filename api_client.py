@@ -660,6 +660,29 @@ def push_conviction_state(cls: str, state: dict, holders: list) -> bool:
 # 3c. Arena 月度档案 API 客户端
 # ==========================================
 
+def _normalize_arena_record(record) -> dict:
+    """兼容旧 list / 新 dict schema，统一升级为新格式。
+
+    旧格式（纯 list）：gate_open=True, gate_reason=""。
+    新格式（dict with tickers/gate_status/gate_reason）：直接规范化。
+    None / 其他：返回空安全默认值。
+    """
+    if record is None:
+        return {"tickers": [], "gate_status": "open", "gate_reason": ""}
+    if isinstance(record, list):
+        return {"tickers": list(record), "gate_status": "open", "gate_reason": ""}
+    if isinstance(record, dict):
+        tickers = record.get("tickers", [])
+        if not isinstance(tickers, list):
+            tickers = []
+        return {
+            "tickers": tickers,
+            "gate_status": record.get("gate_status", "open"),
+            "gate_reason": str(record.get("gate_reason", "") or ""),
+        }
+    return {"tickers": [], "gate_status": "open", "gate_reason": ""}
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_arena_history() -> dict:
     """从后端读取全量 arena 月度档案。失败时返回 {}。
@@ -668,11 +691,24 @@ def fetch_arena_history() -> dict:
       1. 兑现 DCP 约束 5 "push_* 成功后必须调对应 fetch_*.clear()" 的契约（Page 3 回填成功后
          会调 `_api_fetch_history.clear()`，没缓存则 AttributeError 崩页）；
       2. Page 3/4/5 rerun 频繁，60s TTL 内秒回，减少 Render 打扰。写后失效由调用方 clear 保证。
+
+    返回格式（已规范化）：
+      {"YYYY-MM": {"A": {"tickers": [...], "gate_status": "open"/"closed", "gate_reason": "..."}, ...}}
+    老 list 格式在此处自动升级，调用方无需兼容旧格式。
     """
     try:
         r = requests.get(f"{API_BASE_URL}/api/v1/arena/history", timeout=15)
         r.raise_for_status()
-        return r.json().get("history", {})
+        raw = r.json().get("history", {})
+        normalized: dict = {}
+        for _month, _cls_map in raw.items():
+            if not isinstance(_cls_map, dict):
+                continue
+            _norm_cls: dict = {}
+            for _cls, _rec in _cls_map.items():
+                _norm_cls[_cls] = _normalize_arena_record(_rec)
+            normalized[_month] = _norm_cls
+        return normalized
     except Exception:
         return {}
 
@@ -920,7 +956,12 @@ def get_arena_a_scores(tickers: tuple, meta_data_json: str = "") -> dict:
     scores = data.get("scores", {})
     if not scores:
         raise RuntimeError(f"score_a 返回空 scores（tickers={len(tickers)}）")
-    return {"scores": scores, "breakdowns": data.get("breakdowns", {})}
+    return {
+        "scores": scores,
+        "breakdowns": data.get("breakdowns", {}),
+        "gate_status": data.get("gate_status", "open"),
+        "gate_reason": str(data.get("gate_reason", "") or ""),
+    }
 
 
 def arena_backfill_score(

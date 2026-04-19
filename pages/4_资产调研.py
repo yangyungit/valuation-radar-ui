@@ -440,7 +440,7 @@ if _arena_hist:
         _prev_st: dict = {}
         _res: dict = {}
         for _m in _months_asc:
-            _recs = _arena_hist[_m].get(cls, [])[:top_n]
+            _recs = _arena_hist[_m].get(cls, {}).get("tickers", [])[:top_n]
             _cur_tk = {r["ticker"] for r in _recs}
             _cur_st = {}
             for _t in _cur_tk:
@@ -483,7 +483,7 @@ if _arena_hist:
     _latest_depths = []
     if _latest_month and _latest_month in _arena_hist:
         for _c in ["A", "B", "C", "D", "Z"]:
-            _recs_depth = _arena_hist[_latest_month].get(_c, [])
+            _recs_depth = _arena_hist[_latest_month].get(_c, {}).get("tickers", [])
             if _recs_depth:
                 _latest_depths.append(len(_recs_depth))
     _min_data_depth = min(_latest_depths) if _latest_depths else 3
@@ -541,7 +541,7 @@ if _arena_hist:
         _prev_hold: set = set()
         _cls_map: dict = {}
         for _m in _months_asc:
-            _recs = _arena_hist[_m].get(_cls, [])
+            _recs = _arena_hist[_m].get(_cls, {}).get("tickers", [])
             _t2_set = {r["ticker"] for r in _recs[:2]}
             _t3_set = {r["ticker"] for r in _recs[:_buffer_n]}
             _t2_list = [r["ticker"] for r in _recs[:2]]
@@ -671,7 +671,7 @@ if _arena_hist:
             _is_diff = _h.get("diff", False)
             _mo_st = _hold_streaks[_cls].get(_mo, {})
 
-            _all_recs = _entry.get(_cls, [])[:_buffer_n]
+            _all_recs = _entry.get(_cls, {}).get("tickers", [])[:_buffer_n]
             _rec_map = {r["ticker"]: r for r in _all_recs if r["ticker"] in _hold_set}
             _slots = _slot_assignments[_cls].get(_mo, [None, None])
 

@@ -78,6 +78,17 @@ if not _arena_data:
             with open(_ARENA_HIST_PATH, "r", encoding="utf-8") as _af:
                 _raw = json.load(_af)
             _arena_data = {k: v for k, v in _raw.items() if not k.startswith("_")}
+            # 本地 fallback 可能是旧 list 格式，升级为新 dict 格式
+            for _fb_m in _arena_data:
+                _fb_cls_map = _arena_data[_fb_m]
+                if not isinstance(_fb_cls_map, dict):
+                    continue
+                for _fb_c in list(_fb_cls_map.keys()):
+                    _fb_rec = _fb_cls_map[_fb_c]
+                    if isinstance(_fb_rec, list):
+                        _fb_cls_map[_fb_c] = {
+                            "tickers": _fb_rec, "gate_status": "open", "gate_reason": "",
+                        }
             _arena_is_fallback = bool(_arena_data)
             if _arena_is_fallback:
                 import datetime as _dt
@@ -482,7 +493,7 @@ if _arena_data:
     _p5_depths = []
     if _p5_latest and _p5_latest in _arena_data:
         for _c_p5 in ["A", "B", "C", "D", "Z"]:
-            _rr_p5 = _arena_data[_p5_latest].get(_c_p5, [])
+            _rr_p5 = _arena_data[_p5_latest].get(_c_p5, {}).get("tickers", [])
             if _rr_p5:
                 _p5_depths.append(len(_rr_p5))
     _p5_min_depth = min(_p5_depths) if _p5_depths else 3
@@ -502,11 +513,21 @@ if _arena_data:
     _tm_hold: dict = {}
     _score_anomalies: list = []
 
+    # _gate_closed_by_cls: {cls: [(month, reason), ...]} 记录每组闸门关闭月份
+    _gate_closed_by_cls: dict = {c: [] for c in ["A", "B", "C", "D"]}
+
     for _c in ["A", "B", "C", "D"]:
         _prev_h: set = set()
         _cm: dict = {}
         for _m in _tm_months:
-            _recs = _arena_data[_m].get(_c, [])
+            _rec_obj = _arena_data[_m].get(
+                _c, {"tickers": [], "gate_status": "open", "gate_reason": ""}
+            )
+            _gate_open = _rec_obj.get("gate_status", "open") != "closed"
+            _gate_reason = _rec_obj.get("gate_reason", "")
+            if not _gate_open:
+                _gate_closed_by_cls[_c].append((_m, _gate_reason))
+            _recs = _rec_obj.get("tickers", [])
             _t3 = {r.get("ticker", "") for r in _recs[:_buffer_n]} - {""}
             _t2 = {r.get("ticker", "") for r in _recs[:2]} - {""}
 
@@ -523,29 +544,35 @@ if _arena_data:
             if _prev_h:
                 _survivors = _prev_h & _t3
                 if len(_survivors) >= 2:
-                    _hold = _survivors
+                    _strategy_hold = _survivors
                 elif len(_survivors) == 1:
                     _fill = next((r.get("ticker") for r in _recs[:_buffer_n] if r.get("ticker") and r["ticker"] not in _survivors), None)
-                    _hold = _survivors | {_fill} if _fill else _t2
+                    _strategy_hold = _survivors | {_fill} if _fill else _t2
                 else:
-                    _hold = _t2
+                    _strategy_hold = _t2
             else:
-                _hold = _t2
-            _cm[_m] = _hold
-            _prev_h = _hold
+                _strategy_hold = _t2
+
+            # 闸门关：当月 hold 置空（NAV 记现金）；_prev_h 保留策略持仓，守擂记忆不中断
+            _cm[_m] = _strategy_hold if _gate_open else set()
+            _prev_h = _strategy_hold
         _tm_hold[_c] = _cm
 
     # ── 名称映射（供 K 线图和盈利统计共用）─────────────────────────────
     _name_map: dict = {}
     for _m in _tm_months:
         for _c_nm in ["A", "B", "C", "D"]:
-            for _rec in _arena_data[_m].get(_c_nm, []):
+            for _rec in _arena_data[_m].get(_c_nm, {}).get("tickers", []):
                 _name_map[_rec["ticker"]] = _rec.get("name", _rec["ticker"])
 
     # ── A 组 slot-stable 列分配 ─────────────────────────────────────────
     _a_slot_assignments: dict = {}
     _prev_slots_a: list = [None, None]
+    _a_gate_months: set = {m for m, _ in _gate_closed_by_cls.get("A", [])}
     for _m in _tm_months:
+        if _m in _a_gate_months:
+            _a_slot_assignments[_m] = ["CASH", "CASH"]
+            continue  # 不更新 _prev_slots_a，守擂记忆原地保持
         _hold_set_a = _tm_hold["A"].get(_m, set())
         _new_slots_a = [None, None]
         _assigned_a: set = set()
@@ -594,7 +621,7 @@ if _arena_data:
         _prev_tk_s: set = set()
         _prev_st_s: dict = {}
         for _ms in _months_s:
-            _recs_s = _arena_data[_ms].get(cls, [])
+            _recs_s = _arena_data[_ms].get(cls, {}).get("tickers", [])
             _cur_tk_s = {r["ticker"] for r in _recs_s[:top_n]}
             _cur_st_s: dict = {}
             for _t_s in _cur_tk_s:
@@ -628,7 +655,7 @@ if _arena_data:
 
     # ── 拉取 A 组所有标的 OHLCV ───────────────────────────────────────
     _a_tickers_all = sorted({
-        tk for slots in _a_slot_assignments.values() for tk in slots if tk
+        tk for slots in _a_slot_assignments.values() for tk in slots if tk and tk != "CASH"
     })
     _a_price_cache: dict = {}
     _a_section_error: str | None = None
@@ -653,7 +680,11 @@ if _arena_data:
     # ── B 组 slot-stable 列分配 ─────────────────────────────────────────
     _b_slot_assignments: dict = {}
     _prev_slots_b: list = [None, None]
+    _b_gate_months: set = {m for m, _ in _gate_closed_by_cls.get("B", [])}
     for _m in _tm_months:
+        if _m in _b_gate_months:
+            _b_slot_assignments[_m] = ["CASH", "CASH"]
+            continue  # 不更新 _prev_slots_b，守擂记忆原地保持
         _hold_set_b = _tm_hold["B"].get(_m, set())
         _new_slots_b = [None, None]
         _assigned_b: set = set()
@@ -679,7 +710,7 @@ if _arena_data:
 
     # ── 拉取 B 组所有标的 OHLCV ───────────────────────────────────────
     _b_tickers_all = sorted({
-        tk for slots in _b_slot_assignments.values() for tk in slots if tk
+        tk for slots in _b_slot_assignments.values() for tk in slots if tk and tk != "CASH"
     })
     _b_price_cache: dict = {}
     _b_section_error: str | None = None
@@ -715,6 +746,37 @@ if _arena_data:
         spy_running_return = 0.0
 
         for _ci, (_tk, _s_m, _e_m) in enumerate(segs):
+            if _tk == "CASH":
+                if spy_wk is not None and not spy_wk.empty:
+                    _sd = pd.Timestamp(f"{_s_m}-01")
+                    _ed = pd.Timestamp(f"{_e_m}-01") + pd.offsets.MonthEnd(1)
+                    _mask = (spy_wk.index >= _sd) & (spy_wk.index <= _ed)
+                    _cash_idx = spy_wk.index[_mask]
+                    if len(_cash_idx) >= 1:
+                        _n = len(_cash_idx)
+                        _x_vals = list(range(x_offset, x_offset + _n))
+                        fig.add_trace(go.Scatter(
+                            x=_x_vals,
+                            y=[running_return] * _n,
+                            mode="lines",
+                            line=dict(color="#888888", width=2, dash="dot"),
+                            name=f"💰现金（{_s_m}→{_e_m}）",
+                            showlegend=False,
+                        ))
+                        tick_vals.append(x_offset + _n // 2)
+                        tick_texts.append(f"{_s_m}→{_e_m}")
+                        name_annotations.append(dict(
+                            x=x_offset + _n // 2, y=1.0,
+                            xref="x", yref="paper",
+                            text="💰现金",
+                            showarrow=False,
+                            font=dict(size=11, color="#888888"),
+                            xanchor="center", yanchor="bottom",
+                        ))
+                        if x_offset > 0:
+                            boundary_xs.append(x_offset - 0.5)
+                        x_offset += _n
+                continue
             _wkd = _pc.get(_tk)
             if _wkd is None or _wkd.empty:
                 continue
@@ -818,11 +880,22 @@ if _arena_data:
         return fig
 
     # ── 计算每列总收益与最大回撤 ──────────────────────────────────────
-    def _calc_slot_stats(segs: list, price_cache: dict = None) -> tuple:
+    def _calc_slot_stats(
+        segs: list, price_cache: dict = None, spy_wk: pd.DataFrame = None
+    ) -> tuple:
         _pc2 = price_cache if price_cache is not None else {}
         nav_all: list = []
         running_nav = 1.0
         for _tk, _s_m, _e_m in segs:
+            if _tk == "CASH":
+                # 闸门关月份：NAV 保持不动（零收益），用 SPY 时间轴补日期
+                if spy_wk is not None and not spy_wk.empty:
+                    _sd = pd.Timestamp(f"{_s_m}-01")
+                    _ed = pd.Timestamp(f"{_e_m}-01") + pd.offsets.MonthEnd(1)
+                    _cash_idx = spy_wk.index[(spy_wk.index >= _sd) & (spy_wk.index <= _ed)]
+                    if len(_cash_idx) >= 1:
+                        nav_all.append(pd.Series(running_nav, index=_cash_idx, dtype=float))
+                continue
             _wkd = _pc2.get(_tk)
             if _wkd is None or _wkd.empty:
                 continue
@@ -846,17 +919,65 @@ if _arena_data:
         _max_dd = float(_dd.max()) * 100
         return _total_ret, _max_dd, _nav
 
+    def _compute_nav_kpi(nav: pd.Series) -> dict:
+        """Calmar / log-NAV R² / Sortino（周线 NAV 输入，√52 年化）。"""
+        import numpy as np
+        import math
+        if nav.empty or len(nav) < 8:
+            return {"calmar": float("nan"), "r2": float("nan"), "sortino": float("nan")}
+        nav = nav.astype(float).dropna()
+        wk_ret = nav.pct_change().dropna()
+        years = len(nav) / 52.0
+        if years < 0.1:
+            return {"calmar": float("nan"), "r2": float("nan"), "sortino": float("nan")}
+        cagr = (float(nav.iloc[-1]) / float(nav.iloc[0])) ** (1.0 / years) - 1.0
+        peak = nav.cummax()
+        max_dd = abs(float((nav / peak - 1.0).min()))
+        calmar = cagr / max_dd if max_dd > 1e-9 else float("nan")
+        log_nav = np.log(nav.values)
+        x = np.arange(len(log_nav), dtype=float)
+        coeffs = np.polyfit(x, log_nav, 1)
+        pred = np.polyval(coeffs, x)
+        ss_res = float(np.sum((log_nav - pred) ** 2))
+        ss_tot = float(np.sum((log_nav - log_nav.mean()) ** 2))
+        r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else float("nan")
+        neg_rets = wk_ret[wk_ret < 0]
+        down_std = float(neg_rets.std()) * (52.0 ** 0.5) if len(neg_rets) > 1 else float("nan")
+        sortino = cagr / down_std if (down_std and not math.isnan(down_std) and down_std > 1e-9) else float("nan")
+        return {"calmar": calmar, "r2": r2, "sortino": sortino}
+
+    def _fmt_kpi(v, fmt=".2f") -> str:
+        import math
+        try:
+            if math.isnan(v):
+                return "—"
+            return f"{v:{fmt}}"
+        except (TypeError, ValueError):
+            return "—"
+
     # ═══════════════════════════════════════════════════════════════════
     #  Section: A 组信念守擂持仓 K 线图
     # ═══════════════════════════════════════════════════════════════════
     st.header("📈 A 组累计收益率图")
     st.caption("左列 / 右列对应 Page 4 历史月度 Top-2 胜出者的 slot-stable 分配（各段累计收益率首尾相接，不同颜色区分持仓期）")
 
+    # 闸门关闭告警（当月最新月份优先显示）
+    _a_closed = _gate_closed_by_cls.get("A", [])
+    if _a_closed:
+        _a_latest_m = _tm_months[-1] if _tm_months else ""
+        _a_cur_reason = next((r for m, r in _a_closed if m == _a_latest_m), None)
+        if _a_cur_reason is not None:
+            st.error(f"🚧 **A 组闸门关（{_a_latest_m}）**：{_a_cur_reason or '当月不满足持仓条件，本月持有现金'}")
+        if len(_a_closed) > (1 if _a_cur_reason is not None else 0):
+            with st.expander(f"⚠️ A 组历史闸门关闭（{len(_a_closed)} 个月）", expanded=False):
+                for _ag_m, _ag_r in _a_closed:
+                    st.markdown(f"- **{_ag_m}**：{_ag_r or '不满足持仓条件'}")
+
     if _a_section_error:
         st.error(_a_section_error)
 
-    _ret_left, _dd_left, _nav_left = _calc_slot_stats(_seg_left, _a_price_cache)
-    _ret_right, _dd_right, _nav_right = _calc_slot_stats(_seg_right, _a_price_cache)
+    _ret_left, _dd_left, _nav_left = _calc_slot_stats(_seg_left, _a_price_cache, _spy_wk_a)
+    _ret_right, _dd_right, _nav_right = _calc_slot_stats(_seg_right, _a_price_cache, _spy_wk_a)
 
     # ── 合成 A 级整体（等权或信念倾斜）────────────────────────────────
     _ret_combined, _dd_combined = 0.0, 0.0
@@ -928,6 +1049,39 @@ if _arena_data:
         st.metric("A 级合成总收益", f"{_ret_combined:+.1f}%")
     with _kpi_c4:
         st.metric("换仓次数", f"{_switch_count} 次")
+
+    # M5：高级风险调整指标（Calmar / logNAV R² / Sortino）
+    if not _nav_combined.empty:
+        _a_adv = _compute_nav_kpi(_nav_combined)
+        _spy_adv_a: dict = {}
+        if _spy_wk_a is not None and not _spy_wk_a.empty:
+            _spy_mask_a = (
+                (_spy_wk_a.index >= _nav_combined.index[0])
+                & (_spy_wk_a.index <= _nav_combined.index[-1])
+            )
+            _spy_close_a = _spy_wk_a[_spy_mask_a]["Close"].astype(float).dropna()
+            if len(_spy_close_a) >= 8:
+                _spy_nav_a = _spy_close_a / float(_spy_close_a.iloc[0])
+                _spy_adv_a = _compute_nav_kpi(_spy_nav_a)
+        _adv_c1, _adv_c2, _adv_c3 = st.columns(3)
+        with _adv_c1:
+            st.metric(
+                "Calmar（A级）",
+                _fmt_kpi(_a_adv.get("calmar", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_a.get('calmar', float('nan')))}" if _spy_adv_a else None,
+            )
+        with _adv_c2:
+            st.metric(
+                "logNAV R²（A级）",
+                _fmt_kpi(_a_adv.get("r2", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_a.get('r2', float('nan')))}" if _spy_adv_a else None,
+            )
+        with _adv_c3:
+            st.metric(
+                "Sortino（A级）",
+                _fmt_kpi(_a_adv.get("sortino", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_a.get('sortino', float('nan')))}" if _spy_adv_a else None,
+            )
 
     _a_friction_pct = _switch_count * _p5_per_switch_friction * 100
     _a_net_ret = _ret_combined - _a_friction_pct
@@ -1005,11 +1159,23 @@ if _arena_data:
     st.header("📈 B 组累计收益率图")
     st.caption("左列 / 右列对应 Page 4 历史月度 Top-2 胜出者的 slot-stable 分配（各段累计收益率首尾相接，不同颜色区分持仓期）")
 
+    # 闸门关闭告警
+    _b_closed = _gate_closed_by_cls.get("B", [])
+    if _b_closed:
+        _b_latest_m = _tm_months[-1] if _tm_months else ""
+        _b_cur_reason = next((r for m, r in _b_closed if m == _b_latest_m), None)
+        if _b_cur_reason is not None:
+            st.error(f"🚧 **B 组闸门关（{_b_latest_m}）**：{_b_cur_reason or '当月不满足持仓条件，本月持有现金'}")
+        if len(_b_closed) > (1 if _b_cur_reason is not None else 0):
+            with st.expander(f"⚠️ B 组历史闸门关闭（{len(_b_closed)} 个月）", expanded=False):
+                for _bg_m, _bg_r in _b_closed:
+                    st.markdown(f"- **{_bg_m}**：{_bg_r or '不满足持仓条件'}")
+
     if _b_section_error:
         st.error(_b_section_error)
 
-    _b_ret_left, _b_dd_left, _b_nav_left = _calc_slot_stats(_b_seg_left, _b_price_cache)
-    _b_ret_right, _b_dd_right, _b_nav_right = _calc_slot_stats(_b_seg_right, _b_price_cache)
+    _b_ret_left, _b_dd_left, _b_nav_left = _calc_slot_stats(_b_seg_left, _b_price_cache, _spy_wk_a)
+    _b_ret_right, _b_dd_right, _b_nav_right = _calc_slot_stats(_b_seg_right, _b_price_cache, _spy_wk_a)
 
     # ── 合成 B 级整体（等权或信念倾斜）────────────────────────────────
     _b_ret_combined, _b_dd_combined = 0.0, 0.0
@@ -1067,6 +1233,39 @@ if _arena_data:
         st.metric("B 级合成总收益", f"{_b_ret_combined:+.1f}%")
     with _b_kpi_c4:
         st.metric("换仓次数", f"{_b_switch_count} 次")
+
+    # M5：高级风险调整指标
+    if not _b_nav_combined.empty:
+        _b_adv = _compute_nav_kpi(_b_nav_combined)
+        _spy_adv_b: dict = {}
+        if _spy_wk_a is not None and not _spy_wk_a.empty:
+            _spy_mask_b = (
+                (_spy_wk_a.index >= _b_nav_combined.index[0])
+                & (_spy_wk_a.index <= _b_nav_combined.index[-1])
+            )
+            _spy_close_b = _spy_wk_a[_spy_mask_b]["Close"].astype(float).dropna()
+            if len(_spy_close_b) >= 8:
+                _spy_nav_b = _spy_close_b / float(_spy_close_b.iloc[0])
+                _spy_adv_b = _compute_nav_kpi(_spy_nav_b)
+        _b_adv_c1, _b_adv_c2, _b_adv_c3 = st.columns(3)
+        with _b_adv_c1:
+            st.metric(
+                "Calmar（B级）",
+                _fmt_kpi(_b_adv.get("calmar", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_b.get('calmar', float('nan')))}" if _spy_adv_b else None,
+            )
+        with _b_adv_c2:
+            st.metric(
+                "logNAV R²（B级）",
+                _fmt_kpi(_b_adv.get("r2", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_b.get('r2', float('nan')))}" if _spy_adv_b else None,
+            )
+        with _b_adv_c3:
+            st.metric(
+                "Sortino（B级）",
+                _fmt_kpi(_b_adv.get("sortino", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_b.get('sortino', float('nan')))}" if _spy_adv_b else None,
+            )
 
     _b_friction_pct = _b_switch_count * _p5_per_switch_friction * 100
     _b_net_ret = _b_ret_combined - _b_friction_pct
@@ -1170,7 +1369,7 @@ if _arena_data:
 
     _seen_tickers: set = set()
     for _c_nm in _pf_classes:
-        _seen_tickers.update(tk for hset in _tm_hold[_c_nm].values() for tk in hset)
+        _seen_tickers.update(tk for hset in _tm_hold[_c_nm].values() for tk in hset if tk != "CASH")
 
     _profit_rows: list = []
     with st.spinner("正在汇总持仓盈亏..."):
@@ -1191,7 +1390,7 @@ if _arena_data:
                 _spy_wk = pd.DataFrame()
 
         for _c_nm in _pf_classes:
-            _all_c_tickers = sorted({tk for hset in _tm_hold[_c_nm].values() for tk in hset})
+            _all_c_tickers = sorted({tk for hset in _tm_hold[_c_nm].values() for tk in hset if tk != "CASH"})
             for _tk in _all_c_tickers:
                 _pds = _get_holding_periods(_tm_hold[_c_nm], _tk)
                 _wk = _price_cache.get(_tk)
@@ -1300,7 +1499,7 @@ if _arena_data:
             "选择赛道", ["A", "B", "C", "D"],
             format_func=lambda x: _CLS_LBL[x], key="tm_cls",
         )
-    _all_tk = sorted({tk for hset in _tm_hold[_tm_cls].values() for tk in hset})
+    _all_tk = sorted({tk for hset in _tm_hold[_tm_cls].values() for tk in hset if tk != "CASH"})
     with _cc2:
         _tm_sel = st.multiselect(
             "选择标的（可多选）", _all_tk,

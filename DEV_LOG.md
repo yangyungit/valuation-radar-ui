@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-04-19 | Wave 2 闸门层接入（M3 + M4 + M5）
+
+**M3 — api_client.py 兼容层**：新增 `_normalize_arena_record`，在 `fetch_arena_history` 返回前将旧 list schema 统一升级为新 dict（`tickers / gate_status / gate_reason`）；`get_arena_a_scores` 同步透传 `gate_status / gate_reason`。Page 4 `_compute_streaks_p4` / 深度检查 / holdings 构建 / 表格展示 4 处同步修复，改为 `.get("tickers", [])`。
+
+**M4 — Page 5 闸门感知**：`_tm_hold` 构建循环新增 `_gate_closed_by_cls` 追踪；闸门关月份 `_cm[_m] = set()`，`_prev_h` 保留策略持仓（守擂记忆不中断）。A/B 组 slot 分配新增 `_a/b_gate_months` 判断：闸门关月份两个 slot 均赋 `"CASH"`，不更新 `_prev_slots`（闸门重开后老将自然续接）。`_calc_slot_stats` / `_build_stitched_kline_fig` 两函数新增 CASH 段处理（平线衔接 NAV，灰色虚线可视化）。`_seen_tickers / _all_c_tickers / _all_tk / _a/b_tickers_all` 均过滤 `"CASH"`。`_name_map` / `_compute_streaks_p5` 读取改为新 dict 格式。当月闸门关时 A/B 组 header 打 `🚧` 告警；历史关闭月份可折叠展开。本地 fallback JSON 读入后同步升级旧 list 为新 dict。
+
+**M5 — Page 5 KPI 扩充**：新增 `_compute_nav_kpi(nav)` 计算 Calmar（CAGR / |max_dd|）/ logNAV R²（np.polyfit 线性回归）/ Sortino（√52 年化周线，仅负收益计下行 std）；A/B 组合成 NAV 下方各增一行 3 列指标卡，附 SPY 同期对比值。
+
+---
+
 ## 2026-04-19 | 上游 schema 预告：后端已落闸门层，前端 Wave 2 待接入
 
 **上游动态**：后端 commit `600cb4b` 新增 `gate_engine.py` 闸门层，`/api/v1/arena/backfill_score` 和 `/api/v1/arena/score_a` 已接入。**arena_history 的每组记录 schema 已变**：
