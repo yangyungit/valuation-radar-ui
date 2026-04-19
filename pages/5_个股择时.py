@@ -1017,7 +1017,24 @@ if _arena_data:
             if _tm_hold["A"].get(_a_months_with_hold[_i]) != _tm_hold["A"].get(_a_months_with_hold[_i - 1])
         )
 
-        _buf_col_p5, _w_col, _b_col = st.columns([1, 1.2, 2])
+        _a_friction_pct = _switch_count * _p5_per_switch_friction * 100
+        _a_net_ret = _ret_combined - _a_friction_pct
+
+        _a_adv: dict = {}
+        _spy_adv_a: dict = {}
+        if not _nav_combined.empty:
+            _a_adv = _compute_nav_kpi(_nav_combined)
+            if _spy_wk_a is not None and not _spy_wk_a.empty:
+                _spy_mask_a = (
+                    (_spy_wk_a.index >= _nav_combined.index[0])
+                    & (_spy_wk_a.index <= _nav_combined.index[-1])
+                )
+                _spy_close_a = _spy_wk_a[_spy_mask_a]["Close"].astype(float).dropna()
+                if len(_spy_close_a) >= 8:
+                    _spy_nav_a = _spy_close_a / float(_spy_close_a.iloc[0])
+                    _spy_adv_a = _compute_nav_kpi(_spy_nav_a)
+
+        _buf_col_p5, _w_col = st.columns([1, 2])
         with _buf_col_p5:
             st.number_input(
                 "守擂缓冲区 Top-N",
@@ -1037,70 +1054,45 @@ if _arena_data:
                 "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
                 horizontal=True, key="a_weight_mode",
             )
-        with _b_col:
-            st.caption(
-                f"守擂缓冲区: Top-{_buffer_n}（数据深度上限 {_p5_min_depth}）｜"
-                f"本期换仓次数: **{_switch_count}** 次"
-            )
 
-        _kpi_c1, _kpi_c2, _kpi_c3, _kpi_c4 = st.columns(4)
-        with _kpi_c1:
-            st.metric("左列总收益", f"{_ret_left:+.1f}%")
-        with _kpi_c2:
-            st.metric("右列总收益", f"{_ret_right:+.1f}%")
-        with _kpi_c3:
-            st.metric("A 级合成总收益", f"{_ret_combined:+.1f}%")
-        with _kpi_c4:
-            st.metric("换仓次数", f"{_switch_count} 次")
-
-        # M5：高级风险调整指标（Calmar / logNAV R² / Sortino）
-        if not _nav_combined.empty:
-            _a_adv = _compute_nav_kpi(_nav_combined)
-            _spy_adv_a: dict = {}
-            if _spy_wk_a is not None and not _spy_wk_a.empty:
-                _spy_mask_a = (
-                    (_spy_wk_a.index >= _nav_combined.index[0])
-                    & (_spy_wk_a.index <= _nav_combined.index[-1])
-                )
-                _spy_close_a = _spy_wk_a[_spy_mask_a]["Close"].astype(float).dropna()
-                if len(_spy_close_a) >= 8:
-                    _spy_nav_a = _spy_close_a / float(_spy_close_a.iloc[0])
-                    _spy_adv_a = _compute_nav_kpi(_spy_nav_a)
-            _adv_c1, _adv_c2, _adv_c3 = st.columns(3)
-            with _adv_c1:
-                st.metric(
-                    "Calmar（A级）",
-                    _fmt_kpi(_a_adv.get("calmar", float("nan"))),
-                    delta=f"SPY {_fmt_kpi(_spy_adv_a.get('calmar', float('nan')))}" if _spy_adv_a else None,
-                )
-            with _adv_c2:
-                st.metric(
-                    "logNAV R²（A级）",
-                    _fmt_kpi(_a_adv.get("r2", float("nan"))),
-                    delta=f"SPY {_fmt_kpi(_spy_adv_a.get('r2', float('nan')))}" if _spy_adv_a else None,
-                )
-            with _adv_c3:
-                st.metric(
-                    "Sortino（A级）",
-                    _fmt_kpi(_a_adv.get("sortino", float("nan"))),
-                    delta=f"SPY {_fmt_kpi(_spy_adv_a.get('sortino', float('nan')))}" if _spy_adv_a else None,
-                )
-
-        _a_friction_pct = _switch_count * _p5_per_switch_friction * 100
-        _a_net_ret = _ret_combined - _a_friction_pct
         st.caption(
-            f"净收益 **{_a_net_ret:+.1f}%**（已扣换仓摩擦 **-{_a_friction_pct:.1f}%**，"
-            f"佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%，"
-            f"共 {_switch_count} 次 × 4腿）"
+            f"Top-{_buffer_n}（上限 {_p5_min_depth}）｜"
+            f"换仓 **{_switch_count}** 次 × 4腿 ｜ "
+            f"摩擦 **-{_a_friction_pct:.1f}%**（佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%）"
         )
 
-        _dd_c1, _dd_c2, _dd_c3 = st.columns(3)
-        with _dd_c1:
-            st.metric("左列最大回撤", f"-{_dd_left:.1f}%")
-        with _dd_c2:
-            st.metric("右列最大回撤", f"-{_dd_right:.1f}%")
-        with _dd_c3:
-            st.metric("A 级合成最大回撤", f"-{_dd_combined:.1f}%")
+        _col_l, _col_r, _col_c = st.columns(3)
+        with _col_l:
+            st.markdown("**🟦 左列 Slot 0**")
+            st.metric("总收益", f"{_ret_left:+.1f}%")
+            st.metric("最大回撤", f"-{_dd_left:.1f}%")
+        with _col_r:
+            st.markdown("**🟦 右列 Slot 1**")
+            st.metric("总收益", f"{_ret_right:+.1f}%")
+            st.metric("最大回撤", f"-{_dd_right:.1f}%")
+        with _col_c:
+            st.markdown("**🟨 A 级合成**")
+            st.metric(
+                "总收益（毛）", f"{_ret_combined:+.1f}%",
+                delta=f"净 {_a_net_ret:+.1f}%", delta_color="off",
+            )
+            st.metric("最大回撤", f"-{_dd_combined:.1f}%")
+            if _a_adv:
+                st.metric(
+                    "Calmar", _fmt_kpi(_a_adv.get("calmar", float("nan"))),
+                    delta=f"SPY {_fmt_kpi(_spy_adv_a.get('calmar', float('nan')))}" if _spy_adv_a else None,
+                    delta_color="off",
+                )
+                st.metric(
+                    "logNAV R²", _fmt_kpi(_a_adv.get("r2", float("nan"))),
+                    delta=f"SPY {_fmt_kpi(_spy_adv_a.get('r2', float('nan')))}" if _spy_adv_a else None,
+                    delta_color="off",
+                )
+                st.metric(
+                    "Sortino", _fmt_kpi(_a_adv.get("sortino", float("nan"))),
+                    delta=f"SPY {_fmt_kpi(_spy_adv_a.get('sortino', float('nan')))}" if _spy_adv_a else None,
+                    delta_color="off",
+                )
 
         if _weight_mode.startswith("信念倾斜") and _a_slot_weights:
             _avg_wl = sum(v[0] for v in _a_slot_weights.values()) / max(len(_a_slot_weights), 1)
@@ -1210,32 +1202,13 @@ if _arena_data:
             if _tm_hold["B"].get(_b_months_with_hold[_i]) != _tm_hold["B"].get(_b_months_with_hold[_i - 1])
         )
 
-        _b_w_col, _b_caption_col = st.columns([1.2, 2])
-        with _b_w_col:
-            st.radio(
-                "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
-                horizontal=True, key="b_weight_mode",
-            )
-        with _b_caption_col:
-            st.caption(
-                f"守擂缓冲区: Top-{_buffer_n}（数据深度上限 {_p5_min_depth}）｜"
-                f"本期换仓次数: **{_b_switch_count}** 次"
-            )
+        _b_friction_pct = _b_switch_count * _p5_per_switch_friction * 100
+        _b_net_ret = _b_ret_combined - _b_friction_pct
 
-        _b_kpi_c1, _b_kpi_c2, _b_kpi_c3, _b_kpi_c4 = st.columns(4)
-        with _b_kpi_c1:
-            st.metric("左列总收益", f"{_b_ret_left:+.1f}%")
-        with _b_kpi_c2:
-            st.metric("右列总收益", f"{_b_ret_right:+.1f}%")
-        with _b_kpi_c3:
-            st.metric("B 级合成总收益", f"{_b_ret_combined:+.1f}%")
-        with _b_kpi_c4:
-            st.metric("换仓次数", f"{_b_switch_count} 次")
-
-        # M5：高级风险调整指标
+        _b_adv: dict = {}
+        _spy_adv_b: dict = {}
         if not _b_nav_combined.empty:
             _b_adv = _compute_nav_kpi(_b_nav_combined)
-            _spy_adv_b: dict = {}
             if _spy_wk_a is not None and not _spy_wk_a.empty:
                 _spy_mask_b = (
                     (_spy_wk_a.index >= _b_nav_combined.index[0])
@@ -1245,41 +1218,50 @@ if _arena_data:
                 if len(_spy_close_b) >= 8:
                     _spy_nav_b = _spy_close_b / float(_spy_close_b.iloc[0])
                     _spy_adv_b = _compute_nav_kpi(_spy_nav_b)
-            _b_adv_c1, _b_adv_c2, _b_adv_c3 = st.columns(3)
-            with _b_adv_c1:
-                st.metric(
-                    "Calmar（B级）",
-                    _fmt_kpi(_b_adv.get("calmar", float("nan"))),
-                    delta=f"SPY {_fmt_kpi(_spy_adv_b.get('calmar', float('nan')))}" if _spy_adv_b else None,
-                )
-            with _b_adv_c2:
-                st.metric(
-                    "logNAV R²（B级）",
-                    _fmt_kpi(_b_adv.get("r2", float("nan"))),
-                    delta=f"SPY {_fmt_kpi(_spy_adv_b.get('r2', float('nan')))}" if _spy_adv_b else None,
-                )
-            with _b_adv_c3:
-                st.metric(
-                    "Sortino（B级）",
-                    _fmt_kpi(_b_adv.get("sortino", float("nan"))),
-                    delta=f"SPY {_fmt_kpi(_spy_adv_b.get('sortino', float('nan')))}" if _spy_adv_b else None,
-                )
 
-        _b_friction_pct = _b_switch_count * _p5_per_switch_friction * 100
-        _b_net_ret = _b_ret_combined - _b_friction_pct
-        st.caption(
-            f"净收益 **{_b_net_ret:+.1f}%**（已扣换仓摩擦 **-{_b_friction_pct:.1f}%**，"
-            f"佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%，"
-            f"共 {_b_switch_count} 次 × 4腿）"
+        st.radio(
+            "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
+            horizontal=True, key="b_weight_mode",
         )
 
-        _b_dd_c1, _b_dd_c2, _b_dd_c3 = st.columns(3)
-        with _b_dd_c1:
-            st.metric("左列最大回撤", f"-{_b_dd_left:.1f}%")
-        with _b_dd_c2:
-            st.metric("右列最大回撤", f"-{_b_dd_right:.1f}%")
-        with _b_dd_c3:
-            st.metric("B 级合成最大回撤", f"-{_b_dd_combined:.1f}%")
+        st.caption(
+            f"Top-{_buffer_n}（上限 {_p5_min_depth}）｜"
+            f"换仓 **{_b_switch_count}** 次 × 4腿 ｜ "
+            f"摩擦 **-{_b_friction_pct:.1f}%**（佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%）"
+        )
+
+        _b_col_l, _b_col_r, _b_col_c = st.columns(3)
+        with _b_col_l:
+            st.markdown("**🟦 左列 Slot 0**")
+            st.metric("总收益", f"{_b_ret_left:+.1f}%")
+            st.metric("最大回撤", f"-{_b_dd_left:.1f}%")
+        with _b_col_r:
+            st.markdown("**🟦 右列 Slot 1**")
+            st.metric("总收益", f"{_b_ret_right:+.1f}%")
+            st.metric("最大回撤", f"-{_b_dd_right:.1f}%")
+        with _b_col_c:
+            st.markdown("**🟦 B 级合成**")
+            st.metric(
+                "总收益（毛）", f"{_b_ret_combined:+.1f}%",
+                delta=f"净 {_b_net_ret:+.1f}%", delta_color="off",
+            )
+            st.metric("最大回撤", f"-{_b_dd_combined:.1f}%")
+            if _b_adv:
+                st.metric(
+                    "Calmar", _fmt_kpi(_b_adv.get("calmar", float("nan"))),
+                    delta=f"SPY {_fmt_kpi(_spy_adv_b.get('calmar', float('nan')))}" if _spy_adv_b else None,
+                    delta_color="off",
+                )
+                st.metric(
+                    "logNAV R²", _fmt_kpi(_b_adv.get("r2", float("nan"))),
+                    delta=f"SPY {_fmt_kpi(_spy_adv_b.get('r2', float('nan')))}" if _spy_adv_b else None,
+                    delta_color="off",
+                )
+                st.metric(
+                    "Sortino", _fmt_kpi(_b_adv.get("sortino", float("nan"))),
+                    delta=f"SPY {_fmt_kpi(_spy_adv_b.get('sortino', float('nan')))}" if _spy_adv_b else None,
+                    delta_color="off",
+                )
 
         if _b_weight_mode.startswith("信念倾斜") and _b_slot_weights:
             _b_avg_wl = sum(v[0] for v in _b_slot_weights.values()) / max(len(_b_slot_weights), 1)

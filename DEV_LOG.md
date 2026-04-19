@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-04-19 | Page 5 A/B 级 KPI 布局重排（按主体分列）
+
+**动机**：A/B 级 tab 原 KPI 排版散成 4 行（4 列收益+换仓 / 3 列风险指标 / 净收益 caption / 3 列回撤），同一主体（左/右/合成）的数字被切开到不同行，纵向占地且阅读要来回横扫。
+
+**改动**：`pages/5_个股择时.py` A/B 两个 tab 的 KPI 区段重排：
+- 3 列按主体切分：**左列 / 右列 / 合成**，每列内部纵向叠「总收益 → 最大回撤」；合成列追加「Calmar / logNAV R² / Sortino」及 SPY 对照 delta
+- 合成总收益的「毛 / 净」合并到同一 metric（净收益作 delta 显示），去掉单独的"净收益"caption 行
+- 换仓次数 + 摩擦成本并入顶部 caption（`Top-N | 换仓 X 次 × 4 腿 | 摩擦 -Y.Y%`），去掉独立的「换仓次数」metric 卡
+- 纵向行数由 4 压到 2（controls + 一块 3 列 grid）
+
+**不改的东西**：`信念倾斜 caption`、tab 切换（左/右/合成收益率图）、核心 NAV 计算逻辑。
+
+---
+
 ## 2026-04-19 | Wave 4 前端闸门 UX 收尾（Page 3 实时闸门横幅 + Page 5 CASH 文案/字号）
 
 **动机**：Wave 2 已接入闸门 schema，但 Page 3 A 组排行榜**丢弃了 `gate_status / gate_reason`**（api_client.get_arena_a_scores 返回了，调用方没读）；主理人看排行榜时感知不到"今天闸门是开是关"。同时 Page 5 几处文案违反简洁原则 + CASH annotation `font-size=11` 违反 `.cursor/rules/architecture-constraints.mdc` 的 ≥13px 约束。
