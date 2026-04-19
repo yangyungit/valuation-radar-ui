@@ -2,6 +2,32 @@
 
 ---
 
+## 2026-04-19 | 上游 schema 预告：后端已落闸门层，前端 Wave 2 待接入
+
+**上游动态**：后端 commit `600cb4b` 新增 `gate_engine.py` 闸门层，`/api/v1/arena/backfill_score` 和 `/api/v1/arena/score_a` 已接入。**arena_history 的每组记录 schema 已变**：
+
+- 旧：`{"A": [{ticker, name, score}, ...]}`（纯 list）
+- 新：`{"A": {"tickers": [...], "gate_status": "open"|"closed", "gate_reason": "..."}}`（dict）
+
+`score_a` 实时端点返回也新增 `gate_status` / `gate_reason` 两字段。
+
+**当前前端行为**（本轮未改）：
+- `api_client.fetch_arena_history` 读取到新 schema 的 dict 时，现有 Page 5 的 `_arena_data[cls]` 假设是 list → 会出错
+- 主理人如果在新后端上线后、Wave 2 前端改造上线前点了回填，Page 5 会崩溃
+
+**Wave 2 待做（Sonnet 接手）**：
+1. `api_client.py`：增加 `_normalize_arena_record` 兼容层，后端返回的 dict → 解包为 (tickers_list, gate_status, gate_reason)
+2. `pages/5_个股择时.py`：读到 `gate_status=closed` 时当月仓位视为 CASH（按 `cash_annual_return` 累计），NAV 曲线正确衔接
+3. `pages/5_个股择时.py`：KPI 面板新增 Calmar / logNAV R² / Sortino 三指标，对齐 harness 评估口径
+
+**Wave 3 待做（Opus 并行）**：
+- Harness `portfolio_engine.py` top_n 2 + 守擂制 + 信念倾斜
+- Harness 动态 universe（用 `classify_all_at_date` 每月重算 A 组候选）
+
+**长期 TODO（冰柜）**：F2 基本面数据历史快照问题（全历史用今日 fcf_yield），引入 SEC 季度申报历史源、或改用纯价格类因子替代 F2。
+
+---
+
 ## 2026-04-19 | Page 3 回填改为流式落盘，支持"断点续传"
 
 **动因**：主理人挂好 Render 1 GB 持久盘后首次回填 60 个月，后端处理第 3-5 批时被 Render 代理 502（猜测 Starter 512 MB OOM），前端收到 "Response ended prematurely"，按旧逻辑**前面 2 批成功的 12 个月也全部作废、一行不落盘**。`api_client.arena_backfill_score` 只在所有 6 批都成功后才把结果交给上层 Page 3 写 `arena_history`。
