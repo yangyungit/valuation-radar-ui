@@ -27,8 +27,9 @@ pip-log.txt
 # Streamlit
 .streamlit/secrets.toml
 
-# Cursor IDE
-.cursor/
+# Cursor IDE（忽略调试日志 / worktrees.json 等，但保留 rules/）
+.cursor/*
+!.cursor/rules/
 
 # Jupyter
 .ipynb_checkpoints/
