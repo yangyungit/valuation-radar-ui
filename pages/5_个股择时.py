@@ -1061,38 +1061,41 @@ if _arena_data:
             f"摩擦 **-{_a_friction_pct:.1f}%**（佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%）"
         )
 
-        _col_l, _col_r, _col_c = st.columns(3)
-        with _col_l:
-            st.markdown("**🟦 左列 Slot 0**")
-            st.metric("总收益", f"{_ret_left:+.1f}%")
-            st.metric("最大回撤", f"-{_dd_left:.1f}%")
-        with _col_r:
-            st.markdown("**🟦 右列 Slot 1**")
-            st.metric("总收益", f"{_ret_right:+.1f}%")
-            st.metric("最大回撤", f"-{_dd_right:.1f}%")
-        with _col_c:
-            st.markdown("**🟨 A 级合成**")
-            st.metric(
-                "总收益（毛）", f"{_ret_combined:+.1f}%",
-                delta=f"净 {_a_net_ret:+.1f}%", delta_color="off",
+        st.markdown("**🟨 A 级合成**")
+        _ac1, _ac2, _ac3, _ac4, _ac5 = st.columns(5)
+        _ac1.metric(
+            "总收益（毛）", f"{_ret_combined:+.1f}%",
+            delta=f"净 {_a_net_ret:+.1f}%", delta_color="off",
+        )
+        _ac2.metric("最大回撤", f"-{_dd_combined:.1f}%")
+        if _a_adv:
+            _ac3.metric(
+                "Calmar", _fmt_kpi(_a_adv.get("calmar", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_a.get('calmar', float('nan')))}" if _spy_adv_a else None,
+                delta_color="off",
             )
-            st.metric("最大回撤", f"-{_dd_combined:.1f}%")
-            if _a_adv:
-                st.metric(
-                    "Calmar", _fmt_kpi(_a_adv.get("calmar", float("nan"))),
-                    delta=f"SPY {_fmt_kpi(_spy_adv_a.get('calmar', float('nan')))}" if _spy_adv_a else None,
-                    delta_color="off",
-                )
-                st.metric(
-                    "logNAV R²", _fmt_kpi(_a_adv.get("r2", float("nan"))),
-                    delta=f"SPY {_fmt_kpi(_spy_adv_a.get('r2', float('nan')))}" if _spy_adv_a else None,
-                    delta_color="off",
-                )
-                st.metric(
-                    "Sortino", _fmt_kpi(_a_adv.get("sortino", float("nan"))),
-                    delta=f"SPY {_fmt_kpi(_spy_adv_a.get('sortino', float('nan')))}" if _spy_adv_a else None,
-                    delta_color="off",
-                )
+            _ac4.metric(
+                "logNAV R²", _fmt_kpi(_a_adv.get("r2", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_a.get('r2', float('nan')))}" if _spy_adv_a else None,
+                delta_color="off",
+            )
+            _ac5.metric(
+                "Sortino", _fmt_kpi(_a_adv.get("sortino", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_a.get('sortino', float('nan')))}" if _spy_adv_a else None,
+                delta_color="off",
+            )
+
+        _block_l, _block_r = st.columns(2)
+        with _block_l:
+            st.markdown("**🟦 左列 Slot 0**")
+            _lc1, _lc2 = st.columns(2)
+            _lc1.metric("总收益", f"{_ret_left:+.1f}%")
+            _lc2.metric("最大回撤", f"-{_dd_left:.1f}%")
+        with _block_r:
+            st.markdown("**🟦 右列 Slot 1**")
+            _rc1, _rc2 = st.columns(2)
+            _rc1.metric("总收益", f"{_ret_right:+.1f}%")
+            _rc2.metric("最大回撤", f"-{_dd_right:.1f}%")
 
         if _weight_mode.startswith("信念倾斜") and _a_slot_weights:
             _avg_wl = sum(v[0] for v in _a_slot_weights.values()) / max(len(_a_slot_weights), 1)
@@ -1230,38 +1233,41 @@ if _arena_data:
             f"摩擦 **-{_b_friction_pct:.1f}%**（佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%）"
         )
 
-        _b_col_l, _b_col_r, _b_col_c = st.columns(3)
-        with _b_col_l:
-            st.markdown("**🟦 左列 Slot 0**")
-            st.metric("总收益", f"{_b_ret_left:+.1f}%")
-            st.metric("最大回撤", f"-{_b_dd_left:.1f}%")
-        with _b_col_r:
-            st.markdown("**🟦 右列 Slot 1**")
-            st.metric("总收益", f"{_b_ret_right:+.1f}%")
-            st.metric("最大回撤", f"-{_b_dd_right:.1f}%")
-        with _b_col_c:
-            st.markdown("**🟦 B 级合成**")
-            st.metric(
-                "总收益（毛）", f"{_b_ret_combined:+.1f}%",
-                delta=f"净 {_b_net_ret:+.1f}%", delta_color="off",
+        st.markdown("**🟨 B 级合成**")
+        _bc1, _bc2, _bc3, _bc4, _bc5 = st.columns(5)
+        _bc1.metric(
+            "总收益（毛）", f"{_b_ret_combined:+.1f}%",
+            delta=f"净 {_b_net_ret:+.1f}%", delta_color="off",
+        )
+        _bc2.metric("最大回撤", f"-{_b_dd_combined:.1f}%")
+        if _b_adv:
+            _bc3.metric(
+                "Calmar", _fmt_kpi(_b_adv.get("calmar", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_b.get('calmar', float('nan')))}" if _spy_adv_b else None,
+                delta_color="off",
             )
-            st.metric("最大回撤", f"-{_b_dd_combined:.1f}%")
-            if _b_adv:
-                st.metric(
-                    "Calmar", _fmt_kpi(_b_adv.get("calmar", float("nan"))),
-                    delta=f"SPY {_fmt_kpi(_spy_adv_b.get('calmar', float('nan')))}" if _spy_adv_b else None,
-                    delta_color="off",
-                )
-                st.metric(
-                    "logNAV R²", _fmt_kpi(_b_adv.get("r2", float("nan"))),
-                    delta=f"SPY {_fmt_kpi(_spy_adv_b.get('r2', float('nan')))}" if _spy_adv_b else None,
-                    delta_color="off",
-                )
-                st.metric(
-                    "Sortino", _fmt_kpi(_b_adv.get("sortino", float("nan"))),
-                    delta=f"SPY {_fmt_kpi(_spy_adv_b.get('sortino', float('nan')))}" if _spy_adv_b else None,
-                    delta_color="off",
-                )
+            _bc4.metric(
+                "logNAV R²", _fmt_kpi(_b_adv.get("r2", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_b.get('r2', float('nan')))}" if _spy_adv_b else None,
+                delta_color="off",
+            )
+            _bc5.metric(
+                "Sortino", _fmt_kpi(_b_adv.get("sortino", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_b.get('sortino', float('nan')))}" if _spy_adv_b else None,
+                delta_color="off",
+            )
+
+        _b_block_l, _b_block_r = st.columns(2)
+        with _b_block_l:
+            st.markdown("**🟦 左列 Slot 0**")
+            _b_lc1, _b_lc2 = st.columns(2)
+            _b_lc1.metric("总收益", f"{_b_ret_left:+.1f}%")
+            _b_lc2.metric("最大回撤", f"-{_b_dd_left:.1f}%")
+        with _b_block_r:
+            st.markdown("**🟦 右列 Slot 1**")
+            _b_rc1, _b_rc2 = st.columns(2)
+            _b_rc1.metric("总收益", f"{_b_ret_right:+.1f}%")
+            _b_rc2.metric("最大回撤", f"-{_b_dd_right:.1f}%")
 
         if _b_weight_mode.startswith("信念倾斜") and _b_slot_weights:
             _b_avg_wl = sum(v[0] for v in _b_slot_weights.values()) / max(len(_b_slot_weights), 1)
