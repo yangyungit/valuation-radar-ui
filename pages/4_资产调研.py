@@ -610,6 +610,54 @@ if _arena_hist:
             _prev_hst = _cur_hst
         _hold_streaks[_cls] = _cls_hs
 
+    # ── 换仓归因：为本月新上位的标的计算「噪音/基本面」标签，内联到主表 ──
+    # A/B 组用 conviction 并扣 challenge_margin，C/D/Z 用 score 不扣
+    _MARGIN_P4 = {"A": 10.0, "B": 8.0}
+    _rotation_tags: dict = {}
+    _months_asc_r = sorted(k for k in _arena_hist if not k.startswith("_"))
+    for _cls in ["A", "B", "C", "D", "Z"]:
+        _cls_tag_map: dict = {}
+        for _mi, _mo_r in enumerate(_months_asc_r[1:], 1):
+            _prev_mo_r = _months_asc_r[_mi - 1]
+            _cur_r = _holdings_map[_cls].get(_mo_r, {})
+            if not _cur_r.get("traded", False):
+                continue
+            _cur_hold_r = _cur_r.get("hold", set())
+            _prev_hold_r = _holdings_map[_cls].get(_prev_mo_r, {}).get("hold", set())
+            _entered_r = sorted(_cur_hold_r - _prev_hold_r)
+            _left_r = sorted(_prev_hold_r - _cur_hold_r)
+            _mo_recs = {
+                r["ticker"]: r
+                for r in _arena_hist.get(_mo_r, {}).get(_cls, {}).get("tickers", [])
+            }
+            _prv_recs = {
+                r["ticker"]: r
+                for r in _arena_hist.get(_prev_mo_r, {}).get(_cls, {}).get("tickers", [])
+            }
+            _use_conv = _cls in ("A", "B")
+            _tag_map: dict = {}
+            for _ek, _tk_in in enumerate(_entered_r):
+                _rec_in = _mo_recs.get(_tk_in, {})
+                _val_in = _rec_in.get("conviction" if _use_conv else "score", 0.0) or 0.0
+                _tk_out = _left_r[_ek] if _ek < len(_left_r) else None
+                _val_out = None
+                if _tk_out:
+                    _rec_out = _prv_recs.get(_tk_out, {})
+                    _val_out = _rec_out.get("conviction" if _use_conv else "score", 0.0) or 0.0
+                if _use_conv and _val_in > 0 and _val_out is not None and _val_out > 0:
+                    _gap_r = _val_in - _val_out - _MARGIN_P4.get(_cls, 0.0)
+                else:
+                    _gap_r = None
+                if _gap_r is None:
+                    continue
+                if _gap_r < 5:
+                    _tag_map[_tk_in] = ("噪音", "#E74C3C", _tk_out)
+                elif _gap_r >= 20:
+                    _tag_map[_tk_in] = ("基本面", "#2ECC71", _tk_out)
+            if _tag_map:
+                _cls_tag_map[_mo_r] = _tag_map
+        _rotation_tags[_cls] = _cls_tag_map
+
     # 规则说明卡片
     st.markdown(
         "<div style='background:#1a1a2e; border:1px solid #3a3a5c; border-radius:8px;"
@@ -620,7 +668,10 @@ if _arena_hist:
         f"在位者只要守住 Top-{_buffer_n} 席位即可保留持仓，减少无谓换手。<br>"
         "③ 若任意一只持仓跌出缓冲区，则全部换仓，采用本月 <b style='color:#F39C12;'>Top-2</b> 作为新持仓。<br>"
         "④ 历史表格中 <code>[Top2→X/Y]</code> 标注代表当月 <b style='color:#E67E22;'>守擂生效</b>——上月持仓仍在缓冲区内未触发换仓，"
-        "但 Top-2 排名已更新为 X/Y，括号内为本期真实前两名供参考。"
+        "但 Top-2 排名已更新为 X/Y，括号内为本期真实前两名供参考。<br>"
+        "⑤ 新上位标的后紧跟 <span style='color:#E74C3C;'>[噪音→X]</span> 或 "
+        "<span style='color:#2ECC71;'>[基本面→X]</span> 代表换仓归因：A/B 组用 conviction 减去 "
+        "挑战门槛（A=10/B=8），分差 &lt;5 为噪音换仓、≥20 为基本面换仓；X 为被替换的上月持仓。"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -676,6 +727,7 @@ if _arena_hist:
             _slots = _slot_assignments[_cls].get(_mo, [None, None])
 
             _t2_set = set(_t2_list)
+            _mo_rot_tags = _rotation_tags.get(_cls, {}).get(_mo, {})
             _slot_spans = ["", ""]
             for _si, _slot_tk in enumerate(_slots):
                 if not _slot_tk or _slot_tk not in _rec_map:
@@ -691,6 +743,15 @@ if _arena_hist:
                 else:
                     _slot_spans[_si] = (
                         "<span style='color:#2ECC71; font-weight:600;'>" + _txt + "</span>"
+                    )
+                # 新上位标的：后缀换仓归因标签 [噪音→X] / [基本面→X]
+                _rot_info = _mo_rot_tags.get(_slot_tk)
+                if _rot_info:
+                    _rtag_txt, _rtag_color, _rtk_out = _rot_info
+                    _out_disp = _rtk_out if _rtk_out else "?"
+                    _slot_spans[_si] += (
+                        f" <span style='color:{_rtag_color}; font-size:13px;'>"
+                        f"[{_rtag_txt}→{_out_disp}]</span>"
                     )
 
             if not _slot_spans[0] and not _slot_spans[1]:
@@ -718,167 +779,6 @@ if _arena_hist:
         + "</div>",
         unsafe_allow_html=True,
     )
-
-# ─────────────────────────────────────────────────────────────────
-#  换仓归因表：逐月上位/下位分析（在历史月度表格下方）
-# ─────────────────────────────────────────────────────────────────
-with st.expander("🔍 换仓归因 — 逐月上位/下位原因", expanded=False):
-    # A/B 组的 challenge_margin（与 conviction_engine 保持一致）
-    _MARGIN = {"A": 10.0, "B": 8.0}
-    _CLS_COLORS = {
-        "A": "#3498DB", "B": "#F39C12", "C": "#2ECC71",
-        "D": "#E74C3C", "Z": "#9B59B6",
-    }
-    _STATUS_ZH = {
-        "defending":  "🛡️ 留任",
-        "challenged": "⚔️ 挑战上位",
-        "new_entry":  "🆕 新晋",
-        "cold_start": "⏸️ 空位填补",
-        "dropped":    "📉 被替换",
-    }
-
-    _diag_rows: list[dict] = []
-    _diag_months = sorted(k for k in _arena_hist if not k.startswith("_"))
-
-    for _di, _dmo in enumerate(_diag_months[1:], 1):
-        _dprev = _diag_months[_di - 1]
-        for _dcls in ["A", "B", "C", "D", "Z"]:
-            _d_cur = _holdings_map[_dcls].get(_dmo, {})
-            _d_prev = _holdings_map[_dcls].get(_dprev, {})
-            if not _d_cur.get("traded", False):
-                continue
-
-            _cur_hold = _d_cur.get("hold", set())
-            _prev_hold = _d_prev.get("hold", set())
-            _entered = _cur_hold - _prev_hold
-            _left    = _prev_hold - _cur_hold
-            if not _entered and not _left:
-                continue
-
-            # 当月和上月的完整记录（按 ticker 索引）
-            _mo_recs  = {r["ticker"]: r for r in _arena_hist.get(_dmo,   {}).get(_dcls, [])}
-            _prv_recs = {r["ticker"]: r for r in _arena_hist.get(_dprev, {}).get(_dcls, [])}
-
-            # 构建事件行（上位者 vs 被替换者配对）
-            _left_list = sorted(_left)
-            _ent_list  = sorted(_entered)
-
-            for _ek, _tk_in in enumerate(_ent_list):
-                _rec_in  = _mo_recs.get(_tk_in, {})
-                _status  = _rec_in.get("status", "new_entry")
-                _use_conv = _dcls in ("A", "B")
-                _val_in   = _rec_in.get("conviction" if _use_conv else "score", 0.0) or 0.0
-
-                # 配对对应的被替换者（按顺序配对）
-                _tk_out = _left_list[_ek] if _ek < len(_left_list) else None
-                _rec_out = _prv_recs.get(_tk_out, {}) if _tk_out else {}
-                _val_out = (_rec_out.get("conviction" if _use_conv else "score", 0.0) or 0.0) if _tk_out else None
-
-                if _use_conv and _val_in > 0 and _val_out is not None and _val_out > 0:
-                    _margin  = _MARGIN.get(_dcls, 0.0)
-                    _gap     = _val_in - _val_out - _margin
-                else:
-                    _gap = None
-
-                if _gap is not None:
-                    if _gap < 5:
-                        _noise_tag = "⚠️ 噪音换仓"
-                        _noise_color = "#E74C3C"
-                    elif _gap >= 20:
-                        _noise_tag = "✅ 基本面换仓"
-                        _noise_color = "#2ECC71"
-                    else:
-                        _noise_tag = "—"
-                        _noise_color = "#888"
-                else:
-                    _noise_tag, _noise_color = "—", "#888"
-
-                _diag_rows.append({
-                    "月份": _dmo,
-                    "赛道": _dcls,
-                    "事件": _STATUS_ZH.get(_status, _status),
-                    "上位者": _tk_in,
-                    "上位者名": _rec_in.get("name", _tk_in),
-                    "被替换": _tk_out or "—",
-                    "被替换名": _rec_out.get("name", _tk_out or "—"),
-                    "上位信念/分": round(_val_in, 1),
-                    "被替换信念/分": round(_val_out, 1) if _val_out is not None else "—",
-                    "分差": round(_gap, 1) if _gap is not None else "—",
-                    "_noise_tag": _noise_tag,
-                    "_noise_color": _noise_color,
-                    "_cls_color": _CLS_COLORS.get(_dcls, "#aaa"),
-                    "_use_conv": _use_conv,
-                })
-
-    if not _diag_rows:
-        st.info("暂无换仓记录（数据不足或全部月份维持持仓）。")
-    else:
-        # 噪音换仓占比统计
-        _noise_total   = sum(1 for r in _diag_rows if r["_noise_tag"] == "⚠️ 噪音换仓")
-        _bf_total      = sum(1 for r in _diag_rows if r["_noise_tag"] == "✅ 基本面换仓")
-        _conv_rows     = [r for r in _diag_rows if r["_use_conv"]]
-        _noise_conv    = sum(1 for r in _conv_rows if r["_noise_tag"] == "⚠️ 噪音换仓")
-        _conv_total    = len(_conv_rows)
-
-        _stat_html = (
-            f"<div style='margin-bottom:10px; font-size:13px; color:#aaa;'>"
-            f"共 <b style='color:#eee;'>{len(_diag_rows)}</b> 次换仓事件 "
-            f"（A/B 信念驱动 {_conv_total} 次，"
-            f"<span style='color:#E74C3C;'>噪音换仓 {_noise_conv}</span> / "
-            f"<span style='color:#2ECC71;'>基本面换仓 {_bf_total}</span>）"
-            f"</div>"
-        )
-        st.markdown(_stat_html, unsafe_allow_html=True)
-
-        # 渲染 HTML 表格
-        _d_th = "padding:7px 12px; border-bottom:1px solid #333; text-align:left; background:#1a1a1a; white-space:nowrap; font-size:13px; color:#aaa;"
-        _d_td = "padding:6px 10px; border-bottom:1px solid #222; font-size:13px; white-space:nowrap;"
-
-        _d_tbl = [
-            "<table style='width:100%; border-collapse:collapse;'>",
-            "<thead><tr>",
-        ]
-        for _col in ["月份", "赛道", "事件", "上位者", "被替换者", "上位信念", "被替换信念", "分差", "噪音标记"]:
-            _d_tbl.append(f"<th style='{_d_th}'>{_col}</th>")
-        _d_tbl.append("</tr></thead><tbody>")
-
-        for _dr in _diag_rows:
-            _d_tbl.append("<tr>")
-            _d_tbl.append(f"<td style='{_d_td} color:#ddd;'>{_dr['月份']}</td>")
-            _d_tbl.append(
-                f"<td style='{_d_td}'>"
-                f"<span style='color:{_dr['_cls_color']}; font-weight:600;'>{_dr['赛道']}</span></td>"
-            )
-            _d_tbl.append(f"<td style='{_d_td} color:#ccc;'>{_dr['事件']}</td>")
-            _d_tbl.append(
-                f"<td style='{_d_td}'>"
-                f"<b style='color:#2ECC71;'>{_dr['上位者']}</b>"
-                f"<span style='color:#777; font-size:12px;'> {_dr['上位者名']}</span></td>"
-            )
-            _out_color = "#E74C3C" if _dr['被替换'] != "—" else "#555"
-            _d_tbl.append(
-                f"<td style='{_d_td}'>"
-                f"<span style='color:{_out_color};'>{_dr['被替换']}</span>"
-                f"<span style='color:#777; font-size:12px;'> {_dr['被替换名']}</span></td>"
-            )
-            _d_tbl.append(f"<td style='{_d_td} color:#F1C40F; text-align:right;'>{_dr['上位信念/分']}</td>")
-            _d_tbl.append(f"<td style='{_d_td} color:#aaa; text-align:right;'>{_dr['被替换信念/分']}</td>")
-            _gap_color = "#E74C3C" if isinstance(_dr['分差'], float) and _dr['分差'] < 5 else (
-                "#2ECC71" if isinstance(_dr['分差'], float) and _dr['分差'] >= 20 else "#aaa"
-            )
-            _d_tbl.append(f"<td style='{_d_td} color:{_gap_color}; text-align:right; font-weight:600;'>{_dr['分差']}</td>")
-            _d_tbl.append(
-                f"<td style='{_d_td} color:{_dr['_noise_color']}; font-weight:600;'>{_dr['_noise_tag']}</td>"
-            )
-            _d_tbl.append("</tr>")
-
-        _d_tbl.append("</tbody></table>")
-        st.markdown(
-            "<div style='overflow-x:auto; border:1px solid #2a2a2a; border-radius:6px;'>"
-            + "".join(_d_tbl) + "</div>",
-            unsafe_allow_html=True,
-        )
-        st.caption("「分差」= 上位者信念 − 被替换者信念 − 守擂优势（A组=10, B组=8）。C/D/Z 用因子分代替信念，不扣守擂优势。")
 
 st.markdown("---")
 

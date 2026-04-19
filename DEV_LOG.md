@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-04-19 夜 | Page 4 换仓归因 expander 合并进历史月度 Top-2 主表，顺手修 TypeError
+
+**动因**：Page 4「🔍 换仓归因 — 逐月上位/下位原因」expander 崩溃 —— 报错 `TypeError: string indices must be integers, not 'str'` 在 `_mo_recs = {r["ticker"]: r for r in _arena_hist.get(_dmo, {}).get(_dcls, [])}`。根因：`_arena_hist[mo][cls]` 实际是 dict（含 `tickers` 键），不是 list；迭代 dict 得到的是 key 字符串，`r["ticker"]` 当然崩。主理人同时反馈该 expander 占页面，希望把"替换原因"内联到上方「历史月度 Top-2 胜出者」主表。
+
+**改动**：`pages/4_资产调研.py`
+
+1. 删除整个 `with st.expander("🔍 换仓归因 ...")` 块（原 ~160 行，独立表 + 统计行 + `st.caption` 全部移除）。
+2. 在主表渲染前，新增 `_rotation_tags: dict` 预计算：遍历每月每赛道的 `traded=True` 事件，按排序顺序配对 `_entered ↔ _left`，A/B 用 conviction 扣 challenge_margin（A=10/B=8）、C/D/Z 用 score 不扣，分差 `<5` 标「噪音」、`≥20` 标「基本面」、5~20 区间不标（避免噪音过载）。读取路径 `_arena_hist[mo][cls]["tickers"]` 走正确的嵌套层。
+3. 主表单元格渲染循环中，新增后缀：`_rotation_tags[cls][mo][ticker_in] → ("噪音"|"基本面", color, ticker_out)`，在 slot 文本后追加 `<span style='color:...; font-size:13px;'>[噪音→XYZ]</span>` 或 `[基本面→XYZ]`，X 为被替换的上月持仓。
+4. 规则卡片追加第 ⑤ 条说明新增标签含义（噪音→X / 基本面→X 的配色与阈值规则）。
+
+**不改动**：守擂 `[Top2→X/Y]` 橙色标注、绿/红色分级、连续持仓月数 `(N月)` 全部保留。缓冲区 slider、slot 对齐、streak 计算零改动。
+
+**验收路径**：Streamlit Cloud 重新部署后 Page 4 → 不再有红框 `TypeError` → 「历史月度 Top-2 胜出者」表格里，每次换仓月份的新上位标的后面应能看到红色 `[噪音→XYZ]` 或绿色 `[基本面→XYZ]` 标签（仅 A/B 两列会出现，因为只有它们有 conviction 数据和挑战门槛）。
+
+---
+
 ## 2026-04-19 夜 | ScorecardA v5 前端三处镜像同步（权重 50/30/0/20 + min_factor_score=40 空仓提示）
 
 **动因**：后端仓 commit `903adca`（2026-04-19 夜）把 ScorecardA 权重从 20/10/40/30 改为 **50/30/0/20**，并在 `conviction_engine.select_top_n` 末端接入 `min_factor_score=40` 空仓门槛（仅 A 组生效）。按 `.cursor/rules/core-protocols.mdc` 红线第 9 条「后端改权重 → 前端三处硬编码镜像必须同步」规定，本 commit 落地前端同步。
