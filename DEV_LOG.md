@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-04-19 夜 | ScorecardA v5 前端三处镜像同步（权重 50/30/0/20 + min_factor_score=40 空仓提示）
+
+**动因**：后端仓 commit `903adca`（2026-04-19 夜）把 ScorecardA 权重从 20/10/40/30 改为 **50/30/0/20**，并在 `conviction_engine.select_top_n` 末端接入 `min_factor_score=40` 空仓门槛（仅 A 组生效）。按 `.cursor/rules/core-protocols.mdc` 红线第 9 条「后端改权重 → 前端三处硬编码镜像必须同步」规定，本 commit 落地前端同步。
+
+**改动**（纯 UI 文案 + 顶部胶囊百分比，不影响实际评分；评分仍由后端 `_api_get_arena_a_scores` 走最新 ScorecardA v5）：
+
+1. `pages/3_资产细筛.py::ARENA_CONFIG["A"]["weights"]`（行 127-128）：
+   - `max_dd_inv` 0.20 → **0.50**
+   - `fcf_yield` 0.10 → **0.30**
+   - `spy_corr_inv` 0.40 → **0.00**（顶部胶囊会显示 0%）
+   - `ribbon_quality` 0.30 → **0.20**
+2. `ARENA_CONFIG["A"]["logic"]` HTML 文案（行 137-144）：四行权重字面量同步、追加 F3 置零业务解释（SPY 熔断接管）和 min_factor_score=40 空仓机制说明、脚注改为「OOS 190.6% / 子区间 6/6 / 9 年 359.9%」
+3. `📐 底层因子公式（ScorecardA v4 → v5 满分 100）` expander（行 2669-2686）：公式 `(20 × F1) + (10 × F2) + (40 × F3) + (30 × F4)` → `(50 × F1) + (30 × F2) + (0 × F3) + (20 × F4)`（F3 加 strikethrough 样式）+ 新增「💰 min_factor_score 空仓门槛」说明段
+4. 顺手清掉行 2719 的过时代码注释：`# ── 使用后端 ScorecardA（新公式：45/20/20/15,...）──` → `# ── 使用后端 ScorecardA v5（权重 50/30/0/20,...）──`（`45/20/20/15` 是三版前的字面量，一直没清理）
+
+**验收路径**：Streamlit Cloud 重新部署后 Page 3 → 「A 级：压舱石 — 避风港防御指数」→ 顶部胶囊应显示 `极限抗跌 50% / 现金奶牛 30% / 宏观对冲 0% / 带鱼质量 20%` → 展开 "📐 底层因子公式（ScorecardA v5 满分 100）" 核对新公式 + 💰 空仓门槛段。
+
+**不改动**：B/C/D/Z 四组权重与文案零改动；ScorecardA 评分逻辑（窗口/阈值/min_factor_score 生效）全部在后端 `core_engine.py` + `conviction_engine.py` 落地，前端不参与计算。
+
+---
+
 ## 2026-04-19 | Page 5 A/B 级 KPI 布局重排（按主体分列）
 
 **动机**：A/B 级 tab 原 KPI 排版散成 4 行（4 列收益+换仓 / 3 列风险指标 / 净收益 caption / 3 列回撤），同一主体（左/右/合成）的数字被切开到不同行，纵向占地且阅读要来回横扫。

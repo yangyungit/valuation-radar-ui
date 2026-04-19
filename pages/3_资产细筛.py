@@ -124,23 +124,25 @@ ARENA_CONFIG: dict = {
     "A": {
         "score_name": "避风港防御指数",
         "weights": {
-            "max_dd_inv": 0.20, "fcf_yield": 0.10,
-            "spy_corr_inv": 0.40, "ribbon_quality": 0.30,
+            "max_dd_inv": 0.50, "fcf_yield": 0.30,
+            "spy_corr_inv": 0.00, "ribbon_quality": 0.20,
         },
         "invert_z": False,
         "factor_labels": {
             "max_dd_inv":     "极限抗跌 (最大回撤倒数)",
             "fcf_yield":      "现金奶牛 (FCF收益率)",
-            "spy_corr_inv":   "宏观对冲 (DCR下行捕获)",
+            "spy_corr_inv":   "宏观对冲 (DCR，v5 权重=0 仅诊断)",
             "ribbon_quality": "带鱼质量 (趋势干净度)",
         },
         "logic": (
-            "压舱石的竞技逻辑：抗跌护城河 + 趋势方向四维体系，专抓真实现金流、大盘对冲与均线带鱼形态。<br>"
-            "① 极限抗跌（3年最大回撤取倒数，回撤越小得分越高，权重 20%）<br>"
-            "② 现金奶牛（自由现金流收益率 FCF/MCap，ETF 回退至股息率，权重 10%）<br>"
-            "③ 宏观对冲（2年 Downside Capture Ratio，SPY 跌时资产反涨者满分，权重 40%）<br>"
-            "④ 带鱼质量（内部 0.15·间距稳定 + 0.20·持续天数 + 0.15·斜率稳定 + 0.50·RS线斜率，相对SPY强度主导，权重 30%）<br>"
-            "权重经 Harness 三阶段门控回测（OOS 87.8% / 扰动 76.5%）数据驱动定稿，DCR 升为首要因子，市场级风控由 SPY 熔断接管。"
+            "压舱石竞技逻辑（v5）：抗跌护城河 + 现金流 + 趋势方向三维体系。<br>"
+            "① 极限抗跌（3年最大回撤取倒数，回撤越小得分越高，权重 <b>50%</b>）<br>"
+            "② 现金奶牛（自由现金流收益率 FCF/MCap，ETF 回退至股息率，权重 <b>30%</b>）<br>"
+            "③ 宏观对冲（2年 DCR 下行捕获，v5 <b>权重置零 · 仅诊断保留</b>）<br>"
+            "④ 带鱼质量（内部 0.15·间距稳定 + 0.20·持续天数 + 0.15·斜率稳定 + 0.50·RS线斜率，相对SPY强度主导，权重 <b>20%</b>）<br>"
+            "权重经 Harness v6 三阶段稳健性测试定稿（OOS 保留率 <b>190.6%</b> / 子区间 6/6 / 9 年 final_return <b>359.9%</b> vs SPY 244%）。"
+            "F3 置零：SPY 熔断（−12% 清仓 / −6% 解除）已接管市场级宏观对冲。"
+            "信念守擂末端叠加 <b>min_factor_score=40</b> 空仓门槛：本月因子分 &lt; 40 者剔出持仓，全剔则整组空仓。"
         ),
     },
     "B": {
@@ -2666,21 +2668,30 @@ if _sel4 == "A":
 
     st.markdown(_conv_explain_html(config=CONVICTION_A_CONFIG), unsafe_allow_html=True)
 
-    with st.expander("📐 底层因子公式（ScorecardA v4 满分 100）", expanded=False):
+    with st.expander("📐 底层因子公式（ScorecardA v5 满分 100）", expanded=False):
         st.markdown("""
         <div style='font-size:14px; color:#ccc; line-height:1.8;'>
         <span style='color:#2ECC71; font-weight:bold;'>Score<sub>A</sub></span> =
-        <span style='color:#2ECC71;'>(20 &times; F1<sub>3yDD</sub>)</span> +
-        <span style='color:#3498DB;'>(10 &times; F2<sub>FCF</sub>)</span> +
-        <span style='color:#9B59B6; font-weight:bold;'>(40 &times; F3<sub>2yDCR</sub>)</span> +
-        <span style='color:#F39C12;'>(30 &times; F4<sub>Ribbon</sub>)</span><br>
-        <span style='color:#888; font-size:13px;'>权重经 Harness 三阶段门控回测定稿（OOS 87.8% / 扰动 76.5%），DCR 升为首要因子；市场级风控由 SPY 熔断（−12% 清仓 / −6% 解除）接管。</span><br><br>
+        <span style='color:#2ECC71; font-weight:bold;'>(50 &times; F1<sub>3yDD</sub>)</span> +
+        <span style='color:#3498DB; font-weight:bold;'>(30 &times; F2<sub>FCF</sub>)</span> +
+        <span style='color:#9B59B6; text-decoration:line-through; opacity:0.5;'>(0 &times; F3<sub>2yDCR</sub>)</span> +
+        <span style='color:#F39C12;'>(20 &times; F4<sub>Ribbon</sub>)</span><br>
+        <span style='color:#888; font-size:13px;'>
+        v5 权重经 Harness v6 三阶段稳健性测试定稿（OOS 保留率 190.6% / 子区间 6/6 / 扰动 51.8%）。
+        F3(DCR) 权重置零：SPY 熔断（−12% 清仓 / −6% 解除）已接管市场级宏观对冲；DCR 原始值保留在 <code>_diag.score_dcr_raw</code> 作诊断。
+        F1(抗跌) 升为首要因子，top_n=2 集中持仓下极限抗跌主导排名。
+        </span><br><br>
         <span style='color:#F39C12;'>F4<sub>Ribbon</sub></span> =
         0.15·s1<sub>间距稳定</sub> + 0.20·s2<sub>持续天数</sub> + 0.15·s3<sub>斜率稳定</sub> +
         <span style='color:#F39C12; font-weight:bold;'>0.50·s5<sub>RS线MA60斜率</sub></span><br>
         <span style='color:#888; font-size:13px;'>
         s5 = RS-line（标的/SPY）最近 60 天 MA60 年化斜率，clip 到 [0, 1]，年化跑赢 SPY +5% 为满分阈值。
         此因子分数作为「信念积分的输入信号」，不再直接决定排名；连续多月高分 &rarr; 信念积累 &rarr; 达标入选 &rarr; 守擂留任。
+        </span><br><br>
+        <span style='color:#95A5A6; font-weight:bold;'>💰 min_factor_score 空仓门槛（v5 新增）</span><br>
+        <span style='color:#888; font-size:13px;'>
+        信念守擂末端追加一道门槛：本月 Score<sub>A</sub> &lt; <b>40</b> 的 ticker 直接剔出持仓；若 Top-N 候选全被剔，<b>整组空仓</b>。
+        凌驾于在位者守擂之上，爆跌期即使累积信念很高也不硬留吃回撤；9 年回测贡献 +143pct 收益。
         </span>
         </div>
         """, unsafe_allow_html=True)
@@ -2705,7 +2716,7 @@ if _sel4 == "A":
                 f"点击侧边栏「清除当前页缓存」后刷新可重试。"
             )
 
-        # ── 使用后端 ScorecardA（新公式：45/20/20/15，3年回溯，DCR）──
+        # ── 使用后端 ScorecardA v5（权重 50/30/0/20，3年回溯，DCR 权重=0 仅诊断，末端 min_factor_score=40 空仓）──
         # 把前端已拉到的 fcf_yield 打包成 meta_data 传给后端，否则后端 F2 得分恒为 0（蓝色条缺失）
         import json as _json
         _meta_for_a = {
