@@ -748,6 +748,11 @@ def fetch_l2_l3_detail(days=7):
     return _narrative_get("/api/v1/narrative/l2_l3_detail", params={"days": days})
 
 
+@st.cache_data(ttl=60)
+def fetch_l2_radar_snapshot(snapshot_date: str):
+    return _narrative_get("/api/v1/narrative/l2_radar_snapshot", params={"snapshot_date": snapshot_date})
+
+
 def fetch_quadrant_history(days=30):
     return _narrative_get("/api/v1/narrative/quadrant_history", params={"days": days})
 
