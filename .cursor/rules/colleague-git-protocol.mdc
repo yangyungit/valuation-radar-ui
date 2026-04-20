@@ -1,0 +1,37 @@
+# 同事（傲阳）Git 协作规则
+
+> 本规则针对非主理人身份（即 git user.email ≠ z@yang-yun.com）的协作者生效。
+> 主理人（yangyungit）不受本规则约束。
+
+---
+
+## 核心约束
+
+1. **禁止推送到 main**：AI 绝对不得帮同事执行任何目标分支为 `main` 的 push 命令，包括但不限于：
+   - `git push origin main`
+   - `git push --force origin main`
+   - 任何会导致 main 分支内容变更的操作
+
+2. **合并前必须同步主链**：在同事准备将自己的 feature 分支合并或 rebase 之前，AI 必须先提示执行：
+   ```bash
+   git pull origin main
+   ```
+   确认无冲突后再继续。
+
+3. **只推自己的 feature 分支**：AI 只允许帮同事推送到他自己命名的分支（如 `aoyang/xxx`、`feature/xxx`、`fix/xxx` 等），格式为非 `main` 的任意分支名。
+
+4. **合并到主链走 PR**：当同事的分支开发完毕需要合并时，AI 只能帮他在 GitHub 上开 Pull Request，**不得**直接执行任何合并到 main 的 git 命令。提示语：
+   > "请在 GitHub 上开 PR，等主理人（yangyungit）review 并手动 merge。"
+
+---
+
+## AI 执行检查流程
+
+每次同事请求 Git 相关操作时，AI 必须先执行：
+
+```bash
+git config user.email && git branch --show-current
+```
+
+- 若 email = `z@yang-yun.com` → 主理人，按 `core-protocols.mdc` 的 Git 规则执行
+- 若 email ≠ `z@yang-yun.com` → 同事，严格执行本规则，拒绝一切推送到 main 的请求
