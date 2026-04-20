@@ -955,7 +955,7 @@ if _arena_data:
         neg_rets = wk_ret[wk_ret < 0]
         down_std = float(neg_rets.std()) * (52.0 ** 0.5) if len(neg_rets) > 1 else float("nan")
         sortino = cagr / down_std if (down_std and not math.isnan(down_std) and down_std > 1e-9) else float("nan")
-        return {"calmar": calmar, "r2": r2, "sortino": sortino}
+        return {"calmar": calmar, "r2": r2, "sortino": sortino, "cagr": cagr}
 
     def _fmt_kpi(v, fmt=".2f") -> str:
         import math
@@ -1074,24 +1074,30 @@ if _arena_data:
         )
 
         st.markdown("**🟨 A 级合成**")
-        _ac1, _ac2, _ac3, _ac4, _ac5 = st.columns(5)
+        _ac1, _ac2, _ac3, _ac4, _ac5, _ac6 = st.columns(6)
         _ac1.metric(
             "总收益（毛）", f"{_ret_combined:+.1f}%",
             delta=f"净 {_a_net_ret:+.1f}%", delta_color="off",
         )
         _ac2.metric("最大回撤", f"-{_dd_combined:.1f}%")
         if _a_adv:
-            _ac3.metric(
+            import math as _math
+            _a_cagr = _a_adv.get("cagr", float("nan"))
+            _a_cagr_str = f"{_a_cagr * 100:+.1f}%" if not _math.isnan(_a_cagr) else "—"
+            _spy_cagr = _spy_adv_a.get("cagr", float("nan")) if _spy_adv_a else float("nan")
+            _spy_cagr_str = (f"SPY {_spy_cagr * 100:+.1f}%" if not _math.isnan(_spy_cagr) else None) if _spy_adv_a else None
+            _ac3.metric("CAGR", _a_cagr_str, delta=_spy_cagr_str, delta_color="off")
+            _ac4.metric(
                 "Calmar", _fmt_kpi(_a_adv.get("calmar", float("nan"))),
                 delta=f"SPY {_fmt_kpi(_spy_adv_a.get('calmar', float('nan')))}" if _spy_adv_a else None,
                 delta_color="off",
             )
-            _ac4.metric(
+            _ac5.metric(
                 "logNAV R²", _fmt_kpi(_a_adv.get("r2", float("nan"))),
                 delta=f"SPY {_fmt_kpi(_spy_adv_a.get('r2', float('nan')))}" if _spy_adv_a else None,
                 delta_color="off",
             )
-            _ac5.metric(
+            _ac6.metric(
                 "Sortino", _fmt_kpi(_a_adv.get("sortino", float("nan"))),
                 delta=f"SPY {_fmt_kpi(_spy_adv_a.get('sortino', float('nan')))}" if _spy_adv_a else None,
                 delta_color="off",
