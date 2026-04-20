@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-04-20 晚 | Page 1 大盘趋势状态机背景染色 API 降级兜底
+
+**现象**：侧边栏出现「⚠️ 后端 regime API 不可用，已回退本地计算」时，Page 1「📊 大盘趋势状态机」SPY/QQQ 图的四色剧本背景带消失。
+
+**根因**：`_horsemen_daily_mtm`（L545）只从 `_regime_api["horsemen_daily_verdict"]` 取值，API 不可用时退化为空 Series，L599 `if not _horsemen_daily_mtm.empty` 直接跳过 shape 构建。下方月度表虽有本地 fallback（`_bh_fallback` in L1066），但它渲染顺序在 MTM tab 之后，闭包引用的 `_horsemen_daily_mtm` 仍是空的。
+
+**改动**：`pages/1_宏观定调.py` L545 新增三分支兜底 —— API 可用取 API；否则复用本页 L422 已算好的 `df_z_a`（市场前瞻星 g/i），用 `_get_quad(g, i)` 逐行生成日度剧本裁决；`df_z_a` 也空才退成空 Series。与 `_bh_fallback` 的 `_qh` 象限规则完全同构，语义一致。
+
+---
+
 ## 2026-04-20 | Page 5 Wave 1+2：修摩擦 bug + 空仓 4% 复利 + slider
 
 **Wave 1 — 摩擦系数修正**：`pages/5_个股择时.py` L183 `_p5_per_switch_friction` 系数 `4.0 → 2.0`。根因：原公式把每标的按全仓算，应为 50% 仓位×2标的×进出各一腿 = 2×(佣金+滑点)。预期显示摩擦从约 9.8% 降到约 4.9%。

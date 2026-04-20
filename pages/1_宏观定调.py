@@ -543,10 +543,18 @@ if not df.empty and len(df) > 750:
         "衰退":   "rgba(52,152,219,0.15)",
     }
     _dv_mtm = (_regime_api or {}).get("horsemen_daily_verdict", {})
-    _horsemen_daily_mtm = (
-        pd.Series(list(_dv_mtm.values()), index=pd.to_datetime(list(_dv_mtm.keys()))).sort_index()
-        if _dv_mtm else pd.Series(dtype=str)
-    )
+    if _dv_mtm:
+        _horsemen_daily_mtm = pd.Series(
+            list(_dv_mtm.values()),
+            index=pd.to_datetime(list(_dv_mtm.keys())),
+        ).sort_index()
+    elif not df_z_a.empty:
+        # 后端 API 不可用时兜底：复用市场前瞻星 g/i（与宏观时钟同源），按四象限规则生成日度剧本裁决
+        _horsemen_daily_mtm = df_z_a.apply(
+            lambda r: _get_quad(r['Growth'], r['Inflation']), axis=1
+        ).sort_index()
+    else:
+        _horsemen_daily_mtm = pd.Series(dtype=str)
 
     def _classify_mtm(row):
         c, m60, m200 = row['close'], row['ma60'], row['ma200']
