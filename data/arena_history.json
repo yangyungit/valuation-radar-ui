@@ -27,40 +27,57 @@
       {
         "ticker": "JNJ",
         "name": "强生",
-        "score": 61.4,
-        "conviction": 13.5,
+        "score": 62.4,
+        "conviction": 24.5,
         "status": "cold_start"
       },
       {
         "ticker": "DUK",
         "name": "杜克能源",
-        "score": 58.8,
-        "conviction": 12.9,
+        "score": 60.7,
+        "conviction": 23.7,
         "status": "cold_start"
       },
       {
         "ticker": "KO",
         "name": "可口可乐",
-        "score": 58.4,
-        "conviction": 12.8,
+        "score": 60.0,
+        "conviction": 23.4,
         "status": "cold_start"
       }
     ],
     "D": [
       {
-        "ticker": "OXY",
-        "name": "西方石油",
-        "score": 64.8
+        "ticker": "SPIR",
+        "name": "Spire Global",
+        "score": 57.0
+      },
+      {
+        "ticker": "AMD",
+        "name": "超威半导体",
+        "score": 56.6
+      },
+      {
+        "ticker": "FCX",
+        "name": "自由港铜金",
+        "score": 55.2
+      }
+    ],
+    "C": [
+      {
+        "ticker": "MU",
+        "name": "美光科技",
+        "score": 83.1
+      },
+      {
+        "ticker": "GOOGL",
+        "name": "谷歌",
+        "score": 83.0
       },
       {
         "ticker": "WDC",
         "name": "西部数据",
-        "score": 62.8
-      },
-      {
-        "ticker": "PBR",
-        "name": "巴西石油",
-        "score": 62.1
+        "score": 78.1
       }
     ]
   },
@@ -4653,30 +4670,46 @@
     "BTI"
   ],
   "_conviction_A": {
-    "BTI": 11.0,
-    "CVX": 12.1,
-    "PFE": 11.0,
-    "MCD": 12.1,
-    "TJX": 11.3,
-    "PWR": 10.0,
-    "HAL": 9.8,
-    "NOC": 10.8,
-    "XOM": 12.6,
-    "COP": 10.1,
-    "KO": 12.8,
-    "JNJ": 13.5,
-    "XLV": 10.6,
-    "DUK": 12.9,
-    "XLU": 11.6,
-    "CAT": 8.9,
-    "AAPL": 8.6,
-    "NEE": 11.5,
-    "XLP": 11.8,
-    "PEP": 11.5,
-    "SLB": 9.4,
-    "ADM": 11.0,
-    "PBR": 10.2,
-    "WMT": 11.3
+    "NEE": 21.1,
+    "NOC": 20.2,
+    "VNQ": 11.6,
+    "AGG": 14.5,
+    "XLV": 19.2,
+    "LQD": 13.7,
+    "COP": 19.2,
+    "BTI": 19.7,
+    "SHY": 15.3,
+    "WMT": 21.0,
+    "PBR": 19.1,
+    "SHV": 15.6,
+    "IEF": 14.9,
+    "KO": 23.4,
+    "PWR": 18.0,
+    "STAG": 11.6,
+    "XOM": 21.3,
+    "TLT": 13.6,
+    "DUK": 23.7,
+    "TJX": 20.5,
+    "GOVT": 15.1,
+    "PEP": 21.5,
+    "MCD": 21.7,
+    "PFF": 11.6,
+    "HAL": 18.8,
+    "SLB": 17.5,
+    "CVX": 21.3,
+    "CAT": 16.0,
+    "JNJ": 24.5,
+    "DVY": 11.6,
+    "XLU": 21.2,
+    "SGOV": 15.9,
+    "PFE": 19.8,
+    "EMB": 12.3,
+    "BIL": 15.7,
+    "XLP": 21.7,
+    "HDV": 13.4,
+    "ADM": 20.2,
+    "AAPL": 16.0,
+    "O": 12.3
   },
   "_holders_A": [
     "JNJ",

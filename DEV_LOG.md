@@ -1199,6 +1199,96 @@ Page 4（资产矩阵与雷达）的 `CLASS_META` 中完全缺失 Z 级（现金
 - DeFi 面板为实时请求（非缓存），网络超时时优雅降级为离线提示
 - SEC 监控仅追踪 6 个预设发行人，无法覆盖完全未知的新发行方（需定期手动补充 WATCHED_ISSUERS）
 
+## 2026-04-15 | 历史批量回填迁移至主线雷达子 Tab
+
+**背景**：历史批量回填功能原先位于全局侧边栏，与主线雷达的数据覆盖率展示割裂，用户需要在侧边栏操作后再切换到 Tab5 查看效果，体验不连贯。且侧边栏轮询（15s rerun）会在任何 Phase 下持续干扰整页刷新。
+
+**改动**：
+- 从侧边栏完整移除「历史批量回填」区块（L438-536 原位置）
+- 在 Phase 5 主线雷达子 Tab（v5_sub2）顶部重建三层统一面板：
+  1. **进度条层**：仅回填 running 时出现，15s 自动轮询，完成后清缓存重载；轮询现在只在用户主动进入主线雷达 tab 时触发，不再影响其他 Phase。
+  2. **主控件行**：左列观察窗口 select_slider + 右列详细数据覆盖率（ok天/空数据/未跑/最近缺口），复用侧边栏原有的详细格式，`fetch_data_coverage()` 只调用一次。
+  3. **回填操作 expander**：默认折叠，展开后内含回填天数滑块、"重跑 DATA_MISSING" checkbox、启动按钮，以及上次完成摘要。
+- 更新无数据时的引导文案（"请先在侧边栏" → "请展开上方历史回填面板"）
+
+**影响范围**：仅 `pages/2_舆情监控.py`，无 API 接口变更。
+
+---
+
+## 2026-04-15 | 修复 Tab5 幽灵板块问题（L2 象限全景图与词典不一致）
+
+**背景**：Tab5「主线雷达」的 L2 板块象限迁移全景图出现 30+ 个板块，但 Tab3 词典管理只有 22 个 L2 板块。原因是 `get_quadrant_history()` 直接从 `daily_cluster_stats` 历史表读取所有 L2，未对 `narrative_dictionary` 做白名单交叉过滤。已被删除/归档的动态板块（Gemini 提案产物、垃圾自动分类等）以及 `Uncategorized` 伪板块均作为幽灵条目出现在热力图中。
+
+**改动**：
+
+1. **后端 `valuation-radar/narrative_engine.py`**：
+   - `get_quadrant_history()` —— 新增 `narrative_dictionary` 活跃 L2 白名单查询，在 `by_date` 和 `mc_lookup` 构建时过滤掉不在白名单中的板块（含 `Uncategorized`），与 `get_l2_l3_detail()` 已有的防幽灵逻辑保持一致。
+   - `get_l2_daily_profile()` —— 跨板块归一化基线查询同样加入白名单过滤，防止幽灵板块的 mention_count 污染 composite_heat 归一化计算。
+
+2. **前端 `pages/2_舆情监控.py`**：
+   - 清理 `_L2_ZH` 字典中的 15 条幽灵板块翻译条目（Sector_Rotation、Geopolitics、Govt_Policy 等动态 Gemini 提案产物 + Uncategorized），仅保留 22 个种子词典板块的翻译。动态板块的中文名由后端 `l2_sector_zh` 字段 + `_l2_zh()` 三级 fallback 机制自动解决。
+
+**影响**：Tab5 全景图和下钻剖面图将严格只展示词典中当前活跃的 L2 板块，与 Tab3 词典管理完全一致。
+
+---
+
+## 2026-04-15 | L2 板块名称统一中文显示修复
+
+**背景**：舆情监控 Tab5 中，22 个种子板块以外的动态 L2 板块（如 `AI_Infrastructure`、`Sector_Rotation`、`Geopolitics` 等）因前端 `_L2_ZH` 字典不完整，且后端 API 从未将数据库中的 `l2_sector_zh` 字段返回给前端，导致板块名称中英混显。
+
+**变动**：
+
+1. **后端 `valuation-radar/narrative_engine.py`**：在 `get_l2_l3_detail()` 和 `get_quadrant_history()` 两个函数中，各增加一次从 `narrative_dictionary` 表查询 `l2_sector_zh` 的步骤，构建 `zh_map` 并将 `l2_sector_zh` 字段附加到每条返回记录中。
+
+2. **前端 `pages/2_舆情监控.py`**：
+   - 将 `_L2_ZH` 字典从 20 条扩充至 36 条，补入种子字典遗漏的 `AI_Infrastructure`、`AI_Monetization` 以及截图中可见的所有动态板块中文名。
+   - 新增 `_l2_zh(sec, record=None)` 翻译辅助函数，实现三级 fallback：① API 返回的 `l2_sector_zh`（数据库权威值）→ ② 本地 `_L2_ZH` 字典 → ③ 格式化英文名（下划线转空格）。
+   - 将全部 7 处 `_L2_ZH.get(...)` 调用统一替换为 `_l2_zh(...)` 调用。
+   - `_narr_rank_rows` 构建时补充透传 `l2_sector_zh` 字段。
+
+**影响范围**：纯展示层改动，不涉及任何业务计算逻辑。
+
+---
+
+## 2026-04-15 | Phase 5 新增「📡 主线雷达」子 Tab — L2 历史象限驾驶舱
+
+**背景**：侧边栏历史批量回填已积累 300 天舆情历史，但原有 Tab5「四象限雷达」是纯即时面板，历史数据利用率极低；无法判断一个 L2 板块是持续主线还是事件脉冲，缺乏周期性判断能力。
+
+**变动**：
+
+1. **后端 `valuation-radar/narrative_engine.py`**：新增 `get_l2_daily_profile(l2_sector, days)` 函数，从 `daily_cluster_stats` 表查询单个 L2 的逐日时序（`mention_count, attention_z_score, avg_sentiment`），并在前端一致的归一化逻辑下重新计算 `composite_heat / heat_momentum / quadrant`，保证与 `get_quadrant_history` 结果完全对齐。
+
+2. **后端 `valuation-radar/api_server.py`**：注册新端点 `GET /api/v1/narrative/l2_daily_profile?l2_sector=xxx&days=N`，供前端下钻剖面图调用。
+
+3. **前端 `api_client.py`**：新增 `fetch_l2_daily_profile(l2_sector, days)` 封装函数。
+
+4. **前端 `pages/2_舆情监控.py`**：
+   - 将 Phase 5 从单子 Tab 扩展为两个子 Tab：`🎯 四象限雷达`（原有，零改动）和 `📡 主线雷达`（新增）。
+   - 将 `_L2_ZH` 字典从 `v5_sub1` 内部提升到两个子 Tab 共享的外层作用域。
+   - 新增 `fetch_l2_daily_profile` import。
+   - 「主线雷达」三层架构：
+     - **第一层**：观察窗口滑动轴（30/60/90/120/180/270/365 天可选）+ 数据覆盖率联动指示；L2 象限迁移热力图（离散四色 Heatmap，按高热天数排序，纵行代表 L2、横轴为日期）。
+     - **第二层**：单 L2 三线叠加时序图（综合热力面积图 + 词频动量折线 + 注意力 Z 值虚线），背景叠加四象限色带，D组共振触发线 z=2.0 标注。
+     - **第三层**：结构性诊断卡（主线指数、当前象限状态、连续停留天数与历史对比、脉冲/趋势判定、二次启动力、Z极值、情绪趋势、今日实时广度质量/热度类型）。
+
+**设计原则**：
+- 「四象限雷达」定位即时性，「主线雷达」定位历史性，两个 Tab 定位正交、互不干扰。
+- 历史分析全部基于现有字段（`mention_count, z_score, sentiment, quadrant`），不伪装任何不存在的历史维度（广度/集中度历史序列标注"今日实时快照"）。
+- 诊断卡所有指标均有严格可计算定义，无主观标签。
+- 热力图使用离散四色（复用四象限配色），比连续色阶在 20×300 密度下可读性更高。
+
+---
+
+## 2026-04-15 | 回填数据白盒化：新增数据覆盖率 API 与侧边栏指示
+
+**背景**：历史批量回填是否有效写入 SQLite 无处查看，用户每次只能盲跑，浪费时间且无法判断缺口范围。
+
+**变动**：
+- `valuation-radar/api_server.py`：新增 `GET /api/v1/narrative/data_coverage?days=N` 端点，查询 `daily_cluster_stats` 表的 DISTINCT stat_date + data_status，纯内存 set 运算，返回 `total_workdays / ok_days / missing_days / absent_days / coverage_pct / earliest_ok / latest_ok / recent_gaps`。
+- `api_client.py`：新增 `fetch_data_coverage(days)` 封装函数。
+- `pages/2_舆情监控.py`：在回填天数 slider 正下方内联一块覆盖率摘要卡片，与 slider 联动；按覆盖率 >=90% / 50~89% / <50% 分别显示绿/橙/红文案，并列出最近 5 个缺口日期（MM-DD 格式）。
+
+**影响**：不新增任何新区块或 expander，完全内联在现有 slider 与启动按钮之间，侧边栏保持紧凑。
 ---
 
 ## 2026-04-10 | 支链开发对齐 Render 数据：RADAR_API_URL 环境变量

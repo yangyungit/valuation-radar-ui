@@ -1151,6 +1151,11 @@ def fetch_batch_backfill_status():
     return _narrative_get("/api/v1/narrative/batch_backfill_status")
 
 
+def fetch_data_coverage(days: int = 180) -> dict:
+    """查询指定天数内数据覆盖率（工作日维度）。"""
+    return _narrative_get("/api/v1/narrative/data_coverage", params={"days": days})
+
+
 def fetch_crawler_status():
     return _narrative_get("/api/v1/narrative/crawler_status")
 
@@ -1283,6 +1288,11 @@ def post_dictionary_batch_mark_noise(items):
     return _narrative_post("/api/v1/narrative/dictionary/batch_mark_noise", json={"items": items})
 
 
+def post_dictionary_batch_update_tier(items):
+    """items: list of {"l2_sector": str, "l3_keyword": str, "signal_tier": str}"""
+    return _narrative_post("/api/v1/narrative/dictionary/batch_update_tier", json={"items": items})
+
+
 def post_dictionary_rename_l2(old_name, new_name):
     return _narrative_post("/api/v1/narrative/dictionary/rename_l2",
                            json={"old_name": old_name, "new_name": new_name})
@@ -1291,6 +1301,11 @@ def post_dictionary_rename_l2(old_name, new_name):
 def post_dictionary_delete_l2(l2_sector, mode="archive"):
     return _narrative_post("/api/v1/narrative/dictionary/delete_l2",
                            json={"l2_sector": l2_sector, "mode": mode})
+
+
+def post_dictionary_export_to_json():
+    """Snapshot current active dictionary (seed+approved) back to seed_taxonomy.json."""
+    return _narrative_post("/api/v1/narrative/dictionary/export_to_json", json={})
 
 
 def fetch_uncategorized():
@@ -1336,8 +1351,18 @@ def fetch_l2_l3_detail(days=7):
     return _narrative_get("/api/v1/narrative/l2_l3_detail", params={"days": days})
 
 
+@st.cache_data(ttl=60)
+def fetch_l2_radar_snapshot(snapshot_date: str):
+    return _narrative_get("/api/v1/narrative/l2_radar_snapshot", params={"snapshot_date": snapshot_date})
+
+
 def fetch_quadrant_history(days=30):
     return _narrative_get("/api/v1/narrative/quadrant_history", params={"days": days})
+
+
+def fetch_l2_daily_profile(l2_sector: str, days: int = 180):
+    return _narrative_get("/api/v1/narrative/l2_daily_profile",
+                          params={"l2_sector": l2_sector, "days": days})
 
 
 @st.cache_data(ttl=60)
@@ -1472,3 +1497,59 @@ def get_etf_rs20d(tickers: tuple) -> dict:
         except Exception:
             result[t] = 0.0
     return result
+
+
+# ---------------------------------------------------------------------------
+# Ticker Keyword Affinity (TKA) wrappers
+# ---------------------------------------------------------------------------
+
+def get_ticker_affinity_list(ticker="", l2_sector="", status="active"):
+    params = {}
+    if ticker:
+        params["ticker"] = ticker
+    if l2_sector:
+        params["l2_sector"] = l2_sector
+    if status:
+        params["status"] = status
+    return _narrative_get("/api/v1/narrative/ticker_affinity/list", params=params)
+
+
+def get_ticker_affinity_stats():
+    return _narrative_get("/api/v1/narrative/ticker_affinity/stats")
+
+
+def post_ticker_affinity_add(ticker, l2_sector, l3_keyword, affinity_weight=1.0):
+    return _narrative_post("/api/v1/narrative/ticker_affinity/add", json={
+        "ticker": ticker, "l2_sector": l2_sector,
+        "l3_keyword": l3_keyword, "affinity_weight": affinity_weight,
+    })
+
+
+def post_ticker_affinity_batch_add(items):
+    """items: list of {"ticker", "l2_sector", "l3_keyword", "affinity_weight"?}"""
+    return _narrative_post("/api/v1/narrative/ticker_affinity/batch_add", json={"items": items})
+
+
+def post_ticker_affinity_update_weight(ticker, l3_keyword, affinity_weight):
+    return _narrative_post("/api/v1/narrative/ticker_affinity/update_weight", json={
+        "ticker": ticker, "l3_keyword": l3_keyword, "affinity_weight": affinity_weight,
+    })
+
+
+def post_ticker_affinity_batch_archive(items):
+    """items: list of {"ticker", "l3_keyword"}"""
+    return _narrative_post("/api/v1/narrative/ticker_affinity/batch_archive", json={"items": items})
+
+
+def post_ticker_affinity_batch_restore(items):
+    """items: list of {"ticker", "l3_keyword"}"""
+    return _narrative_post("/api/v1/narrative/ticker_affinity/batch_restore", json={"items": items})
+
+
+def get_ticker_affinity_suggestions(ticker):
+    return _narrative_get("/api/v1/narrative/ticker_affinity/suggestions", params={"ticker": ticker})
+
+
+def post_ticker_affinity_batch_approve(items):
+    """items: list of {"ticker", "l2_sector", "l3_keyword", "affinity_weight"?}"""
+    return _narrative_post("/api/v1/narrative/ticker_affinity/batch_approve", json={"items": items})
