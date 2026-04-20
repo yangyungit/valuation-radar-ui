@@ -179,8 +179,8 @@ with st.sidebar:
         key="p5_slippage_rate",
         help="单边滑点率（A 级流动性 ETF/蓝筹约 0.10%）",
     )
-    # 摩擦成本公式：换仓次数 × 2(标的) × 2(进出) × (佣金+滑点) / 100
-    _p5_per_switch_friction = 4.0 * (_p5_commission_pct + _p5_slippage_pct) / 100.0
+    # 摩擦成本公式：2(标的) × (买+卖) × 50%仓位 = 2×(佣金+滑点) / 100
+    _p5_per_switch_friction = 2.0 * (_p5_commission_pct + _p5_slippage_pct) / 100.0
 
 
 # ── 择时策略接口标准 ──────────────────────────────────────────────────
