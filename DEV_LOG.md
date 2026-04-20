@@ -2,6 +2,14 @@
 
 ---
 
+## 2026-04-20 | Page 5 Wave 1+2：修摩擦 bug + 空仓 4% 复利 + slider
+
+**Wave 1 — 摩擦系数修正**：`pages/5_个股择时.py` L183 `_p5_per_switch_friction` 系数 `4.0 → 2.0`。根因：原公式把每标的按全仓算，应为 50% 仓位×2标的×进出各一腿 = 2×(佣金+滑点)。预期显示摩擦从约 9.8% 降到约 4.9%。
+
+**Wave 2 — 空仓计息**：`_calc_slot_stats` 新增 `cash_rate: float = 0.04` 参数，CASH 段从原地踏步改为按 `(1+cash_rate)^(days/365)` 复利累积，`running_nav` 在 CASH 段结束后更新。侧边栏新增滑块「空仓年化收益率 (%)」（key=`p5_cash_annual_return`，默认 4%，范围 0~6%），4 个调用处统一从 `session_state` 读入。
+
+---
+
 ## 2026-04-19 夜 | Page 4 换仓归因 expander 合并进历史月度 Top-2 主表，顺手修 TypeError
 
 **动因**：Page 4「🔍 换仓归因 — 逐月上位/下位原因」expander 崩溃 —— 报错 `TypeError: string indices must be integers, not 'str'` 在 `_mo_recs = {r["ticker"]: r for r in _arena_hist.get(_dmo, {}).get(_dcls, [])}`。根因：`_arena_hist[mo][cls]` 实际是 dict（含 `tickers` 键），不是 list；迭代 dict 得到的是 key 字符串，`r["ticker"]` 当然崩。主理人同时反馈该 expander 占页面，希望把"替换原因"内联到上方「历史月度 Top-2 胜出者」主表。

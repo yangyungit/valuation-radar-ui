@@ -181,6 +181,12 @@ with st.sidebar:
     )
     # 摩擦成本公式：2(标的) × (买+卖) × 50%仓位 = 2×(佣金+滑点) / 100
     _p5_per_switch_friction = 2.0 * (_p5_commission_pct + _p5_slippage_pct) / 100.0
+    st.slider(
+        "空仓年化收益率 (%)", min_value=0.00, max_value=6.00,
+        value=4.00, step=0.25, format="%.2f",
+        key="p5_cash_annual_return",
+        help="闸门关期间现金仓按此利率复利计息（对应 SGOV/BIL 约 4~5%）",
+    )
 
 
 # ── 择时策略接口标准 ──────────────────────────────────────────────────
@@ -881,20 +887,25 @@ if _arena_data:
 
     # ── 计算每列总收益与最大回撤 ──────────────────────────────────────
     def _calc_slot_stats(
-        segs: list, price_cache: dict = None, spy_wk: pd.DataFrame = None
+        segs: list, price_cache: dict = None, spy_wk: pd.DataFrame = None,
+        cash_rate: float = 0.04,
     ) -> tuple:
         _pc2 = price_cache if price_cache is not None else {}
         nav_all: list = []
         running_nav = 1.0
         for _tk, _s_m, _e_m in segs:
             if _tk == "CASH":
-                # 闸门关月份：NAV 保持不动（零收益），用 SPY 时间轴补日期
+                # 闸门关月份：按 cash_rate 年化复利累积，用 SPY 时间轴补日期
                 if spy_wk is not None and not spy_wk.empty:
                     _sd = pd.Timestamp(f"{_s_m}-01")
                     _ed = pd.Timestamp(f"{_e_m}-01") + pd.offsets.MonthEnd(1)
                     _cash_idx = spy_wk.index[(spy_wk.index >= _sd) & (spy_wk.index <= _ed)]
                     if len(_cash_idx) >= 1:
-                        nav_all.append(pd.Series(running_nav, index=_cash_idx, dtype=float))
+                        _days = (_cash_idx - _cash_idx[0]).days.to_numpy()
+                        _cash_nav = running_nav * (1.0 + cash_rate) ** (_days / 365.0)
+                        _cash_series = pd.Series(_cash_nav, index=_cash_idx, dtype=float)
+                        nav_all.append(_cash_series)
+                        running_nav = float(_cash_series.iloc[-1])
                 continue
             _wkd = _pc2.get(_tk)
             if _wkd is None or _wkd.empty:
@@ -979,8 +990,9 @@ if _arena_data:
         if _a_section_error:
             st.error(_a_section_error)
 
-        _ret_left, _dd_left, _nav_left = _calc_slot_stats(_seg_left, _a_price_cache, _spy_wk_a)
-        _ret_right, _dd_right, _nav_right = _calc_slot_stats(_seg_right, _a_price_cache, _spy_wk_a)
+        _p5_cash_rate = st.session_state.get("p5_cash_annual_return", 0.04)
+        _ret_left, _dd_left, _nav_left = _calc_slot_stats(_seg_left, _a_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
+        _ret_right, _dd_right, _nav_right = _calc_slot_stats(_seg_right, _a_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
 
         # ── 合成 A 级整体（等权或信念倾斜）────────────────────────────────
         _ret_combined, _dd_combined = 0.0, 0.0
@@ -1167,8 +1179,8 @@ if _arena_data:
         if _b_section_error:
             st.error(_b_section_error)
 
-        _b_ret_left, _b_dd_left, _b_nav_left = _calc_slot_stats(_b_seg_left, _b_price_cache, _spy_wk_a)
-        _b_ret_right, _b_dd_right, _b_nav_right = _calc_slot_stats(_b_seg_right, _b_price_cache, _spy_wk_a)
+        _b_ret_left, _b_dd_left, _b_nav_left = _calc_slot_stats(_b_seg_left, _b_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
+        _b_ret_right, _b_dd_right, _b_nav_right = _calc_slot_stats(_b_seg_right, _b_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
 
         # ── 合成 B 级整体（等权或信念倾斜）────────────────────────────────
         _b_ret_combined, _b_dd_combined = 0.0, 0.0
