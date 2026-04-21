@@ -1067,9 +1067,9 @@ if not df.empty and len(df) > 750:
         df_traj_3y = get_z_a_trajectory(df, df_fred_clock, 750)
 
     # ── 📈 宏观时钟验证图 · 相对强弱宏观剧本染色图 ──────────────────────────────────────────
-    _REGIME_LINE_C = {"软着陆": "#2ECC71", "再通胀": "#E74C3C", "滞胀": "#F1C40F", "衰退": "#3498DB"}
-    _REGIME_BG_C   = {"软着陆": "rgba(46,204,113,0.15)", "再通胀": "rgba(231,76,60,0.15)", "滞胀": "rgba(241,196,15,0.15)", "衰退": "rgba(52,152,219,0.15)"}
-    _REGIME_EMO    = {"软着陆": "🚗", "再通胀": "🔥", "滞胀": "🚨", "衰退": "❄️"}
+    _REGIME_LINE_C = {"软着陆": "#2ECC71", "再通胀": "#E74C3C", "滞胀": "#F1C40F", "衰退": "#3498DB", "混沌期": "#888888"}
+    _REGIME_BG_C   = {"软着陆": "rgba(46,204,113,0.15)", "再通胀": "rgba(231,76,60,0.15)", "滞胀": "rgba(241,196,15,0.15)", "衰退": "rgba(52,152,219,0.15)", "混沌期": "rgba(128,128,128,0.15)"}
+    _REGIME_EMO    = {"软着陆": "🚗", "再通胀": "🔥", "滞胀": "🚨", "衰退": "❄️", "混沌期": "🌫️"}
 
     # 四大剧本历史裁决：优先从后端 API 获取（后端已自拉 yfinance + FRED，本页无需重算）
     _horsemen_conf_latest = "medium"   # 默认置信度，API 有数据时覆盖
@@ -1162,6 +1162,21 @@ if not df.empty and len(df) > 750:
             return out, _ds['剧本裁决']
         df_hist_horsemen, _horsemen_daily = _bh_fallback(df, df_fred_clock, window=z_window)
 
+    # 用 confidence 覆盖 chaos 日期 → 主图与验证图背景显示灰色混沌期段
+    _dc_for_disp = (_regime_api or {}).get("horsemen_daily_confidence", {})
+    if _dc_for_disp and not _horsemen_daily.empty:
+        _conf_disp = pd.Series(
+            list(_dc_for_disp.values()),
+            index=pd.to_datetime(list(_dc_for_disp.keys())),
+        ).sort_index()
+        _horsemen_daily_display = _horsemen_daily.copy()
+        _chaos_idx_disp = _conf_disp[_conf_disp == "chaos"].index
+        _shared_disp = _horsemen_daily_display.index.intersection(_chaos_idx_disp)
+        if len(_shared_disp) > 0:
+            _horsemen_daily_display.loc[_shared_disp] = "混沌期"
+    else:
+        _horsemen_daily_display = _horsemen_daily
+
     def _style_horsemen_df(styler):
         def _color(val):
             cmap = {'软着陆': '#2ECC71', '再通胀': '#E74C3C', '滞胀': '#F1C40F', '衰退': '#3498DB'}
@@ -1216,8 +1231,8 @@ if not df.empty and len(df) > 750:
         st.warning(f"⚠️ 所选指标 {_tick_a}/{_tick_b} 数据不足，无法渲染比值图")
         st.stop()
 
-    _reg_aligned_r = _horsemen_daily.reindex(_ratio_series.index).ffill().dropna()
-    _traj_start_r = _horsemen_daily.index[0] if not _horsemen_daily.empty else _ratio_series.index[0]
+    _reg_aligned_r = _horsemen_daily_display.reindex(_ratio_series.index).ffill().dropna()
+    _traj_start_r = _horsemen_daily_display.index[0] if not _horsemen_daily_display.empty else _ratio_series.index[0]
     _ratio_3y = _ratio_series[_ratio_series.index >= _traj_start_r]
     _reg_3y_r  = _reg_aligned_r[_reg_aligned_r.index >= _traj_start_r]
 

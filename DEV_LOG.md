@@ -2,6 +2,19 @@
 
 ---
 
+## 2026-04-21 晚 | 宏观走廊主图补混沌期灰色染色
+
+**动因**：2026-04-21 Phase 2 只给下方 MTM 图（SPY/QQQ）接了混沌期灰色，上方「🔬 宏观时钟验证图」（XLK/XLE 等比值图）还在用旧 `_REGIME_BG_C`（4 色）+ `_horsemen_daily`（未覆盖 chaos），视觉上完全看不出任何变化。
+
+**改动**：`pages/1_宏观定调.py`
+1. L1070-1072 三个配色 dict 同步补 `"混沌期"`：`_REGIME_LINE_C` 加 `#888888`、`_REGIME_BG_C` 加 `rgba(128,128,128,0.15)`、`_REGIME_EMO` 加 `🌫️`
+2. L1163 后新增 `_horsemen_daily_display` 构建块：从 `horsemen_daily_confidence` 取 chaos 日期，在 `_horsemen_daily` 副本上覆盖为 `"混沌期"`（API 空或 daily 空时回退到原序列）
+3. L1219-1220 验证图数据源从 `_horsemen_daily` 改为 `_horsemen_daily_display`
+
+**效果**：后端返回 368 天 chaos 日（占 13%），最近一段 2026-03-05~2026-03-11，宏观走廊主图这些段应显示灰色背景。
+
+---
+
 ## 2026-04-21 | Phase 2：宏观剧本裁决精修前端同步
 
 **范围**：配合后端 `horsemen_daily_confidence` 新字段，前端同步渲染置信度信息。
