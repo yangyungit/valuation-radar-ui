@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-04-21 | Phase 2：宏观剧本裁决精修前端同步
+
+**范围**：配合后端 `horsemen_daily_confidence` 新字段，前端同步渲染置信度信息。
+
+**改动点**：
+1. `api_client.py`：`compute_macro_regime_api` 文档注释补 `horsemen_daily_confidence` 字段说明。
+2. `pages/1_宏观定调.py`：
+   - `_REGIME_BG_C_MTM` 新增 `"混沌期": "rgba(128,128,128,0.15)"` 灰色背景。
+   - 新增 `_horsemen_daily_mtm_display`：从 `horsemen_daily_confidence` 读 chaos 日期，对应位置覆盖为 `"混沌期"`，MTM 图背景色带因此显示灰色段。
+   - `_render_mtm_tab` 改用 `_horsemen_daily_mtm_display` 构建背景 shapes。
+   - API 返回后读取 `horsemen_daily_confidence`，提取最新置信度 `_horsemen_conf_latest`，并将 daily 序列按月 resample 后追加为 `df_hist_horsemen["置信度"]` 列。
+   - "3️⃣ 四大剧本推演" header 下方新增当前裁决 + 置信度徽章（高置信绿/中置信黄/混沌期灰，13px）。
+   - `_style_horsemen_df` 新增 `置信度` 列着色（high→绿，medium→黄，chaos→灰）。
+
+---
+
 ## 2026-04-20 晚 | Page 1 大盘趋势状态机背景染色 API 降级兜底
 
 **现象**：侧边栏出现「⚠️ 后端 regime API 不可用，已回退本地计算」时，Page 1「📊 大盘趋势状态机」SPY/QQQ 图的四色剧本背景带消失。

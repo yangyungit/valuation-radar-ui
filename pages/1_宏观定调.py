@@ -541,6 +541,7 @@ if not df.empty and len(df) > 750:
         "再通胀": "rgba(231,76,60,0.15)",
         "滞胀":   "rgba(241,196,15,0.15)",
         "衰退":   "rgba(52,152,219,0.15)",
+        "混沌期": "rgba(128,128,128,0.15)",
     }
     _dv_mtm = (_regime_api or {}).get("horsemen_daily_verdict", {})
     if _dv_mtm:
@@ -555,6 +556,21 @@ if not df.empty and len(df) > 750:
         ).sort_index()
     else:
         _horsemen_daily_mtm = pd.Series(dtype=str)
+
+    # 用 confidence 覆盖 chaos 日期 → 显示灰色混沌期背景
+    _dc_mtm = (_regime_api or {}).get("horsemen_daily_confidence", {})
+    if _dc_mtm and not _horsemen_daily_mtm.empty:
+        _conf_mtm = pd.Series(
+            list(_dc_mtm.values()),
+            index=pd.to_datetime(list(_dc_mtm.keys())),
+        ).sort_index()
+        _horsemen_daily_mtm_display = _horsemen_daily_mtm.copy()
+        _chaos_idx = _conf_mtm[_conf_mtm == "chaos"].index
+        _shared = _horsemen_daily_mtm_display.index.intersection(_chaos_idx)
+        if len(_shared) > 0:
+            _horsemen_daily_mtm_display.loc[_shared] = "混沌期"
+    else:
+        _horsemen_daily_mtm_display = _horsemen_daily_mtm
 
     def _classify_mtm(row):
         c, m60, m200 = row['close'], row['ma60'], row['ma200']
@@ -602,10 +618,10 @@ if not df.empty and len(df) > 750:
             </div>
             """, unsafe_allow_html=True)
 
-            # ── 剧本背景色带：将 _horsemen_daily_mtm 对齐到当前 ticker 时间轴 ──
+            # ── 剧本背景色带：将 _horsemen_daily_mtm_display 对齐到当前 ticker 时间轴（chaos 段已覆盖为灰色）──
             _bg_shapes = []
-            if not _horsemen_daily_mtm.empty:
-                _regime_aligned = _horsemen_daily_mtm.reindex(_df.index).ffill().dropna()
+            if not _horsemen_daily_mtm_display.empty:
+                _regime_aligned = _horsemen_daily_mtm_display.reindex(_df.index).ffill().dropna()
                 _prev_regime = None
                 _seg_start   = None
                 for _dt, _reg in _regime_aligned.items():
@@ -1056,6 +1072,7 @@ if not df.empty and len(df) > 750:
     _REGIME_EMO    = {"软着陆": "🚗", "再通胀": "🔥", "滞胀": "🚨", "衰退": "❄️"}
 
     # 四大剧本历史裁决：优先从后端 API 获取（后端已自拉 yfinance + FRED，本页无需重算）
+    _horsemen_conf_latest = "medium"   # 默认置信度，API 有数据时覆盖
     if _regime_api and _regime_api.get("horsemen_monthly_table"):
         _ht = _regime_api["horsemen_monthly_table"]
         df_hist_horsemen = pd.DataFrame(_ht)
@@ -1070,6 +1087,28 @@ if not df.empty and len(df) > 750:
             ).sort_index()
         else:
             _horsemen_daily = pd.Series(dtype=str)
+
+        # 提取 daily confidence → 最新置信度 + 月度列
+        _dc_raw = _regime_api.get("horsemen_daily_confidence", {})
+        if _dc_raw:
+            _conf_s = pd.Series(
+                list(_dc_raw.values()),
+                index=pd.to_datetime(list(_dc_raw.keys())),
+            ).sort_index()
+            if not _conf_s.empty:
+                _horsemen_conf_latest = str(_conf_s.iloc[-1])
+            # 月度表置信度列：若后端月度表已含 confidence 字段则直接用，否则从 daily 推导
+            if not df_hist_horsemen.empty and "置信度" not in df_hist_horsemen.columns:
+                try:
+                    _conf_m = _conf_s.resample("ME").last()
+                except Exception:
+                    _conf_m = _conf_s.resample("M").last()
+                _conf_m.index = _conf_m.index.strftime("%Y-%m")
+                df_hist_horsemen["置信度"] = [
+                    _conf_m.get(m, "") for m in df_hist_horsemen.index
+                ]
+        elif "置信度" in df_hist_horsemen.columns and not df_hist_horsemen.empty:
+            _horsemen_conf_latest = str(df_hist_horsemen["置信度"].iloc[0])
     else:
         # 降级：API 不可用时本地计算
         st.sidebar.warning("⚠️ 后端 regime API 不可用，已回退本地计算", icon="⚠️")
@@ -1127,7 +1166,13 @@ if not df.empty and len(df) > 750:
         def _color(val):
             cmap = {'软着陆': '#2ECC71', '再通胀': '#E74C3C', '滞胀': '#F1C40F', '衰退': '#3498DB'}
             return f'color: {cmap.get(val, "#888")}; font-weight: bold;' if val in cmap else ''
-        return styler.map(_color, subset=['剧本裁决'])
+        def _conf_color(val):
+            cmap = {'high': '#2ECC71', 'medium': '#F1C40F', 'chaos': '#888888'}
+            return f'color: {cmap.get(val, "#aaa")}; font-weight: bold;' if val in cmap else ''
+        styler = styler.map(_color, subset=['剧本裁决'])
+        if '置信度' in styler.data.columns:
+            styler = styler.map(_conf_color, subset=['置信度'])
+        return styler
 
     _RATIO_OPTIONS = {
         "🔬 科技/能源比 (XLK/XLE)": ("XLK", "XLE", "XLK / XLE 比值"),
@@ -1433,6 +1478,27 @@ if not df.empty and len(df) > 750:
     st.markdown("---")
 
     st.header("3️⃣ 四大剧本推演 (The Four Horsemen)")
+
+    # 当前裁决 + 置信度徽章
+    _curr_verdict_cn = df_hist_horsemen['剧本裁决'].iloc[0] if not df_hist_horsemen.empty else ""
+    if _curr_verdict_cn:
+        _cv_color = _REGIME_LINE_C.get(_curr_verdict_cn, "#888")
+        _conf_badge_map = {
+            "high":   ("<span style='background:#1a4a1a; color:#2ECC71; border:1px solid #2ECC71; "
+                       "border-radius:4px; padding:2px 8px; font-size:13px; font-weight:bold;'>● 高置信</span>"),
+            "medium": ("<span style='background:#3a3000; color:#F1C40F; border:1px solid #F1C40F; "
+                       "border-radius:4px; padding:2px 8px; font-size:13px; font-weight:bold;'>● 中置信</span>"),
+            "chaos":  ("<span style='background:#2a2a2a; color:#888; border:1px solid #666; "
+                       "border-radius:4px; padding:2px 8px; font-size:13px; font-weight:bold;'>● 混沌期</span>"),
+        }
+        _conf_badge_html = _conf_badge_map.get(_horsemen_conf_latest, "")
+        st.markdown(
+            f"<div style='margin-bottom:12px; display:flex; align-items:center; gap:12px;'>"
+            f"<span style='font-size:16px; font-weight:bold; color:{_cv_color};'>"
+            f"{_REGIME_EMO.get(_curr_verdict_cn, '')} 当前裁决：{_curr_verdict_cn}"
+            f"</span>{_conf_badge_html}</div>",
+            unsafe_allow_html=True,
+        )
 
     def check(condition, desc_pass, desc_fail):
         if condition: return f"<div class='ev-item'><span class='ev-pass'>✅</span> <span>{desc_pass}</span></div>"

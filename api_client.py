@@ -752,7 +752,8 @@ def compute_macro_regime_api(z_window: int = 750) -> dict:
         "success": True,
         "data": { regime_dict },
         "horsemen_monthly_table": [ records ],
-        "horsemen_daily_verdict": { date_str: verdict_cn }
+        "horsemen_daily_verdict": { date_str: verdict_cn },
+        "horsemen_daily_confidence": { date_str: "high"|"medium"|"chaos" }
     }
     失败时返回 {}（前端将回退本地计算）。
     Render 免费套餐冷启动约需 15-30s，502/504 时自动重试一次。
