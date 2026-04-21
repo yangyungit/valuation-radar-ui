@@ -47,6 +47,56 @@ alwaysApply: true
 - **报错处理**：遇错不要无限循环自调试，告知主理人由人决策下一步
 - **Git**：push 到 main 已授权自动执行，严禁 `--force` / `amend` / `rebase` / `git add -A` / 改 config（详见 `core-protocols.mdc` Git 章节）
 
+## Opus / Sonnet 分工协作（默认模式）
+
+**主理人默认偏好**：大型复杂任务优先走 **Opus 出 plan → 主理人新开会话 → Sonnet 按 plan 执行** 两段式，充分利用两者强项降本增效。Opus 贵但判断力强，Sonnet 便宜且执行确定性任务快。
+
+### 触发条件（满足任一即走两段式）
+
+- 单次任务预估改动 > 200 行代码
+- 跨 > 3 个文件 或 跨仓库（`valuation-radar` 与 `valuation-radar-ui` 同时改）
+- 含架构设计、算法选型、权重/常量敲定、回测判读等需要人工 judgement 的环节
+
+不满足上述条件（如单文件小改、纯 bug 修复、文案调整），Opus 自己一次做完，不切 Sonnet。
+
+### Opus 职责（Phase 1）
+
+- 架构/算法设计与重构（含 score 结构、阈值、投票机制等核心逻辑）
+- 模糊判断（回测结果 lift 判读、并列时 tie-break 规则、边界 case 处理）
+- 跨仓改动的优先级排序（按 `core-protocols.mdc` Git 红线第 7 条，先后端再前端）
+- 所有算法常量/权重的敲定（`_HORSEMEN_WEIGHTS` 这类必须 Opus 定值）
+- 后端自身的 commit + push（后端不等前端）
+
+### Sonnet 职责（Phase 2）
+
+- 算法和常量确定后的机械填充（UI 渲染同步、字段解析、session_state 消费）
+- DEV_LOG 补条目（按 Opus 在 plan 里指定的格式）
+- 跨仓同步的前端 commit + push（在后端已推送到 main 之后）
+- 预先列明的改动点里"机械的"那部分（如"在 pages/X.py 第 Y 行加一个 for 循环渲染"）
+
+### 衔接协议（Opus 出 plan 的强制项）
+
+Opus 的 plan 必须包含以下四项，缺一不可：
+
+1. **算法/常量全部确定值**：所有阈值、权重、窗口大小、tie-break 规则 Opus 必须已敲定，Sonnet 只能按定值填充，不得改
+2. **每个文件的具体改点 + 示例 snippet**：用 `[path](path)` 格式标明文件路径 + 行号 + 5-10 行 diff 示例
+3. **Phase 2 可独立执行**：Sonnet 看到 plan 不需要再问主理人任何问题就能动手
+4. **验收标准**：Opus 回到会话后怎么检查 Phase 2 改对了没（lint 通过 / 截图对比 / 具体行为）
+
+### 主理人操作流程
+
+1. Opus 出 plan（通过 `CreatePlan` 工具，plan 文件存在 `~/.cursor/plans/`）
+2. 主理人看完 plan 同意后，让 Opus 执行 Phase 1 并推完后端
+3. 主理人**新开一个聊天窗口**，粘贴 plan 文件路径（如 `@~/.cursor/plans/xxx.plan.md`），附一句"按 Phase 2 执行"
+4. Sonnet 按 plan 清单机械填充 + 推前端
+5. 主理人回到 Opus 窗口告知完成，Opus 按验收标准检查
+
+### 禁止行为
+
+- **Sonnet 不得修改**：Phase 1 已敲定的算法常量、score 结构、阈值。发现 plan 未覆盖的 case 必须停下问主理人，禁止自行决策
+- **Opus 不得越权**：已指定 Sonnet 的机械部分 Opus 不要代劳，浪费 token
+- **不并行推送**：Phase 1 未 push 完前，Sonnet 不得开工（前端会引用后端还没部署的契约字段）
+
 ## 本地自动化
 - **crontab（本地 Mac mini）**：每周日 03:00 自动运行 `z_scanner.py`，日志在 `valuation-radar/z_scanner.log`
 
