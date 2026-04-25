@@ -993,9 +993,9 @@ def arena_backfill_score(
         后端响应 dict，成功时包含 arena_records / conv_state_a / conv_holders_a 等字段。
         失败时 {"success": False, "error": ...}。
     """
-    # 切片策略：每批 6 个月（从 12 降到 6，给 Render Starter 512 MB 内存留缓冲）
+    # 切片策略：每批 12 个月（Render 已升 Standard 2 GB，从 6 放回 12，回填 72 月由 12 批降到 6 批）
     # 每批成功即落盘 → 中途失败前面成功的月份不作废，下次点回填只需补剩余月份
-    _CHUNK = 6
+    _CHUNK = 12
     specs = month_specs or []
 
     try:
