@@ -52,7 +52,7 @@ git config user.email && git branch --show-current
   2. **其次**：问主理人前端页面上看到的内容、成功/失败 toast 的原话
   3. **最后**：才去翻本地 `universe.db` 的 mtime、本地进程 `ps aux | grep`、本地 JSON 兜底文件
 - **禁止的错误推理链**：不要用本地 `universe.db` 的 mtime 反推"主理人今天有没有操作过系统"——他大概率在 Render 上操作，本地文件**永远是旧的**，这个时间戳对线上行为毫无证据价值。
-- **本地进程离线 ≠ 系统没跑**：`lsof -iTCP:8000` 没监听、`ps | grep api_server` 无进程，只说明主理人没启动本地副本，**不能推出"Render 后端也没跑"**。Render Starter 是**永不休眠**的托管服务。
+- **本地进程离线 ≠ 系统没跑**：`lsof -iTCP:8000` 没监听、`ps | grep api_server` 无进程，只说明主理人没启动本地副本，**不能推出"Render 后端也没跑"**。Render 付费档（Starter 及以上，含当前的 Standard）是**永不休眠**的托管服务。
 
 ### 同事场景（傲阳，非主理人 email 或在支链分支）
 

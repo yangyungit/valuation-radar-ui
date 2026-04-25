@@ -27,8 +27,8 @@ alwaysApply: true
 
 | 服务 | 套餐 | 关键配额 | URL |
 |---|---|---|---|
-| **Render**（后端 API） | **Starter ($7/月)** ⭐ | 0.5 vCPU / 512 MB RAM / **1 GB 持久盘（已挂 `/opt/render/project/src/data`）/ 永不休眠** / 100 GB 带宽 | `https://valuation-radar-server.onrender.com` |
-| Render Cron Job | 独立按分钟计费 | Starter 档 $0.00016/分钟，最低 $1/月起；z_scanner 单次约 $0.003 | （2026-04-19 状态：待确认是否已配置） |
+| **Render**（后端 API） | **Standard ($25/月)** ⭐ | 1 vCPU / 2 GB RAM / **1 GB 持久盘（已挂 `/opt/render/project/src/data`）/ 永不休眠** / 100 GB 带宽 | `https://valuation-radar-server.onrender.com` |
+| Render Cron Job | 独立按分钟计费 | 单次约 $0.003，最低 $1/月起；z_scanner 周跑成本极低 | （2026-04-19 状态：待确认是否已配置） |
 | **Streamlit Cloud**（前端） | Free | ~2.6 GB RAM / 共享 CPU | `https://yangyun-macro.streamlit.app/` |
 
 ## Render 持久盘内容（data/，**丢失即系统瘫痪**）
@@ -116,3 +116,4 @@ Opus 的 plan 必须包含以下四项，缺一不可：
   - Render Starter 是**永不休眠**（原文误写"自动休眠，冷启动 30-60s"——那是 Free 层）
   - 后端 URL 补 `-server` 后缀（`valuation-radar-server.onrender.com`，与代码 `api_client.py:24` 一致）
   - 补持久盘内容清单（`narrative.db` + `universe.db` 明细）
+- **2026-04-25**：Render 后端从 Starter ($7/月, 0.5 vCPU / 512 MB) 升级到 **Standard ($25/月, 1 vCPU / 2 GB RAM)**，CPU 翻倍 + 内存涨 4 倍，缓解 z_scanner / 大批量打分时的 OOM 与限速。持久盘和带宽配额不变。
