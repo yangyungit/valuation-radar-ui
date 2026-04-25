@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-04-25 | chaos gate Phase 2：Page 1 月度表加 chaos 占比% 列 + Page 6 chaos-dormant 染色
+
+**动因**：后端 chaos gate Phase 1（`valuation-radar` 2026-04-21 commit `31f96af` + 2026-04-25 yfinance 容错修复）已上线，`/api/v1/macro/compute` 每月返回 `chaos_share` 字段、回测 `weight_history` 每条 entry 含 `regime_dormant_reason ∈ {"chaos","low_score",""}`。前端需把这两个字段渲染出来，让主理人在 Page 1 月度表能直接看到「哪些月份会触发卫星仓清仓 BIL」，在 Page 6 回测 rebal 表看到「哪些月份是被 chaos 闸门强制 dormant 的」。
+
+**变更清单**（前端 `valuation-radar-ui` 单仓改动）：
+
+1. **`pages/1_宏观定调.py`**：
+   - L1163 后注入 `chaos占比%` 列：从 `_regime_api["data"]["horsemen_monthly_probs"][月份]["chaos_share"]` 读取，乘 100 保留 1 位小数；缺失默认 0。
+   - `_style_horsemen_df` 新增 `_chaos_color` 染色函数：`> 40 → #555 加粗`、`20–40 → #888`、`< 20 → 不着色`。
+   - 月度表 caption 追加：「chaos占比 > 40% 触发卫星仓强制清仓 BIL」。
+2. **`pages/6_仓位配置.py`**：
+   - 月度持仓快照表（rebal_rows 构造循环）读 `entry["regime_dormant_reason"]`：`dormant + chaos` → 「🛌 迟滞 (chaos)」，其余 dormant → 「🛌 迟滞」（不变）。
+   - DataFrame 渲染改用 `df.style.apply(_highlight_chaos_row, axis=1)`，chaos-dormant 行整行背景 `#e0e0e0`。
+
+**验收**：Page 1 月度表 2025–2026 高波动区间出现「chaos占比%」> 40% 的灰色月份；Page 6 回测 rebal 表至少有一个月显示「🛌 迟滞 (chaos)」并整行染灰。
+
+---
+
 ## 2026-04-21 晚 | 宏观走廊主图补混沌期灰色染色
 
 **动因**：2026-04-21 Phase 2 只给下方 MTM 图（SPY/QQQ）接了混沌期灰色，上方「🔬 宏观时钟验证图」（XLK/XLE 等比值图）还在用旧 `_REGIME_BG_C`（4 色）+ `_horsemen_daily`（未覆盖 chaos），视觉上完全看不出任何变化。

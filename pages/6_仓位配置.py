@@ -1086,6 +1086,14 @@ if not df_portfolio.empty:
                     if _d_r_score < 0.60:
                         _d_r_en, _d_r_score = _c_r_en, _c_r_score
 
+                    _dormant_reason = entry.get("regime_dormant_reason", "")
+                    if rmode == "active":
+                        _mode_label = "🟢 激活"
+                    elif rmode == "dormant" and _dormant_reason == "chaos":
+                        _mode_label = "🛌 迟滞 (chaos)"
+                    else:
+                        _mode_label = "🛌 迟滞"
+
                     rebal_rows.append({
                         "调仓日期": rd_date,
                         "A组(压舱石)": _fmt_tw(a_w),
@@ -1095,12 +1103,22 @@ if not df_portfolio.empty:
                         "第二剧本": f"{REGIME_CN_MAP.get(_d_r_en, _d_r_en)} {_d_r_score*100:.0f}%",
                         "D组(预备队)": _fmt_tw(d_w, locked_sat),
                         "核心调仓": "🔄 Arena换仓" if _core_chg else "🔒 续持",
-                        "卫星模式": "🟢 激活" if rmode == "active" else "🛌 迟滞",
+                        "卫星模式": _mode_label,
                         "阈值警报": trim_str,
                         "现金BIL": f"{bil_w:.0f}%" if bil_w > 0 else "0%",
                     })
 
-                st.dataframe(pd.DataFrame(rebal_rows[::-1]), use_container_width=True, hide_index=True)
+                _df_rebal = pd.DataFrame(rebal_rows[::-1])
+
+                def _highlight_chaos_row(row):
+                    _is_chaos = "(chaos)" in str(row.get("卫星模式", ""))
+                    return ['background-color: #e0e0e0' if _is_chaos else '' for _ in row]
+
+                st.dataframe(
+                    _df_rebal.style.apply(_highlight_chaos_row, axis=1),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
                 # ── Audit Trail: trim events highlighted blocks ───────────────
                 trim_entries = [(e["date"], e["trim_event"]) for e in weight_history if e.get("trim_event")]

@@ -1162,6 +1162,13 @@ if not df.empty and len(df) > 750:
             return out, _ds['剧本裁决']
         df_hist_horsemen, _horsemen_daily = _bh_fallback(df, df_fred_clock, window=z_window)
 
+    if not df_hist_horsemen.empty:
+        _hmp_for_chaos = (_regime_api or {}).get("data", {}).get("horsemen_monthly_probs", {}) or {}
+        df_hist_horsemen["chaos占比%"] = [
+            round(float(_hmp_for_chaos.get(m, {}).get("chaos_share", 0.0)) * 100, 1)
+            for m in df_hist_horsemen.index
+        ]
+
     # 用 confidence 覆盖 chaos 日期 → 主图与验证图背景显示灰色混沌期段
     _dc_for_disp = (_regime_api or {}).get("horsemen_daily_confidence", {})
     if _dc_for_disp and not _horsemen_daily.empty:
@@ -1184,9 +1191,21 @@ if not df.empty and len(df) > 750:
         def _conf_color(val):
             cmap = {'high': '#2ECC71', 'medium': '#F1C40F', 'chaos': '#888888'}
             return f'color: {cmap.get(val, "#aaa")}; font-weight: bold;' if val in cmap else ''
+        def _chaos_color(val):
+            try:
+                v = float(val)
+            except Exception:
+                return ''
+            if v > 40:
+                return 'color: #555; font-weight: bold;'
+            if v >= 20:
+                return 'color: #888;'
+            return ''
         styler = styler.map(_color, subset=['剧本裁决'])
         if '置信度' in styler.data.columns:
             styler = styler.map(_conf_color, subset=['置信度'])
+        if 'chaos占比%' in styler.data.columns:
+            styler = styler.map(_chaos_color, subset=['chaos占比%'])
         return styler
 
     _RATIO_OPTIONS = {
@@ -1700,7 +1719,7 @@ if not df.empty and len(df) > 750:
     with c4: st.markdown(f"<div class='scenario-card'><b>❄️ 衰退 ({prob_d}%)</b><div class='evidence-list'>{''.join(items_d)}</div></div>", unsafe_allow_html=True)
 
     with st.expander("📋 四大剧本历史裁决表 (月度 · 24条件证据链)", expanded=False):
-        st.caption("每月打钩得分 → 四个概率 → 最终裁决，即上方三大比例染色图背景色的决策来源。")
+        st.caption("每月打钩得分 → 四个概率 → 最终裁决，即上方三大比例染色图背景色的决策来源。chaos占比 > 40% 触发卫星仓强制清仓 BIL。")
         st.dataframe(df_hist_horsemen.style.pipe(_style_horsemen_df), use_container_width=True, height=400)
 
     st.markdown("---")
