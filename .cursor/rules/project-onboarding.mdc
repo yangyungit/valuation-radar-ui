@@ -1,0 +1,48 @@
+---
+description: valuation-radar-ui 项目协议（环境、业务红线、依赖、待办），任何 clone 本仓的开发者都应遵守
+alwaysApply: true
+---
+
+# 项目协议（Project Onboarding — valuation-radar-ui）
+
+> Cursor 会话开启时自动注入。配套的 `architecture-constraints.mdc`（前端 UI 安全约束）与 `core-protocols.mdc`（数据一致性 / Git 行为）请一并阅读。
+
+---
+
+## 开发环境（macOS / Apple Silicon 推荐）
+
+- OS: macOS / Shell: zsh（Linux/Windows 自行调整）
+- Python venv：上级目录 `../system/venv/`（共享 venv）
+  - 激活：`source ../system/venv/bin/activate`
+- 本地后端：`cd valuation-radar && source ../system/venv/bin/activate && python api_server.py` → `http://localhost:8000`
+- 本地前端：`cd valuation-radar-ui && source ../system/venv/bin/activate && streamlit run app.py` → `http://localhost:8501`
+
+## 核心业务红线（详版见 `architecture-constraints.mdc`）
+
+- `my_stock_pool.py` 中 A/B/C/D 四大战术分组**绝不允许**修改名称/合并/增删
+- 前端（`valuation-radar-ui`）禁止存放业务逻辑和因子字典，必须通过 `api_client.py` 调后端
+- UI 渲染必须用显式 `for` 循环（不用列表推导式生成 Streamlit 组件）
+
+## Render 持久盘内容（`data/`，**丢失即系统瘫痪**）
+
+- `narrative.db`：新闻语料、GDELT slot 去重表（`gkg_fetched_slots`）、TF-IDF 词典、daily_cluster_stats、pending_inbox、noise_words、quality_log
+- `universe.db`：A/B/C/D/Z 四组候选标的、`UniversalClassifier` 迟滞状态、资格状态变更记录
+
+## AI 协作风格（建议遵守）
+
+- **语言**：中文交流，代码/变量名英文
+- **编辑风格**：精准行级编辑优先，debug 探针用完立即移除
+- **沟通**：直接、简洁，不废话;重要决策先解释再动手
+- **报错处理**：遇错不要无限循环自调试，告知开发者由人决策下一步
+- **Git**：严禁 `--force` / `amend` / `rebase` / `git add -A` / 改 config（详见 `core-protocols.mdc` Git 章节）
+
+## 已安装依赖（系统级备忘）
+
+- `finviz==2.0.0`（已装到 `system/venv`，2026-04-12）
+- `curl_cffi`（Yahoo Crumb v2 反爬绕过，2026-04-18）
+
+## 长期待办（可认领）
+
+- [ ] Render 上配置 Cron Job 运行 `z_scanner.py`（每周日），实现云端 Z 级雷达全自动化
+- [ ] SEC `WATCHED_ISSUERS` 定期补充新发行人
+- [ ] 评估 STRD（Strategy 10% 非累积优先股）和 STRC（浮动利率月付优先股）加入 `Z_SEED_POOL`
