@@ -27,11 +27,15 @@ def _fetch_fred_series(series_id: str, start_date, end_date, api_key: str) -> pd
     r.raise_for_status()
     dates, values = [], []
     for obs in r.json().get("observations", []):
+        # FRED 缺失值用 "." 表示，float(".") 会 ValueError；
+        # 必须两个变量都解析成功才一起 append，否则 dates/values 长度错位。
         try:
-            dates.append(pd.Timestamp(obs["date"]))
-            values.append(float(obs["value"]))
+            d = pd.Timestamp(obs["date"])
+            v = float(obs["value"])
         except (ValueError, KeyError):
-            pass  # FRED 用 "." 表示缺失值，跳过
+            continue
+        dates.append(d)
+        values.append(v)
     return pd.Series(values, index=pd.DatetimeIndex(dates), name=series_id)
 
 
