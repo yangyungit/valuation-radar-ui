@@ -412,7 +412,7 @@ else:
 # ============================================================
 st.markdown("---")
 st.header("🏆 指数主力归因 (Index Leadership)")
-st.caption("近期是谁在扛大盘？Mag7 / 大盘 / 等权 / 中盘 / 小盘 五带相对强度对比")
+st.caption("近期是谁在扛大盘？Mag7 / 大盘 / 等权 / 中盘 / 小盘 五带累计涨幅对比（窗口起点归一到 100）")
 
 _LEAD_TICKERS = ["MAGS", "SPY", "RSP", "IJH", "IWM"]
 _LEAD_COLORS = {
@@ -495,7 +495,7 @@ else:
                 legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center", font=dict(size=12)),
                 xaxis=dict(showgrid=False),
                 yaxis=dict(title="窗口起点 = 100", showgrid=True, gridcolor='rgba(255,255,255,0.06)'),
-                title=dict(text=f"{window_name} 相对强度（基准 = SPY 虚线）", font=dict(size=14), x=0.01, xanchor='left'),
+                title=dict(text=f"{window_name} 累计涨幅（窗口起点 = 100，SPY 虚线为参照）", font=dict(size=14), x=0.01, xanchor='left'),
             )
             st.plotly_chart(_fig, use_container_width=True)
 
