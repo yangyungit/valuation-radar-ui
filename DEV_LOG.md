@@ -2,6 +2,28 @@
 
 ---
 
+## 2026-05-04 | Page 0 §2.5 新增「风格传导链」总览
+
+**动因**：主理人提的传导链「宏观 → 风险溢价/折现率 → regime change → 因子轮动 → 行业轮动 → 价格」，6 层信息散落在 Page 0 4 个 section + Page 1 5 个 section，看不出层级关系，更无法回答"风格切换是大跌前还是大跌后"这种时滞问题。
+
+**改动**（`pages/0_宏观雷达.py` 单文件）：
+
+1. import 增加 `compute_macro_regime_api`；侧边栏强制刷新按钮一并清此缓存。
+2. 在 §2 大盘趋势状态机之后、§3 之前插入新 §2.5「📡 风格传导链」section：
+   - 顶部 3 行 placeholder：流动性 / 宏观双星 G/I / 风险溢价/折现率（暂未暴露后端 API 字段，只放跳 Page 1 的文字提示）
+   - Row 1 Regime：`compute_macro_regime_api().data` 拿当前剧本 + 4 概率；`horsemen_daily_verdict` ffill 后倒序找最近一次值变化抠"上次切换日 + 距今天数 + 前剧本"
+   - Row 2 风险信号：`horsemen_daily_chaos_prob` 最新值 + 进度条 + `horsemen_daily_confidence` 徽章
+   - Row 3 因子切换：MAGS-IWM 60D 斜率（与 §4 末尾"风格切换警报"白盒卡片同算法同数据，新变量后缀 `25` 避免命名冲突）
+   - Row 4 行业表象：复用顶部已 fetch 的 `_radar` metrics，C 组按相对强度 top3/bot3
+   - Row 5 价格 SPY：在 §2 之后独立计算 `_spy_phase_df`（同 `_classify_mtm` 算法），phase 序列倒序找最近一次切换
+3. 传导一致性徽章：把每行映射到「进攻/防御/中性」方向，Row 3 vs Row 1、Row 5 vs Row 3 两两对比 → 共振/提前防御/滞后/中性。
+
+**架构选择**：§4 完全不动；§2.5 独立计算同名指标（同算法同数据，数值必然一致），避免改 §4 引入回归。代价是相同算法跑两次（数据量小，<100ms），收益是稳定生产代码零侵入。
+
+**遗留**：上游 3 层（流动性 / 宏观双星 G/I / 信用利差·期限溢价）后端 API 暂未直接吐 daily 时序，只能放文字 placeholder。后续若要补成 8 行总览，需 `compute_macro_regime` 多 return 4-5 个字段（star_a_g_curr / star_a_i_curr / hyg_ief_z / tlt_shy_z），跨仓改动。
+
+---
+
 ## 2026-05-04 | 修复 0_宏观雷达 大盘趋势状态机：时间跨度 + 背景染色
 
 **问题**：把大盘趋势状态机搬到 `pages/0_宏观雷达.py` 后，主理人反馈两个回退：(1) SPY/QQQ 时间跨度从 ~10 年缩到 2 年；(2) 四色剧本背景染色全空。

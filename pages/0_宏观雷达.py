@@ -8,6 +8,7 @@ from api_client import (
     fetch_macro_radar,
     fetch_current_regime,
     get_global_data,
+    compute_macro_regime_api,
 )
 
 st.set_page_config(page_title="宏观雷达", layout="wide")
@@ -32,6 +33,7 @@ with st.sidebar:
     if st.button("🔄 强制刷新雷达数据"):
         fetch_macro_radar.clear()
         fetch_current_regime.clear()
+        compute_macro_regime_api.clear()
         get_global_data.clear()
         st.rerun()
 
@@ -375,6 +377,277 @@ else:
 
     _render_mtm_tab("SPY", _mtm_tab_spy)
     _render_mtm_tab("QQQ", _mtm_tab_qqq)
+
+# ============================================================
+# §2.5 共享变量预计算（SPY 状态机时序 + 因子风格切换三指标）
+# 算法与 §4「指数主力归因」末尾旁白卡片完全一致；同算法同数据保证数值不漂移。
+# ============================================================
+_spy_phase_df = None
+if df_prices is not None and not df_prices.empty and 'SPY' in df_prices.columns:
+    _spy_full_25 = df_prices['SPY'].dropna().astype(float)
+    if len(_spy_full_25) >= 200:
+        _tmp_spy = pd.DataFrame({
+            'close': _spy_full_25,
+            'ma60':  _spy_full_25.rolling(60).mean(),
+            'ma200': _spy_full_25.rolling(200).mean(),
+        }).dropna()
+        if not _tmp_spy.empty:
+            def _phase_25(c, m60, m200):
+                if   c > m60 and m60 > m200: return "主升狂飙"
+                elif c < m60 and m60 > m200: return "颠簸震荡"
+                elif c < m60 and m60 < m200: return "冰面滑行"
+                else:                        return "触底抢修"
+            _tmp_spy['phase'] = _tmp_spy.apply(
+                lambda r: _phase_25(r['close'], r['ma60'], r['ma200']), axis=1
+            )
+            _spy_phase_df = _tmp_spy
+
+_LEAD25_TICKERS = ["MAGS", "SPY", "RSP", "IJH", "IWM"]
+_lead25_avail = [
+    t for t in _LEAD25_TICKERS
+    if df_prices is not None and t in df_prices.columns
+]
+_df_lead25 = (
+    df_prices[_lead25_avail].dropna(how='all').ffill().dropna()
+    if df_prices is not None and len(_lead25_avail) >= 3
+    else pd.DataFrame()
+)
+
+_alert25       = "数据不足"
+_slope_60d_d25 = 0.0
+if (not _df_lead25.empty
+    and "MAGS" in _df_lead25.columns and "IWM" in _df_lead25.columns
+    and len(_df_lead25) >= 252):
+    _diff25 = (_df_lead25["MAGS"] - _df_lead25["IWM"]).dropna()
+    if len(_diff25) >= 252:
+        _base252 = _diff25.iloc[-252]
+        if abs(_base252) > 1e-9:
+            _diff_norm25 = (_diff25 / _base252) * 100.0
+            _arr_60d25 = _diff_norm25.iloc[-60:].values.astype(float)
+            _slope_60d_d25 = float(np.polyfit(np.arange(60), _arr_60d25, 1)[0])
+            _arr_5d25 = _diff_norm25.iloc[-5:].values.astype(float)
+            _slope_5d_d25 = float(np.polyfit(np.arange(5), _arr_5d25, 1)[0])
+            _down_days_25 = int(_diff_norm25.iloc[-21:].diff().lt(0).sum())
+            if _slope_60d_d25 > 0:
+                _alert25 = "未触发"
+            elif _slope_60d_d25 < 0 and _slope_5d_d25 < 0 and _down_days_25 >= 15:
+                _alert25 = "已切换"
+            else:
+                _alert25 = "早期信号"
+
+# ============================================================
+# Section 2.5: 风格传导链 (Style Transmission Chain)
+# ============================================================
+st.markdown("---")
+st.header("📡 风格传导链 (Style Transmission Chain)")
+st.caption("宏观 → 折现率 → Regime → 因子 → 行业 → 价格：每层切换时间戳一字排开，回答\"风格何时切换\"")
+
+# --- 顶部 3 行 placeholder（上游层暂未暴露 API 字段，跳 Page 1 查看）---
+st.markdown("""
+<div style='background:#1a1a1a; border:1px dashed #444; border-radius:6px; padding:10px 16px; margin-bottom:12px; font-size:13px; color:#888; line-height:1.85;'>
+    ⏫ <b>最上游</b>：流动性 — 详见 Page 1 §5(待挖掘)<br>
+    ⏫ <b>上游 1</b>：宏观双星 G/I — 详见 Page 1 §1 宏观时钟<br>
+    ⏫ <b>上游 2</b>：风险溢价/折现率 — 详见 Page 1 §1 债市阶梯
+</div>
+""", unsafe_allow_html=True)
+
+# --- 数据准备 ---
+with st.spinner("📡 加载传导链数据..."):
+    _chain_regime = compute_macro_regime_api(z_window=750)
+_chain_data = (_chain_regime or {}).get("data", {}) or {}
+_chain_dv   = (_chain_regime or {}).get("horsemen_daily_verdict", {}) or {}
+_chain_dc   = (_chain_regime or {}).get("horsemen_daily_confidence", {}) or {}
+_chain_dp   = (_chain_regime or {}).get("horsemen_daily_chaos_prob", {}) or {}
+
+# === Row 1: Regime 当前 + 切换日 ===
+_REG_EN_CN = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
+_REG_COLOR = {"Soft": "#2ECC71", "Hot": "#E74C3C", "Stag": "#F1C40F", "Rec": "#3498DB"}
+_curr_regime_en = str(_chain_data.get("current_macro_regime", "Soft"))
+_curr_regime_cn = _REG_EN_CN.get(_curr_regime_en, _curr_regime_en)
+_curr_regime_color = _REG_COLOR.get(_curr_regime_en, "#888")
+_regime_probs = _chain_data.get("smoothed_regime_probs", {}) or {}
+
+_regime_switch_date = None
+_regime_prev_cn     = "—"
+_regime_days_since  = "—"
+if _chain_dv:
+    _dv_idx = pd.to_datetime(list(_chain_dv.keys()), errors="coerce")
+    _dv_s = pd.Series(list(_chain_dv.values()), index=_dv_idx).dropna().sort_index()
+    if len(_dv_s) >= 2:
+        _changes_dv = _dv_s.ne(_dv_s.shift(1))
+        _change_dates_dv = _dv_s.index[_changes_dv]
+        if len(_change_dates_dv) >= 2:
+            _last_dv  = pd.Timestamp(_change_dates_dv[-1])
+            _regime_switch_date = _last_dv.strftime("%Y-%m-%d")
+            _regime_days_since  = int((pd.Timestamp.today().normalize() - _last_dv.normalize()).days)
+            _regime_prev_cn     = str(_dv_s.loc[_change_dates_dv[-2]])
+
+_chaos_prob_curr = 0.0
+if _chain_dp:
+    _cp_idx = pd.to_datetime(list(_chain_dp.keys()), errors="coerce")
+    _cp_s = pd.Series([float(v) for v in _chain_dp.values()], index=_cp_idx).dropna().sort_index()
+    if not _cp_s.empty:
+        _chaos_prob_curr = float(_cp_s.iloc[-1])
+
+_conf_curr = "—"
+if _chain_dc:
+    _cc_idx = pd.to_datetime(list(_chain_dc.keys()), errors="coerce")
+    _cc_s = pd.Series(list(_chain_dc.values()), index=_cc_idx).dropna().sort_index()
+    if not _cc_s.empty:
+        _conf_curr = str(_cc_s.iloc[-1])
+_CONF_COLOR = {"high": "#2ECC71", "medium": "#F1C40F", "chaos": "#888"}
+_conf_color = _CONF_COLOR.get(_conf_curr, "#888")
+
+# === Row 4: 行业领涨/领跌（复用顶部已 fetch 的 _radar）===
+_top3_names = []
+_bot3_names = []
+if _radar.get("success") and _radar.get("metrics"):
+    _df_m_chain = pd.DataFrame(_radar["metrics"])
+    _all_groups = _df_m_chain["组别"].unique().tolist() if not _df_m_chain.empty else []
+    _c_group = next((g for g in _all_groups if g.startswith("C:")), None)
+    if _c_group is not None:
+        _df_c_chain = _df_m_chain[_df_m_chain["组别"] == _c_group].sort_values("相对强度", ascending=False)
+        _top3_names = _df_c_chain.head(3)["名称"].tolist()
+        _bot3_names = _df_c_chain.tail(3)["名称"].tolist()
+
+# === Row 5: SPY 价格状态机 + 切换日 ===
+_spy_phase_curr  = "—"
+_spy_switch_date = None
+_spy_days_since  = "—"
+if _spy_phase_df is not None and not _spy_phase_df.empty:
+    _spy_phase_curr = str(_spy_phase_df['phase'].iloc[-1])
+    _changes_spy = _spy_phase_df['phase'].ne(_spy_phase_df['phase'].shift(1))
+    _change_dates_spy = _spy_phase_df.index[_changes_spy]
+    if len(_change_dates_spy) >= 2:
+        _last_spy = pd.Timestamp(_change_dates_spy[-1])
+        _spy_switch_date = _last_spy.strftime("%Y-%m-%d")
+        _spy_days_since  = int((pd.Timestamp.today().normalize() - _last_spy.normalize()).days)
+_SPY_PHASE_COLOR = {
+    "主升狂飙": "#2ECC71", "颠簸震荡": "#F1C40F",
+    "冰面滑行": "#E74C3C", "触底抢修": "#3498DB",
+}
+_spy_phase_color = _SPY_PHASE_COLOR.get(_spy_phase_curr, "#888")
+
+# === 传导一致性徽章规则 ===
+# Row 1 (Regime)：Soft/Hot = 进攻；Stag/Rec = 防御
+# Row 3 (因子)：未触发 = 进攻；早期信号 = 中性；已切换 = 防御
+# Row 5 (价格)：主升狂飙/触底抢修 = 进攻；颠簸震荡/冰面滑行 = 防御
+def _layer_dir(layer, val):
+    if layer == "regime":
+        return "att" if val in ("Soft", "Hot") else "def"
+    if layer == "factor":
+        if val == "未触发":   return "att"
+        if val == "已切换":   return "def"
+        if val == "早期信号": return "neu"
+        return "neu"
+    if layer == "price":
+        return "att" if val in ("主升狂飙", "触底抢修") else "def"
+    return "neu"
+
+_dir_r1 = _layer_dir("regime", _curr_regime_en)
+_dir_r3 = _layer_dir("factor", _alert25)
+_dir_r5 = _layer_dir("price",  _spy_phase_curr)
+
+def _pair_badge(this_dir, upstream_dir):
+    if this_dir == "neu" or upstream_dir == "neu":
+        return ("中性", "#888")
+    if this_dir == upstream_dir:
+        return ("共振", "#2ECC71")
+    if upstream_dir == "att" and this_dir == "def":
+        return ("提前防御", "#F1C40F")
+    return ("滞后", "#E74C3C")
+
+_b3_text, _b3_color = _pair_badge(_dir_r3, _dir_r1)
+_b5_text, _b5_color = _pair_badge(_dir_r5, _dir_r3)
+
+# === 渲染 5 行卡片 ===
+def _chain_row_html(head_color, head_label, body_html, badge_text=None, badge_color=None):
+    badge_block = (
+        f"<div style='flex:0 0 110px; text-align:right; font-size:13px; "
+        f"color:{badge_color or '#888'}; font-weight:bold;'>{badge_text}</div>"
+        if badge_text else ""
+    )
+    return (
+        f"<div style='background:#1a1a1a; border-left:4px solid {head_color}; "
+        f"border-radius:6px; padding:12px 18px; margin-bottom:8px; "
+        f"display:flex; align-items:center; gap:18px;'>"
+        f"<div style='flex:0 0 130px; font-size:13px; color:#aaa; font-weight:bold;'>{head_label}</div>"
+        f"<div style='flex:1; font-size:14px; color:#ddd; line-height:1.7;'>{body_html}</div>"
+        f"{badge_block}"
+        f"</div>"
+    )
+
+# Row 1: Regime
+_prob_str = ""
+if _regime_probs:
+    _prob_pairs = sorted(_regime_probs.items(), key=lambda kv: kv[1], reverse=True)
+    _prob_str = " | ".join(
+        f"{_REG_EN_CN.get(k, k)} {int(round(float(v) * 100))}%"
+        for k, v in _prob_pairs
+    )
+_row1_body = (
+    f"<b style='color:{_curr_regime_color}; font-size:15px;'>{_curr_regime_cn}</b>"
+    f"&nbsp;<span style='color:{_conf_color}; font-size:13px;'>({_conf_curr} 置信)</span>"
+)
+if _prob_str:
+    _row1_body += f"<br><span style='color:#888; font-size:13px;'>{_prob_str}</span>"
+if _regime_switch_date:
+    _row1_body += (
+        f"<br><span style='color:#aaa; font-size:13px;'>"
+        f"上次切换 {_regime_switch_date} · 已 {_regime_days_since} 天 · 前剧本 {_regime_prev_cn}"
+        f"</span>"
+    )
+st.markdown(_chain_row_html(_curr_regime_color, "① Regime", _row1_body), unsafe_allow_html=True)
+
+# Row 2: 风险信号 (Chaos prob 进度条)
+_chaos_color = (
+    "#E74C3C" if _chaos_prob_curr >= 0.50
+    else ("#F1C40F" if _chaos_prob_curr >= 0.30 else "#2ECC71")
+)
+_row2_body = (
+    f"<b style='color:{_chaos_color}; font-size:15px;'>Chaos prob {_chaos_prob_curr:.2f}</b>"
+    f"&nbsp;<span style='color:#888; font-size:13px;'>(阈值 0.50)</span>"
+    f"<div style='background:#0a0a0a; height:8px; border-radius:4px; "
+    f"margin-top:6px; position:relative;'>"
+    f"<div style='background:{_chaos_color}; width:{min(_chaos_prob_curr * 100.0, 100.0):.1f}%; "
+    f"height:100%; border-radius:4px;'></div>"
+    f"<div style='position:absolute; left:50%; top:-3px; height:14px; width:1px; background:#aaa;'></div>"
+    f"</div>"
+)
+st.markdown(_chain_row_html(_chaos_color, "② 风险信号", _row2_body), unsafe_allow_html=True)
+
+# Row 3: 因子风格切换警报
+_ALERT_COLOR = {"未触发": "#2ECC71", "早期信号": "#F1C40F", "已切换": "#E74C3C"}
+_alert_color = _ALERT_COLOR.get(_alert25, "#888")
+_row3_body = (
+    f"<b style='color:{_alert_color}; font-size:15px;'>{_alert25}</b>"
+    f"&nbsp;<span style='color:#888; font-size:13px;'>"
+    f"MAGS-IWM 60D 斜率 {_slope_60d_d25:+.4f}</span>"
+)
+st.markdown(_chain_row_html(_alert_color, "③ 因子切换", _row3_body, _b3_text, _b3_color), unsafe_allow_html=True)
+
+# Row 4: 行业领涨/领跌
+_top_html = " · ".join(_top3_names) if _top3_names else "—"
+_bot_html = " · ".join(_bot3_names) if _bot3_names else "—"
+_row4_body = (
+    f"<span style='color:#2ECC71; font-weight:bold;'>领涨</span> {_top_html}"
+    f"<br><span style='color:#E74C3C; font-weight:bold;'>领跌</span> {_bot_html}"
+)
+st.markdown(_chain_row_html("#888888", "④ 行业表象", _row4_body), unsafe_allow_html=True)
+
+# Row 5: SPY 价格状态机
+_row5_body = f"<b style='color:{_spy_phase_color}; font-size:15px;'>{_spy_phase_curr}</b>"
+if _spy_switch_date:
+    _row5_body += (
+        f"<br><span style='color:#aaa; font-size:13px;'>"
+        f"上次切换 {_spy_switch_date} · 已 {_spy_days_since} 天</span>"
+    )
+st.markdown(_chain_row_html(_spy_phase_color, "⑤ 价格 (SPY)", _row5_body, _b5_text, _b5_color), unsafe_allow_html=True)
+
+st.caption(
+    "色标含义 · 共振:本层与上层同向(传导已完成) · 提前防御:上层进攻本层防守(早期信号最有价值) · "
+    "滞后:本层先动上层未跟(罕见) · 中性:其中一层处于过渡态"
+)
 
 # ============================================================
 # Section 3: 市场分化证据链 (Market Differentiation)
