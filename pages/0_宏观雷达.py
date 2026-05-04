@@ -442,19 +442,138 @@ st.markdown("---")
 st.header("📡 风格传导链 (Style Transmission Chain)")
 st.caption("宏观 → 折现率 → Regime → 因子 → 行业 → 价格：每层切换时间戳一字排开，回答\"风格何时切换\"")
 
-# --- 顶部 3 行 placeholder（上游层暂未暴露 API 字段，跳 Page 1 查看）---
-st.markdown("""
-<div style='background:#1a1a1a; border:1px dashed #444; border-radius:6px; padding:10px 16px; margin-bottom:12px; font-size:13px; color:#888; line-height:1.85;'>
-    ⏫ <b>最上游</b>：流动性 — 详见 Page 1 §5(待挖掘)<br>
-    ⏫ <b>上游 1</b>：宏观双星 G/I — 详见 Page 1 §1 宏观时钟<br>
-    ⏫ <b>上游 2</b>：风险溢价/折现率 — 详见 Page 1 §1 债市阶梯
-</div>
-""", unsafe_allow_html=True)
-
 # --- 数据准备 ---
 with st.spinner("📡 加载传导链数据..."):
     _chain_regime = compute_macro_regime_api(z_window=750)
 _chain_data = (_chain_regime or {}).get("data", {}) or {}
+
+# --- 上游 3 层摘要卡 + 折叠详情（数据来自后端 upstream_summary）---
+_upstream = (_chain_data.get("upstream_summary") or {})
+_us_stars  = (_upstream.get("stars") or {})
+_us_bonds  = (_upstream.get("bond_ladder") or {})
+_us_liq    = (_upstream.get("liquidity") or {})
+
+def _upstream_color(z, hi=0.5, mid=0.2):
+    """统一染色：|z| 大且为正→绿，大且为负→红，其他→黄"""
+    if z is None:
+        return "#888"
+    if z >= hi:    return "#2ECC71"
+    if z <= -hi:   return "#E74C3C"
+    if abs(z) < mid: return "#888"
+    return "#F1C40F"
+
+def _upstream_card_html(border_color, head_label, summary_html):
+    return (
+        f"<div style='background:#1a1a1a; border-left:4px solid {border_color}; "
+        f"border-radius:6px; padding:10px 16px; margin:0 0 4px 0; "
+        f"display:flex; align-items:center; gap:14px;'>"
+        f"<div style='flex:0 0 130px; font-size:13px; color:#aaa; font-weight:bold;'>{head_label}</div>"
+        f"<div style='flex:1; font-size:14px; color:#ddd; line-height:1.6;'>{summary_html}</div>"
+        f"</div>"
+    )
+
+# ── 最上游：流动性（Net Liquidity = WALCL - TGA - RRP）──
+if _us_liq:
+    _liq_v   = float(_us_liq.get("value_t", 0.0))
+    _liq_chg = float(_us_liq.get("change_6m_pct", 0.0))
+    _liq_z   = float(_us_liq.get("z_3y", 0.0))
+    _liq_asof = str(_us_liq.get("asof", "—"))
+    _liq_color = _upstream_color(_liq_z)
+    _liq_chg_color = "#2ECC71" if _liq_chg > 1.0 else ("#E74C3C" if _liq_chg < -1.0 else "#F1C40F")
+    _liq_summary = (
+        f"⏫ <b>最上游 · 流动性</b>"
+        f"&nbsp;&nbsp;<b style='color:#ddd; font-size:15px;'>${_liq_v:.2f}T</b>"
+        f"&nbsp;&nbsp;<span style='color:#888;'>6M:</span> "
+        f"<b style='color:{_liq_chg_color};'>{_liq_chg:+.1f}%</b>"
+        f"&nbsp;&nbsp;<span style='color:#888;'>3Y Z:</span> "
+        f"<b style='color:{_liq_color};'>{_liq_z:+.2f}</b>"
+    )
+else:
+    _liq_color = "#666"
+    _liq_summary = (
+        "⏫ <b>最上游 · 流动性</b>"
+        "&nbsp;&nbsp;<span style='color:#888;'>FRED 暂不可用（FRED_API_KEY 未配置或拉取失败）</span>"
+    )
+st.markdown(_upstream_card_html(_liq_color, "Net Liquidity", _liq_summary), unsafe_allow_html=True)
+with st.expander("📖 流动性详情（FRED WALCL / TGA / RRP）", expanded=False):
+    if _us_liq:
+        st.markdown(
+            f"- **当前值**：`{_us_liq.get('value_t', 0.0):.3f} 万亿美元`（数据日期 `{_us_liq.get('asof', '—')}`）\n"
+            f"- **6 个月变化率**：`{_us_liq.get('change_6m_pct', 0.0):+.2f}%` "
+            f"（>+5% = 央行放水加速；<-5% = 缩表收紧）\n"
+            f"- **3Y 标准 Z-Score**：`{_us_liq.get('z_3y', 0.0):+.2f}` "
+            f"（>+1 = 历史性宽松；<-1 = 历史性紧缩）\n"
+            f"- **公式**：`Net Liquidity = Fed_Assets (WALCL) - TGA (WTREGEN) - RRP (RRPONTSYD)`\n"
+            f"- **跳转 Page 1 §5** 看完整 Treemap / Sankey / 鳄鱼嘴对决图。"
+        )
+    else:
+        st.info("后端未返回流动性摘要。可能原因：FRED_API_KEY 未配置 / 临时拉取失败。前往 Page 1 §5 手动加载完整流动性大项。")
+
+# ── 上游 1：宏观双星 G/I（rank_signed [-1, +1] 标度）──
+_g  = float(_us_stars.get("g", 0.0)) if _us_stars else 0.0
+_i  = float(_us_stars.get("i", 0.0)) if _us_stars else 0.0
+_quad = str(_us_stars.get("quad", "—")) if _us_stars else "—"
+_QUAD_COLOR = {"软着陆": "#2ECC71", "再通胀": "#E74C3C", "滞胀": "#F1C40F", "衰退": "#3498DB"}
+_quad_color = _QUAD_COLOR.get(_quad, "#888")
+_g_color = _upstream_color(_g, hi=0.3, mid=0.1)
+_i_color = _upstream_color(_i, hi=0.3, mid=0.1)
+_stars_summary = (
+    f"⏫ <b>上游 1 · 宏观双星 G/I</b>"
+    f"&nbsp;&nbsp;<b style='color:{_quad_color}; font-size:15px;'>{_quad}</b>"
+    f"&nbsp;&nbsp;<span style='color:#888;'>Growth:</span> "
+    f"<b style='color:{_g_color};'>{_g:+.2f}</b>"
+    f"&nbsp;&nbsp;<span style='color:#888;'>Inflation:</span> "
+    f"<b style='color:{_i_color};'>{_i:+.2f}</b>"
+)
+st.markdown(_upstream_card_html(_quad_color, "Star A (G/I)", _stars_summary), unsafe_allow_html=True)
+with st.expander("📖 双星详情（市场前瞻星 Star A 的 G/I 复合轴）", expanded=False):
+    st.markdown(
+        f"- **当前象限**：<b style='color:{_quad_color};'>{_quad}</b> "
+        f"（G/I 都在 ±0.20 内 → 软着陆；G+I+ → 再通胀；G-I+ → 滞胀；G-I- → 衰退）\n"
+        f"- **Growth 轴 G = `{_g:+.2f}`**（标度 [-1, +1] 的 3Y 滚动百分位）  \n"
+        f"  合成自 `CPER/GLD`（铜金比）+ `XLI/XLU`（工业/公用）+ `HYG/IEF`（信用/国债），等权平均\n"
+        f"- **Inflation 轴 I = `{_i:+.2f}`**（同标度）  \n"
+        f"  合成自 `T10YIE`（10Y 隐含通胀，FRED）+ `DBC/IEF`（商品/债券），等权平均\n"
+        f"- **跳转 Page 1 §1 宏观时钟** 看双星散点图、四色染色图、剧本验证图。",
+        unsafe_allow_html=True,
+    )
+
+# ── 上游 2：债市阶梯（标准 Z-Score [-3, +3] 标度，与 Page 1 完全一致）──
+_z_tlt_shy = float(_us_bonds.get("tlt_shy_z", 0.0)) if _us_bonds else 0.0
+_z_hyg_ief = float(_us_bonds.get("hyg_ief_z", 0.0)) if _us_bonds else 0.0
+_z_tip_ief = float(_us_bonds.get("tip_ief_z", 0.0)) if _us_bonds else 0.0
+_z_uup_shy = float(_us_bonds.get("uup_shy_z", 0.0)) if _us_bonds else 0.0
+_z_growth_color = _upstream_color(_z_tlt_shy)
+_z_risk_color   = _upstream_color(_z_hyg_ief)
+_z_infl_color   = _upstream_color(_z_tip_ief)
+_z_usd_color    = _upstream_color(_z_uup_shy)
+_bonds_border_color = _upstream_color((_z_tlt_shy + _z_hyg_ief + _z_tip_ief + _z_uup_shy) / 4.0)
+_bonds_summary = (
+    f"⏫ <b>上游 2 · 债市阶梯</b>"
+    f"&nbsp;&nbsp;<span style='color:#888;'>📉 增长:</span> "
+    f"<b style='color:{_z_growth_color};'>{_z_tlt_shy:+.2f}</b>"
+    f"&nbsp;&nbsp;<span style='color:#888;'>🦁 风险:</span> "
+    f"<b style='color:{_z_risk_color};'>{_z_hyg_ief:+.2f}</b>"
+    f"&nbsp;&nbsp;<span style='color:#888;'>🎈 通胀:</span> "
+    f"<b style='color:{_z_infl_color};'>{_z_tip_ief:+.2f}</b>"
+    f"&nbsp;&nbsp;<span style='color:#888;'>💪 美元:</span> "
+    f"<b style='color:{_z_usd_color};'>{_z_uup_shy:+.2f}</b>"
+)
+st.markdown(_upstream_card_html(_bonds_border_color, "Bond Ladder (Z)", _bonds_summary), unsafe_allow_html=True)
+with st.expander("📖 债市阶梯详情（4 个 ratio 3Y 滚动 Z-Score）", expanded=False):
+    st.markdown(
+        f"- **📉 增长预期 `TLT/SHY` Z = {_z_tlt_shy:+.2f}**  \n"
+        f"  长债/短债：`>0` 长端历史性强 = 降息预期升温/增长放缓；`<0` 增长强劲\n"
+        f"- **🦁 风险偏好 `HYG/IEF` Z = {_z_hyg_ief:+.2f}**  \n"
+        f"  高收益债/国债：`>0` Risk-On；`<0` Risk-Off\n"
+        f"- **🎈 通胀预期 `TIP/IEF` Z = {_z_tip_ief:+.2f}**  \n"
+        f"  通胀保值/名义：`>0` 通胀升温；`<0` 通胀回落\n"
+        f"- **💪 美元强弱 `UUP/SHY` Z = {_z_uup_shy:+.2f}**  \n"
+        f"  美元/现金：`>0` 美元历史性走强 = 全球流动性收紧；`<0` 美元走弱\n"
+        f"- **跳转 Page 1 §1 债市阶梯** 看 4 张完整 K-line + 滚动 Z 趋势图。"
+    )
+
+st.markdown("<div style='margin-bottom:12px;'></div>", unsafe_allow_html=True)
 _chain_dv   = (_chain_regime or {}).get("horsemen_daily_verdict", {}) or {}
 _chain_dc   = (_chain_regime or {}).get("horsemen_daily_confidence", {}) or {}
 _chain_dp   = (_chain_regime or {}).get("horsemen_daily_chaos_prob", {}) or {}
