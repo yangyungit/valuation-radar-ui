@@ -2,6 +2,35 @@
 
 ---
 
+## 2026-05-04 | 市场结构监控集中到 0_宏观雷达页
+
+**动因**：宏观定调页（`pages/1_宏观定调.py`）已膨胀到 1997 行，且把市场结构监控（大盘趋势 / 板块分化）和宏观叙事（底色 / 时钟 / 剧本 / 流动性）混在一页，主理人观察"指数主力轮动"时看不出谁在扛大盘。本次把市场结构相关的三块迁到 0_号页面集中展示，并新增"指数主力归因"模块回答"是 Mag7 还是 Russell 2000 在扛"。
+
+**变更清单**（valuation-radar-ui 单仓）：
+
+1. **`pages/0_宏观雷达.py`**（124 → 631 行）：从单一散点图扩展为四 section 总览页：
+   - Section 1 宏观全景雷达（保留原散点图，逻辑零改动）
+   - Section 2 大盘趋势状态机（从 1_搬迁，依赖解耦：`_regime_api` → `fetch_current_regime()`，删除 `df_z_a` 兜底分支，`df` → `df_prices`）
+   - Section 3 市场分化证据链（从 1_搬迁，`df` → `df_prices`，去掉序号编号）
+   - Section 4 指数主力归因（新增）：MAGS / SPY / RSP / IJH / IWM 五 ETF 标准化曲线（1M/3M/YTD 三档 tab）+ 4 ETF 归因柱状图 + 三句话规则化旁白（扛把子 + 宽度信号 + 风格切换警报）
+   - 顶部统一拉数据：`get_global_data(17 ETF, years=2)` 一次性供四 section 共享
+2. **`pages/1_宏观定调.py`**（1997 → 1724 行）：删除两段约 273 行：
+   - 删除原行 510-749 大盘趋势状态机（含 `_render_mtm_tab` 闭包 + 7 个 `_MTM_*` 局部常量 + 末尾"供后续 5 阶状态机使用"的死代码尾巴）
+   - 删除原行 1856-1888 市场分化证据链
+   - 原 `6️⃣ 全球流动性大项` 重新编号为 `5️⃣`，1️⃣2️⃣3️⃣4️⃣5️⃣ 序号连续
+
+**指数主力归因算法常量**（前端纯计算，无后端契约）：
+
+- ETF 池：`["MAGS", "SPY", "RSP", "IJH", "IWM"]`
+- 时间窗口：`1M=21D / 3M=63D / YTD=今年 1 月 2 日至今`
+- 扛把子：3M 涨幅最高的 ETF
+- 宽度信号：`np.polyfit(60, RSP/SPY 比值, 1)[0]` > 1e-5 → 扩张中 / < -1e-5 → 收缩中 / 否则中性
+- 风格切换警报：`MAGS - IWM` 价差以 252 日前为基准 100 归一化，60D 斜率 > 0 → 未触发；< 0 且 5D 斜率 < 0 且近 21D 中至少 15D 在跌 → 已切换；否则早期信号
+
+**契约消费方向**：纯前端，零后端改动，零 `api_client.py` 改动；所有数据走现有 `fetch_macro_radar` / `fetch_current_regime` / `get_global_data`。`fetch_current_regime` 没数据时大盘趋势状态机降级（不叠加 horsemen 四色背景，主图正常）。
+
+---
+
 ## 2026-05-04 | Phase 2：前端同步 chaos GBDT 双闸门 UI
 
 **动因**：后端 Phase 1 已上线 chaos GBDT 双闸门（旧 0.40 OR 新 P>0.50 持续 5 天），新增三个 HTTP 字段 `horsemen_daily_chaos_prob` / `horsemen_daily_chaos_trigger` / `horsemen_daily_chaos_top_features`，月度 `horsemen_monthly_probs` 加 `chaos_gbdt_trigger`，`weight_history` 加 `chaos_prob` / `chaos_top_features` / `regime_dormant_reason ∈ {"chaos","gbdt","both"}`。本次前端跟上渲染。
