@@ -14,6 +14,8 @@ from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         get_arena_c_factors, get_arena_d_factors,
                         get_arena_a_scores as _api_get_arena_a_scores,
                         fetch_l2_l3_detail, get_batch_ticker_cooccurrence,
+                        post_narrative_resonance_d,
+                        debug_narrative_resonance_d,
                         fetch_conviction_state as _api_fetch_conv,
                         push_conviction_state as _api_push_conv,
                         fetch_arena_history as _api_fetch_history,
@@ -1435,6 +1437,538 @@ def _render_leaderboard_d(df_scored: pd.DataFrame) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
+#  UI：D 组共振系统（v1 旧猎场 + v2 叙事增强榜）
+# ─────────────────────────────────────────────────────────────────
+
+_RES_ZONE_META = {
+    "STRONG_NARRATIVE": {"label": "强叙事", "color": "#E67E22", "bg": "rgba(230,126,34,0.10)"},
+    "WEAK_NARRATIVE":   {"label": "弱叙事", "color": "#F1C40F", "bg": "rgba(241,196,15,0.10)"},
+    "NO_NARRATIVE":     {"label": "无叙事", "color": "#7F8C8D", "bg": "rgba(127,140,141,0.10)"},
+}
+
+_RES_CONF_BADGE = {
+    "high":   ("#2ECC71", "高"),
+    "medium": ("#F1C40F", "中"),
+    "low":    ("#E67E22", "低"),
+    "none":   ("#7F8C8D", "无"),
+}
+
+
+def _render_resonance_hunt_v1_legacy(df_scored_d: pd.DataFrame) -> None:
+    """旧版共振猎场（保留供 v1_legacy 模式回看，禁止再做新功能）。"""
+    st.markdown("---")
+    st.markdown("#### 🔗 共振猎场 v1 (legacy 只读) — 叙事 × 动量")
+    st.caption(
+        "v1_legacy：保留旧口径仅供对照。共振分 = ScorecardD × 叙事热度分 / 100。"
+    )
+    st.markdown("""
+    <div style='background:#1a1a1a; border-left:3px solid #E67E22;
+         padding:14px; margin-bottom:16px; font-size:14px; color:#ccc; border-radius:4px;'>
+    <b>共振公式（白盒）：</b><br><br>
+    <span style='color:#E67E22; font-weight:bold;'>共振分</span> =
+    <span style='color:#9B59B6;'>ScorecardD</span> ×
+    <span style='color:#2ECC71;'>叙事热度分</span> / 100<br><br>
+    <span style='color:#2ECC71;'>叙事热度分</span> =
+    <span style='color:#3498DB;'>L2 板块热力分</span> ×
+    <span style='color:#F1C40F;'>L3 匹配度</span><br><br>
+    <span style='color:#888; font-size:13px;'>
+    L3 匹配度 = 共现命中 L3 词的温度总和 / 该 L2 全部 L3 词温度总和。
+    </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    n_d = len(df_scored_d)
+    if n_d == 0:
+        return
+    _narr_l2l3_raw = []
+    with st.spinner("正在拉取叙事雷达数据…"):
+        _narr_resp = fetch_l2_l3_detail(days=7)
+        _narr_l2l3_raw = _narr_resp.get("data", [])
+    _narr_ranking = None
+    if _narr_l2l3_raw:
+        _max_pos_m = max(
+            (float(r.get("heat_momentum", 0)) for r in _narr_l2l3_raw
+             if float(r.get("heat_momentum", 0)) > 0),
+            default=1.0,
+        )
+        _narr_ranking = {}
+        for _nr in _narr_l2l3_raw:
+            _ch = float(_nr.get("composite_heat", 0))
+            _hm = float(_nr.get("heat_momentum", 0))
+            _mb = max(0.0, _hm) / max(_max_pos_m, 0.01)
+            _ns = round((0.6 * _ch + 0.4 * _mb) * 100, 1)
+            _tl3 = _nr.get("top_l3_keywords", [])
+            _narr_ranking[_nr.get("l2_sector", "")] = {
+                "score": _ns,
+                "top_l3_full": _tl3 if isinstance(_tl3, list) else [],
+            }
+    if not _narr_ranking:
+        st.warning("叙事雷达数据不可用（API 可能未就绪）。v1_legacy 区块跳过。")
+        return
+
+    _d_tickers = df_scored_d["Ticker"].tolist()
+    with st.spinner(f"正在查询 {len(_d_tickers)} 个 D 组标的的新闻共现关键词…"):
+        _cooc_batch = get_batch_ticker_cooccurrence(_d_tickers, days=7)
+
+    _resonance_rows = []
+    for _, _row in df_scored_d.iterrows():
+        _tk = _row["Ticker"]
+        _d_score = float(_row["竞技得分"])
+        _cooc_resp = _cooc_batch.get(_tk, {})
+        _cooc_data = _cooc_resp.get("data", [])
+        if isinstance(_cooc_data, dict):
+            _cooc_data = _cooc_data.get("keywords", [])
+        _cooc_kws = set()
+        if isinstance(_cooc_data, list):
+            for _ck in _cooc_data:
+                if isinstance(_ck, dict):
+                    _cooc_kws.add(_ck.get("keyword", "").strip().lower())
+                elif isinstance(_ck, str):
+                    _cooc_kws.add(_ck.strip().lower())
+        _best_l2 = ""
+        _best_narr_score = 0.0
+        _best_match_quality = 0.0
+        _best_matched_kws: list = []
+        _best_l2_score = 0.0
+        for _l2_name, _l2_info in _narr_ranking.items():
+            _l2_score = _l2_info["score"]
+            _l3_full = _l2_info.get("top_l3_full", [])
+            if not _l3_full:
+                continue
+            _total_burst = 0.0
+            _matched_burst = 0.0
+            _matched_words = []
+            for _l3 in _l3_full:
+                if not isinstance(_l3, dict):
+                    continue
+                _kw = _l3.get("keyword", "").strip().lower()
+                _br = float(_l3.get("burst_ratio", 0.0))
+                _total_burst += max(_br, 0.01)
+                if _kw and _kw in _cooc_kws:
+                    _matched_burst += max(_br, 0.01)
+                    _matched_words.append(_l3.get("keyword", ""))
+            _mq = (_matched_burst / _total_burst) if _total_burst > 0 else 0.0
+            _candidate_score = _l2_score * _mq
+            if _candidate_score > _best_narr_score:
+                _best_narr_score = _candidate_score
+                _best_l2 = _l2_name
+                _best_match_quality = _mq
+                _best_matched_kws = _matched_words
+                _best_l2_score = _l2_score
+        _resonance = round(_d_score * _best_narr_score / 100, 1) if _best_narr_score > 0 else 0.0
+        _resonance_rows.append({
+            "Ticker": _tk,
+            "名称": _row["名称"],
+            "D组动量分": round(_d_score, 1),
+            "匹配L2板块": _best_l2 or "—",
+            "L2热力分": round(_best_l2_score, 1),
+            "L3匹配度": round(_best_match_quality * 100, 1),
+            "叙事热度分": round(_best_narr_score, 1),
+            "共振分": _resonance,
+            "_matched_kws": _best_matched_kws,
+        })
+    _resonance_rows.sort(key=lambda x: -x["共振分"])
+    df_resonance = pd.DataFrame(_resonance_rows)
+    if df_resonance.empty:
+        st.info("当前 D 组与旧叙事雷达无共振命中。")
+        return
+    _display_cols = ["Ticker", "名称", "D组动量分", "匹配L2板块",
+                     "L2热力分", "L3匹配度", "叙事热度分", "共振分"]
+    st.markdown("##### 完整共振排行 (v1_legacy)")
+    st.dataframe(
+        df_resonance[_display_cols].style.format({
+            "D组动量分": "{:.0f}",
+            "L2热力分": "{:.0f}",
+            "L3匹配度": "{:.0f}%",
+            "叙事热度分": "{:.1f}",
+            "共振分": "{:.1f}",
+        }).background_gradient(subset=["共振分"], cmap="YlOrRd", vmin=0),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+def _render_resonance_health_banner(meta: dict) -> None:
+    """v2 顶部健康度 banner：anchor_date / engine_version / 全局 degraded 计数。"""
+    anchor_date = meta.get("anchor_date") or "未刷新"
+    engine_version = meta.get("engine_version", "")
+    cache_stats = meta.get("cache_stats", {}) or {}
+    zone_counts = meta.get("zone_counts", {}) or {}
+    degraded_counts = meta.get("degraded_counts", {}) or {}
+    cooc_days = meta.get("cooc_window_days", 14)
+    n_strong = zone_counts.get("STRONG_NARRATIVE", 0)
+    n_weak = zone_counts.get("WEAK_NARRATIVE", 0)
+    n_no = zone_counts.get("NO_NARRATIVE", 0)
+    cache_label = "缓存命中" if cache_stats.get("hit") else "本次重算"
+    cache_color = "#2ECC71" if cache_stats.get("hit") else "#F1C40F"
+
+    anchor_warn = ""
+    if anchor_date and anchor_date != "未刷新":
+        try:
+            _ad = datetime.strptime(anchor_date, "%Y-%m-%d").date()
+            _gap = (datetime.now().date() - _ad).days
+            if _gap > 30:
+                anchor_warn = f" <span style='color:#E74C3C;'>⚠ 距今 {_gap} 天，建议刷新锚点</span>"
+            else:
+                anchor_warn = f" <span style='color:#7F8C8D;'>(距今 {_gap} 天)</span>"
+        except Exception:
+            pass
+
+    degraded_total = sum(int(v) for v in degraded_counts.values())
+    deg_color = "#E74C3C" if degraded_total > 0 else "#7F8C8D"
+
+    st.markdown(
+        f"""
+        <div style='background:#11161c; border:1px solid #2a3038; border-radius:8px;
+             padding:14px 18px; margin:8px 0 14px 0; font-size:13px; color:#ccc;
+             display:grid; grid-template-columns:repeat(4,1fr); gap:14px;'>
+            <div>
+                <div style='color:#7F8C8D; font-size:13px;'>锚点日期 (Z<sub>A</sub>/Z<sub>C</sub>/Z<sub>S</sub>)</div>
+                <div style='font-size:15px; font-weight:bold; color:#eee;'>{anchor_date}{anchor_warn}</div>
+            </div>
+            <div>
+                <div style='color:#7F8C8D; font-size:13px;'>三栏分布 STRONG / WEAK / NO</div>
+                <div style='font-size:15px; font-weight:bold; color:#eee;'>
+                    <span style='color:#E67E22;'>{n_strong}</span> /
+                    <span style='color:#F1C40F;'>{n_weak}</span> /
+                    <span style='color:#7F8C8D;'>{n_no}</span>
+                </div>
+            </div>
+            <div>
+                <div style='color:#7F8C8D; font-size:13px;'>桥梁降级总数 (cooc {cooc_days}d)</div>
+                <div style='font-size:15px; font-weight:bold; color:{deg_color};'>{degraded_total}</div>
+            </div>
+            <div>
+                <div style='color:#7F8C8D; font-size:13px;'>计算来源</div>
+                <div style='font-size:15px; font-weight:bold; color:{cache_color};'>{cache_label}</div>
+            </div>
+        </div>
+        <div style='font-size:13px; color:#666; margin-bottom:10px;'>
+            engine_version: <code style='color:#888;'>{engine_version}</code>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if degraded_counts:
+        with st.expander(f"🔧 全局降级原因明细（{degraded_total} 次）", expanded=False):
+            for _reason, _cnt in sorted(degraded_counts.items(), key=lambda x: -x[1]):
+                st.markdown(
+                    f"<div style='font-size:13px; color:#bbb; padding:2px 0;'>"
+                    f"• <code style='color:#E67E22;'>{_reason}</code> · {_cnt} 次</div>",
+                    unsafe_allow_html=True,
+                )
+
+
+def _render_resonance_main_table(rows: list[dict]) -> None:
+    """v2 共振主表（显式 for 循环渲染，符合架构约束）。"""
+    if not rows:
+        st.info("D 组当前无候选标的。")
+        return
+    header_html = (
+        "<div style='display:flex; align-items:center; border-bottom:2px solid #333;"
+        " color:#888; font-size:13px; padding:8px 0; font-weight:bold;'>"
+        "<div style='width:60px;'>共振#</div>"
+        "<div style='width:140px;'>资产</div>"
+        "<div style='width:80px; text-align:right;'>ScorecardD</div>"
+        "<div style='width:90px; text-align:right;'>NarrativeScore</div>"
+        "<div style='width:90px; text-align:right;'>Resonance</div>"
+        "<div style='width:140px;'>主 L2</div>"
+        "<div style='width:120px;'>分区</div>"
+        "<div style='width:120px;'>桥梁/置信</div>"
+        "<div style='width:90px; text-align:right;'>排名变化</div>"
+        "</div>"
+    )
+    rows_html = ""
+    for r in rows:
+        zone = r.get("zone", "NO_NARRATIVE")
+        zmeta = _RES_ZONE_META.get(zone, _RES_ZONE_META["NO_NARRATIVE"])
+        conf = r.get("bridge_confidence", "none")
+        conf_color, conf_label = _RES_CONF_BADGE.get(conf, _RES_CONF_BADGE["none"])
+        delta = r.get("rank_delta", 0)
+        if delta > 0:
+            delta_html = f"<span style='color:#2ECC71;'>↑{delta}</span>"
+        elif delta < 0:
+            delta_html = f"<span style='color:#E74C3C;'>↓{abs(delta)}</span>"
+        else:
+            delta_html = "<span style='color:#7F8C8D;'>—</span>"
+        top_l2 = (r.get("top_l2") or {}).get("l2_sector") or r.get("top_l2_sector") or "—"
+        _top = r.get("top_l2") or {}
+        primary = (_top.get("primary_bridge") or "—").upper()
+        rows_html += (
+            "<div style='display:flex; align-items:center; border-bottom:1px solid #1e1e1e; padding:8px 0; font-size:14px;'>"
+            f"<div style='width:60px; color:#aaa; font-weight:bold;'>#{r.get('resonance_rank', '?')}</div>"
+            "<div style='width:140px; display:flex; flex-direction:column; gap:2px;'>"
+            f"<span style='font-weight:bold; color:#eee;'>{r['Ticker']}</span>"
+            f"<span style='font-size:13px; color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>{r.get('名称', '')}</span>"
+            "</div>"
+            f"<div style='width:80px; text-align:right; color:#9B59B6; font-weight:bold;'>{r.get('ScorecardD', 0):.1f}</div>"
+            f"<div style='width:90px; text-align:right; color:#3498DB; font-weight:bold;'>{r.get('NarrativeScore', 0):.1f}</div>"
+            f"<div style='width:90px; text-align:right; color:{zmeta['color']}; font-weight:bold; font-size:15px;'>{r.get('Resonance', 0):.1f}</div>"
+            f"<div style='width:140px; color:#bbb; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' title='{top_l2}'>{top_l2}</div>"
+            f"<div style='width:120px;'>"
+            f"<span style='background:{zmeta['bg']}; color:{zmeta['color']}; border:1px solid {zmeta['color']}55;"
+            f" border-radius:4px; padding:2px 8px; font-size:13px; font-weight:bold; white-space:nowrap;'>{zmeta['label']}</span>"
+            "</div>"
+            f"<div style='width:120px; display:flex; align-items:center; gap:6px; white-space:nowrap;'>"
+            f"<span style='color:#3498DB; font-weight:bold; font-size:14px; min-width:14px;'>{primary}</span>"
+            f"<span style='background:{conf_color}22; color:{conf_color}; border:1px solid {conf_color}55;"
+            f" border-radius:4px; padding:2px 6px; font-size:13px;'>{conf_label}</span>"
+            "</div>"
+            f"<div style='width:90px; text-align:right;'>{delta_html}</div>"
+            "</div>"
+        )
+    st.markdown(
+        f"<div style='width:100%;'>{header_html}{rows_html}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_resonance_whitebox(row: dict, meta: dict) -> None:
+    """v2 单 ticker 白盒展开：Top-3 L2 + 各乘子 + 桥梁 raw + per-bridge degraded + hash 回显。"""
+    detail = row.get("detail") or {}
+    top3 = detail.get("top3_l2") or []
+    anchors = detail.get("anchors") or meta.get("anchors") or {}
+    eng_v = detail.get("engine_version") or meta.get("engine_version", "")
+    hash_v = detail.get("input_hash") or meta.get("input_hash", "")
+
+    if not top3:
+        st.markdown(
+            "<div style='font-size:14px; color:#888;'>暂无 L2 因子分解（可能 D 组当日无叙事数据）。</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    st.markdown(
+        f"<div style='font-size:13px; color:#666; margin-bottom:8px;'>"
+        f"engine_version: <code>{eng_v}</code> · input_hash: <code>{hash_v[:16]}…</code></div>",
+        unsafe_allow_html=True,
+    )
+
+    z_a = anchors.get("z_a", 0.0)
+    z_c = anchors.get("z_c", 0.0)
+    z_s = anchors.get("z_s", 0.0)
+    st.markdown(
+        f"<div style='font-size:13px; color:#888; margin-bottom:8px;'>"
+        f"锚点 Z<sub>A</sub>={z_a:.2f} · Z<sub>C</sub>={z_c:.2f} · Z<sub>S</sub>={z_s:.2f} "
+        f"· 锚点日期 {anchors.get('anchor_date', '—')}</div>",
+        unsafe_allow_html=True,
+    )
+
+    for idx, l2 in enumerate(top3, start=1):
+        l2_name = l2.get("l2_sector", "—")
+        f_score = float(l2.get("f", 0.0) or 0.0)
+        vs_v = float(l2.get("vs", 0.0) or 0.0)
+        ms_v = float(l2.get("ms", 0.0) or 0.0)
+        d_v = float(l2.get("D", 0.0) or 0.0)
+        m_v = float(l2.get("M", 0.0) or 0.0)
+        p_v = float(l2.get("P_conc", 0.0) or 0.0)
+        a_v = float(l2.get("A", 0.0) or 0.0)
+        c_v = float(l2.get("C", 0.0) or 0.0)
+        s_v = float(l2.get("S", 0.0) or 0.0)
+        b_v = float(l2.get("B", 0.0) or 0.0)
+        raw_a = float(l2.get("raw_A_effective", l2.get("raw_A_unweighted", 0.0)) or 0.0)
+        raw_c = float(l2.get("raw_C", 0.0) or 0.0)
+        primary = l2.get("primary_bridge", "none")
+        eligible = bool(l2.get("eligible_for_strong"))
+        gate_reason = l2.get("gate_reason", "")
+        conf = l2.get("bridge_confidence", "none")
+        conf_color, conf_label = _RES_CONF_BADGE.get(conf, _RES_CONF_BADGE["none"])
+        deg = l2.get("degraded") or {}
+        deg_html = ""
+        for _bk in ("A", "C", "S", "factor"):
+            _val = deg.get(_bk)
+            if not _val:
+                continue
+            if isinstance(_val, list):
+                _val = ", ".join(_val)
+            deg_html += (
+                f"<span style='display:inline-block; background:#3a1a1a; color:#E67E22;"
+                f" border:1px solid #E67E2255; border-radius:4px; padding:2px 6px;"
+                f" font-size:13px; margin:2px 4px 2px 0;'>{_bk}:{_val}</span>"
+            )
+        if not deg_html:
+            deg_html = "<span style='color:#7F8C8D; font-size:13px;'>无降级</span>"
+
+        rank_label = ["主线", "副线", "三线"][idx - 1] if idx <= 3 else f"#{idx}"
+
+        st.markdown(
+            f"""
+            <div style='background:#11161c; border-left:3px solid #3498DB;
+                 padding:10px 14px; margin:8px 0; border-radius:4px;'>
+                <div style='display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;'>
+                    <div style='font-size:14px; font-weight:bold; color:#eee;'>
+                        {rank_label} · {l2_name}
+                    </div>
+                    <div style='font-size:13px; color:#bbb;'>
+                        f = <b style='color:#E67E22;'>{f_score:.2f}</b>
+                        · 主桥 <b style='color:#3498DB;'>{primary}</b>
+                        · <span style='background:{conf_color}22; color:{conf_color};
+                                 border:1px solid {conf_color}55; border-radius:3px;
+                                 padding:1px 6px; font-size:13px;'>{conf_label}</span>
+                    </div>
+                </div>
+                <div style='font-size:14px; color:#bbb; line-height:1.9;'>
+                    <span style='color:#888;'>VS</span>=<b>{vs_v:.1f}</b> ·
+                    <span style='color:#888;'>MS</span>=<b>{ms_v:+.1f}</b> ·
+                    <span style='color:#888;'>D</span>=<b>{d_v:.3f}</b> ·
+                    <span style='color:#888;'>M</span>=<b>{m_v:.3f}</b> ·
+                    <span style='color:#888;'>P_conc</span>=<b>{p_v:.3f}</b> ·
+                    <span style='color:#888;'>B</span>=<b style='color:#3498DB;'>{b_v:.3f}</b>
+                </div>
+                <div style='font-size:14px; color:#bbb; line-height:1.9;'>
+                    <span style='color:#888;'>A</span>=<b>{a_v:.3f}</b>
+                    (raw <code style='color:#666;'>{raw_a:.3f}</code> / Z<sub>A</sub>) ·
+                    <span style='color:#888;'>C</span>=<b>{c_v:.3f}</b>
+                    (raw <code style='color:#666;'>{raw_c:.3f}</code> / Z<sub>C</sub>) ·
+                    <span style='color:#888;'>S</span>=<b>{s_v:.3f}</b>
+                </div>
+                <div style='font-size:13px; color:#888; margin-top:4px;'>
+                    门槛判定: {'<b style="color:#2ECC71;">通过</b>' if eligible else '<b style="color:#E67E22;">未达 STRONG 门槛</b>'} · {gate_reason}
+                </div>
+                <div style='font-size:13px; margin-top:6px;'>降级标签: {deg_html}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_resonance_zone_block(zone_key: str, rows: list[dict], meta: dict) -> None:
+    """三栏分区 expander：每行可点开看白盒；NO_NARRATIVE 区配 CTA 跳 Page2。"""
+    zmeta = _RES_ZONE_META[zone_key]
+    if not rows:
+        with st.expander(f"{zmeta['label']} · 0 个标的", expanded=False):
+            st.caption("当前分区暂无成员。")
+        return
+    with st.expander(f"{zmeta['label']} · {len(rows)} 个标的", expanded=(zone_key == "STRONG_NARRATIVE")):
+        for r in rows:
+            tk = r["Ticker"]
+            top_l2 = (r.get("top_l2") or {}).get("l2_sector") or r.get("top_l2_sector") or "—"
+            conf = r.get("bridge_confidence", "none")
+            conf_color, conf_label = _RES_CONF_BADGE.get(conf, _RES_CONF_BADGE["none"])
+            cols = st.columns([3, 2, 2, 2, 3] if zone_key == "NO_NARRATIVE" else [3, 2, 2, 3])
+            with cols[0]:
+                st.markdown(
+                    f"<div style='font-size:14px; padding-top:4px;'>"
+                    f"<b style='color:#eee; font-size:15px;'>{tk}</b> "
+                    f"<span style='color:#888;'>· {r.get('名称', '')}</span></div>",
+                    unsafe_allow_html=True,
+                )
+            with cols[1]:
+                st.markdown(
+                    f"<div style='font-size:14px; color:#bbb; padding-top:4px;'>"
+                    f"主 L2: <b style='color:#3498DB;'>{top_l2}</b></div>",
+                    unsafe_allow_html=True,
+                )
+            with cols[2]:
+                st.markdown(
+                    f"<div style='font-size:14px; padding-top:4px;'>"
+                    f"Resonance <b style='color:{zmeta['color']};'>{r.get('Resonance', 0):.1f}</b> · "
+                    f"<span style='background:{conf_color}22; color:{conf_color};"
+                    f" border:1px solid {conf_color}55; border-radius:3px; padding:1px 6px;"
+                    f" font-size:13px;'>{conf_label}</span></div>",
+                    unsafe_allow_html=True,
+                )
+            if zone_key == "NO_NARRATIVE":
+                with cols[3]:
+                    if st.button("→ 添加关联词", key=f"res_cta_{tk}", use_container_width=True):
+                        try:
+                            st.query_params.update({"ticker": tk, "tab": "affinity"})
+                        except Exception:
+                            pass
+                        try:
+                            st.switch_page("pages/2_舆情监控.py")
+                        except Exception:
+                            st.session_state["_affinity_focus_ticker"] = tk
+                            st.info("请手动切换到 Page 2 → 词典管理 → Ticker 关联词管理。")
+                with cols[4]:
+                    expander = st.expander("白盒分解", expanded=False)
+            else:
+                with cols[3]:
+                    expander = st.expander("白盒分解", expanded=False)
+            with expander:
+                _render_resonance_whitebox(r, meta)
+
+
+def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None = None) -> None:
+    """v2 叙事增强 D 组候选榜（主入口）。"""
+    if df_scored_d is None or df_scored_d.empty:
+        return
+    st.markdown("---")
+    st.markdown("#### 🎯 叙事增强 D 组候选榜 v2.0 — 三桥共振")
+    st.caption("Resonance = √(ScorecardD × NarrativeScore)；NarrativeScore 由 Affinity / Cooc / SectorPrior 三桥聚合。")
+
+    candidates = []
+    for _, _row in df_scored_d.iterrows():
+        candidates.append({
+            "ticker": str(_row["Ticker"]).strip().upper(),
+            "name": _row.get("名称", ""),
+            "scorecard_d": float(_row["竞技得分"]),
+            "scorecard_rank": int(_row.get("排名") or 0),
+        })
+    if not candidates:
+        st.info("D 组当前无候选。")
+        return
+
+    with st.spinner(f"正在调用后端三桥共振引擎（{len(candidates)} 只标的）…"):
+        resp = post_narrative_resonance_d(
+            candidates,
+            calc_date=calc_date,
+            feature_mode="v2_on",
+            cooc_window_days=14,
+        )
+
+    if not resp.get("success"):
+        st.error(
+            f"叙事共振引擎调用失败：{resp.get('error', '未知')}。"
+            "请检查 RESONANCE_INTERNAL_TOKEN 是否配置 + 后端 anchors / keyword_weight_daily 是否就绪。"
+        )
+        return
+
+    rows = resp.get("data", []) or []
+    meta = resp.get("meta", {}) or {}
+    _render_resonance_health_banner(meta)
+
+    if not rows:
+        st.info("后端返回空数据（可能 feature_mode=v2_off 或当日无候选）。")
+        return
+
+    st.markdown("##### 共振主榜")
+    _render_resonance_main_table(rows)
+
+    strong_rows = [r for r in rows if r.get("zone") == "STRONG_NARRATIVE"]
+    weak_rows = [r for r in rows if r.get("zone") == "WEAK_NARRATIVE"]
+    no_rows = [r for r in rows if r.get("zone") == "NO_NARRATIVE"]
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("##### 三栏分区（可点开看白盒分解）")
+    _render_resonance_zone_block("STRONG_NARRATIVE", strong_rows, meta)
+    _render_resonance_zone_block("WEAK_NARRATIVE", weak_rows, meta)
+    _render_resonance_zone_block("NO_NARRATIVE", no_rows, meta)
+
+    qp = st.query_params
+    debug_flag = qp.get("debug")
+    if debug_flag == "resonance":
+        st.markdown("---")
+        st.markdown("##### 🔬 watch_only 调试模式（仅 ?debug=resonance 时启用）")
+        _debug_tk_default = candidates[0]["ticker"] if candidates else ""
+        _debug_tk = st.text_input("Debug ticker", value=_debug_tk_default, key="res_debug_ticker").strip().upper()
+        _debug_score = st.number_input(
+            "Debug ScorecardD（用于 fixture 调试）",
+            min_value=0.0, max_value=100.0, value=80.0, step=1.0, key="res_debug_score",
+        )
+        if st.button("运行 debug endpoint", key="res_debug_btn"):
+            with st.spinner(f"调用 debug endpoint：{_debug_tk}…"):
+                _dbg = debug_narrative_resonance_d(
+                    _debug_tk, calc_date=calc_date,
+                    scorecard_d=_debug_score, feature_mode="v2_on",
+                )
+            if _dbg.get("success"):
+                st.json(_dbg)
+            else:
+                st.error(f"debug 失败：{_dbg.get('error', '未知')}")
+
+
+# ─────────────────────────────────────────────────────────────────
 #  UI：B 组专属颁奖台（展示股息率/最大回撤/夏普三维指标）
 # ─────────────────────────────────────────────────────────────────
 _B_FACTOR_COLORS = ["#F39C12", "#3498DB", "#2ECC71", "#E67E22", "#9B59B6", "#E74C3C", "#1ABC9C"]
@@ -2348,6 +2882,25 @@ with st.sidebar:
         format_func=lambda x: f"{x} — {_regime_labels[x]}",
         index=_default_raw_idx,
     )
+    _res_mode_options = ["v2_on", "v2_off", "v1_legacy"]
+    _res_mode_default = os.environ.get("ENABLE_NARRATIVE_RESONANCE_V2", "v2_on").strip()
+    if _res_mode_default not in _res_mode_options:
+        _res_mode_default = "v2_on"
+    _res_mode_current = st.session_state.get("narrative_resonance_v2_mode", _res_mode_default)
+    if _res_mode_current not in _res_mode_options:
+        _res_mode_current = _res_mode_default
+    narrative_resonance_mode = st.selectbox(
+        "叙事增强 D 组榜",
+        options=_res_mode_options,
+        index=_res_mode_options.index(_res_mode_current),
+        format_func=lambda x: {
+            "v2_on": "v2_on — 新叙事增强榜",
+            "v2_off": "v2_off — 仅保留 ScorecardD",
+            "v1_legacy": "v1_legacy — 旧共振只读回看",
+        }.get(x, x),
+        help="v2_on 使用三桥叙事增强系统；v2_off 不显示叙事榜；v1_legacy 仅用于对照旧口径。",
+    )
+    st.session_state["narrative_resonance_v2_mode"] = narrative_resonance_mode
     st.markdown("---")
     st.header("🛠️ 系统维护")
     if st.button("🔄 仅清除当前页缓存"):
@@ -3322,248 +3875,12 @@ elif _sel4 == "D":
         # ── 完整排行榜 ─────────────────────────────────────────────
         _render_leaderboard_d(df_scored_d)
 
-        # ── 共振猎场 — 叙事动量 × 价格动量 交叉验证 ──────────────
-        st.markdown("---")
-        st.markdown("#### 🔗 共振猎场 — 叙事 × 动量 交叉验证")
-        st.caption(
-            "共振分 = ScorecardD 动量分 × 叙事热度分 / 100。"
-            "叙事热度分 = L2 板块热力分 × L3 关键词匹配度。"
-            "仅当价格动量与叙事热度同时拉满时才会排名靠前，"
-            "过滤掉\"有动量无故事\"或\"有故事无动量\"的噪音。"
-        )
-
-        # White-box formula
-        st.markdown("""
-        <div style='background:#1a1a1a; border-left:3px solid #E67E22;
-             padding:14px; margin-bottom:16px; font-size:14px; color:#ccc; border-radius:4px;'>
-        <b>共振公式（白盒）：</b><br><br>
-        <span style='color:#E67E22; font-weight:bold;'>共振分</span> =
-        <span style='color:#9B59B6;'>ScorecardD</span> ×
-        <span style='color:#2ECC71;'>叙事热度分</span> / 100<br><br>
-        <span style='color:#2ECC71;'>叙事热度分</span> =
-        <span style='color:#3498DB;'>L2 板块热力分</span> ×
-        <span style='color:#F1C40F;'>L3 匹配度</span><br><br>
-        <span style='color:#888; font-size:13px;'>
-        L3 匹配度 = 共现命中 L3 词的温度总和 / 该 L2 全部 L3 词温度总和。<br>
-        通过新闻共现（co-occurrence）动态关联 Ticker 与关键词，无需硬编码映射。
-        </span>
-        </div>
-        """, unsafe_allow_html=True)
-
-        if n_d > 0:
-            # --- 始终走 API 获取叙事热度排行（消灭 Page 2 -> Page 3 session_state 依赖）---
-            _narr_ranking = None
-            _narr_l2l3_raw = None
-            with st.spinner("正在拉取叙事雷达数据…"):
-                _narr_resp = fetch_l2_l3_detail(days=7)
-                _narr_l2l3_raw = _narr_resp.get("data", [])
-            if _narr_l2l3_raw:
-                    _max_pos_m = max(
-                        (float(r.get("heat_momentum", 0)) for r in _narr_l2l3_raw
-                         if float(r.get("heat_momentum", 0)) > 0),
-                        default=1.0,
-                    )
-                    _narr_ranking = {}
-                    for _nr in _narr_l2l3_raw:
-                        _ch = float(_nr.get("composite_heat", 0))
-                        _hm = float(_nr.get("heat_momentum", 0))
-                        _mb = max(0.0, _hm) / max(_max_pos_m, 0.01)
-                        _ns = round((0.6 * _ch + 0.4 * _mb) * 100, 1)
-                        _tl3 = _nr.get("top_l3_keywords", [])
-                        _narr_ranking[_nr.get("l2_sector", "")] = {
-                            "score": _ns,
-                            "heat": _ch,
-                            "momentum": _hm,
-                            "mention_count": int(_nr.get("mention_count", 0)),
-                            "heat_type": _nr.get("heat_type", "distributed"),
-                            "active_l3_count": int(_nr.get("active_l3_count", 0)),
-                            "total_l3_count": int(_nr.get("total_l3_count", 0)),
-                            "heat_concentration": float(_nr.get("heat_concentration", 0)),
-                            "signal_weight_sum": float(_nr.get("signal_weight_sum", 0)),
-                            "tier_distribution": _nr.get("tier_distribution", {}),
-                            "top_l3": [kw.get("keyword", "") for kw in (_tl3 or [])[:3] if isinstance(kw, dict)],
-                            "top_l3_full": _tl3 if isinstance(_tl3, list) else [],
-                        }
-
-            if _narr_ranking:
-                # --- Batch fetch co-occurrence for all D-group tickers ---
-                _d_tickers = df_scored_d["Ticker"].tolist()
-                with st.spinner(f"正在查询 {len(_d_tickers)} 个 D 组标的的新闻共现关键词…"):
-                    _cooc_batch = get_batch_ticker_cooccurrence(_d_tickers, days=7)
-
-                # --- Compute resonance for each ticker ---
-                _resonance_rows = []
-                for _, _row in df_scored_d.iterrows():
-                    _tk = _row["Ticker"]
-                    _d_score = float(_row["竞技得分"])
-
-                    # Extract co-occurring keywords for this ticker
-                    _cooc_resp = _cooc_batch.get(_tk, {})
-                    _cooc_data = _cooc_resp.get("data", [])
-                    if isinstance(_cooc_data, dict):
-                        _cooc_data = _cooc_data.get("keywords", [])
-                    _cooc_kws = set()
-                    if isinstance(_cooc_data, list):
-                        for _ck in _cooc_data:
-                            if isinstance(_ck, dict):
-                                _cooc_kws.add(_ck.get("keyword", "").strip().lower())
-                            elif isinstance(_ck, str):
-                                _cooc_kws.add(_ck.strip().lower())
-
-                    # Match against each L2 sector's L3 keywords
-                    _best_l2 = ""
-                    _best_narr_score = 0.0
-                    _best_match_quality = 0.0
-                    _best_matched_kws = []
-                    _best_l2_score = 0.0
-
-                    for _l2_name, _l2_info in _narr_ranking.items():
-                        _l2_score = _l2_info["score"]
-                        _l3_full = _l2_info.get("top_l3_full", [])
-                        if not _l3_full:
-                            continue
-
-                        _total_burst = 0.0
-                        _matched_burst = 0.0
-                        _matched_words = []
-                        for _l3 in _l3_full:
-                            if not isinstance(_l3, dict):
-                                continue
-                            _kw = _l3.get("keyword", "").strip().lower()
-                            _br = float(_l3.get("burst_ratio", 0.0))
-                            _total_burst += max(_br, 0.01)
-                            if _kw and _kw in _cooc_kws:
-                                _matched_burst += max(_br, 0.01)
-                                _matched_words.append(_l3.get("keyword", ""))
-
-                        _mq = (_matched_burst / _total_burst) if _total_burst > 0 else 0.0
-                        _candidate_score = _l2_score * _mq
-
-                        if _candidate_score > _best_narr_score:
-                            _best_narr_score = _candidate_score
-                            _best_l2 = _l2_name
-                            _best_match_quality = _mq
-                            _best_matched_kws = _matched_words
-                            _best_l2_score = _l2_score
-
-                    _resonance = round(_d_score * _best_narr_score / 100, 1) if _best_narr_score > 0 else 0.0
-
-                    _resonance_rows.append({
-                        "Ticker": _tk,
-                        "名称": _row["名称"],
-                        "D组动量分": round(_d_score, 1),
-                        "匹配L2板块": _best_l2 or "—",
-                        "L2热力分": round(_best_l2_score, 1),
-                        "L3匹配度": round(_best_match_quality * 100, 1),
-                        "叙事热度分": round(_best_narr_score, 1),
-                        "共振分": _resonance,
-                        "_matched_kws": _best_matched_kws,
-                    })
-
-                _resonance_rows.sort(key=lambda x: -x["共振分"])
-                df_resonance = pd.DataFrame(_resonance_rows)
-
-                # --- Display: metric cards for top resonance ---
-                _has_resonance = any(r["共振分"] > 0 for r in _resonance_rows)
-                if _has_resonance:
-                    _top3_res = [r for r in _resonance_rows if r["共振分"] > 0][:3]
-                    _medal_res = ["🥇", "🥈", "🥉"]
-                    _medal_clr_res = ["#FFD700", "#C0C0C0", "#CD7F32"]
-                    _cols_res = st.columns(min(3, len(_top3_res)))
-                    for _ri, _rr in enumerate(_top3_res):
-                        with _cols_res[_ri]:
-                            _kw_display = ", ".join(_rr["_matched_kws"][:4]) if _rr["_matched_kws"] else "—"
-                            st.markdown(f"""
-                            <div style='background:#1a1200; border:1px solid {_medal_clr_res[_ri]}44;
-                                 border-radius:10px; padding:16px; text-align:center;'>
-                                <div style='font-size:28px;'>{_medal_res[_ri]}</div>
-                                <div style='font-size:22px; font-weight:bold; color:#eee;'>{_rr['Ticker']}</div>
-                                <div style='font-size:13px; color:#aaa;'>{_rr['名称']}</div>
-                                <div style='font-size:30px; font-weight:bold; color:#E67E22;
-                                     margin:8px 0 4px 0;'>{_rr['共振分']:.0f}</div>
-                                <div style='font-size:13px; color:#888;'>共振分</div>
-                                <hr style='border-color:#333; margin:10px 0;'>
-                                <div style='font-size:13px; text-align:left; line-height:2; color:#bbb;'>
-                                    <span style='color:#888;'>D组动量分</span>
-                                    <span style='color:#9B59B6; font-weight:bold; float:right;'>{_rr['D组动量分']:.0f}</span><br>
-                                    <span style='color:#888;'>匹配板块</span>
-                                    <span style='color:#3498DB; float:right;'>{_rr['匹配L2板块']}</span><br>
-                                    <span style='color:#888;'>L2热力分</span>
-                                    <span style='color:#2ECC71; float:right;'>{_rr['L2热力分']:.0f}</span><br>
-                                    <span style='color:#888;'>L3匹配度</span>
-                                    <span style='color:#F1C40F; float:right;'>{_rr['L3匹配度']:.0f}%</span><br>
-                                    <span style='color:#888;'>叙事热度分</span>
-                                    <span style='color:#2ECC71; font-weight:bold; float:right;'>{_rr['叙事热度分']:.1f}</span><br>
-                                </div>
-                                <hr style='border-color:#333; margin:10px 0;'>
-                                <div style='font-size:13px; color:#E67E22;'>
-                                    命中词: {_kw_display}
-                                </div>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                    # --- Full resonance table ---
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    st.markdown("##### 完整共振排行")
-                    _display_cols = ["Ticker", "名称", "D组动量分", "匹配L2板块",
-                                     "L2热力分", "L3匹配度", "叙事热度分", "共振分"]
-                    st.dataframe(
-                        df_resonance[_display_cols].style.format({
-                            "D组动量分": "{:.0f}",
-                            "L2热力分": "{:.0f}",
-                            "L3匹配度": "{:.0f}%",
-                            "叙事热度分": "{:.1f}",
-                            "共振分": "{:.1f}",
-                        }).background_gradient(
-                            subset=["共振分"], cmap="YlOrRd", vmin=0
-                        ),
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-                    # --- Per-ticker white-box attribution ---
-                    with st.expander("🔍 逐标的共振归因明细（白盒化）"):
-                        for _rr in _resonance_rows:
-                            if _rr["共振分"] <= 0:
-                                continue
-                            _kw_list = _rr["_matched_kws"]
-                            _kw_html = " ".join(
-                                f"<span style='background:#E67E2222; color:#E67E22; "
-                                f"border:1px solid #E67E2255; border-radius:3px; "
-                                f"padding:1px 6px; font-size:13px;'>{w}</span>"
-                                for w in _kw_list
-                            ) if _kw_list else "<span style='color:#666;'>无命中</span>"
-                            st.markdown(f"""
-                            <div style='background:#1a1a1a; border-left:3px solid #E67E22;
-                                 padding:12px; margin-bottom:10px; border-radius:4px;'>
-                                <b style='color:#eee; font-size:15px;'>{_rr['Ticker']}</b>
-                                <span style='color:#888; font-size:13px;'>({_rr['名称']})</span>
-                                <span style='color:#E67E22; font-weight:bold; float:right;
-                                       font-size:15px;'>共振分 {_rr['共振分']:.1f}</span>
-                                <div style='margin-top:8px; font-size:13px; color:#bbb; line-height:1.8;'>
-                                    D组动量分 <b style='color:#9B59B6;'>{_rr['D组动量分']:.0f}</b>
-                                    × 叙事热度分 <b style='color:#2ECC71;'>{_rr['叙事热度分']:.1f}</b>
-                                    / 100
-                                    = <b style='color:#E67E22;'>{_rr['共振分']:.1f}</b><br>
-                                    叙事热度分 = L2「{_rr['匹配L2板块']}」热力分 <b style='color:#3498DB;'>{_rr['L2热力分']:.0f}</b>
-                                    × L3 匹配度 <b style='color:#F1C40F;'>{_rr['L3匹配度']:.0f}%</b>
-                                </div>
-                                <div style='margin-top:6px;'>共现命中 L3 词: {_kw_html}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                else:
-                    st.info(
-                        "当前 D 组标的与叙事雷达热词无共振命中。"
-                        "可能原因：1) 新闻共现数据尚未覆盖这些标的；"
-                        "2) D 组标的与当前热点叙事主题暂无交集。"
-                        "D 组 ScorecardD 纯动量排名仍然有效。"
-                    )
-            else:
-                st.warning(
-                    "叙事雷达数据不可用（API 可能未就绪）。"
-                    "共振排行暂时跳过，D 组 ScorecardD 排名不受影响。"
-                )
+        # ── 叙事增强 D 组榜（v2 三桥共振 / v1_legacy 旧猎场 / v2_off 静默）──
+        _resonance_mode = st.session_state.get("narrative_resonance_v2_mode", "v2_on")
+        if _resonance_mode == "v2_on":
+            _render_resonance_board_v2(df_scored_d)
+        elif _resonance_mode == "v1_legacy":
+            _render_resonance_hunt_v1_legacy(df_scored_d)
 
         st.markdown("---")
 

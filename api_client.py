@@ -15,17 +15,19 @@ import platform
 
 # URL 优先级：环境变量 RADAR_API_URL > USE_LOCAL_API 强制本地 > 默认生产地址
 # 本地调试时，请设置 USE_LOCAL_API=true 或 RADAR_API_URL=http://localhost:8000
+LOCAL_API_URL = "http://localhost:8000"
+DEFAULT_REMOTE_API_URL = "https://valuation-radar-server.onrender.com"
 _env_url = os.environ.get("RADAR_API_URL", "").strip()
 if _env_url:
     API_BASE_URL = _env_url
 elif os.environ.get("USE_LOCAL_API") == "true":
-    API_BASE_URL = "http://localhost:8000"
+    API_BASE_URL = LOCAL_API_URL
 else:
-    API_BASE_URL = "https://valuation-radar-server.onrender.com"
+    API_BASE_URL = DEFAULT_REMOTE_API_URL
 
-# True 当且仅当通过 RADAR_API_URL 显式指向远程生产环境（非 localhost）
-# 用于在前端层面阻断对生产数据库的危险写操作
-IS_PROD_REMOTE = bool(_env_url) and "localhost" not in _env_url
+# 当前连接目标的显式判定，用于页面展示与危险写保护。
+IS_LOCAL_API = "localhost" in API_BASE_URL or "127.0.0.1" in API_BASE_URL
+IS_PROD_REMOTE = not IS_LOCAL_API
 
 @st.cache_data(ttl=3600)
 def fetch_core_data():
@@ -1126,6 +1128,60 @@ def _narrative_post(path, json=None, params=None, timeout=60):
         return {"success": False, "error": str(e)}
 
 
+def _internal_headers() -> dict:
+    token = (
+        os.environ.get("RESONANCE_INTERNAL_TOKEN", "").strip()
+        or st.secrets.get("RESONANCE_INTERNAL_TOKEN", "")
+        if hasattr(st, "secrets")
+        else ""
+    )
+    return {"X-Internal-Token": token} if token else {}
+
+
+def post_narrative_resonance_d(candidates, calc_date=None, feature_mode="v2_on", cooc_window_days=14):
+    """计算 D 组叙事增强共振榜。前端只传 ScorecardD 结果，后端负责三桥与叙事因子。"""
+    payload = {
+        "d_candidates": candidates,
+        "feature_mode": feature_mode,
+        "cooc_window_days": cooc_window_days,
+    }
+    if calc_date:
+        payload["calc_date"] = str(calc_date)
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/screener/narrative_resonance_d",
+            json=payload,
+            headers=_internal_headers(),
+            timeout=90,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def debug_narrative_resonance_d(ticker, calc_date=None, scorecard_d=80.0, feature_mode="v2_on"):
+    """单 ticker 全链路白盒调试，用于 Page3 expander 或本地核验。"""
+    params = {
+        "ticker": ticker,
+        "scorecard_d": scorecard_d,
+        "feature_mode": feature_mode,
+    }
+    if calc_date:
+        params["calc_date"] = str(calc_date)
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/screener/narrative_resonance_d/debug",
+            params=params,
+            headers=_internal_headers(),
+            timeout=45,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def trigger_narrative_pipeline(target_date=None):
     payload = {}
     if target_date:
@@ -1359,6 +1415,10 @@ def fetch_l2_radar_snapshot(snapshot_date: str):
 
 def fetch_quadrant_history(days=30):
     return _narrative_get("/api/v1/narrative/quadrant_history", params={"days": days})
+
+
+def fetch_rotation_waveform(days=90):
+    return _narrative_get("/api/v1/narrative/rotation_waveform", params={"days": days})
 
 
 def fetch_l2_daily_profile(l2_sector: str, days: int = 180):
