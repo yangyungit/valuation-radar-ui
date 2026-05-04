@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-05-04 | Phase 2：前端同步 chaos GBDT 双闸门 UI
+
+**动因**：后端 Phase 1 已上线 chaos GBDT 双闸门（旧 0.40 OR 新 P>0.50 持续 5 天），新增三个 HTTP 字段 `horsemen_daily_chaos_prob` / `horsemen_daily_chaos_trigger` / `horsemen_daily_chaos_top_features`，月度 `horsemen_monthly_probs` 加 `chaos_gbdt_trigger`，`weight_history` 加 `chaos_prob` / `chaos_top_features` / `regime_dormant_reason ∈ {"chaos","gbdt","both"}`。本次前端跟上渲染。
+
+**变更清单**（valuation-radar-ui 单仓）：
+
+1. **`pages/1_宏观定调.py`**：
+   - 月度表新增「GBDT触发」列（取自 `horsemen_monthly_probs[m]["chaos_gbdt_trigger"]`，触发用 🔴 标记 + 浅红背景染色）。
+   - 主图下方新增「🤖 GBDT chaos 概率曲线」图，叠 0.50 阈值线 + 触发日红点散点；图下方列出最近一日 SHAP top3 因子归因文本。
+2. **`pages/6_仓位配置.py`**：
+   - rebal 表「卫星模式」列扩展 `_dormant_reason` 取值映射（`gbdt` → 🛌 迟滞 (GBDT)，`both` → 🛌 迟滞 (chaos+GBDT)，原 `chaos` 保留）。
+   - 新增「触发因子top3」列（仅 dormant 月填充，来自 `entry["chaos_top_features"]` 取前 3 个 feature+shap）。
+   - `_highlight_chaos_row` 染色按 dormant 类型分色：粉红=both / 浅橙=gbdt / 浅灰=chaos。
+
+**契约消费方向**：纯读，不写。Phase 1 后端字段缺失时全部走兜底（空表/空图/空字符串），不影响其他页面。
+
+---
+
 ## 2026-04-25 | chaos gate Phase 2：Page 1 月度表加 chaos 占比% 列 + Page 6 chaos-dormant 染色
 
 **动因**：后端 chaos gate Phase 1（`valuation-radar` 2026-04-21 commit `31f96af` + 2026-04-25 yfinance 容错修复）已上线，`/api/v1/macro/compute` 每月返回 `chaos_share` 字段、回测 `weight_history` 每条 entry 含 `regime_dormant_reason ∈ {"chaos","low_score",""}`。前端需把这两个字段渲染出来，让主理人在 Page 1 月度表能直接看到「哪些月份会触发卫星仓清仓 BIL」，在 Page 6 回测 rebal 表看到「哪些月份是被 chaos 闸门强制 dormant 的」。

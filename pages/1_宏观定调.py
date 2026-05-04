@@ -1168,6 +1168,10 @@ if not df.empty and len(df) > 750:
             round(float(_hmp_for_chaos.get(m, {}).get("chaos_share", 0.0)) * 100, 1)
             for m in df_hist_horsemen.index
         ]
+        df_hist_horsemen["GBDT触发"] = [
+            "🔴" if bool(_hmp_for_chaos.get(m, {}).get("chaos_gbdt_trigger", False)) else ""
+            for m in df_hist_horsemen.index
+        ]
 
     # 用 confidence 覆盖 chaos 日期 → 主图与验证图背景显示灰色混沌期段
     _dc_for_disp = (_regime_api or {}).get("horsemen_daily_confidence", {})
@@ -1206,6 +1210,10 @@ if not df.empty and len(df) > 750:
             styler = styler.map(_conf_color, subset=['置信度'])
         if 'chaos占比%' in styler.data.columns:
             styler = styler.map(_chaos_color, subset=['chaos占比%'])
+        def _gbdt_color(val):
+            return 'background-color: #ffe5e5; color: #C0392B; font-weight: bold;' if val == "🔴" else ''
+        if 'GBDT触发' in styler.data.columns:
+            styler = styler.map(_gbdt_color, subset=['GBDT触发'])
         return styler
 
     _RATIO_OPTIONS = {
@@ -1233,6 +1241,57 @@ if not df.empty and len(df) > 750:
             "衰退": "🚨 防御彻底躺平：资金全速撤入必选消费避险，比值冲顶——这是资金对经济彻底绝望的终极信号。",
         },
     }
+
+    # ── GBDT chaos 概率曲线 ─────────────────────────────────────────
+    st.markdown("##### 🤖 GBDT chaos 概率曲线 — 多变量恐慌信号融合")
+    st.caption(
+        "LightGBM 学习「未来 20 交易日 SPY drawdown ≤ -8%」的概率。"
+        "P > 0.50 持续 5 个交易日 → 触发清仓 BIL 闸门。"
+        "灰色阈值线 = 0.50；红色填充 = 触发段。"
+    )
+    _chaos_prob_raw = (_regime_api or {}).get("horsemen_daily_chaos_prob", {}) or {}
+    _chaos_trig_raw = (_regime_api or {}).get("horsemen_daily_chaos_trigger", {}) or {}
+    if _chaos_prob_raw:
+        _prob_s = pd.Series(
+            list(_chaos_prob_raw.values()),
+            index=pd.to_datetime(list(_chaos_prob_raw.keys())),
+        ).sort_index().astype(float)
+        _trig_s = pd.Series(
+            list(_chaos_trig_raw.values()),
+            index=pd.to_datetime(list(_chaos_trig_raw.keys())),
+        ).sort_index().astype(bool) if _chaos_trig_raw else pd.Series(False, index=_prob_s.index)
+
+        _fig_chaos = go.Figure()
+        _fig_chaos.add_trace(go.Scatter(
+            x=_prob_s.index, y=_prob_s.values,
+            mode="lines", name="GBDT chaos 概率", line=dict(color="#3498DB", width=1.5),
+        ))
+        _fig_chaos.add_hline(y=0.50, line_dash="dash", line_color="#888",
+                             annotation_text="阈值 0.50", annotation_position="top right")
+        _trig_idx = _trig_s[_trig_s].index
+        if len(_trig_idx) > 0:
+            _fig_chaos.add_trace(go.Scatter(
+                x=_trig_idx, y=_prob_s.reindex(_trig_idx).values,
+                mode="markers", name="触发日",
+                marker=dict(color="#C0392B", size=4, opacity=0.6),
+            ))
+        _fig_chaos.update_layout(
+            height=260, margin=dict(l=10, r=10, t=20, b=10),
+            yaxis=dict(range=[0, 1], title="概率"),
+            xaxis=dict(title=""),
+            legend=dict(orientation="h", y=1.05),
+        )
+        st.plotly_chart(_fig_chaos, use_container_width=True)
+
+        _latest_top = (_regime_api or {}).get("horsemen_daily_chaos_top_features", []) or []
+        if _latest_top:
+            _top_lines = [
+                f"- **{item.get('feature','?')}**：贡献 {float(item.get('shap', 0.0)):+.3f}"
+                for item in _latest_top[:3]
+            ]
+            st.markdown("**最新一日触发因子归因（SHAP top3）**：\n" + "\n".join(_top_lines))
+    else:
+        st.info("GBDT chaos 数据暂不可用（API 字段缺失）。")
 
     st.markdown("##### 🔬 宏观时钟验证图 — 在四色剧本背景下，亲眼验证宏观物理定律")
     _selected_ratio = st.selectbox(

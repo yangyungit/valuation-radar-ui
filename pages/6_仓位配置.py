@@ -1089,10 +1089,23 @@ if not df_portfolio.empty:
                     _dormant_reason = entry.get("regime_dormant_reason", "")
                     if rmode == "active":
                         _mode_label = "🟢 激活"
+                    elif rmode == "dormant" and _dormant_reason == "both":
+                        _mode_label = "🛌 迟滞 (chaos+GBDT)"
+                    elif rmode == "dormant" and _dormant_reason == "gbdt":
+                        _mode_label = "🛌 迟滞 (GBDT)"
                     elif rmode == "dormant" and _dormant_reason == "chaos":
                         _mode_label = "🛌 迟滞 (chaos)"
                     else:
                         _mode_label = "🛌 迟滞"
+
+                    _chaos_top_feats = entry.get("chaos_top_features", []) or []
+                    if rmode == "dormant" and _chaos_top_feats:
+                        _top3_str = " · ".join(
+                            f"{item.get('feature','?')}({float(item.get('shap', 0.0)):+.2f})"
+                            for item in _chaos_top_feats[:3]
+                        )
+                    else:
+                        _top3_str = ""
 
                     rebal_rows.append({
                         "调仓日期": rd_date,
@@ -1104,6 +1117,7 @@ if not df_portfolio.empty:
                         "D组(预备队)": _fmt_tw(d_w, locked_sat),
                         "核心调仓": "🔄 Arena换仓" if _core_chg else "🔒 续持",
                         "卫星模式": _mode_label,
+                        "触发因子top3": _top3_str,
                         "阈值警报": trim_str,
                         "现金BIL": f"{bil_w:.0f}%" if bil_w > 0 else "0%",
                     })
@@ -1111,8 +1125,16 @@ if not df_portfolio.empty:
                 _df_rebal = pd.DataFrame(rebal_rows[::-1])
 
                 def _highlight_chaos_row(row):
-                    _is_chaos = "(chaos)" in str(row.get("卫星模式", ""))
-                    return ['background-color: #e0e0e0' if _is_chaos else '' for _ in row]
+                    _mode_str = str(row.get("卫星模式", ""))
+                    if "(chaos+GBDT)" in _mode_str:
+                        _color = "#f5c6cb"
+                    elif "(GBDT)" in _mode_str:
+                        _color = "#fde2cc"
+                    elif "(chaos)" in _mode_str:
+                        _color = "#e0e0e0"
+                    else:
+                        return ['' for _ in row]
+                    return [f'background-color: {_color}' for _ in row]
 
                 st.dataframe(
                     _df_rebal.style.apply(_highlight_chaos_row, axis=1),
