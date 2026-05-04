@@ -2,6 +2,31 @@
 
 ---
 
+## 2026-05-04 | Page 0 §2.5 风格传导链：上游 3 层占位换成摘要卡 + 折叠 expander
+
+**动因**：之前 §2.5 顶部 3 行只写「⏫ 最上游：流动性 — 详见 Page 1 §5(待挖掘)」这种纯文本占位，主理人反馈「太简陋」。改造目标：默认显示一行摘要数值，点 expander 才展开公式与字段说明，免得来回切 Page 1 看上下游。
+
+**改动**（`pages/0_宏观雷达.py` 单文件）：
+
+1. 删除原 dashed div 占位块（446-452 行），改为读后端新增的 `_chain_data["upstream_summary"]`。
+2. 新增 `_upstream_color()` / `_upstream_card_html()` 两个本地辅助函数，统一 4 色染色（绿/红/黄/灰）与卡片渲染骨架。
+3. 渲染 3 张「左侧染色边 + 单行核心数值」摘要卡：
+   - **最上游 流动性**：`$X.XXT` / 6M `±X.X%` / 3Y Z `±X.XX`
+   - **上游 1 双星 G/I**：象限标签 + Growth Z + Inflation Z（`rank_signed [-1,+1]` 标度）
+   - **上游 2 债市阶梯**：4 个 ratio Z（TLT/SHY、HYG/IEF、TIP/IEF、UUP/SHY，标准 Z-Score 标度）
+4. 每张卡片下挂一个 `st.expander(...)` 折叠详情：列出公式、`>0/<0` 含义阈值、跳转 Page 1 §1/§5 的指引。
+
+**配套后端**（`valuation-radar/macro_engine.py`，commit `baaa31f`）：
+
+- `REGIME_TICKERS` 新增 `UUP`（美元强弱第 4 维，不进入 horsemen 投票）。
+- 新增 `_ratio_zscore_latest(df, a, b, window)`，与 Page 1 §1 `_ratio_z_curr` 同算法。
+- 新增 `compute_liquidity_summary(z_window)`：拉 FRED `WALCL/WTREGEN/RRPONTSYD` 算 `Net_Liquidity = Fed_Assets - TGA - RRP`，返回 `{value_t, change_6m_pct, z_3y, asof}`，4 小时进程内缓存。FRED key 缺失或拉取失败时降级返回 `{}`，前端会显示 "FRED 暂不可用"。
+- `compute_macro_regime` 注入 `upstream_summary = {stars, bond_ladder, liquidity}` 字段，从 `_ds_debug.iloc[-1]` 抽双星 G/I/quad，调 `_ratio_zscore_latest` 取 4 个债市 Z，调 `compute_liquidity_summary` 取流动性。
+
+**架构守约**：上游数值全部由后端算并下发，前端只负责渲染（守 `architecture-constraints.mdc`「物理隔离」红线）。`compute_liquidity_summary` 失败时降级 `{}`，前端 `if _us_liq:` 分支处理，不阻塞主链路。
+
+---
+
 ## 2026-05-04 | Page 0 §2.5 新增「风格传导链」总览
 
 **动因**：主理人提的传导链「宏观 → 风险溢价/折现率 → regime change → 因子轮动 → 行业轮动 → 价格」，6 层信息散落在 Page 0 4 个 section + Page 1 5 个 section，看不出层级关系，更无法回答"风格切换是大跌前还是大跌后"这种时滞问题。
