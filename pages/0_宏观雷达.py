@@ -45,7 +45,7 @@ _PAGE_TICKERS = [
 ]
 
 with st.spinner("📊 加载市场结构数据..."):
-    df_prices       = get_global_data(_PAGE_TICKERS, years=2)
+    df_prices       = get_global_data(_PAGE_TICKERS, years=10)
     _radar          = fetch_macro_radar()
     _current_regime = fetch_current_regime()
 
@@ -148,7 +148,7 @@ else:
 # ============================================================
 st.markdown("---")
 st.header("📊 大盘趋势状态机 (Market Trend Matrix)")
-st.caption("基于 Close / MA60 / MA200 的四象限绝对强弱切割 · 四色背景需先访问宏观定调页计算后才会叠加")
+st.caption("基于 Close / MA60 / MA200 的四象限绝对强弱切割 · 背景色按月度剧本裁决（chaos 月份显示灰色）")
 
 if df_prices is None or df_prices.empty or len(df_prices) < 200:
     st.warning("⚠️ 价格数据不足（需至少 200 个交易日），无法计算 MA200")
@@ -181,28 +181,38 @@ else:
         "混沌期": "rgba(128,128,128,0.15)",
     }
 
-    _dv_mtm = (_current_regime or {}).get("horsemen_daily_verdict", {})
-    if _dv_mtm:
-        _horsemen_daily_mtm = pd.Series(
-            list(_dv_mtm.values()),
-            index=pd.to_datetime(list(_dv_mtm.keys())),
-        ).sort_index()
+    # universe.db 只持久化 horsemen_monthly_probs(10 年月度概率含 chaos_gbdt_trigger),
+    # 在前端用月度数据 ffill 成日度作为背景染色。chaos 月份覆盖为"混沌期"。
+    _hmp = (_current_regime or {}).get("horsemen_monthly_probs", {}) or {}
+    _EN_TO_CN = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
+    _monthly_recs = []
+    for _m_str, _probs in _hmp.items():
+        try:
+            _m_ts = pd.Timestamp(str(_m_str) + "-01")
+        except Exception:
+            continue
+        if not isinstance(_probs, dict):
+            continue
+        _cands = {k: float(_probs.get(k, 0.0) or 0.0) for k in _EN_TO_CN.keys()}
+        _winner_en = max(_cands, key=lambda k: _cands[k])
+        _winner_cn = _EN_TO_CN.get(_winner_en, "软着陆")
+        _chaos = bool(_probs.get("chaos_gbdt_trigger", False))
+        _monthly_recs.append((_m_ts, _winner_cn, _chaos))
+
+    if _monthly_recs:
+        _df_mhp = (
+            pd.DataFrame(_monthly_recs, columns=["date", "verdict", "chaos"])
+            .set_index("date").sort_index()
+        )
+        _daily_idx = pd.date_range(_df_mhp.index.min(), pd.Timestamp.now().normalize(), freq="D")
+        _verdict_daily = _df_mhp["verdict"].reindex(_daily_idx, method="ffill")
+        _chaos_daily = _df_mhp["chaos"].reindex(_daily_idx, method="ffill").fillna(False).astype(bool)
+        _horsemen_daily_mtm = _verdict_daily.copy()
+        _horsemen_daily_mtm_display = _verdict_daily.copy()
+        _horsemen_daily_mtm_display.loc[_chaos_daily] = "混沌期"
     else:
         _horsemen_daily_mtm = pd.Series(dtype=str)
-
-    _dc_mtm = (_current_regime or {}).get("horsemen_daily_confidence", {})
-    if _dc_mtm and not _horsemen_daily_mtm.empty:
-        _conf_mtm = pd.Series(
-            list(_dc_mtm.values()),
-            index=pd.to_datetime(list(_dc_mtm.keys())),
-        ).sort_index()
-        _horsemen_daily_mtm_display = _horsemen_daily_mtm.copy()
-        _chaos_idx = _conf_mtm[_conf_mtm == "chaos"].index
-        _shared = _horsemen_daily_mtm_display.index.intersection(_chaos_idx)
-        if len(_shared) > 0:
-            _horsemen_daily_mtm_display.loc[_shared] = "混沌期"
-    else:
-        _horsemen_daily_mtm_display = _horsemen_daily_mtm
+        _horsemen_daily_mtm_display = pd.Series(dtype=str)
 
     def _classify_mtm(row):
         c, m60, m200 = row['close'], row['ma60'], row['ma200']

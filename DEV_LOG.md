@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-05-04 | 修复 0_宏观雷达 大盘趋势状态机：时间跨度 + 背景染色
+
+**问题**：把大盘趋势状态机搬到 `pages/0_宏观雷达.py` 后，主理人反馈两个回退：(1) SPY/QQQ 时间跨度从 ~10 年缩到 2 年；(2) 四色剧本背景染色全空。
+
+**根因**：
+
+1. 时间跨度：搬迁时把数据拉取常量写成 `get_global_data(_PAGE_TICKERS, years=2)`，旧版 `1_宏观定调.py` 是 `years_to_fetch = 10`。
+2. 背景染色：搬迁时把数据源从 `compute_macro_regime_api()`（实时算，5-30s）换成轻量 `fetch_current_regime()`（GET universe.db），但 `push_macro_regime()` 的 payload 从未写过 `horsemen_daily_verdict` / `horsemen_daily_confidence`——universe.db 里没有这俩字段，所以 `_dv_mtm` 永远空。`curl https://valuation-radar-server.onrender.com/api/v1/macro/current-regime` 实测确认。
+
+**修复**（`pages/0_宏观雷达.py` 单文件）：
+
+1. `years=2` → `years=10`，与旧版一致。
+2. 改用 universe.db 里已有的 `horsemen_monthly_probs`（10 年月度概率含 `chaos_gbdt_trigger`）：前端把月度数据 `reindex(daily, method="ffill")` 成日度作背景。每月取四个剧本概率最高的为胜出（Soft/Hot/Stag/Rec → 软着陆/再通胀/滞胀/衰退），`chaos_gbdt_trigger=True` 的月份覆盖为"混沌期"。视觉上染色块边界对齐月初而非按日变化，但旧版 daily verdict 本就是月度逻辑出来的，差异极小。
+3. 不动后端、不动 push 契约、不让 Page 0 触发重计算（避免每次访问拖 5-30s）。
+4. caption 同步改成"背景色按月度剧本裁决（chaos 月份显示灰色）"。
+
+---
+
 ## 2026-05-04 | 市场结构监控集中到 0_宏观雷达页
 
 **动因**：宏观定调页（`pages/1_宏观定调.py`）已膨胀到 1997 行，且把市场结构监控（大盘趋势 / 板块分化）和宏观叙事（底色 / 时钟 / 剧本 / 流动性）混在一页，主理人观察"指数主力轮动"时看不出谁在扛大盘。本次把市场结构相关的三块迁到 0_号页面集中展示，并新增"指数主力归因"模块回答"是 Mag7 还是 Russell 2000 在扛"。
