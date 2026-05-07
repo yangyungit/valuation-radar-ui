@@ -182,6 +182,39 @@
 **Wave 1 — 摩擦系数修正**：`pages/5_个股择时.py` L183 `_p5_per_switch_friction` 系数 `4.0 → 2.0`。根因：原公式把每标的按全仓算，应为 50% 仓位×2标的×进出各一腿 = 2×(佣金+滑点)。预期显示摩擦从约 9.8% 降到约 4.9%。
 
 **Wave 2 — 空仓计息**：`_calc_slot_stats` 新增 `cash_rate: float = 0.04` 参数，CASH 段从原地踏步改为按 `(1+cash_rate)^(days/365)` 复利累积，`running_nav` 在 CASH 段结束后更新。侧边栏新增滑块「空仓年化收益率 (%)」（key=`p5_cash_annual_return`，默认 4%，范围 0~6%），4 个调用处统一从 `session_state` 读入。
+## 2026-05-04 | 叙事增强 D 组共振 v2.0 前后端联调上线
+
+**动因**：按 `.cursor/plans/narrative-resonance-v2-final` + `narrative-resonance-execution` 两份计划，把 D 组 ScorecardD 主榜下方的旧"共振猎场"替换为基于三桥（Affinity / Cooc / SectorPrior）的 v2 叙事增强榜，并与 Page 2 词典管理通过 query param 闭环。
+
+**改动**：
+
+后端（`valuation-radar/`）—— 在前期已落地的 13 个 todo 基础上补强：
+
+1. `resonance_engine.py`：新增 `_try_load_cached_rows()`，`compute_narrative_resonance_d` 增加 `(calc_date, input_hash, engine_version)` 维度的 cache 命中早返回（避免每次 POST 都重算 + INSERT OR REPLACE），meta 多回传 `cache_stats={hit, ticker_count, compute_ms}`。
+2. `tests/test_resonance_engine.py`：新增 `test_engine_version_dynamic`（改 thresholds._version → engine_version 自动变化）+ `test_cache_invalidation_by_engine_version`（同 hash 不同 engine_version 必须 miss），保证缓存幂等性。
+3. `scripts/backtest_resonance_v2.py`：新增 walk-forward 回测骨架（4 窗口默认），三组对照 + 三栏分区收益梯度 + Jaccard/Spearman + `--pit_mode` hook（按 affinity.created_at 过滤），首页声明 Affinity 务实版立场。
+
+前端（`valuation-radar-ui/`）：
+
+1. `pages/3_资产细筛.py`：
+   - 提取旧"共振猎场"代码（原 240+ 行）→ 包成 `_render_resonance_hunt_v1_legacy()` 函数，仅 v1_legacy 模式调用。
+   - 新增 `_render_resonance_board_v2()` + 健康度 banner / 主表（显式 for 循环渲染主榜 + 排名变化箭头 + 分区 / 桥梁置信度徽章）/ 三栏 expander（STRONG / WEAK / NO）+ 白盒展开（Top-3 L2 + 各乘子 + 桥梁 raw + per-bridge degraded + bridge_confidence + engine_version + input_hash 回显）+ NO_NARRATIVE 区 CTA（`st.switch_page` 跳 Page 2 携 `?ticker=X&tab=affinity`）+ `?debug=resonance` 调试模式（仅 v2_on 调 debug endpoint）。
+   - 替换 elif `D` 分支末尾旧共振猎场段为 feature flag 三态分发（`narrative_resonance_v2_mode` 已在 sidebar 挂出：v2_on / v2_off / v1_legacy）。
+2. `pages/2_舆情监控.py`：顶部解析 query param `?tab=affinity[&ticker=X]`，自动 `active_phase=3` + 预填 `tka_filter_ticker` + `_pending_affinity_focus` 标记；`v4_sub2`（Ticker 关联词管理）顶部展示 toast 引导。
+3. `.streamlit/secrets.toml.example`：新增模板，列出 `ENABLE_NARRATIVE_RESONANCE_V2` + `RESONANCE_INTERNAL_TOKEN` 两键 + Render 侧同步配置说明。
+
+**上线 checklist（按顺序）**：
+
+1. 主理人在 Render 后端 Settings → Environment 配置 `RESONANCE_INTERNAL_TOKEN=<64hex>`，重启服务。
+2. Streamlit Cloud Secrets 面板配置 `ENABLE_NARRATIVE_RESONANCE_V2="v2_on"` + 同串 `RESONANCE_INTERNAL_TOKEN`。
+3. Render 端跑 `GET /api/v1/admin/bridge_precheck`（带 token）确认五项数据通过。
+4. Render 端跑 `python scripts/refresh_anchors.py` + `python scripts/refresh_keyword_weight.py` 写首行锚点 + keyword_weight。
+5. 部署后访问 Page 3 → D 赛道 → 见健康度 banner（anchor_date / engine_version / 三栏分布 / 降级总数）+ 共振主榜 + 三栏 expander 工作正常。
+6. 24h 监控 cache hit rate / API latency / degraded 比例 / 三栏分布。
+
+**验收路径**：本地 `pytest tests/test_resonance_engine.py tests/test_bridge_engine.py -v` 6/6 通过。
+
+**不改动**：ScorecardD 主榜（颁奖台 + 因子分解列表）零变化；A/B/C/Z 赛道全部不动；旧共振猎场代码保留可回滚（只在 v1_legacy 模式渲染）。
 
 ---
 

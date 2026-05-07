@@ -49,6 +49,7 @@ from api_client import (
     fetch_l2_l3_detail,
     fetch_l2_radar_snapshot,
     fetch_quadrant_history,
+    fetch_rotation_waveform,
     fetch_l2_daily_profile,
     post_dictionary_batch_delete,
     post_dictionary_batch_mark_noise,
@@ -61,6 +62,8 @@ from api_client import (
     fetch_batch_backfill_status,
     fetch_data_coverage,
     trigger_retroactive_screen,
+    API_BASE_URL,
+    IS_LOCAL_API,
     IS_PROD_REMOTE,
 )
 from datetime import date as _date, timedelta as _timedelta
@@ -69,9 +72,27 @@ import re as _re
 
 st.set_page_config(page_title="舆情监控", layout="wide")
 
+_api_target_label = "本地后端" if IS_LOCAL_API else "Render 远端"
+_api_target_note = (
+    "当前 Page2 正在读取 localhost:8000；这才是本地词典/雷达恢复验证应使用的目标。"
+    if IS_LOCAL_API
+    else "当前 Page2 正在读取 Render 远端数据；若你要核对本地 narrative.db，请切回 localhost:8000。"
+)
+_api_target_class = "api-target-local" if IS_LOCAL_API else "api-target-remote"
+st.markdown(
+    f"""
+    <div class="api-target-banner {_api_target_class}">
+        <div class="api-target-eyebrow">当前连接目标</div>
+        <div class="api-target-main">{_api_target_label} · <code>{API_BASE_URL}</code></div>
+        <div class="api-target-note">{_api_target_note}</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 if IS_PROD_REMOTE:
     st.warning(
-        "⚠️ **直连生产环境** — 当前通过 `RADAR_API_URL` 直连 Render 生产后端。"
+        "⚠️ **直连生产环境** — 当前正在连接 Render 生产后端。"
         "所有词典修改、触发流水线等**写操作将直接影响生产数据**，请谨慎操作。",
         icon="🛢️",
     )
@@ -136,6 +157,48 @@ st.markdown("""
     .phase-info { flex: 1; }
     .phase-title { font-size: 17px; font-weight: 700; color: #e0e0e0; }
     .phase-desc  { font-size: 13px; color: #888; margin-top: 2px; }
+
+    /* ---- API target banner ---- */
+    .api-target-banner {
+        border-radius: 10px;
+        padding: 12px 16px;
+        margin: 4px 0 14px 0;
+        border: 1px solid #2a2a2a;
+        background: #11161d;
+    }
+    .api-target-local {
+        border-color: rgba(26,188,156,0.55);
+        background: linear-gradient(135deg, rgba(26,188,156,0.14), rgba(17,22,29,0.92));
+    }
+    .api-target-remote {
+        border-color: rgba(243,156,18,0.55);
+        background: linear-gradient(135deg, rgba(243,156,18,0.14), rgba(17,22,29,0.92));
+    }
+    .api-target-eyebrow {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #8b949e;
+        margin-bottom: 4px;
+    }
+    .api-target-main {
+        font-size: 16px;
+        font-weight: 700;
+        color: #f2f4f8;
+        margin-bottom: 4px;
+    }
+    .api-target-main code {
+        font-size: 14px;
+        color: #f8f8f2;
+        background: rgba(255,255,255,0.06);
+        padding: 2px 7px;
+        border-radius: 6px;
+    }
+    .api-target-note {
+        font-size: 13px;
+        color: #c7d1db;
+        line-height: 1.5;
+    }
 
     /* ---- Functional styles (preserved) ---- */
     .inbox-row {
@@ -263,6 +326,24 @@ st.caption("NLP 驱动的双因子共振引擎 — 捕获 \"高价格动量 + �
 # ---------------------------------------------------------------------------
 if "active_phase" not in st.session_state:
     st.session_state["active_phase"] = 1
+
+# Query param 解析（支持 Page 3 NO_NARRATIVE 区跳转：?ticker=X&tab=affinity）
+try:
+    _qp = st.query_params
+    _qp_tab = (_qp.get("tab") or "").strip().lower()
+    if _qp_tab == "affinity" and not st.session_state.get("_qp_affinity_consumed"):
+        st.session_state["active_phase"] = 3
+        _qp_ticker = (_qp.get("ticker") or "").strip().upper()
+        if _qp_ticker:
+            st.session_state["tka_filter_ticker"] = _qp_ticker
+            st.session_state["_pending_affinity_focus"] = _qp_ticker
+        st.session_state["_qp_affinity_consumed"] = True
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+except Exception:
+    pass
 
 # ---------------------------------------------------------------------------
 # NLP Pipeline Explainer (collapsible white-box panel — 置顶)
@@ -2226,6 +2307,14 @@ if active_phase == 3:
                 get_ticker_affinity_suggestions, post_ticker_affinity_batch_approve,
             )
 
+            _focus_tk = st.session_state.pop("_pending_affinity_focus", None)
+            if _focus_tk:
+                st.success(
+                    f"📌 已从 Page 3 跳转，自动锁定 ticker = **{_focus_tk}**。"
+                    "请直接在下方添加该标的的 L2 关联词即可。",
+                    icon="🔗",
+                )
+
             tka_stats = get_ticker_affinity_stats()
             tka_c1, tka_c2, tka_c3, tka_c4 = st.columns(4)
             tka_c1.metric("配置 Ticker", tka_stats.get("configured_tickers", 0))
@@ -3501,6 +3590,591 @@ if active_phase == 5:
                     </div>""",
                     unsafe_allow_html=True,
                 )
+
+                # ==============================================================
+                # 叙事轮动图 (Rotation Waveform)
+                # ==============================================================
+                st.markdown("---")
+                st.markdown("#### 📈 叙事轮动图")
+
+                _wf_labels = ["近1周", "近1月", "近1季", "近半年"]
+                _wf_days_map = {"近1周": 7, "近1月": 30, "近1季": 90, "近半年": 180}
+                _wf_sel = st.radio(
+                    "观察窗口",
+                    _wf_labels,
+                    index=2,
+                    horizontal=True,
+                    key="rotation_wf_window",
+                )
+                _wf_days = _wf_days_map[_wf_sel]
+                _wf_mode = st.radio(
+                    "视图模式",
+                    ["主线轮动", "信号分析"],
+                    index=0,
+                    horizontal=True,
+                    key="rotation_wf_mode",
+                )
+
+                _wf_resp = fetch_rotation_waveform(days=_wf_days)
+                _wf_data = _wf_resp.get("data", {})
+                _wf_story = _wf_data.get("story") or {}
+                _wf_analysis = _wf_data.get("analysis") or {}
+                _wf_meta = _wf_data.get("metadata", {})
+                _wf_legacy_sectors = _wf_data.get("sectors", [])
+                if not _wf_analysis and _wf_legacy_sectors:
+                    _wf_analysis = {
+                        "sectors": _wf_legacy_sectors,
+                        "default_filter": "main_growth",
+                    }
+                _wf_story_episodes = _wf_story.get("episodes", [])
+                _wf_analysis_sectors = _wf_analysis.get("sectors", [])
+                _wf_sector_records: dict[str, dict] = {}
+                for _record in _wf_analysis_sectors:
+                    _sec_key = _record.get("l2_sector")
+                    if _sec_key:
+                        _wf_sector_records[_sec_key] = _record
+                for _record in _wf_story_episodes:
+                    _sec_key = _record.get("l2_sector")
+                    if _sec_key:
+                        _wf_sector_records[_sec_key] = _record
+
+                def _wf_l2_name(_sec: str | None) -> str:
+                    if not _sec:
+                        return ""
+                    if _sec in _L2_ZH:
+                        return _L2_ZH[_sec]
+                    _record = _wf_sector_records.get(_sec) or {}
+                    _api_zh = _record.get("l2_sector_zh")
+                    if _api_zh and _api_zh != _sec:
+                        return _api_zh
+                    return _sec.replace("_", " ").replace("&", "&")
+
+                if _wf_resp.get("degraded"):
+                    st.warning(f"轮动图数据获取异常：{_wf_resp.get('error', '未知错误')}")
+                elif not _wf_story_episodes and not _wf_analysis_sectors:
+                    st.info(
+                        f"当前 {_wf_sel} 窗口内无叙事进入展示池"
+                        f"（分析了 {_wf_meta.get('total_sectors_analyzed', 0)} 个板块，"
+                        f"数据覆盖 {_wf_meta.get('data_coverage_pct', 0)}%）"
+                    )
+                else:
+                    _cov = _wf_meta.get("data_coverage_pct", 100)
+                    if _cov < 60:
+                        st.warning(f"⚠️ 数据覆盖率仅 {_cov}%，图表可能不完整")
+
+                    _SRI_DISPLAY_CAP = float(_wf_meta.get("sri_cap", 8.0) or 8.0)
+                    _DOMINANCE_DISPLAY_CAP = float(
+                        _wf_meta.get("dominance_display_cap", _wf_meta.get("dominance_cap", 10.0)) or 10.0
+                    )
+                    _pool_label = {"main": "主线", "growth": "成长", "pulse": "脉冲"}
+                    _story_role_label = {
+                        "leader": "主线",
+                        "main": "主线",
+                        "fading": "退潮",
+                        "growth": "成长",
+                        "pulse": "脉冲",
+                        "context": "关注",
+                    }
+
+                    if _wf_mode == "主线轮动":
+                        st.caption("只展示最重要的叙事波段，用来读主线接力。纵轴采用 0-10 阅读尺度，hover 可查看原始主导度。")
+                        if not _wf_story_episodes:
+                            st.info("当前后端未返回可展示的主线轮动波段，请切换到「信号分析」查看候选池。")
+                        else:
+                            _summary = _wf_story.get("summary") or {}
+                            _summary_parts = []
+                            _summary_current = (
+                                _wf_l2_name(_summary.get("current_main_sector"))
+                                or _summary.get("current_main")
+                            )
+                            _summary_rising = (
+                                _wf_l2_name(_summary.get("rising_candidate_sector"))
+                                or _summary.get("rising_candidate")
+                            )
+                            _summary_fading = (
+                                _wf_l2_name(_summary.get("fading_main_sector"))
+                                or _summary.get("fading_main")
+                            )
+                            if _summary_current:
+                                _summary_parts.append(f"当前主线：**{html_lib.escape(_summary_current)}**")
+                            if _summary_rising:
+                                _summary_parts.append(f"接力候选：**{html_lib.escape(_summary_rising)}**")
+                            if _summary_fading:
+                                _summary_parts.append(f"退潮中：**{html_lib.escape(_summary_fading)}**")
+                            _handoff_pair = _summary.get("handoff_pair") or {}
+                            _handoff_pair_sector = _summary.get("handoff_pair_sector") or {}
+                            _handoff_from = (
+                                _wf_l2_name(_handoff_pair_sector.get("from_sector"))
+                                or _handoff_pair.get("from")
+                            )
+                            _handoff_to = (
+                                _wf_l2_name(_handoff_pair_sector.get("to_sector"))
+                                or _handoff_pair.get("to")
+                            )
+                            if _handoff_from and _handoff_to:
+                                _summary_parts.append(
+                                    f"接力：**{html_lib.escape(_handoff_from)} → {html_lib.escape(_handoff_to)}**"
+                                )
+                            if _summary_parts:
+                                st.markdown("；".join(_summary_parts))
+
+                            _sequence = []
+                            _sequence_sectors = [s for s in (_summary.get("sequence_sectors") or []) if s]
+                            if _sequence_sectors:
+                                _sequence = [_wf_l2_name(s) for s in _sequence_sectors if _wf_l2_name(s)]
+                            if not _sequence:
+                                _sequence = [s for s in (_summary.get("sequence") or []) if s]
+                            if _wf_days >= 90 and _sequence:
+                                st.caption(f"主线序列：{' → '.join(html_lib.escape(s) for s in _sequence)}")
+
+                            if _wf_story.get("systemic_bands"):
+                                st.caption("浅金顶带表示系统共振，不等同于主线接力。")
+
+                            _fig_story = go.Figure()
+                            _story_role_style = {
+                                "leader": dict(width=4.0, opacity=1.0, dash="solid"),
+                                "main": dict(width=3.2, opacity=0.82, dash="solid"),
+                                "fading": dict(width=2.4, opacity=0.50, dash="solid"),
+                                "growth": dict(width=2.6, opacity=0.90, dash="solid"),
+                                "pulse": dict(width=1.8, opacity=0.40, dash="dot"),
+                                "context": dict(width=1.8, opacity=0.32, dash="solid"),
+                            }
+                            _role_priority = {"leader": 0, "growth": 1, "fading": 2, "main": 3, "pulse": 4, "context": 5}
+
+                            def _layout_right_edge_labels(_cands: list[dict]) -> dict[int, dict]:
+                                if not _cands:
+                                    return {}
+                                _y_min = 0.8
+                                _y_max = 10.2
+                                _available_span = max(_y_max - _y_min, 0.1)
+                                _desired_gap = 0.62
+                                if len(_cands) <= 1:
+                                    _effective_gap = _desired_gap
+                                else:
+                                    _effective_gap = min(_desired_gap, _available_span / max(len(_cands) - 1, 1))
+                                    _effective_gap = max(_effective_gap, 0.38)
+
+                                _sorted = sorted(
+                                    _cands,
+                                    key=lambda c: (
+                                        -float(c["target_y"]),
+                                        _role_priority.get(c["visual_role"], 9),
+                                        -float(c["score"]),
+                                        -float(c["latest_dominance_raw"]),
+                                        c["index"],
+                                    ),
+                                )
+
+                                for _i, _cand in enumerate(_sorted):
+                                    _target = max(_y_min, min(_y_max, float(_cand["target_y"])))
+                                    if _i == 0:
+                                        _cand["placed_y"] = min(_y_max, _target)
+                                    else:
+                                        _cand["placed_y"] = min(_target, _sorted[_i - 1]["placed_y"] - _effective_gap)
+
+                                if _sorted[-1]["placed_y"] < _y_min:
+                                    _shift_up = _y_min - _sorted[-1]["placed_y"]
+                                    for _cand in _sorted:
+                                        _cand["placed_y"] += _shift_up
+
+                                _sorted[-1]["placed_y"] = max(
+                                    _y_min,
+                                    min(_sorted[-1]["placed_y"], max(_y_min, min(_y_max, float(_sorted[-1]["target_y"])))),
+                                )
+                                for _i in range(len(_sorted) - 2, -1, -1):
+                                    _target = max(_y_min, min(_y_max, float(_sorted[_i]["target_y"])))
+                                    _sorted[_i]["placed_y"] = max(
+                                        _sorted[_i + 1]["placed_y"] + _effective_gap,
+                                        min(_sorted[_i]["placed_y"], _target),
+                                    )
+
+                                _overflow = _sorted[0]["placed_y"] - _y_max
+                                if _overflow > 0:
+                                    for _cand in _sorted:
+                                        _cand["placed_y"] -= _overflow
+
+                                return {
+                                    _cand["index"]: {
+                                        "placed_y": round(float(_cand["placed_y"]), 4),
+                                        "gap": _effective_gap,
+                                    }
+                                    for _cand in _sorted
+                                }
+
+                            for _band in _wf_story.get("systemic_bands", []):
+                                _x0 = _band.get("start_date")
+                                _x1 = _band.get("end_date")
+                                try:
+                                    _x1_dt = _date.fromisoformat(_x1) + _timedelta(days=1)
+                                    _x1_plot = _x1_dt.isoformat()
+                                except Exception:
+                                    _x1_plot = _x1
+                                _fig_story.add_shape(
+                                    type="rect",
+                                    xref="x",
+                                    yref="paper",
+                                    x0=_x0,
+                                    x1=_x1_plot,
+                                    y0=0.88,
+                                    y1=1.0,
+                                    fillcolor="rgba(215,178,92,0.10)",
+                                    line=dict(width=0),
+                                    layer="below",
+                                )
+
+                            _right_edge_layout_input = []
+                            for _ep_idx, _ep in enumerate(_wf_story_episodes):
+                                _pts = _ep.get("points", [])
+                                if not _pts:
+                                    continue
+                                _label_mode = _ep.get("label_mode") or ("right_edge" if _ep.get("is_ongoing") else "peak")
+                                if _label_mode != "right_edge":
+                                    continue
+                                _label_pt = _pts[-1]
+                                _right_edge_layout_input.append({
+                                    "index": _ep_idx,
+                                    "target_y": min(
+                                        float(
+                                            _label_pt.get("dominance_display", _label_pt.get("dominance", 0.0)) or 0.0
+                                        ),
+                                        _DOMINANCE_DISPLAY_CAP,
+                                    ),
+                                    "visual_role": _ep.get("visual_role", "context"),
+                                    "score": float(_ep.get("score", 0.0) or 0.0),
+                                    "latest_dominance_raw": float(_ep.get("latest_dominance_raw", 0.0) or 0.0),
+                                })
+                            _right_edge_layout = _layout_right_edge_labels(_right_edge_layout_input)
+
+                            _story_dates = []
+                            for _ep_idx, _ep in enumerate(_wf_story_episodes):
+                                _ename = _ep.get("l2_sector_zh") or _ep.get("l2_sector", "")
+                                _ename_display = _wf_l2_name(_ep.get("l2_sector")) or _ename
+                                _ecolor = _ep.get("color", "#AAAAAA")
+                                _pool_type = _ep.get("pool_type", "main")
+                                _visual_role = _ep.get("visual_role", "context")
+                                _style = _story_role_style.get(_visual_role, _story_role_style["context"])
+                                _pts = _ep.get("points", [])
+                                if not _pts:
+                                    continue
+                                _xd = [p["date"] for p in _pts]
+                                _yd = [
+                                    min(
+                                        float(
+                                            p.get("dominance_display", p.get("dominance", 0.0)) or 0.0
+                                        ),
+                                        _DOMINANCE_DISPLAY_CAP,
+                                    )
+                                    for p in _pts
+                                ]
+                                _story_dates.extend(pd.to_datetime(_xd))
+                                _hover = [
+                                    (
+                                        f"<b>{_ename}</b> [{_pool_label.get(_pool_type, _pool_type)}]<br>"
+                                        f"日期: {p['date']}<br>"
+                                        f"阶段: {p.get('phase', '-') }<br>"
+                                        f"显示主导度: {float(p.get('dominance_display', p.get('dominance', 0.0)) or 0.0):.2f}<br>"
+                                        f"主导度: {float(p.get('dominance_raw', 0.0) or 0.0):.2f}"
+                                        f"（原始 {float(p.get('dominance_raw', 0.0) or 0.0):.2f}）<br>"
+                                        f"SRI: {float(p.get('sri', 0.0) or 0.0):.2f}"
+                                        f"（原始 {float(p.get('sri_raw', 0.0) or 0.0):.2f}）<br>"
+                                        f"WMC: {float(p.get('wmc', 0.0) or 0.0):.0f}"
+                                        f" / 基线 {float(p.get('baseline_wmc', 0.0) or 0.0):.0f}<br>"
+                                        f"MS: {float(p.get('ms', 0.0) or 0.0):+.1f} · {p.get('quadrant', '-')}"
+                                    )
+                                    for p in _pts
+                                ]
+
+                                _fig_story.add_trace(go.Scatter(
+                                    x=_xd,
+                                    y=_yd,
+                                    mode="lines",
+                                    line=dict(color=_ecolor, width=_style["width"], dash=_style["dash"]),
+                                    opacity=_style["opacity"],
+                                    hovertext=_hover,
+                                    hoverinfo="text",
+                                    showlegend=False,
+                                ))
+
+                                if _visual_role == "growth" and _pts:
+                                    _fig_story.add_trace(go.Scatter(
+                                        x=[_xd[-1]],
+                                        y=[_yd[-1]],
+                                        mode="markers",
+                                        marker=dict(color=_ecolor, size=15),
+                                        opacity=0.16,
+                                        hoverinfo="skip",
+                                        showlegend=False,
+                                    ))
+
+                                if _ep.get("is_ongoing") and _pts:
+                                    _fig_story.add_trace(go.Scatter(
+                                        x=[_xd[-1]],
+                                        y=[_yd[-1]],
+                                        mode="markers",
+                                        marker=dict(
+                                            color=_ecolor,
+                                            size=(9 if _visual_role == "leader" else 8),
+                                            line=dict(color="white", width=1.2),
+                                        ),
+                                        opacity=min(1.0, _style["opacity"] + 0.05),
+                                        hoverinfo="skip",
+                                        showlegend=False,
+                                    ))
+
+                                _label_mode = _ep.get("label_mode") or ("right_edge" if _ep.get("is_ongoing") else "peak")
+                                if _label_mode:
+                                    if _label_mode == "right_edge":
+                                        _label_pt = _pts[-1]
+                                        _label_x = _label_pt["date"]
+                                        _label_y = _right_edge_layout.get(_ep_idx, {}).get(
+                                            "placed_y",
+                                            min(
+                                                float(
+                                                    _label_pt.get("dominance_display", _label_pt.get("dominance", 0.0)) or 0.0
+                                                ),
+                                                _DOMINANCE_DISPLAY_CAP,
+                                            ),
+                                        )
+                                        _xanchor = "left"
+                                        _xshift = 14
+                                        _yshift = 0
+                                    else:
+                                        _label_pt = max(
+                                            _pts,
+                                            key=lambda p: float(p.get("dominance_display", p.get("dominance", 0.0)) or 0.0),
+                                        )
+                                        _label_x = _label_pt["date"]
+                                        _label_y = min(
+                                            float(
+                                                _label_pt.get("dominance_display", _label_pt.get("dominance", 0.0)) or 0.0
+                                            ),
+                                            _DOMINANCE_DISPLAY_CAP,
+                                        )
+                                        _xanchor = "center"
+                                        _xshift = 0
+                                        _yshift = (-14 if _ep_idx % 2 else 14)
+
+                                    _suffix = _story_role_label.get(_visual_role, _pool_label.get(_pool_type, _pool_type))
+
+                                    _fig_story.add_annotation(
+                                        x=_label_x,
+                                        y=_label_y,
+                                        text=f"{html_lib.escape(_ename_display)} · {html_lib.escape(_suffix)}",
+                                        showarrow=False,
+                                        xanchor=_xanchor,
+                                        yanchor="middle",
+                                        xshift=_xshift,
+                                        yshift=_yshift,
+                                        font=dict(color=_ecolor, size=12),
+                                        bgcolor="rgba(17,17,17,0.7)",
+                                        bordercolor="rgba(255,255,255,0.08)",
+                                        borderwidth=1,
+                                    )
+
+                            _today_str = _date.today().isoformat()
+                            _fig_story.add_vline(
+                                x=_today_str,
+                                line_dash="dot",
+                                line_color="rgba(255,255,255,0.25)",
+                                line_width=1,
+                            )
+
+                            _xaxis_dict = dict(
+                                title="日期",
+                                gridcolor="rgba(80,80,80,0.2)",
+                            )
+                            if _story_dates:
+                                _story_min = min(_story_dates)
+                                _story_max = max(_story_dates) + pd.Timedelta(days=({7: 4, 30: 4, 90: 6, 180: 8}.get(_wf_days, 6)))
+                                _xaxis_dict["range"] = [_story_min, _story_max]
+
+                            _fig_story.update_layout(
+                                plot_bgcolor="#111111",
+                                paper_bgcolor="#111111",
+                                font=dict(color="#ddd"),
+                                height=460,
+                                yaxis=dict(
+                                    title="叙事主导度（0-10 阅读尺度）",
+                                    range=[0, 10.5],
+                                    gridcolor="rgba(80,80,80,0.3)",
+                                    zeroline=False,
+                                ),
+                                xaxis=_xaxis_dict,
+                                margin=dict(l=60, r=220, t=20, b=50),
+                                hovermode="closest",
+                                showlegend=False,
+                            )
+                            st.plotly_chart(_fig_story, use_container_width=True)
+
+                    else:
+                        st.caption("用于查看候选池、SRI 变化和异常信号，解释主图为何这样判断。")
+                        _filter_labels = ["仅主线", "主线 + 成长", "全部候选"]
+                        _default_filter = _wf_analysis.get("default_filter", "main_growth")
+                        _filter_idx = 1 if _default_filter == "main_growth" else 0
+                        _wf_filter = st.radio(
+                            "候选筛选",
+                            _filter_labels,
+                            index=_filter_idx,
+                            horizontal=True,
+                            key=f"rotation_wf_filter_{_wf_days}",
+                        )
+                        _show_raw = st.checkbox(
+                            "显示原始细线",
+                            value=False,
+                            key=f"rotation_wf_raw_{_wf_days}",
+                        )
+                        _allowed_pool = (
+                            {"main"} if _wf_filter == "仅主线"
+                            else {"main", "growth"} if _wf_filter == "主线 + 成长"
+                            else {"main", "growth", "pulse"}
+                        )
+                        _filtered_analysis = [
+                            _sec for _sec in _wf_analysis_sectors
+                            if _sec.get("pool_type", "main") in _allowed_pool
+                        ]
+                        if not _filtered_analysis:
+                            st.info("当前筛选条件下暂无可展示候选。")
+                        else:
+                            _fig_wf = go.Figure()
+
+                            for _sec in _filtered_analysis:
+                                _sname = _sec.get("l2_sector_zh") or _sec["l2_sector"]
+                                _sname_display = _wf_l2_name(_sec.get("l2_sector")) or _sname
+                                _color = _sec.get("color", "#AAAAAA")
+                                _lw = _sec.get("line_width", 2.5)
+                                _pt = _sec.get("pool_type", "main")
+
+                                if _pt == "main":
+                                    _dash = "solid"
+                                    _opa = 1.0
+                                elif _pt == "growth":
+                                    _dash = "solid"
+                                    _opa = 0.85
+                                    _lw = 2.0
+                                else:
+                                    _dash = "dash"
+                                    _opa = 0.5
+                                    _lw = 1.5
+
+                                for _lc in _sec.get("lifecycles", []):
+                                    _lc_pts = _lc.get("points", [])
+                                    if not _lc_pts:
+                                        continue
+
+                                    _xd = [p["date"] for p in _lc_pts]
+                                    _yd = [min(float(p.get("sri", 0.0) or 0.0), _SRI_DISPLAY_CAP) for p in _lc_pts]
+                                    _hover = [
+                                        (
+                                            f"<b>{_sname}</b> [{_pool_label.get(_pt, _pt)}]<br>"
+                                            f"日期: {p['date']}<br>"
+                                            f"阶段: {p.get('phase', '-')}<br>"
+                                            f"SRI: {float(p.get('sri', 0.0) or 0.0):.2f}"
+                                            f"（原始 {float(p.get('sri_raw', 0.0) or 0.0):.2f}）<br>"
+                                            f"WMC: {float(p.get('wmc', 0.0) or 0.0):.0f}"
+                                            f" / 基线 {float(p.get('baseline_wmc', 0.0) or 0.0):.0f}<br>"
+                                            f"MS: {float(p.get('ms', 0.0) or 0.0):+.1f} · {p.get('quadrant', '-')}"
+                                        )
+                                        for p in _lc_pts
+                                    ]
+
+                                    if _show_raw:
+                                        _fig_wf.add_trace(go.Scatter(
+                                            x=_xd,
+                                            y=[min(float(p.get("sri_raw", 0.0) or 0.0), _SRI_DISPLAY_CAP) for p in _lc_pts],
+                                            mode="lines",
+                                            line=dict(color=_color, width=0.9, dash="dot"),
+                                            opacity=0.22,
+                                            hoverinfo="skip",
+                                            showlegend=False,
+                                        ))
+
+                                    _fig_wf.add_trace(go.Scatter(
+                                        x=_xd, y=_yd, mode="lines",
+                                        name=f"{_sname_display} ({_pool_label.get(_pt, _pt)})",
+                                        line=dict(color=_color, width=_lw, dash=_dash),
+                                        opacity=_opa,
+                                        hovertext=_hover,
+                                        hoverinfo="text",
+                                        showlegend=False,
+                                    ))
+
+                                    if _pt == "growth" and _lc_pts:
+                                        _fig_wf.add_trace(go.Scatter(
+                                            x=[_xd[-1]], y=[_yd[-1]],
+                                            mode="markers",
+                                            marker=dict(color=_color, size=8, symbol="circle"),
+                                            showlegend=False,
+                                            hoverinfo="skip",
+                                        ))
+
+                                    if _lc.get("end_date") is None and _lc_pts:
+                                        _fig_wf.add_trace(go.Scatter(
+                                            x=[_xd[-1]], y=[_yd[-1]],
+                                            mode="markers",
+                                            marker=dict(
+                                                color=_color, size=7,
+                                                line=dict(color="white", width=1.5),
+                                            ),
+                                            showlegend=False,
+                                            hoverinfo="skip",
+                                        ))
+
+                            _fig_wf.add_hline(
+                                y=1.0, line_dash="dot",
+                                line_color="rgba(255,255,255,0.3)", line_width=1,
+                                annotation_text="基线",
+                                annotation_position="bottom left",
+                                annotation_font_color="rgba(255,255,255,0.4)",
+                                annotation_font_size=11,
+                            )
+
+                            _today_str = _date.today().isoformat()
+                            _fig_wf.add_vline(
+                                x=_today_str, line_dash="dot",
+                                line_color="rgba(255,255,255,0.25)", line_width=1,
+                            )
+
+                            _fig_wf.update_layout(
+                                plot_bgcolor="#111111",
+                                paper_bgcolor="#111111",
+                                font=dict(color="#ddd"),
+                                height=450,
+                                yaxis=dict(
+                                    title="SRI (自身相对强度)",
+                                    range=[0, 8.5],
+                                    gridcolor="rgba(80,80,80,0.3)",
+                                    zeroline=False,
+                                ),
+                                xaxis=dict(
+                                    title="日期",
+                                    gridcolor="rgba(80,80,80,0.2)",
+                                ),
+                                margin=dict(l=60, r=20, t=20, b=50),
+                                hovermode="x unified",
+                                showlegend=False,
+                            )
+
+                            st.plotly_chart(_fig_wf, use_container_width=True)
+
+                            _legend_items = []
+                            for _sec in _filtered_analysis:
+                                _sn = _wf_l2_name(_sec.get("l2_sector")) or _sec.get("l2_sector_zh") or _sec["l2_sector"]
+                                _cl = _sec.get("color", "#AAA")
+                                _pl = _pool_label.get(_sec.get("pool_type", ""), "")
+                                _legend_items.append(
+                                    f'<span style="margin-right:14px;">'
+                                    f'<span style="display:inline-block;width:18px;height:3px;'
+                                    f'background:{_cl};border-radius:1px;margin-right:5px;'
+                                    f'vertical-align:middle;"></span>'
+                                    f'{_sn} <span style="color:#888;font-size:12px;">{_pl}</span></span>'
+                                )
+                            if _legend_items:
+                                st.markdown(
+                                    f'<div style="display:flex;flex-wrap:wrap;gap:6px 0;'
+                                    f'margin:-6px 0 10px 0;font-size:13px;">'
+                                    f'{"".join(_legend_items)}</div>',
+                                    unsafe_allow_html=True,
+                                )
 
                 st.markdown("---")
 
