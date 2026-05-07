@@ -2,6 +2,15 @@
 
 ---
 
+## 2026-05-07 | D 组共振系统修复（前端侧）
+
+**配合后端五阶段修复。**
+
+- `pages/3_资产细筛.py`：健康度 banner 从 4 列扩到 6 列（锚点/Cooc/KW Weight/Affinity seed 占比/三栏/降级+缓存）；ScorecardD 改调后端 API（`post_arena_score_d`），API 失败降级到本地；v1_legacy 和 v2_off 分支删除，选择器收敛为 v2_on 常开；白盒加 zone_reason 卡点提示
+- `api_client.py`：新增 `post_arena_score_d`，对接 `POST /api/v1/arena/score_d`
+
+---
+
 ## 2026-05-05 | 同步修 _fetch_fred_series 缺失值长度错位（与后端 4ff670b 同根因）
 
 **动因**：后端 `valuation-radar/macro_engine.py` 修了 `_fetch_fred_series`（dates/values append 错位），前端 `pages/1_宏观定调.py` 第 16-35 行有同名函数的独立副本，同 bug 必须一起修，否则 FRED 长史降级路径会踩坑。详见后端仓 DEV_LOG 2026-05-05。

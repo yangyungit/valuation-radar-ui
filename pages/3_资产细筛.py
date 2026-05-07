@@ -1455,7 +1455,13 @@ _RES_CONF_BADGE = {
 
 
 def _render_resonance_hunt_v1_legacy(df_scored_d: pd.DataFrame) -> None:
-    """旧版共振猎场（保留供 v1_legacy 模式回看，禁止再做新功能）。"""
+    """v1 legacy 已废弃，直接跳转 v2。"""
+    _render_resonance_board_v2(df_scored_d)
+    return
+
+
+def _render_resonance_hunt_v1_legacy_DEAD(df_scored_d: pd.DataFrame) -> None:
+    """旧版共振猎场（已废弃，保留注释标记位置以防 git blame 回溯。下次大扫除删掉）。"""
     st.markdown("---")
     st.markdown("#### 🔗 共振猎场 v1 (legacy 只读) — 叙事 × 动量")
     st.caption(
@@ -1589,13 +1595,14 @@ def _render_resonance_hunt_v1_legacy(df_scored_d: pd.DataFrame) -> None:
 
 
 def _render_resonance_health_banner(meta: dict) -> None:
-    """v2 顶部健康度 banner：anchor_date / engine_version / 全局 degraded 计数。"""
+    """v2 顶部健康度 banner：anchor / cooc / keyword_weight / affinity / zone / cache。"""
     anchor_date = meta.get("anchor_date") or "未刷新"
     engine_version = meta.get("engine_version", "")
     cache_stats = meta.get("cache_stats", {}) or {}
     zone_counts = meta.get("zone_counts", {}) or {}
     degraded_counts = meta.get("degraded_counts", {}) or {}
     cooc_days = meta.get("cooc_window_days", 14)
+    freshness = meta.get("data_freshness", {}) or {}
     n_strong = zone_counts.get("STRONG_NARRATIVE", 0)
     n_weak = zone_counts.get("WEAK_NARRATIVE", 0)
     n_no = zone_counts.get("NO_NARRATIVE", 0)
@@ -1608,11 +1615,33 @@ def _render_resonance_health_banner(meta: dict) -> None:
             _ad = datetime.strptime(anchor_date, "%Y-%m-%d").date()
             _gap = (datetime.now().date() - _ad).days
             if _gap > 30:
-                anchor_warn = f" <span style='color:#E74C3C;'>⚠ 距今 {_gap} 天，建议刷新锚点</span>"
+                anchor_warn = f" <span style='color:#E74C3C;'>⚠ 距今 {_gap} 天</span>"
+            elif _gap >= 7:
+                anchor_warn = f" <span style='color:#F1C40F;'>⚠ {_gap} 天</span>"
             else:
-                anchor_warn = f" <span style='color:#7F8C8D;'>(距今 {_gap} 天)</span>"
+                anchor_warn = f" <span style='color:#7F8C8D;'>({_gap}天)</span>"
         except Exception:
             pass
+
+    cooc_date = freshness.get("cooc_latest_date") or "—"
+    cooc_warn = ""
+    if cooc_date != "—":
+        try:
+            _cd = datetime.strptime(cooc_date, "%Y-%m-%d").date()
+            _cg = (datetime.now().date() - _cd).days
+            if _cg > 2:
+                cooc_warn = f" <span style='color:#E74C3C;'>C 桥已归零</span>"
+            else:
+                cooc_warn = f" <span style='color:#7F8C8D;'>({_cg}天)</span>"
+        except Exception:
+            pass
+
+    kw_date = freshness.get("keyword_weight_latest_date") or "—"
+    kw_rows = freshness.get("keyword_weight_rows", 0)
+
+    seed_pct = freshness.get("affinity_seed_pct", 0.0)
+    seed_color = "#E74C3C" if seed_pct > 80 else "#F1C40F" if seed_pct > 50 else "#2ECC71"
+    seed_tip = " → Page2 审批" if seed_pct > 80 else ""
 
     degraded_total = sum(int(v) for v in degraded_counts.values())
     deg_color = "#E74C3C" if degraded_total > 0 else "#7F8C8D"
@@ -1621,13 +1650,25 @@ def _render_resonance_health_banner(meta: dict) -> None:
         f"""
         <div style='background:#11161c; border:1px solid #2a3038; border-radius:8px;
              padding:14px 18px; margin:8px 0 14px 0; font-size:13px; color:#ccc;
-             display:grid; grid-template-columns:repeat(4,1fr); gap:14px;'>
+             display:grid; grid-template-columns:repeat(3,1fr) repeat(3,1fr); gap:14px;'>
             <div>
-                <div style='color:#7F8C8D; font-size:13px;'>锚点日期 (Z<sub>A</sub>/Z<sub>C</sub>/Z<sub>S</sub>)</div>
+                <div style='color:#7F8C8D; font-size:13px;'>锚点日期</div>
                 <div style='font-size:15px; font-weight:bold; color:#eee;'>{anchor_date}{anchor_warn}</div>
             </div>
             <div>
-                <div style='color:#7F8C8D; font-size:13px;'>三栏分布 STRONG / WEAK / NO</div>
+                <div style='color:#7F8C8D; font-size:13px;'>Cooc 最新日期</div>
+                <div style='font-size:15px; font-weight:bold; color:#eee;'>{cooc_date}{cooc_warn}</div>
+            </div>
+            <div>
+                <div style='color:#7F8C8D; font-size:13px;'>KW Weight {kw_rows}行</div>
+                <div style='font-size:15px; font-weight:bold; color:#eee;'>{kw_date}</div>
+            </div>
+            <div>
+                <div style='color:#7F8C8D; font-size:13px;'>Affinity seed 占比</div>
+                <div style='font-size:15px; font-weight:bold; color:{seed_color};'>{seed_pct:.0f}%{seed_tip}</div>
+            </div>
+            <div>
+                <div style='color:#7F8C8D; font-size:13px;'>三栏 STRONG/WEAK/NO</div>
                 <div style='font-size:15px; font-weight:bold; color:#eee;'>
                     <span style='color:#E67E22;'>{n_strong}</span> /
                     <span style='color:#F1C40F;'>{n_weak}</span> /
@@ -1635,23 +1676,22 @@ def _render_resonance_health_banner(meta: dict) -> None:
                 </div>
             </div>
             <div>
-                <div style='color:#7F8C8D; font-size:13px;'>桥梁降级总数 (cooc {cooc_days}d)</div>
-                <div style='font-size:15px; font-weight:bold; color:{deg_color};'>{degraded_total}</div>
-            </div>
-            <div>
-                <div style='color:#7F8C8D; font-size:13px;'>计算来源</div>
-                <div style='font-size:15px; font-weight:bold; color:{cache_color};'>{cache_label}</div>
+                <div style='color:#7F8C8D; font-size:13px;'>降级 {degraded_total} · {cache_label}</div>
+                <div style='font-size:15px; font-weight:bold; color:{cache_color};'>
+                    <span style='color:{deg_color};'>{degraded_total}</span> ·
+                    {cache_label}
+                </div>
             </div>
         </div>
         <div style='font-size:13px; color:#666; margin-bottom:10px;'>
-            engine_version: <code style='color:#888;'>{engine_version}</code>
+            engine: <code style='color:#888;'>{engine_version}</code>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
     if degraded_counts:
-        with st.expander(f"🔧 全局降级原因明细（{degraded_total} 次）", expanded=False):
+        with st.expander(f"🔧 降级明细（{degraded_total} 次）", expanded=False):
             for _reason, _cnt in sorted(degraded_counts.items(), key=lambda x: -x[1]):
                 st.markdown(
                     f"<div style='font-size:13px; color:#bbb; padding:2px 0;'>"
@@ -1754,6 +1794,15 @@ def _render_resonance_whitebox(row: dict, meta: dict) -> None:
         f"· 锚点日期 {anchors.get('anchor_date', '—')}</div>",
         unsafe_allow_html=True,
     )
+
+    zone_reason = row.get("zone_reason", "")
+    if zone_reason and "卡点" in zone_reason:
+        st.markdown(
+            f"<div style='font-size:13px; color:#E67E22; background:#3a1a1a; "
+            f"padding:6px 10px; border-radius:4px; margin-bottom:8px;'>"
+            f"⚠ {zone_reason}</div>",
+            unsafe_allow_html=True,
+        )
 
     for idx, l2 in enumerate(top3, start=1):
         l2_name = l2.get("l2_sector", "—")
@@ -2882,25 +2931,7 @@ with st.sidebar:
         format_func=lambda x: f"{x} — {_regime_labels[x]}",
         index=_default_raw_idx,
     )
-    _res_mode_options = ["v2_on", "v2_off", "v1_legacy"]
-    _res_mode_default = os.environ.get("ENABLE_NARRATIVE_RESONANCE_V2", "v2_on").strip()
-    if _res_mode_default not in _res_mode_options:
-        _res_mode_default = "v2_on"
-    _res_mode_current = st.session_state.get("narrative_resonance_v2_mode", _res_mode_default)
-    if _res_mode_current not in _res_mode_options:
-        _res_mode_current = _res_mode_default
-    narrative_resonance_mode = st.selectbox(
-        "叙事增强 D 组榜",
-        options=_res_mode_options,
-        index=_res_mode_options.index(_res_mode_current),
-        format_func=lambda x: {
-            "v2_on": "v2_on — 新叙事增强榜",
-            "v2_off": "v2_off — 仅保留 ScorecardD",
-            "v1_legacy": "v1_legacy — 旧共振只读回看",
-        }.get(x, x),
-        help="v2_on 使用三桥叙事增强系统；v2_off 不显示叙事榜；v1_legacy 仅用于对照旧口径。",
-    )
-    st.session_state["narrative_resonance_v2_mode"] = narrative_resonance_mode
+    st.session_state["narrative_resonance_v2_mode"] = "v2_on"
     st.markdown("---")
     st.header("🛠️ 系统维护")
     if st.button("🔄 仅清除当前页缓存"):
@@ -3837,14 +3868,42 @@ elif _sel4 == "D":
     if df_d.empty:
         st.info("当前 D 级赛道暂无参赛资产。请检查数据加载状态或清除缓存后重试。")
     else:
-        with st.spinner("正在拉取 D 组爆点因子数据（Vol_Z、RS vs SPY、MA60 位置）…"):
-            _factors_d = get_arena_d_factors(tuple(df_d["Ticker"].tolist()))
+        _d_tickers = df_d["Ticker"].tolist()
+        _d_meta = {t: {"cn_name": n} for t, n in zip(df_d["Ticker"], df_d.get("名称", [""] * len(df_d)))}
 
-        df_d["Vol_Z"]   = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("vol_z",    0.0)))
-        df_d["RS_20d"]  = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("rs_20d",   0.0)))
-        df_d["MA60偏离"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("ma60_dist", 0.0)))
+        _score_d_api_ok = False
+        with st.spinner("正在调用后端 ScorecardD 评分（Vol_Z、RS vs SPY、MA60）…"):
+            from api_client import post_arena_score_d
+            _sd_resp = post_arena_score_d(_d_tickers, _d_meta)
 
-        df_scored_d = compute_scorecard_d(df_d)
+        if _sd_resp.get("success"):
+            _sd_scores = _sd_resp.get("scores", {})
+            _sd_bd = _sd_resp.get("breakdowns", {})
+            _sd_failed = _sd_resp.get("failed_tickers", [])
+            if _sd_failed:
+                st.warning(f"⚠ ScorecardD 因子拉取失败: {', '.join(_sd_failed)}")
+
+            df_d["Vol_Z"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("vol_z_raw", 0.0)))
+            df_d["RS_20d"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("rs_20d_raw", 0.0)))
+            df_d["MA60偏离"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("ma60_raw", 0.0)))
+            df_d["竞技得分"] = df_d["Ticker"].map(lambda t: float(_sd_scores.get(t, 0.0)))
+            df_d["因子1_分"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("vol_z_score", 0.0)))
+            df_d["因子2_分"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("rs_20d_score", 0.0)))
+            df_d["因子3_分"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("ma60_score", 0.0)))
+            df_d = df_d.sort_values("竞技得分", ascending=False).reset_index(drop=True)
+            df_d["排名"] = range(1, len(df_d) + 1)
+            df_scored_d = df_d
+            _score_d_api_ok = True
+        else:
+            st.warning(f"⚠ 后端 ScorecardD API 失败（{_sd_resp.get('error', '未知')}），降级为本地计算。")
+
+        if not _score_d_api_ok:
+            with st.spinner("正在拉取 D 组爆点因子数据（Vol_Z、RS vs SPY、MA60 位置）…"):
+                _factors_d = get_arena_d_factors(tuple(_d_tickers))
+            df_d["Vol_Z"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("vol_z", 0.0)))
+            df_d["RS_20d"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("rs_20d", 0.0)))
+            df_d["MA60偏离"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("ma60_dist", 0.0)))
+            df_scored_d = compute_scorecard_d(df_d)
 
         # 保存至 session_state 供下游使用
         n_d = len(df_scored_d)
@@ -3875,12 +3934,8 @@ elif _sel4 == "D":
         # ── 完整排行榜 ─────────────────────────────────────────────
         _render_leaderboard_d(df_scored_d)
 
-        # ── 叙事增强 D 组榜（v2 三桥共振 / v1_legacy 旧猎场 / v2_off 静默）──
-        _resonance_mode = st.session_state.get("narrative_resonance_v2_mode", "v2_on")
-        if _resonance_mode == "v2_on":
-            _render_resonance_board_v2(df_scored_d)
-        elif _resonance_mode == "v1_legacy":
-            _render_resonance_hunt_v1_legacy(df_scored_d)
+        # ── 叙事增强 D 组榜（v2 三桥共振，常开）──
+        _render_resonance_board_v2(df_scored_d)
 
         st.markdown("---")
 

@@ -1182,6 +1182,21 @@ def debug_narrative_resonance_d(ticker, calc_date=None, scorecard_d=80.0, featur
         return {"success": False, "error": str(e)}
 
 
+def post_arena_score_d(tickers, meta_data=None):
+    """后端 ScorecardD：拉 yfinance + 算三因子，返回 scores/breakdowns/failed_tickers。"""
+    payload = {"tickers": tickers, "meta_data": meta_data or {}}
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/arena/score_d",
+            json=payload,
+            timeout=90,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def trigger_narrative_pipeline(target_date=None):
     payload = {}
     if target_date:
