@@ -2,6 +2,28 @@
 
 ---
 
+## 2026-05-08 | D 组真实历史回看 MVP（跨仓）
+
+**跨仓改动**：后端 `valuation-radar` 新建 3 张快照表 + `d_snapshot_engine.py` + 4 个 API 端点；前端 `valuation-radar-ui` 加 4 个 api_client 函数 + Page 3 D 赛道拆「今日实时 / 历史快照」双 tab。
+
+**后端（valuation-radar）：**
+- `narrative_engine.py`：`_DDL` 末尾追加 `d_snapshot_header` / `d_snapshot_momentum` / `d_snapshot_resonance` 三张表 + 2 个索引
+- `d_snapshot_engine.py`（新建）：NYSE 交易日工具（2025-2030 节假日硬编码） + `save_d_snapshot_actual()` 幂等落盘 + `list_snapshot_dates()` / `fetch_momentum_snapshot()` / `fetch_resonance_snapshot()` 只读查询
+- `api_server.py`：追加 `POST /d_history/save_today` + `GET /d_history/dates|momentum|resonance`
+- `tests/test_d_snapshot_engine.py`（新建）：19 个单测全绿（schema / 交易日边界 / 幂等 / CRUD）
+
+**前端（valuation-radar-ui）：**
+- `api_client.py`：追加 `fetch_d_history_dates` / `fetch_d_history_momentum` / `fetch_d_history_resonance` + `save_d_snapshot_today`
+- `pages/3_资产细筛.py`：D 赛道拆双 tab；今日实时算完顺手落盘 actual 快照（幂等，重复打开不重复写）；历史 tab 用日期选择器 + 状态条（绿/黄/灰区分 actual/manual/backfill）+ 复用 `_render_leaderboard_d` / `_render_resonance_main_table` / `_render_resonance_zone_block`；`_render_resonance_board_v2()` 改为返回 resp
+
+**数据流**：每次打开 Page 3 D 赛道 → 今日实时 tab 算分 + 共振 → 自动调 `POST /d_history/save_today` → 后端 `save_d_snapshot_actual()` 幂等写入 narrative.db → 历史 tab 读 `GET /d_history/*` 渲染
+
+**不动**：`narrative_resonance_cache`（cache 不当历史源）/ affinity 业务 / 守擂逻辑
+
+**后续路线**：Plan B 守擂制（需累积 ≥30 交易日快照）→ Plan C 迁 Render → Plan D affinity PIT
+
+---
+
 ## 2026-05-07 | D 组共振系统修复（前端侧）
 
 **配合后端五阶段修复。**

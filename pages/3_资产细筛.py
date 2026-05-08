@@ -24,6 +24,8 @@ from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         fetch_current_regime, push_screen_results,
                         run_classification_api,
                         arena_backfill_score as _api_arena_backfill_score,
+                        fetch_d_history_dates, fetch_d_history_momentum,
+                        fetch_d_history_resonance, save_d_snapshot_today,
                         API_BASE_URL, IS_PROD_REMOTE)
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
@@ -1939,10 +1941,10 @@ def _render_resonance_zone_block(zone_key: str, rows: list[dict], meta: dict) ->
                 _render_resonance_whitebox(r, meta)
 
 
-def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None = None) -> None:
-    """v2 叙事增强 D 组候选榜（主入口）。"""
+def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None = None) -> dict | None:
+    """v2 叙事增强 D 组候选榜（主入口）。返回共振引擎原文 resp 供落盘用。"""
     if df_scored_d is None or df_scored_d.empty:
-        return
+        return None
     st.markdown("---")
     st.markdown("#### 🎯 叙事增强 D 组候选榜 v2.0 — 三桥共振")
     st.caption("Resonance = √(ScorecardD × NarrativeScore)；NarrativeScore 由 Affinity / Cooc / SectorPrior 三桥聚合。")
@@ -1957,7 +1959,7 @@ def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None 
         })
     if not candidates:
         st.info("D 组当前无候选。")
-        return
+        return None
 
     with st.spinner(f"正在调用后端三桥共振引擎（{len(candidates)} 只标的）…"):
         resp = post_narrative_resonance_d(
@@ -1972,7 +1974,7 @@ def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None 
             f"叙事共振引擎调用失败：{resp.get('error', '未知')}。"
             "请检查 RESONANCE_INTERNAL_TOKEN 是否配置 + 后端 anchors / keyword_weight_daily 是否就绪。"
         )
-        return
+        return None
 
     rows = resp.get("data", []) or []
     meta = resp.get("meta", {}) or {}
@@ -1980,7 +1982,7 @@ def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None 
 
     if not rows:
         st.info("后端返回空数据（可能 feature_mode=v2_off 或当日无候选）。")
-        return
+        return resp
 
     st.markdown("##### 共振主榜")
     _render_resonance_main_table(rows)
@@ -2015,6 +2017,102 @@ def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None 
                 st.json(_dbg)
             else:
                 st.error(f"debug 失败：{_dbg.get('error', '未知')}")
+
+    return resp
+
+
+# ─────────────────────────────────────────────────────────────────
+#  D 组历史快照 tab
+# ─────────────────────────────────────────────────────────────────
+
+def _render_history_status_bar(meta: dict) -> None:
+    """历史模式状态条。"""
+    status = meta.get("snapshot_status", "actual")
+    color = {"actual": "#2ECC71",
+             "manual_same_day": "#F1C40F",
+             "backfill_recomputed": "#7F8C8D"}.get(status, "#7F8C8D")
+    label = {"actual": "真实快照",
+             "manual_same_day": "当日手动",
+             "backfill_recomputed": "事后回填"}.get(status, status)
+    st.markdown(
+        f"""
+        <div style='border:2px solid {color}; background:#11161c;
+             border-radius:8px; padding:12px 16px; margin:8px 0 14px 0;
+             font-size:14px; color:#ddd;'>
+            <span style='color:{color}; font-weight:bold; font-size:15px;'>{label}</span>
+            ｜ {meta.get('snap_date', '?')}
+            ｜ 生成于 {meta.get('created_at', '?')}
+            ｜ source: {meta.get('snapshot_source', '?')}
+            ｜ engine: <code>{(meta.get('engine_version') or '?')[:24]}</code>
+            ｜ anchor: {meta.get('anchor_date', '?')}
+            ｜ Cooc: {meta.get('cooc_latest_date', '?')}
+            ｜ KW: {meta.get('keyword_weight_latest_date', '?')}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_d_history_tab() -> None:
+    """历史快照 tab：日期选择器 + 状态条 + 复用现有 render 函数。"""
+    dates_resp = fetch_d_history_dates(limit=90)
+    if not dates_resp.get("success") or not dates_resp.get("data"):
+        st.info("暂无历史快照数据。打开「今日实时」tab 一次以触发首次落盘。")
+        return
+
+    dates_meta = dates_resp["data"]
+    date_options = [d["snap_date"] for d in dates_meta]
+    selected_date = st.selectbox(
+        "查看日期", date_options, index=0, key="d_hist_date_sel",
+    )
+    sel_meta = next((d for d in dates_meta if d["snap_date"] == selected_date), dates_meta[0])
+    _render_history_status_bar(sel_meta)
+
+    # 动量榜
+    st.markdown("##### 📈 动量排行（历史快照）")
+    mom_resp = fetch_d_history_momentum(selected_date, status="actual")
+    if mom_resp.get("success"):
+        mom_data = mom_resp.get("data", [])
+        if mom_data:
+            df_mom = pd.DataFrame(mom_data)
+            col_map = {
+                "ticker": "Ticker", "cn_name": "名称",
+                "score": "竞技得分", "rank": "排名",
+                "vol_z": "Vol_Z", "rs_20d": "RS_20d", "ma60_dist": "MA60偏离",
+            }
+            for old, new in col_map.items():
+                if old in df_mom.columns:
+                    df_mom.rename(columns={old: new}, inplace=True)
+            for c in ["竞技得分", "Vol_Z", "RS_20d", "MA60偏离"]:
+                if c in df_mom.columns:
+                    df_mom[c] = pd.to_numeric(df_mom[c], errors="coerce").fillna(0.0)
+            if "排名" not in df_mom.columns and "竞技得分" in df_mom.columns:
+                df_mom = df_mom.sort_values("竞技得分", ascending=False).reset_index(drop=True)
+                df_mom["排名"] = range(1, len(df_mom) + 1)
+            _render_leaderboard_d(df_mom)
+        else:
+            st.info("该日期无动量数据。")
+    else:
+        st.warning(f"动量榜读取失败：{mom_resp.get('error', '?')}")
+
+    # 共振榜
+    st.markdown("##### 🎯 共振排行（历史快照）")
+    res_resp = fetch_d_history_resonance(selected_date, status="actual")
+    if res_resp.get("success"):
+        rows = res_resp.get("data", [])
+        meta = res_resp.get("meta", {})
+        if rows:
+            _render_resonance_health_banner(meta)
+            _render_resonance_main_table(rows)
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("##### 三栏分区（可点开看白盒分解）")
+            for zk in ("STRONG_NARRATIVE", "WEAK_NARRATIVE", "NO_NARRATIVE"):
+                zr = [r for r in rows if r.get("zone") == zk]
+                _render_resonance_zone_block(zk, zr, meta)
+        else:
+            st.info("该日期无共振数据。")
+    else:
+        st.warning(f"共振榜读取失败：{res_resp.get('error', '?')}")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -3868,76 +3966,86 @@ elif _sel4 == "D":
     if df_d.empty:
         st.info("当前 D 级赛道暂无参赛资产。请检查数据加载状态或清除缓存后重试。")
     else:
-        _d_tickers = df_d["Ticker"].tolist()
-        _d_meta = {t: {"cn_name": n} for t, n in zip(df_d["Ticker"], df_d.get("名称", [""] * len(df_d)))}
+        _d_tab_live, _d_tab_hist = st.tabs(["📊 今日实时", "🗂️ 历史快照"])
 
-        _score_d_api_ok = False
-        with st.spinner("正在调用后端 ScorecardD 评分（Vol_Z、RS vs SPY、MA60）…"):
-            from api_client import post_arena_score_d
-            _sd_resp = post_arena_score_d(_d_tickers, _d_meta)
+        with _d_tab_live:
+            _d_tickers = df_d["Ticker"].tolist()
+            _d_meta = {t: {"cn_name": n} for t, n in zip(df_d["Ticker"], df_d.get("名称", [""] * len(df_d)))}
 
-        if _sd_resp.get("success"):
-            _sd_scores = _sd_resp.get("scores", {})
-            _sd_bd = _sd_resp.get("breakdowns", {})
-            _sd_failed = _sd_resp.get("failed_tickers", [])
-            if _sd_failed:
-                st.warning(f"⚠ ScorecardD 因子拉取失败: {', '.join(_sd_failed)}")
+            _score_d_api_ok = False
+            with st.spinner("正在调用后端 ScorecardD 评分（Vol_Z、RS vs SPY、MA60）…"):
+                from api_client import post_arena_score_d
+                _sd_resp = post_arena_score_d(_d_tickers, _d_meta)
 
-            df_d["Vol_Z"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("vol_z_raw", 0.0)))
-            df_d["RS_20d"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("rs_20d_raw", 0.0)))
-            df_d["MA60偏离"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("ma60_raw", 0.0)))
-            df_d["竞技得分"] = df_d["Ticker"].map(lambda t: float(_sd_scores.get(t, 0.0)))
-            df_d["因子1_分"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("vol_z_score", 0.0)))
-            df_d["因子2_分"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("rs_20d_score", 0.0)))
-            df_d["因子3_分"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("ma60_score", 0.0)))
-            df_d = df_d.sort_values("竞技得分", ascending=False).reset_index(drop=True)
-            df_d["排名"] = range(1, len(df_d) + 1)
-            df_scored_d = df_d
-            _score_d_api_ok = True
-        else:
-            st.warning(f"⚠ 后端 ScorecardD API 失败（{_sd_resp.get('error', '未知')}），降级为本地计算。")
+            if _sd_resp.get("success"):
+                _sd_scores = _sd_resp.get("scores", {})
+                _sd_bd = _sd_resp.get("breakdowns", {})
+                _sd_failed = _sd_resp.get("failed_tickers", [])
+                if _sd_failed:
+                    st.warning(f"⚠ ScorecardD 因子拉取失败: {', '.join(_sd_failed)}")
 
-        if not _score_d_api_ok:
-            with st.spinner("正在拉取 D 组爆点因子数据（Vol_Z、RS vs SPY、MA60 位置）…"):
-                _factors_d = get_arena_d_factors(tuple(_d_tickers))
-            df_d["Vol_Z"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("vol_z", 0.0)))
-            df_d["RS_20d"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("rs_20d", 0.0)))
-            df_d["MA60偏离"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("ma60_dist", 0.0)))
-            df_scored_d = compute_scorecard_d(df_d)
+                df_d["Vol_Z"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("vol_z_raw", 0.0)))
+                df_d["RS_20d"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("rs_20d_raw", 0.0)))
+                df_d["MA60偏离"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("ma60_raw", 0.0)))
+                df_d["竞技得分"] = df_d["Ticker"].map(lambda t: float(_sd_scores.get(t, 0.0)))
+                df_d["因子1_分"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("vol_z_score", 0.0)))
+                df_d["因子2_分"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("rs_20d_score", 0.0)))
+                df_d["因子3_分"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("ma60_score", 0.0)))
+                df_d = df_d.sort_values("竞技得分", ascending=False).reset_index(drop=True)
+                df_d["排名"] = range(1, len(df_d) + 1)
+                df_scored_d = df_d
+                _score_d_api_ok = True
+            else:
+                st.warning(f"⚠ 后端 ScorecardD API 失败（{_sd_resp.get('error', '未知')}），降级为本地计算。")
 
-        # 保存至 session_state 供下游使用
-        n_d = len(df_scored_d)
-        if n_d > 0:
-            leaders = st.session_state.get("p4_arena_leaders", {})
-            leaders["D"] = [
-                {"ticker": row["Ticker"], "name": row["名称"], "score": float(row["竞技得分"]), "cls": "D"}
-                for _, row in df_scored_d.head(3).iterrows()
-            ]
-            st.session_state["p4_arena_leaders"] = leaders
-            _record_arena_history("D", _expand_arena_records(leaders["D"], df_scored_d))
+            if not _score_d_api_ok:
+                with st.spinner("正在拉取 D 组爆点因子数据（Vol_Z、RS vs SPY、MA60 位置）…"):
+                    _factors_d = get_arena_d_factors(tuple(_d_tickers))
+                df_d["Vol_Z"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("vol_z", 0.0)))
+                df_d["RS_20d"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("rs_20d", 0.0)))
+                df_d["MA60偏离"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("ma60_dist", 0.0)))
+                df_scored_d = compute_scorecard_d(df_d)
 
-            # 全局数据流：D 组 Top-3 Ticker → arena_winners
-            _aw = st.session_state.get("arena_winners", {})
-            _aw["D"] = [row["Ticker"] for _, row in df_scored_d.head(3).iterrows()]
-            st.session_state["arena_winners"] = _aw
-            _sync_arena_to_backend()
+            n_d = len(df_scored_d)
+            if n_d > 0:
+                leaders = st.session_state.get("p4_arena_leaders", {})
+                leaders["D"] = [
+                    {"ticker": row["Ticker"], "name": row["名称"], "score": float(row["竞技得分"]), "cls": "D"}
+                    for _, row in df_scored_d.head(3).iterrows()
+                ]
+                st.session_state["p4_arena_leaders"] = leaders
+                _record_arena_history("D", _expand_arena_records(leaders["D"], df_scored_d))
 
-        # ── KPI 卡片 ─────────────────────────────────────────────
-        st.markdown("---")
+                _aw = st.session_state.get("arena_winners", {})
+                _aw["D"] = [row["Ticker"] for _, row in df_scored_d.head(3).iterrows()]
+                st.session_state["arena_winners"] = _aw
+                _sync_arena_to_backend()
 
-        # ── 颁奖台 ────────────────────────────────────────────────
-        st.markdown("#### 🏆 赛道翘楚 — Top 3 高亮置顶")
-        _render_podium_d(df_scored_d.head(3))
+            st.markdown("---")
+            st.markdown("#### 🏆 赛道翘楚 — Top 3 高亮置顶")
+            _render_podium_d(df_scored_d.head(3))
+            st.markdown("---")
+            _render_leaderboard_d(df_scored_d)
 
-        st.markdown("---")
+            _resonance_resp = _render_resonance_board_v2(df_scored_d)
 
-        # ── 完整排行榜 ─────────────────────────────────────────────
-        _render_leaderboard_d(df_scored_d)
+            # 今日实时算完后幂等落盘 actual 快照
+            if _score_d_api_ok and _resonance_resp and _resonance_resp.get("success"):
+                try:
+                    _snap_resp = save_d_snapshot_today(_sd_resp, _resonance_resp)
+                    if _snap_resp.get("success"):
+                        _snap_reason = _snap_resp.get("reason", "")
+                        if _snap_reason == "saved":
+                            st.toast(f"✅ 今日快照已落盘（{_snap_resp.get('snap_date', '?')}）", icon="✅")
+                    else:
+                        st.toast(f"⚠ 快照落盘失败：{_snap_resp.get('error', '?')}", icon="⚠️")
+                except Exception as _snap_e:
+                    st.toast(f"🚨 快照模块异常：{_snap_e}", icon="🚨")
 
-        # ── 叙事增强 D 组榜（v2 三桥共振，常开）──
-        _render_resonance_board_v2(df_scored_d)
+            st.markdown("---")
 
-        st.markdown("---")
+        with _d_tab_hist:
+            _render_d_history_tab()
 
 
 # ─────────────────────────────────────────────────────────────────

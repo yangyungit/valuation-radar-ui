@@ -1629,3 +1629,59 @@ def get_ticker_affinity_suggestions(ticker):
 def post_ticker_affinity_batch_approve(items):
     """items: list of {"ticker", "l2_sector", "l3_keyword", "affinity_weight"?}"""
     return _narrative_post("/api/v1/narrative/ticker_affinity/batch_approve", json={"items": items})
+
+
+# ==========================================
+# D 组日级快照 — 历史存储与只读查询
+# ==========================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_d_history_dates(limit: int = 90) -> dict:
+    """GET /api/v1/d_history/dates"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_history/dates",
+                         params={"limit": limit}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_d_history_momentum(date: str, status: str = "actual") -> dict:
+    """GET /api/v1/d_history/momentum"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_history/momentum",
+                         params={"date": date, "status": status}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_d_history_resonance(date: str, status: str = "actual") -> dict:
+    """GET /api/v1/d_history/resonance"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_history/resonance",
+                         params={"date": date, "status": status}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def save_d_snapshot_today(momentum_resp: dict, resonance_resp: dict) -> dict:
+    """POST /api/v1/d_history/save_today"""
+    payload = {
+        "momentum_resp": momentum_resp,
+        "resonance_resp": resonance_resp,
+        "snapshot_source": "page3_local",
+    }
+    try:
+        r = requests.post(f"{API_BASE_URL}/api/v1/d_history/save_today",
+                          json=payload, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
