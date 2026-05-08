@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-05-08 | D 组历史回放成熟版强化（前端侧）
+
+- **calc_date 对齐**：`_render_resonance_board_v2` 传 `calc_date=snap_date`
+- **save_today 带 token + 严校验**：ticker 集、calc_date、feature_mode 逐项检查再落盘
+- **session_state 防抖**：同 snap_date 不重复落盘
+- **缓存 invalidate**：落盘 reason=saved 后 clear 三个 fetch_d_history_* 缓存
+- **历史 tab 升级**：selectbox format_func 含 status 标签+ticker 数；加 podium
+- **banner as_of_date**：历史回放 anchor 距今计算用 snap_date 而非 now
+- **api_client 新增** `fetch_d_today_snap_date()`、`save_d_snapshot_today` 改签名加 snap_date + price_asof_map
+
 ## 2026-05-08 | D 组真实历史回看 MVP（跨仓）
 
 **跨仓改动**：后端 `valuation-radar` 新建 3 张快照表 + `d_snapshot_engine.py` + 4 个 API 端点；前端 `valuation-radar-ui` 加 4 个 api_client 函数 + Page 3 D 赛道拆「今日实时 / 历史快照」双 tab。

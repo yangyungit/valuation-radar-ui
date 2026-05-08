@@ -1635,6 +1635,17 @@ def post_ticker_affinity_batch_approve(items):
 # D 组日级快照 — 历史存储与只读查询
 # ==========================================
 
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_d_today_snap_date() -> str | None:
+    """GET /api/v1/d_history/today → 当前交易日 snap_date。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_history/today", timeout=10)
+        r.raise_for_status()
+        return r.json().get("snap_date")
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_d_history_dates(limit: int = 90) -> dict:
     """GET /api/v1/d_history/dates"""
@@ -1671,16 +1682,27 @@ def fetch_d_history_resonance(date: str, status: str = "actual") -> dict:
         return {"success": False, "error": str(e)}
 
 
-def save_d_snapshot_today(momentum_resp: dict, resonance_resp: dict) -> dict:
-    """POST /api/v1/d_history/save_today"""
+def save_d_snapshot_today(
+    momentum_resp: dict,
+    resonance_resp: dict,
+    snap_date: str,
+    price_asof_map: dict | None = None,
+) -> dict:
+    """POST /api/v1/d_history/save_today（带 X-Internal-Token）"""
     payload = {
         "momentum_resp": momentum_resp,
         "resonance_resp": resonance_resp,
+        "snap_date": snap_date,
         "snapshot_source": "page3_local",
+        "price_asof_map": price_asof_map or {},
     }
     try:
-        r = requests.post(f"{API_BASE_URL}/api/v1/d_history/save_today",
-                          json=payload, timeout=30)
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/d_history/save_today",
+            json=payload,
+            headers=_internal_headers(),
+            timeout=30,
+        )
         r.raise_for_status()
         return r.json()
     except Exception as e:
