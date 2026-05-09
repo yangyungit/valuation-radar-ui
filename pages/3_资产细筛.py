@@ -4184,6 +4184,7 @@ elif _sel4 == "D":
                             st.toast(f"快照模块异常：{_snap_e}", icon="🚨")
 
             st.markdown("---")
+            _d_monthly_top10_slot = st.container()
 
         with _d_tab_hist:
             _render_d_history_tab()
@@ -4191,105 +4192,206 @@ elif _sel4 == "D":
 
 # ─────────────────────────────────────────────────────────────────
 #  历史榜单 — 只显示当前选中赛道（_sel4）的月度 Top 10
-#  D 赛道已有专门的"历史快照"tab（动量榜+共振榜），此处跳过
+#  D 赛道在"今日实时" tab 内已单独调用 _render_monthly_top10()
 # ─────────────────────────────────────────────────────────────────
-if _sel4 == "D":
-    st.stop()
 
-_hist_meta = CLASS_META[_sel4]
-st.markdown("---")
-st.markdown(
-    f"### 📅 {_hist_meta['icon']} {_hist_meta['label']} — 历史月度 Top 10",
-)
-_hist_macro_note = (
-    "本赛道评分不受宏观剧本变化影响，四剧本裁决列仅供市场环境参考。"
-    if _sel4 in ("A", "D", "Z")
-    else "B 组权重随剧本动态调整；C 组宏观顺风标的随剧本切换，切换月份将自动插入白盒注释行。"
-)
-st.caption(
-    f"当前赛道：{_hist_meta['label']}。纵向追踪每月末排名，"
-    "方便确认哪些标的被持续输送至 Page 5 / Page 6。"
-    "「四剧本裁决」列来自 Page 1 月度表（与 C 组宏观匹配同源）。"
-    f"切换顶部 ABCD 色块即可查看其他赛道历史。{_hist_macro_note}"
-)
 
-# ── 回填控制区 ───────────────────────────────────────────────────
-_BF_MONTHS = 60
-_bf_col1, _bf_col2 = st.columns([1, 3])
-with _bf_col1:
-    _do_backfill = st.button("🔄 回填历史数据", use_container_width=True,
-                             help="用 yfinance 历史价格数据重算过去 60 个月各赛道排名并写入档案")
-with _bf_col2:
+def _render_monthly_top10(cls: str) -> None:
+    """渲染指定赛道的历史月度 Top 10（含回填控制区 + 等价性断言 + 数据表）。"""
+    _hm = CLASS_META[cls]
+    st.markdown("---")
     st.markdown(
-        "<div style='font-size:13px; color:#666; padding-top:8px;'>"
-        "注：固定回填过去 60 个月。每月末先 Point-in-Time 重新执行 ABCD 分类（消除前视偏差），再在各赛道内评分。"
-        "首次下载约需 60-120 秒（5 年数据量较大）。</div>",
+        f"### 📅 {_hm['icon']} {_hm['label']} — 历史月度 Top 10",
+    )
+    _hist_macro_note = (
+        "本赛道评分不受宏观剧本变化影响，四剧本裁决列仅供市场环境参考。"
+        if cls in ("A", "D", "Z")
+        else "B 组权重随剧本动态调整；C 组宏观顺风标的随剧本切换，切换月份将自动插入白盒注释行。"
+    )
+    st.caption(
+        f"当前赛道：{_hm['label']}。纵向追踪每月末排名，"
+        "方便确认哪些标的被持续输送至 Page 5 / Page 6。"
+        "「四剧本裁决」列来自 Page 1 月度表（与 C 组宏观匹配同源）。"
+        f"切换顶部 ABCD 色块即可查看其他赛道历史。{_hist_macro_note}"
+    )
+
+    _BF_MONTHS = 60
+    _bf_col1, _bf_col2 = st.columns([1, 3])
+    with _bf_col1:
+        _do_backfill = st.button("🔄 回填历史数据", use_container_width=True,
+                                 help="用 yfinance 历史价格数据重算过去 60 个月各赛道排名并写入档案")
+    with _bf_col2:
+        st.markdown(
+            "<div style='font-size:13px; color:#666; padding-top:8px;'>"
+            "注：固定回填过去 60 个月。每月末先 Point-in-Time 重新执行 ABCD 分类（消除前视偏差），再在各赛道内评分。"
+            "首次下载约需 60-120 秒（5 年数据量较大）。</div>",
+            unsafe_allow_html=True,
+        )
+
+    if _do_backfill:
+        _old_hist_snapshot: dict = _api_fetch_history() or {}
+        with st.spinner(f"正在下载 {len(all_assets)} 只标的约 6 年历史数据并逐月 PIT 分拣 + 评分…"
+                        f"（含 12 个月信念热身期，共计算 {_BF_MONTHS + 12} 个月）"):
+            _bf_meta = get_stock_metadata(tuple(all_assets.keys()))
+            _bf_saved, _bf_err = _backfill_arena_history(
+                all_assets, months_back=_BF_MONTHS,
+                monthly_probs=(
+                    fetch_current_regime().get("horsemen_monthly_probs")
+                    or st.session_state.get("horsemen_monthly_probs", {})
+                ),
+                meta_data=_bf_meta,
+                warmup_months=12,
+            )
+        if _bf_err and "部分成功" in _bf_err:
+            st.warning(
+                f"⚠️ 回填{_bf_err}。前面批次已持久化，可稍后再点一次回填补剩余月份。",
+                icon="⚠️",
+            )
+        elif _bf_err:
+            st.error(f"回填失败：{_bf_err}")
+        else:
+            st.success(f"回填完成！已写入 {_bf_saved} 个月的历史档案。")
+            _api_fetch_history.clear()
+            _new_hist  = _api_fetch_history()
+            _old_hist  = _old_hist_snapshot
+            _mismatch_details: list = []
+            for _mk in sorted(set(_new_hist) & set(_old_hist)):
+                for _mcls in ("B", "C", "D", "Z"):
+                    _new_recs = [r["ticker"] for r in (_new_hist.get(_mk, {}).get(_mcls, []) or [])[:3]]
+                    _old_recs = [r["ticker"] for r in (_old_hist.get(_mk, {}).get(_mcls, []) or [])[:3]]
+                    if _new_recs and _old_recs and _new_recs != _old_recs:
+                        _score_diff = [
+                            (r["ticker"], round(r.get("score", 0) - next(
+                                (o.get("score", 0) for o in (_old_hist.get(_mk, {}).get(_mcls, []) or [])
+                                 if o["ticker"] == r["ticker"]), 0), 2))
+                            for r in (_new_hist.get(_mk, {}).get(_mcls, []) or [])[:5]
+                            if any(o["ticker"] == r["ticker"] for o in (_old_hist.get(_mk, {}).get(_mcls, []) or []))
+                        ]
+                        _mismatch_details.append(f"{_mk}/{_mcls}: 新={_new_recs} 旧={_old_recs} 分差前5={_score_diff}")
+            if _mismatch_details:
+                st.error(
+                    f"🚨 **等价性断言失败**：B/C/D/Z 搬家前后榜单不一致（共 {len(_mismatch_details)} 处），"
+                    "请人工核查 arena_scoring.py 是否与前端公式完全一致：",
+                    icon="🚨",
+                )
+                for _line in _mismatch_details[:10]:
+                    st.markdown(f"- `{_line}`")
+            else:
+                st.success("✅ 等价性断言通过：B/C/D/Z Top 3 与旧库完全一致，可安全上线。")
+            st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    _history_data      = _load_arena_history()
+    _horsemen_arch     = _load_horsemen_verdict_archive()
+    _mi  = ["🥇", "🥈", "🥉"]
+    _mc  = ["#FFD700", "#C0C0C0", "#CD7F32"]
+
+    if not _history_data:
+        st.info("暂无历史记录。点击上方「回填历史数据」按钮，一键生成过去 N 个月的档案。", icon="📋")
+        return
+
+    _sorted_months = sorted(_history_data.keys(), reverse=True)
+    _cls_months    = [mo for mo in _sorted_months if cls in _history_data[mo]]
+
+    if not _cls_months:
+        st.info(
+            f"{_hm['icon']} {_hm['label']} 暂无历史记录。"
+            "点击上方「回填历史数据」按钮生成档案。",
+            icon="📋",
+        )
+        return
+
+    _streaks_map = _compute_streaks(_history_data, cls)
+
+    _TH = (
+        "display:flex; align-items:center; padding:6px 8px; "
+        "border-bottom:2px solid #2a2a2a; font-size:13px; color:#555; font-weight:bold;"
+    )
+    _header_row = (
+        f"<div style='{_TH}'>"
+        f"<div style='width:80px; flex-shrink:0;'>月份</div>"
+        f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>四剧本裁决</div>"
+        f"<div style='flex:1; padding-left:4px;'>🥇 冠军</div>"
+        f"<div style='flex:1; padding-left:4px;'>🥈 亚军</div>"
+        f"<div style='flex:1; padding-left:4px;'>🥉 季军</div>"
+        f"<div style='flex:2; padding-left:4px; color:#666;'>#4 — #10 候补</div>"
+        f"</div>"
+    )
+    _all_verdicts = [_resolve_horsemen_verdict_cn(_mo, _horsemen_arch) for _mo in _cls_months]
+    _data_rows = ""
+    for _idx, _mo in enumerate(_cls_months):
+        _recs_raw  = _history_data[_mo].get(cls, [])
+        if isinstance(_recs_raw, dict):
+            _recs = _recs_raw.get("tickers", [])
+        else:
+            _recs = _recs_raw
+        _mo_streaks = _streaks_map.get(_mo, {})
+        _v_cn   = _all_verdicts[_idx]
+        _next_v_cn = _all_verdicts[_idx + 1] if _idx + 1 < len(_cls_months) else ""
+        _regime_shifted = bool(_v_cn and _next_v_cn and _v_cn != _next_v_cn)
+
+        if _regime_shifted:
+            _prev_emoji = _REGIME_EMOJI.get(_next_v_cn, "")
+            _curr_badge, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
+            _v_html = (
+                f"<div style='line-height:1.3;'>"
+                f"<div style='font-size:13px; color:#777;'>{_prev_emoji}→</div>"
+                f"{_curr_badge}"
+                f"</div>"
+            )
+        else:
+            _v_html, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
+
+        _bg    = "#111" if _idx % 2 == 0 else "#0d0d0d"
+        _row   = (
+            f"<div style='display:flex; align-items:center; padding:8px 8px; "
+            f"background:{_bg}; border-bottom:1px solid #1a1a1a;'>"
+            f"<div style='width:80px; font-size:13px; font-weight:bold; "
+            f"color:{_hm['color']}; flex-shrink:0;'>{_mo}</div>"
+            f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>{_v_html}</div>"
+        )
+        for _ri in range(3):
+            if _ri < len(_recs):
+                _row += _hist_cell(_recs[_ri], _mc[_ri], _mo_streaks.get(_recs[_ri]["ticker"], 0))
+            else:
+                _row += _hist_empty()
+        _rest = _recs[3:10]
+        if _rest:
+            _rest_items = []
+            for _ri2, _rec2 in enumerate(_rest, start=4):
+                _rest_items.append(
+                    f"<span style='color:#666; white-space:nowrap;'>"
+                    f"<span style='color:#555;'>#{_ri2}</span> {_rec2['ticker']}</span>"
+                )
+            _rest_html = (
+                f"<div style='flex:2; display:flex; flex-wrap:wrap; gap:4px 10px; "
+                f"align-items:baseline; padding-left:4px; font-size:13px;'>"
+                + "".join(_rest_items)
+                + "</div>"
+            )
+        else:
+            _rest_html = "<div style='flex:2; font-size:13px; color:#333; padding-left:4px;'>—</div>"
+        _row += _rest_html
+        _row += "</div>"
+        _data_rows += _row
+
+        if _regime_shifted:
+            _anno = _regime_shift_annotation(_next_v_cn, _v_cn, cls)
+            if _anno:
+                _data_rows += _anno
+
+    st.markdown(
+        f"<div style='border:1px solid {_hm['color']}44; border-radius:8px; "
+        f"overflow:hidden;'>{_header_row}{_data_rows}</div>",
         unsafe_allow_html=True,
     )
 
-if _do_backfill:
-    # 回填前先抓一份快照，用于后续等价性断言比对（_history 页面级变量此时尚未赋值，必须显式取）
-    _old_hist_snapshot: dict = _api_fetch_history() or {}
-    with st.spinner(f"正在下载 {len(all_assets)} 只标的约 6 年历史数据并逐月 PIT 分拣 + 评分…"
-                    f"（含 12 个月信念热身期，共计算 {_BF_MONTHS + 12} 个月）"):
-        _bf_meta = get_stock_metadata(tuple(all_assets.keys()))
-        _bf_saved, _bf_err = _backfill_arena_history(
-            all_assets, months_back=_BF_MONTHS,
-            monthly_probs=(
-                fetch_current_regime().get("horsemen_monthly_probs")
-                or st.session_state.get("horsemen_monthly_probs", {})
-            ),
-            meta_data=_bf_meta,
-            warmup_months=12,
-        )
-    if _bf_err and "部分成功" in _bf_err:
-        st.warning(
-            f"⚠️ 回填{_bf_err}。前面批次已持久化，可稍后再点一次回填补剩余月份。",
-            icon="⚠️",
-        )
-    elif _bf_err:
-        st.error(f"回填失败：{_bf_err}")
-    else:
-        st.success(f"回填完成！已写入 {_bf_saved} 个月的历史档案。")
-        # ── Phase 4 等价性断言：B/C/D/Z 新旧榜单比对 ──
-        _api_fetch_history.clear()
-        _new_hist  = _api_fetch_history()
-        _old_hist  = _old_hist_snapshot  # 回填前快照（在 spinner 之前抓取，避免 NameError）
-        _mismatch_details: list = []
-        for _mk in sorted(set(_new_hist) & set(_old_hist)):
-            for _cls in ("B", "C", "D", "Z"):
-                _new_recs = [r["ticker"] for r in (_new_hist.get(_mk, {}).get(_cls, []) or [])[:3]]
-                _old_recs = [r["ticker"] for r in (_old_hist.get(_mk, {}).get(_cls, []) or [])[:3]]
-                if _new_recs and _old_recs and _new_recs != _old_recs:
-                    _score_diff = [
-                        (r["ticker"], round(r.get("score", 0) - next(
-                            (o.get("score", 0) for o in (_old_hist.get(_mk, {}).get(_cls, []) or [])
-                             if o["ticker"] == r["ticker"]), 0), 2))
-                        for r in (_new_hist.get(_mk, {}).get(_cls, []) or [])[:5]
-                        if any(o["ticker"] == r["ticker"] for o in (_old_hist.get(_mk, {}).get(_cls, []) or []))
-                    ]
-                    _mismatch_details.append(f"{_mk}/{_cls}: 新={_new_recs} 旧={_old_recs} 分差前5={_score_diff}")
-        if _mismatch_details:
-            st.error(
-                f"🚨 **等价性断言失败**：B/C/D/Z 搬家前后榜单不一致（共 {len(_mismatch_details)} 处），"
-                "请人工核查 arena_scoring.py 是否与前端公式完全一致：",
-                icon="🚨",
-            )
-            for _line in _mismatch_details[:10]:
-                st.markdown(f"- `{_line}`")
-        else:
-            st.success("✅ 等价性断言通过：B/C/D/Z Top 3 与旧库完全一致，可安全上线。")
-        st.rerun()
 
-st.markdown("<br>", unsafe_allow_html=True)
+if _sel4 != "D":
+    _render_monthly_top10(_sel4)
 
-# ── 当前赛道历史数据展示 ─────────────────────────────────────────
-_history           = _load_arena_history()
-_horsemen_archive  = _load_horsemen_verdict_archive()
-_medal_icons  = ["🥇", "🥈", "🥉"]
-_medal_colors = ["#FFD700", "#C0C0C0", "#CD7F32"]
-
-# Page 1 裁决表为中文「剧本裁决」列
+# ── 辅助函数 & 常量（月度 Top 10 渲染用）────────────────────────
 _REGIME_BADGE_CN: dict = {
     "软着陆": ("<span style='color:#2ECC71; font-size:13px; font-weight:bold;'>🚗 软着陆</span>", "#2ECC71"),
     "再通胀": ("<span style='color:#E74C3C; font-size:13px; font-weight:bold;'>🔥 再通胀</span>", "#E74C3C"),
@@ -4297,11 +4399,20 @@ _REGIME_BADGE_CN: dict = {
     "衰退":   ("<span style='color:#3498DB; font-size:13px; font-weight:bold;'>❄️ 衰退</span>",   "#3498DB"),
 }
 _REGIME_BADGE_EMPTY = ("<span style='color:#444; font-size:13px;'>—</span>", "#444")
+_REGIME_CN_TO_CODE: dict = {"软着陆": "Soft", "再通胀": "Hot", "滞胀": "Stag", "衰退": "Rec"}
+_REGIME_EMOJI: dict = {"软着陆": "🚗", "再通胀": "🔥", "滞胀": "🚨", "衰退": "❄️"}
+_B_FACTOR_LABELS = ("Quality", "Resilience", "Sharpe", "RS120d", "MCap", "Revenue", "MacroAlign")
+
+_HIST_CONV_ICONS: dict = {
+    "defending":  ("🛡️", "#2ECC71"),
+    "new_entry":  ("🆕", "#3498DB"),
+    "challenged": ("⚔️", "#F39C12"),
+    "cold_start": ("🔰", "#9B59B6"),
+}
 
 
 def _compute_streaks(history: dict, cls: str) -> dict:
-    """按时间正序遍历，计算每个月每个标的在该赛道 Top 10 的连续在榜月数。
-    返回 {month: {ticker: streak_count}}。"""
+    """按时间正序遍历，计算每个月每个标的在该赛道 Top 10 的连续在榜月数。"""
     sorted_months = sorted(k for k in history if not k.startswith("_"))
     prev_tickers: set = set()
     prev_streaks: dict = {}
@@ -4335,14 +4446,6 @@ def _streak_badge_html(streak: int) -> str:
             f"flex-shrink:0; margin-left:4px;'>{streak}月</span>")
 
 
-_HIST_CONV_ICONS: dict = {
-    "defending":  ("🛡️", "#2ECC71"),
-    "new_entry":  ("🆕", "#3498DB"),
-    "challenged": ("⚔️", "#F39C12"),
-    "cold_start": ("🔰", "#9B59B6"),
-}
-
-
 def _hist_cell(rec: dict, medal_color: str, streak: int = 0) -> str:
     _streak_html = _streak_badge_html(streak) if streak >= 1 else ""
     _conv = rec.get("conviction")
@@ -4371,13 +4474,7 @@ def _hist_empty() -> str:
     return "<div style='flex:1; font-size:13px; color:#333; padding-left:4px;'>—</div>"
 
 
-_REGIME_CN_TO_CODE: dict = {"软着陆": "Soft", "再通胀": "Hot", "滞胀": "Stag", "衰退": "Rec"}
-_REGIME_EMOJI: dict = {"软着陆": "🚗", "再通胀": "🔥", "滞胀": "🚨", "衰退": "❄️"}
-_B_FACTOR_LABELS = ("Quality", "Resilience", "Sharpe", "RS120d", "MCap", "Revenue", "MacroAlign")
-
-
 def _regime_shift_annotation(prev_cn: str, curr_cn: str, cls: str) -> str:
-    """Return annotation-row HTML describing regime shift impact; empty string for A/D/Z."""
     if cls not in ("B", "C"):
         return ""
     prev_code = _REGIME_CN_TO_CODE.get(prev_cn, "")
@@ -4435,103 +4532,9 @@ def _regime_shift_annotation(prev_cn: str, curr_cn: str, cls: str) -> str:
     )
 
 
-if not _history:
-    st.info("暂无历史记录。点击上方「回填历史数据」按钮，一键生成过去 N 个月的档案。", icon="📋")
+# ── D 赛道：月度 Top 10 渲染到"今日实时" tab 的预留 container 中 ──
+if _sel4 == "D":
+    with _d_monthly_top10_slot:
+        _render_monthly_top10("D")
 else:
-    _sorted_months = sorted(_history.keys(), reverse=True)
-    _cls_months    = [mo for mo in _sorted_months if _sel4 in _history[mo]]
-
-    if not _cls_months:
-        st.info(
-            f"{_hist_meta['icon']} {_hist_meta['label']} 暂无历史记录。"
-            "点击上方「回填历史数据」按钮生成档案。",
-            icon="📋",
-        )
-    else:
-        _streaks_map = _compute_streaks(_history, _sel4)
-
-        _TH = (
-            "display:flex; align-items:center; padding:6px 8px; "
-            "border-bottom:2px solid #2a2a2a; font-size:13px; color:#555; font-weight:bold;"
-        )
-        _header_row = (
-            f"<div style='{_TH}'>"
-            f"<div style='width:80px; flex-shrink:0;'>月份</div>"
-            f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>四剧本裁决</div>"
-            f"<div style='flex:1; padding-left:4px;'>🥇 冠军</div>"
-            f"<div style='flex:1; padding-left:4px;'>🥈 亚军</div>"
-            f"<div style='flex:1; padding-left:4px;'>🥉 季军</div>"
-            f"<div style='flex:2; padding-left:4px; color:#666;'>#4 — #10 候补</div>"
-            f"</div>"
-        )
-        # Pre-compute verdicts to enable look-ahead shift detection
-        # _cls_months is newest-first; _cls_months[i+1] = chronologically previous month
-        _all_verdicts = [_resolve_horsemen_verdict_cn(_mo, _horsemen_archive) for _mo in _cls_months]
-        _data_rows = ""
-        for _idx, _mo in enumerate(_cls_months):
-            _recs_raw  = _history[_mo].get(_sel4, [])
-            if isinstance(_recs_raw, dict):
-                _recs = _recs_raw.get("tickers", [])
-            else:
-                _recs = _recs_raw
-            _mo_streaks = _streaks_map.get(_mo, {})
-            _v_cn   = _all_verdicts[_idx]
-            _next_v_cn = _all_verdicts[_idx + 1] if _idx + 1 < len(_cls_months) else ""
-            _regime_shifted = bool(_v_cn and _next_v_cn and _v_cn != _next_v_cn)
-
-            if _regime_shifted:
-                _prev_emoji = _REGIME_EMOJI.get(_next_v_cn, "")
-                _curr_badge, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
-                _v_html = (
-                    f"<div style='line-height:1.3;'>"
-                    f"<div style='font-size:13px; color:#777;'>{_prev_emoji}→</div>"
-                    f"{_curr_badge}"
-                    f"</div>"
-                )
-            else:
-                _v_html, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
-
-            _bg    = "#111" if _idx % 2 == 0 else "#0d0d0d"
-            _row   = (
-                f"<div style='display:flex; align-items:center; padding:8px 8px; "
-                f"background:{_bg}; border-bottom:1px solid #1a1a1a;'>"
-                f"<div style='width:80px; font-size:13px; font-weight:bold; "
-                f"color:{_hist_meta['color']}; flex-shrink:0;'>{_mo}</div>"
-                f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>{_v_html}</div>"
-            )
-            for _ri in range(3):
-                if _ri < len(_recs):
-                    _row += _hist_cell(_recs[_ri], _medal_colors[_ri], _mo_streaks.get(_recs[_ri]["ticker"], 0))
-                else:
-                    _row += _hist_empty()
-            # #4-#10 候补：灰色小字紧凑排列
-            _rest = _recs[3:10]
-            if _rest:
-                _rest_items = []
-                for _ri2, _rec2 in enumerate(_rest, start=4):
-                    _rest_items.append(
-                        f"<span style='color:#666; white-space:nowrap;'>"
-                        f"<span style='color:#555;'>#{_ri2}</span> {_rec2['ticker']}</span>"
-                    )
-                _rest_html = (
-                    f"<div style='flex:2; display:flex; flex-wrap:wrap; gap:4px 10px; "
-                    f"align-items:baseline; padding-left:4px; font-size:13px;'>"
-                    + "".join(_rest_items)
-                    + "</div>"
-                )
-            else:
-                _rest_html = "<div style='flex:2; font-size:13px; color:#333; padding-left:4px;'>—</div>"
-            _row += _rest_html
-            _row += "</div>"
-            _data_rows += _row
-
-            if _regime_shifted:
-                _anno = _regime_shift_annotation(_next_v_cn, _v_cn, _sel4)
-                if _anno:
-                    _data_rows += _anno
-
-        st.markdown(
-            f"<div style='border:1px solid {_hist_meta['color']}44; border-radius:8px; "
-            f"overflow:hidden;'>{_header_row}{_data_rows}</div>",
-            unsafe_allow_html=True,
-        )
+    _render_monthly_top10(_sel4)
