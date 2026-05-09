@@ -2071,7 +2071,7 @@ def _render_d_history_tab() -> None:
         with bf_c1:
             bf_days = st.radio("回填天数", [7, 14, 30], horizontal=True, key="d_bf_days")
         with bf_c2:
-            bf_force = st.checkbox("覆盖已有回填", key="d_bf_force")
+            bf_force = st.checkbox("重算回放数据", key="d_bf_force")
         with bf_c3:
             if st.button("开始补齐", key="d_bf_trigger"):
                 resp = trigger_d_history_backfill(bf_days, bf_force)
@@ -4191,7 +4191,11 @@ elif _sel4 == "D":
 
 # ─────────────────────────────────────────────────────────────────
 #  历史榜单 — 只显示当前选中赛道（_sel4）的月度 Top 10
+#  D 赛道已有专门的"历史快照"tab（动量榜+共振榜），此处跳过
 # ─────────────────────────────────────────────────────────────────
+if _sel4 == "D":
+    st.stop()
+
 _hist_meta = CLASS_META[_sel4]
 st.markdown("---")
 st.markdown(
