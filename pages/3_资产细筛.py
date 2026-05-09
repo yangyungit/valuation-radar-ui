@@ -26,7 +26,8 @@ from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         arena_backfill_score as _api_arena_backfill_score,
                         fetch_d_history_dates, fetch_d_history_momentum,
                         fetch_d_history_resonance, save_d_snapshot_today,
-                        fetch_d_today_snap_date,
+                        fetch_d_today_snap_date, ensure_d_snapshot_latest,
+                        trigger_d_history_backfill, fetch_d_history_backfill_status,
                         API_BASE_URL, IS_PROD_REMOTE)
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
@@ -2062,32 +2063,94 @@ def _render_history_status_bar(meta: dict) -> None:
 
 
 def _render_d_history_tab() -> None:
-    """历史快照 tab：日期选择器 + 状态条 + podium + 复用现有 render 函数。"""
+    """历史快照 tab：日期选择器 + 批量补齐 + 状态条 + podium + 复用现有 render 函数。"""
+
+    # ── 批量回放补齐区 ──
+    with st.expander("批量补齐历史快照", expanded=False):
+        bf_c1, bf_c2, bf_c3 = st.columns([1, 1, 2])
+        with bf_c1:
+            bf_days = st.radio("回填天数", [7, 14, 30], horizontal=True, key="d_bf_days")
+        with bf_c2:
+            bf_force = st.checkbox("覆盖已有回填", key="d_bf_force")
+        with bf_c3:
+            if st.button("开始补齐", key="d_bf_trigger"):
+                resp = trigger_d_history_backfill(bf_days, bf_force)
+                if resp.get("accepted") or resp.get("success"):
+                    st.success(f"已提交 {bf_days} 天回填任务")
+                else:
+                    st.warning(f"提交失败：{resp.get('error', '?')}")
+            if st.button("刷新进度", key="d_bf_refresh"):
+                st.cache_data.clear()
+        bfs = fetch_d_history_backfill_status()
+        state = bfs.get("state", {})
+        if state.get("started_at"):
+            running = state.get("running", False)
+            saved = len(state.get("saved_dates", []))
+            skipped = len(state.get("skipped_dates", []))
+            failed = len(state.get("failed_dates", []))
+            total = len(state.get("processed_dates", []))
+            status_icon = "🔄" if running else "✅"
+            st.markdown(
+                f"{status_icon} **{'运行中' if running else '已完成'}** "
+                f"| 已处理 {total} | 写入 {saved} | 跳过 {skipped} | 失败 {failed}"
+            )
+            reasons = state.get("per_date_reason", {})
+            if reasons:
+                with st.expander("逐日详情", expanded=False):
+                    for d, r in sorted(reasons.items(), reverse=True):
+                        st.text(f"{d}: {r}")
+
+    # ── 补齐最近收盘日 ──
+    ctl_cols = st.columns([1.2, 3])
+    with ctl_cols[0]:
+        if st.button("补齐最近收盘日", key="d_hist_ensure_latest"):
+            with st.spinner("正在补齐最近收盘日 D 组快照…"):
+                _ensure_date = fetch_d_today_snap_date()
+                _ensure_resp = ensure_d_snapshot_latest(_ensure_date)
+            if _ensure_resp.get("success"):
+                st.success(f"快照状态：{_ensure_resp.get('snap_date')} / {_ensure_resp.get('reason')}")
+            else:
+                st.warning(f"补齐失败：{_ensure_resp.get('error') or _ensure_resp.get('reason')}")
+
     dates_resp = fetch_d_history_dates(limit=90)
     if not dates_resp.get("success") or not dates_resp.get("data"):
-        st.info("暂无历史快照数据。打开「今日实时」tab 一次以触发首次落盘。")
+        st.info("暂无历史快照数据。")
         return
 
     dates_meta = dates_resp["data"]
-    date_options = [d["snap_date"] for d in dates_meta]
-    dates_lookup = {d["snap_date"]: d for d in dates_meta}
+    option_keys = [
+        f"{d['snap_date']}|{d.get('snapshot_status', 'actual')}"
+        for d in dates_meta
+    ]
+    dates_lookup = {
+        f"{d['snap_date']}|{d.get('snapshot_status', 'actual')}": d
+        for d in dates_meta
+    }
 
-    def _fmt_date(d):
-        m = dates_lookup.get(d, {})
-        lbl, _ = _STATUS_LABEL_MAP.get(m.get("snapshot_status", "actual"), ("?", ""))
+    def _fmt_date(option_key):
+        m = dates_lookup.get(option_key, {})
+        d = m.get("snap_date", option_key.split("|", 1)[0])
+        s = m.get("snapshot_status", "actual")
         tc = m.get("ticker_count", "?")
+        if s == "actual":
+            return f"[实盘] {d}（{tc}只）"
+        if s == "backfill_recomputed":
+            return f"[回放] {d}（{tc}只）"
+        lbl, _ = _STATUS_LABEL_MAP.get(s, ("?", ""))
         return f"{d} · {lbl}（{tc}只）"
 
-    selected_date = st.selectbox(
-        "查看日期", date_options, index=0, key="d_hist_date_sel",
+    selected_key = st.selectbox(
+        "查看日期", option_keys, index=0, key="d_hist_date_sel",
         format_func=_fmt_date,
     )
-    sel_meta = dates_lookup.get(selected_date, dates_meta[0])
+    sel_meta = dates_lookup.get(selected_key, dates_meta[0])
+    selected_date = sel_meta.get("snap_date", selected_key.split("|", 1)[0])
+    selected_status = sel_meta.get("snapshot_status", "actual")
     _render_history_status_bar(sel_meta)
 
     # 动量榜
-    st.markdown("##### 📈 动量排行（历史快照）")
-    mom_resp = fetch_d_history_momentum(selected_date, status="actual")
+    st.markdown("##### 动量排行（历史快照）")
+    mom_resp = fetch_d_history_momentum(selected_date, status=selected_status)
     if mom_resp.get("success"):
         mom_data = mom_resp.get("data", [])
         if mom_data:
@@ -2111,7 +2174,7 @@ def _render_d_history_tab() -> None:
                 df_mom = df_mom.sort_values("竞技得分", ascending=False).reset_index(drop=True)
                 df_mom["排名"] = range(1, len(df_mom) + 1)
             st.markdown("---")
-            st.markdown("#### 🏆 赛道翘楚 — Top 3（历史）")
+            st.markdown("#### 赛道翘楚 — Top 3（历史）")
             _render_podium_d(df_mom.head(3))
             st.markdown("---")
             _render_leaderboard_d(df_mom)
@@ -2121,12 +2184,30 @@ def _render_d_history_tab() -> None:
         st.warning(f"动量榜读取失败：{mom_resp.get('error', '?')}")
 
     # 共振榜
-    st.markdown("##### 🎯 共振排行（历史快照）")
-    res_resp = fetch_d_history_resonance(selected_date, status="actual")
+    st.markdown("##### 共振排行（历史快照）")
+    res_resp = fetch_d_history_resonance(selected_date, status=selected_status)
     if res_resp.get("success"):
         rows = res_resp.get("data", [])
         meta = res_resp.get("meta", {})
         if rows:
+            # 真实性状态条（仅 backfill_recomputed 有 anchor_mode / kw_gap_days）
+            a_mode = meta.get("anchor_mode", "")
+            kw_gap = meta.get("kw_gap_days")
+            deg = meta.get("degraded_counts") or {}
+            if selected_status == "backfill_recomputed" and (a_mode or kw_gap is not None):
+                parts = []
+                if a_mode:
+                    parts.append(f"anchor: {a_mode}")
+                if kw_gap is not None:
+                    parts.append(f"kw_gap: {kw_gap}d")
+                if deg:
+                    parts.append(f"degraded: {deg}")
+                st.markdown(
+                    f"<div style='background:#1a1a2e;border:1px solid #555;border-radius:6px;"
+                    f"padding:8px 14px;margin-bottom:10px;font-size:13px;color:#aaa;'>"
+                    f"{'  |  '.join(parts)}</div>",
+                    unsafe_allow_html=True,
+                )
             _render_resonance_health_banner(meta, as_of_date=selected_date)
             _render_resonance_main_table(rows)
             st.markdown("<br>", unsafe_allow_html=True)

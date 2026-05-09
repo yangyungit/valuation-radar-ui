@@ -1646,7 +1646,7 @@ def fetch_d_today_snap_date() -> str | None:
         return None
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def fetch_d_history_dates(limit: int = 90) -> dict:
     """GET /api/v1/d_history/dates"""
     try:
@@ -1705,5 +1705,53 @@ def save_d_snapshot_today(
         )
         r.raise_for_status()
         return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def trigger_d_history_backfill(days: int = 7, force: bool = False) -> dict:
+    """POST /api/v1/d_history/backfill"""
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/d_history/backfill",
+            json={"days": days, "force": force},
+            headers=_internal_headers(),
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def fetch_d_history_backfill_status() -> dict:
+    """GET /api/v1/d_history/backfill_status (no cache)"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_history/backfill_status", timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def ensure_d_snapshot_latest(snap_date: str | None = None, force: bool = False) -> dict:
+    """POST /api/v1/d_history/ensure_latest（后端独立补齐最近收盘日 D 快照）"""
+    payload = {"force": bool(force)}
+    if snap_date:
+        payload["snap_date"] = snap_date
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/d_history/ensure_latest",
+            json=payload,
+            headers=_internal_headers(),
+            timeout=180,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if data.get("success"):
+            fetch_d_history_dates.clear()
+            fetch_d_history_momentum.clear()
+            fetch_d_history_resonance.clear()
+        return data
     except Exception as e:
         return {"success": False, "error": str(e)}
