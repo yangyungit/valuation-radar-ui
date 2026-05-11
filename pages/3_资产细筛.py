@@ -1952,18 +1952,28 @@ def _render_endurance_pool() -> None:
     from api_client import fetch_d_endurance_today
 
     data = fetch_d_endurance_today()
-    if not data.get("success") or (not data.get("pool") and not data.get("state")):
-        st.markdown("---")
-        st.markdown("#### ⛽ 续航持有池")
-        st.info("续航持有池暂无数据（首次运行需完成 backfill）。")
-        return
-
     pool = data.get("pool", [])
     state = data.get("state", {})
+    decisions = data.get("decisions", [])
     snap_date = data.get("snap_date", "")
 
     st.markdown("---")
-    st.markdown(f"#### ⛽ 续航持有池 （{snap_date}）")
+    col_title, col_btn = st.columns([5, 1])
+    with col_title:
+        st.markdown(f"#### ⛽ 续航持有池 （{snap_date}）")
+    with col_btn:
+        if st.button("续航回看", help="重跑最近 30 天历史 snapshot 的续航逻辑"):
+            with st.spinner("回看中..."):
+                from api_client import post_d_endurance_replay
+                r = post_d_endurance_replay(days=30, disable_rotation=True)
+                fetch_d_endurance_today.clear()
+                st.toast(f"完成: 处理 {r.get('saved', 0)} 天" if r.get("success") else f"失败: {r.get('error')}")
+                st.rerun()
+    st.caption("基于真实历史快照（v1 简化版，禁用 rotation feature）")
+
+    if not pool and not state and not decisions:
+        st.info("续航持有池暂无数据，点击右上角「续航回看」初始化。")
+        return
 
     # Banner: 三指标
     min_E = state.get("min_E", 0)
