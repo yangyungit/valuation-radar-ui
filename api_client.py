@@ -1824,3 +1824,26 @@ def ensure_d_snapshot_latest(snap_date: str | None = None, force: bool = False) 
         return data
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=300)
+def fetch_ticker_factor_snapshot(
+    as_of_date: str | None = None,
+    ticker: str | None = None,
+) -> dict:
+    """GET /api/v1/ticker_factor/snapshot。本 plan 不直接渲染，备用。"""
+    params: dict = {}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    if ticker:
+        params["ticker"] = ticker
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/ticker_factor/snapshot",
+            params=params,
+            timeout=20,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
