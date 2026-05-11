@@ -1847,3 +1847,18 @@ def fetch_ticker_factor_snapshot(
         return r.json()
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=180)
+def fetch_narrative_momentum(as_of_date: str | None = None, days: int = 30) -> dict:
+    """GET /api/v1/narrative_momentum。供 page2 Tab5 升维共振模式使用。"""
+    params: dict = {"days": days}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/narrative_momentum",
+                         params=params, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "data": []}
