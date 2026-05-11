@@ -2015,7 +2015,7 @@ def _render_d_conviction_whitebox(resonance_resp: dict | None) -> None:
         _sp1, _sp2, _sp3, _sp4 = st.columns(4)
         with _sp1:
             st.metric("holder_decay", "0.78")
-            st.metric("initial_E", "35")
+            st.metric("initial_E", "40")
         with _sp2:
             st.metric("入池门槛 E", "40")
             st.metric("降落门槛 E", "30")

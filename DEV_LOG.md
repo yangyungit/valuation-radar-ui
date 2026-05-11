@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-05-11 | D 组守擂参数卡片 initial_E 35→40
+
+**目的**：配合后端 commit（双刀调参：role_decay_multiplier + initial_E_for_new）的镜像副本同步——后端 `CONVICTION_D_CONFIG["initial_E_for_new"]` 从 35 改成 40，前端守擂参数展示卡片是手写硬编码，必须同步避免展示与算分口径错位（参考 core-protocols 第 5 节红线 9 教训）。
+
+- **`pages/3_资产细筛.py:2018`**：`st.metric("initial_E", "35")` → `"40"`
+
+后端实证：30 天 PIT 回看里非主线 sector 标的（dormant/pulse 角色）新兵第二天 E 跌至 22-27 < exit_threshold=30 直接 LANDED；本次抬到 40 后 BTC 最长活到 5 天、非空池 25/30 天，详见后端 DEV_LOG 同日条目。
+
+---
+
 ## 2026-05-11 | D 组守擂回看加 include_backfill 复选框 + 实证 toast
 
 **目的**：配合后端 commit `0834a5c`（include_backfill 通路），让前端「守擂回看」按钮能调起跨 status 的 30 天历史回看，把本地 28 天 `backfill_recomputed` 数据也喂进去跑实证。
