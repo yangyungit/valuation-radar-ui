@@ -1735,11 +1735,11 @@ def fetch_d_history_backfill_status() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# D Endurance (续航持有池)
+# D 组共振守擂
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=300)
-def fetch_d_endurance_today() -> dict:
+def fetch_d_conviction_today() -> dict:
     """GET /api/v1/d_endurance/today"""
     try:
         r = requests.get(f"{API_BASE_URL}/api/v1/d_endurance/today", timeout=15)
@@ -1750,7 +1750,7 @@ def fetch_d_endurance_today() -> dict:
 
 
 @st.cache_data(ttl=300)
-def fetch_d_endurance_history(date: str) -> dict:
+def fetch_d_conviction_history(date: str) -> dict:
     """GET /api/v1/d_endurance/history?date=YYYY-MM-DD"""
     try:
         r = requests.get(f"{API_BASE_URL}/api/v1/d_endurance/history",
@@ -1776,7 +1776,7 @@ def fetch_l2_state(as_of_date: str | None = None) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def post_d_endurance_replay(days: int = 30, disable_rotation: bool = True) -> dict:
+def post_d_conviction_replay(days: int = 30, disable_rotation: bool = True) -> dict:
     """POST /api/v1/d_endurance/replay"""
     try:
         r = requests.post(

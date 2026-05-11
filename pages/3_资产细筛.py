@@ -1947,227 +1947,346 @@ def _render_resonance_zone_block(zone_key: str, rows: list[dict], meta: dict, ke
                 _render_resonance_whitebox(r, meta)
 
 
-def _render_endurance_pool() -> None:
-    """D 组续航持有池 — 排行榜与共振主榜之间。"""
-    from api_client import fetch_d_endurance_today
+def _render_d_conviction_whitebox(resonance_resp: dict | None) -> None:
+    """D 组共振守擂全量推演（对标 A/B 信念守擂白盒）。"""
+    from api_client import fetch_d_conviction_today, post_d_conviction_replay
 
-    data = fetch_d_endurance_today()
-    pool = data.get("pool", [])
-    state = data.get("state", {})
-    decisions = data.get("decisions", [])
-    snap_date = data.get("snap_date", "")
+    conv_data = fetch_d_conviction_today()
+    pool = conv_data.get("pool", [])
+    decisions = conv_data.get("decisions", [])
+    state = conv_data.get("state", {})
+    snap_date = conv_data.get("snap_date", "")
 
-    st.markdown("---")
-    col_title, col_btn = st.columns([5, 1])
-    with col_title:
-        st.markdown(f"#### ⛽ 续航持有池 （{snap_date}）")
-    with col_btn:
-        if st.button("续航回看", help="重跑最近 30 天历史 snapshot 的续航逻辑"):
-            with st.spinner("回看中..."):
-                from api_client import post_d_endurance_replay
-                r = post_d_endurance_replay(days=30, disable_rotation=True)
-                fetch_d_endurance_today.clear()
-                st.toast(f"完成: 处理 {r.get('saved', 0)} 天" if r.get("success") else f"失败: {r.get('error')}")
-                st.rerun()
-    st.caption("基于真实历史快照（v1 简化版，禁用 rotation feature）")
+    res_rows = (resonance_resp or {}).get("data", []) or []
 
-    if not pool and not state and not decisions:
-        st.info("续航持有池暂无数据，点击右上角「续航回看」初始化。")
-        return
+    pool_by_ticker: dict[str, dict] = {}
+    for h in pool:
+        pool_by_ticker[h.get("ticker", "")] = h
+    pool_set = set(pool_by_ticker.keys())
 
-    # Banner: 三指标
-    min_E = state.get("min_E", 0)
-    std_E = state.get("std_E", 0)
-    fading_count = state.get("fading_in_pool_count", 0)
-    cash_warning = state.get("cash_gate_warning", 0)
+    names_map: dict[str, str] = {}
+    res_map: dict[str, float] = {}
+    for r in res_rows:
+        tk = r.get("Ticker", "")
+        names_map[tk] = r.get("\u540d\u79f0", tk)
+        res_map[tk] = float(r.get("Resonance", 0))
 
-    banner_cols = st.columns(4)
-    with banner_cols[0]:
-        color = "#E74C3C" if min_E < 35 else ("#F39C12" if min_E < 50 else "#2ECC71")
-        st.markdown(f"<div style='text-align:center'>"
-                    f"<span style='font-size:24px;color:{color};font-weight:bold'>{min_E:.0f}</span>"
-                    f"<br><span style='font-size:13px;color:#888'>最低 E</span></div>",
-                    unsafe_allow_html=True)
-    with banner_cols[1]:
-        st.markdown(f"<div style='text-align:center'>"
-                    f"<span style='font-size:24px;font-weight:bold'>{std_E:.1f}</span>"
-                    f"<br><span style='font-size:13px;color:#888'>E 离散度</span></div>",
-                    unsafe_allow_html=True)
-    with banner_cols[2]:
-        f_color = "#E74C3C" if fading_count >= 2 else "#888"
-        st.markdown(f"<div style='text-align:center'>"
-                    f"<span style='font-size:24px;color:{f_color};font-weight:bold'>{fading_count}</span>"
-                    f"<br><span style='font-size:13px;color:#888'>fading 在池</span></div>",
-                    unsafe_allow_html=True)
-    with banner_cols[3]:
-        cw_text = "⚠️ 预警中" if cash_warning else "✅ 正常"
-        st.markdown(f"<div style='text-align:center'>"
-                    f"<span style='font-size:18px;font-weight:bold'>{cw_text}</span>"
-                    f"<br><span style='font-size:13px;color:#888'>CASH GATE</span></div>",
-                    unsafe_allow_html=True)
+    _entry_th = 40
+    _exit_th = 30
+    _top_n = 4
 
-    if not pool:
-        st.warning("当前续航池为空（全员降落或 CASH_GATE 清仓）。")
-        return
+    with st.expander("🔬 D 组共振守擂全量推演", expanded=False):
 
-    # 4 cards
-    card_cols = st.columns(min(len(pool), 4))
-    for idx, h in enumerate(pool[:4]):
-        with card_cols[idx]:
-            E_val = float(h.get("E_value", 0))
-            if E_val >= 70:
-                bar_color = "#2ECC71"
-            elif E_val >= 30:
-                bar_color = "#F39C12"
-            else:
-                bar_color = "#E74C3C"
+        col_title, col_btn = st.columns([5, 1])
+        with col_title:
+            st.markdown(
+                f"<div style='font-size:14px; color:#3498DB; font-weight:bold;"
+                f" margin-bottom:8px;'>⚙️ D 组守擂参数（当前值）</div>",
+                unsafe_allow_html=True,
+            )
+        with col_btn:
+            if st.button("守擂回看", help="重跑最近 30 天历史 snapshot 的守擂逻辑"):
+                with st.spinner("回看中..."):
+                    r = post_d_conviction_replay(days=30, disable_rotation=True)
+                    fetch_d_conviction_today.clear()
+                    st.toast(
+                        f"完成: 处理 {r.get('saved', 0)} 天"
+                        if r.get("success") else f"失败: {r.get('error')}"
+                    )
+                    st.rerun()
 
-            status_label = h.get("status", "active")
-            ticker = h.get("ticker", "?")
-            bound_l2 = h.get("bound_l2", "")
-            today_l2 = h.get("today_l2", "")
-            days_held = h.get("days_held", 0)
-            enrolled = h.get("enrolled_date", "")
+        _sp1, _sp2, _sp3, _sp4 = st.columns(4)
+        with _sp1:
+            st.metric("holder_decay", "0.78")
+            st.metric("initial_E", "35")
+        with _sp2:
+            st.metric("入池门槛 E", "40")
+            st.metric("降落门槛 E", "30")
+        with _sp3:
+            st.metric("席位数 top_n", "4")
+            st.metric("最长持仓天", "15")
+        with _sp4:
+            st.metric("入池共振下限", "60")
+            cw = state.get("cash_gate_warning", 0)
+            st.metric("CASH GATE", "⚠️ 预警" if cw else "正常")
 
-            l2_display = bound_l2
-            if today_l2 and today_l2 != bound_l2:
-                l2_display = f"{bound_l2} → {today_l2}"
+        st.markdown("<hr style='border-color:#333; margin:10px 0;'>", unsafe_allow_html=True)
 
-            fb = h.get("fuel_breakdown", {})
-            fuel_total = float(h.get("fuel_total") or 0)
-            decay_used = float(h.get("decay_used") or 0)
-
-            fuel_sign = "⬆" if fuel_total > 0 else ("⬇" if fuel_total < 0 else "→")
-
-            role_tag = fb.get("role_used", "")
-            fallback_tag = " ⚠️ dormant 兜底" if fb.get("role_is_fallback") else ""
-
-            # Stress test: if role drops to 'main', E_next ≈ E * (0.78*0.95) + fuel
-            stress_E = E_val * (0.78 * 0.95) + fuel_total
-            stress_E = max(0, min(100, stress_E))
-
-            st.markdown(f"""
-            <div style="border:2px solid {bar_color};border-radius:10px;padding:14px;margin-bottom:8px">
-                <div style="font-size:18px;font-weight:bold">{ticker}</div>
-                <div style="font-size:13px;color:#888">{l2_display}</div>
-                <div style="margin:8px 0">
-                    <div style="background:#333;border-radius:6px;height:14px;position:relative">
-                        <div style="background:{bar_color};width:{min(E_val, 100):.0f}%;height:100%;border-radius:6px"></div>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:2px">
-                        <span>E = {E_val:.1f}</span>
-                        <span>{fuel_sign} {fuel_total:+.1f}</span>
-                    </div>
-                </div>
-                <div style="font-size:13px">
-                    📅 入池 {enrolled} · 持仓 {days_held}d · {status_label}<br>
-                    🔧 role={role_tag}{fallback_tag}<br>
-                    🧪 压力测试(main): E≈{stress_E:.0f}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-
-def _render_endurance_whitebox() -> None:
-    """续航制白盒推演：Panel A 燃料明细 / Panel B 决策日志 / Panel C 排行 vs 续航分歧 / Panel D L2 分布。"""
-    from api_client import fetch_d_endurance_today
-
-    data = fetch_d_endurance_today()
-    if not data.get("success"):
-        return
-
-    pool = data.get("pool", [])
-    decisions = data.get("decisions", [])
-    state = data.get("state", {})
-
-    with st.expander("📐 续航制白盒推演", expanded=False):
-        tab_a, tab_b, tab_c, tab_d = st.tabs([
-            "⛽ 燃料明细", "📋 决策日志", "🔀 排行 vs 续航", "🗺️ L2 分布"
+        tab_a, tab_b, tab_c = st.tabs([
+            "📋 守擂明细（全候选）", "🛡️ 守擂决策推演", "🔀 共振排名 vs E 排名"
         ])
 
-        # Panel A: 燃料明细表
+        # ── Panel A：共振守擂明细（全候选） ──────────────────────────
         with tab_a:
-            if not pool:
-                st.info("池内无持仓。")
+            if not res_rows and not pool:
+                st.info("暂无数据，请先确保共振排行榜已加载，并点击「守擂回看」初始化。")
             else:
-                for h in pool:
-                    fb = h.get("fuel_breakdown", {})
-                    ticker = h.get("ticker", "?")
-                    bound_l2 = h.get("bound_l2", "")
-                    today_l2 = h.get("today_l2", "")
-                    E_val = float(h.get("E_value", 0))
-                    decay = float(h.get("decay_used", 0))
-                    role = fb.get("role_used", "?")
-                    fallback = fb.get("role_is_fallback", False)
+                all_tickers: list[str] = []
+                seen: set[str] = set()
+                for h in sorted(pool, key=lambda x: float(x.get("E_value", 0)), reverse=True):
+                    tk = h.get("ticker", "")
+                    if tk and tk not in seen:
+                        all_tickers.append(tk)
+                        seen.add(tk)
+                for r in res_rows:
+                    tk = r.get("Ticker", "")
+                    if tk and tk not in seen:
+                        all_tickers.append(tk)
+                        seen.add(tk)
 
-                    role_tag = f"{role}"
-                    if fallback:
-                        role_tag += " <span style='color:#E74C3C;font-weight:bold'>⚠️ 未入 story，按兜底处理</span>"
+                header_html = (
+                    "<div style='display:flex; gap:6px; padding:4px 0; border-bottom:2px solid #333;"
+                    " font-size:13px; color:#888; font-weight:bold;'>"
+                    "<span style='width:70px;'>Ticker</span>"
+                    "<span style='width:100px;'>名称</span>"
+                    "<span style='width:75px; text-align:right;'>共振分</span>"
+                    "<span style='width:65px; text-align:right;'>E</span>"
+                    "<span style='width:65px; text-align:right;'>燃料</span>"
+                    "<span style='width:65px; text-align:right;'>衰减</span>"
+                    "<span style='width:65px; text-align:center;'>角色</span>"
+                    "<span style='width:65px; text-align:right;'>持仓天</span>"
+                    "<span style='flex:1;'>E 进度</span>"
+                    "<span style='width:90px; text-align:center;'>状态</span>"
+                    "</div>"
+                )
+                rows_html = ""
+                for tk in all_tickers:
+                    in_pool = tk in pool_set
+                    h = pool_by_ticker.get(tk, {})
+                    res_score = res_map.get(tk, 0.0)
+                    nm = names_map.get(tk, tk)
 
-                    main_fuel = fb.get("main_fuel", 0)
-                    zone_bonus = fb.get("zone_bonus", 0)
-                    bridge_bonus = fb.get("bridge_bonus", 0)
-                    consist = fb.get("consistency_bonus", 0)
-                    momentum = fb.get("momentum_bonus", 0)
-                    total = fb.get("total", 0)
+                    if in_pool:
+                        E_val = float(h.get("E_value", 0))
+                        fb = h.get("fuel_breakdown", {})
+                        fuel = float(h.get("fuel_total") or 0)
+                        decay = float(h.get("decay_used") or 0)
+                        role = fb.get("role_used", "?")
+                        days_held = h.get("days_held", 0)
+                        status_raw = h.get("status", "active")
 
-                    l2_match = "✅" if today_l2 == bound_l2 else "⚠️"
+                        row_bg = "#1e2a1e"
+                        tk_color = "#F39C12"
+                        badge = f"🛡️ {status_raw}"
+                        bar_pct = min(E_val, 100)
+                        bar_color = "#F39C12"
+                        e_text = f"{E_val:.0f}"
+                        fuel_text = f"{fuel:+.1f}"
+                        decay_text = f"{decay:.2f}"
+                        role_text = role
+                        days_text = str(days_held)
+                    else:
+                        E_val = 0
+                        row_bg = "#111"
+                        tk_color = "#555"
+                        bar_pct = 0
+                        bar_color = "#333"
+                        e_text = "—"
+                        fuel_text = "—"
+                        decay_text = "—"
+                        role_text = "—"
+                        days_text = "—"
 
-                    st.markdown(f"""
-                    <div style="border:1px solid #444;border-radius:8px;padding:10px;margin-bottom:8px">
-                        <b>{ticker}</b> · {bound_l2} {l2_match}
-                        · role={role_tag} · decay={decay:.3f}<br>
-                        <span style="font-size:13px">
-                        主燃料 {main_fuel:+.1f} | zone {zone_bonus:+.1f} |
-                        bridge {bridge_bonus:+.1f} | 连续 {consist:+.1f} |
-                        动量 {momentum:+.1f} | <b>总计 {total:+.1f}</b>
-                        → E={E_val:.1f}
-                        </span>
-                    </div>""", unsafe_allow_html=True)
+                        if res_score >= 60:
+                            badge = "达入池线"
+                            tk_color = "#3498DB"
+                            row_bg = "#1a1f2a"
+                        else:
+                            badge = "未达入池线"
 
-        # Panel B: 决策日志
+                    delta_html = ""
+                    if in_pool:
+                        delta_clr = "#2ECC71" if fuel >= 0 else "#E74C3C"
+                        delta_html = f"<span style='color:{delta_clr};'>{fuel_text}</span>"
+                    else:
+                        delta_html = f"<span style='color:#555;'>{fuel_text}</span>"
+
+                    bar_section = ""
+                    if in_pool:
+                        bar_section = (
+                            f"<div style='flex:1; position:relative; background:#1e1e1e;"
+                            f" border-radius:4px; height:8px; min-width:80px;'>"
+                            f"<div style='width:{bar_pct:.0f}%; background:{bar_color};"
+                            f" border-radius:4px; height:8px;'></div>"
+                            f"<div style='position:absolute; top:0; left:{_entry_th}%;"
+                            f" width:2px; height:8px; background:#3498DB; opacity:0.8;'></div>"
+                            f"<div style='position:absolute; top:0; left:{_exit_th}%;"
+                            f" width:2px; height:8px; background:#E74C3C; opacity:0.8;'></div>"
+                            f"</div>"
+                        )
+                    else:
+                        bar_section = (
+                            f"<div style='flex:1; position:relative; background:#1e1e1e;"
+                            f" border-radius:4px; height:8px; min-width:80px;'>"
+                            f"<div style='width:0%; height:8px;'></div>"
+                            f"</div>"
+                        )
+
+                    rows_html += (
+                        f"<div style='display:flex; gap:6px; align-items:center; padding:4px 0;"
+                        f" border-bottom:1px solid #222; background:{row_bg}; font-size:13px;'>"
+                        f"<span style='width:70px; font-weight:bold; color:{tk_color};'>{tk}</span>"
+                        f"<span style='width:100px; color:#aaa; overflow:hidden; text-overflow:ellipsis;"
+                        f" white-space:nowrap;'>{nm}</span>"
+                        f"<span style='width:75px; text-align:right; color:#9B59B6; font-weight:bold;'>"
+                        f"{res_score:.1f}</span>"
+                        f"<span style='width:65px; text-align:right; font-weight:bold; color:{tk_color};'>"
+                        f"{e_text}</span>"
+                        f"<span style='width:65px; text-align:right;'>{delta_html}</span>"
+                        f"<span style='width:65px; text-align:right; color:#888;'>{decay_text}</span>"
+                        f"<span style='width:65px; text-align:center; color:{'#F39C12' if in_pool else '#3498DB'};'>"
+                        f"{'在池' if in_pool else '候选'}</span>"
+                        f"<span style='width:65px; text-align:right; color:#888;'>{days_text}</span>"
+                        f"{bar_section}"
+                        f"<span style='width:90px; text-align:center; font-size:13px; color:#aaa;'>"
+                        f"{badge}</span>"
+                        f"</div>"
+                    )
+
+                st.markdown(
+                    f"<div style='font-size:13px; color:#888; margin-bottom:4px;'>"
+                    f"🔵 蓝线 = 入池线({_entry_th}) ｜ 🔴 红线 = 降落线({_exit_th}) ｜"
+                    f" 🛡️ = 在池持仓 ｜ 池内按 E 降序，池外按共振分降序</div>"
+                    f"<div style='background:#111; border-radius:6px; padding:8px;'>"
+                    f"{header_html}{rows_html}</div>",
+                    unsafe_allow_html=True,
+                )
+
+        # ── Panel B：守擂决策推演 ────────────────────────────────────
         with tab_b:
+            st.markdown(
+                "<div style='font-size:15px; font-weight:bold; color:#2ECC71;"
+                " margin-bottom:8px;'>守擂决策推演</div>",
+                unsafe_allow_html=True,
+            )
             if not decisions:
                 st.info("今日无决策记录。")
             else:
-                _ACTION_COLORS = {
-                    "ENROLLED": "#3498DB", "LANDED": "#E74C3C",
-                    "HANDOFF_RELAY": "#F39C12", "VETERAN_RENEWED": "#2ECC71",
-                    "E_UPDATE": "#888", "CASH_GATE_CLEAR": "#E74C3C",
-                    "CASH_GATE_WARNING": "#F39C12", "FREEZE": "#9B59B6",
-                    "DRIFT_WARNING": "#F39C12",
+                _ACTION_META = {
+                    "ENROLLED":         ("#3498DB", "🆕 入池"),
+                    "LANDED":           ("#E74C3C", "📉 降落"),
+                    "E_UPDATE":         ("#888",    "🔄 E 更新"),
+                    "HANDOFF_RELAY":    ("#F39C12", "🔀 接力转场"),
+                    "VETERAN_RENEWED":  ("#2ECC71", "🏅 老兵续期"),
+                    "CASH_GATE_CLEAR":  ("#E74C3C", "🚨 清仓"),
+                    "CASH_GATE_WARNING": ("#F39C12", "⚠️ 预警"),
+                    "FREEZE":           ("#9B59B6", "❄️ 冻结"),
+                    "DRIFT_WARNING":    ("#F39C12", "⚠️ 漂移"),
                 }
+                panel_b_html = ""
                 for d in decisions:
                     action = d.get("action", "")
-                    color = _ACTION_COLORS.get(action, "#888")
-                    scope = d.get("scope", "")
-                    ticker = d.get("ticker") or ""
+                    clr, lbl = _ACTION_META.get(action, ("#888", action))
+                    tk = d.get("ticker") or ""
+                    nm = names_map.get(tk, tk)
                     detail = d.get("detail", "")
-                    scope_badge = {"system": "🌐", "pool": "🏊", "ticker": "🎯"}.get(scope, "")
-                    st.markdown(
-                        f"<div style='font-size:13px;margin-bottom:4px'>"
-                        f"<span style='color:{color};font-weight:bold'>[{action}]</span> "
-                        f"{scope_badge} {ticker} {detail}</div>",
-                        unsafe_allow_html=True,
+                    e_now = float(pool_by_ticker.get(tk, {}).get("E_value", 0))
+                    e_disp = f"E: {e_now:.0f}" if tk in pool_set else ""
+                    panel_b_html += (
+                        f"<div style='display:flex; align-items:center; gap:8px;"
+                        f" padding:6px 8px; border-bottom:1px solid #222;"
+                        f" border-left:3px solid {clr}; margin-bottom:4px;"
+                        f" background:#111; border-radius:0 4px 4px 0; font-size:13px;'>"
+                        f"<span style='width:60px; font-weight:bold; color:{clr};'>{tk}</span>"
+                        f"<span style='width:100px; color:#aaa;'>{nm[:8]}</span>"
+                        f"<span style='width:100px; font-weight:bold; color:{clr};'>{lbl}</span>"
+                        f"<span style='color:#888;'>{detail}</span>"
+                        f"<span style='margin-left:auto; color:#666; font-size:13px;'>{e_disp}</span>"
+                        f"</div>"
                     )
+                st.markdown(
+                    f"<div style='background:#0d0d0d; border-radius:6px; padding:8px;'>"
+                    f"{panel_b_html}</div>",
+                    unsafe_allow_html=True,
+                )
 
-        # Panel C: 排行 vs 续航分歧
+        # ── Panel C：共振排名 vs E 排名对比 ─────────────────────────
         with tab_c:
-            st.caption("排行榜 Top-4 vs 续航池持仓差异")
-            pool_tickers = {h.get("ticker") for h in pool}
-            st.markdown(f"续航池: {', '.join(sorted(pool_tickers)) if pool_tickers else '空'}")
-            st.info("排行榜 Top-4 数据需从 session_state 或缓存加载，此面板将在联调后完善。")
+            st.markdown(
+                "<div style='font-size:15px; font-weight:bold; color:#9B59B6;"
+                " margin-bottom:8px;'>共振排名 vs E 排名对比</div>",
+                unsafe_allow_html=True,
+            )
+            all_res_tickers = [r.get("Ticker", "") for r in res_rows if r.get("Ticker")]
+            pool_ranked = sorted(
+                pool, key=lambda x: float(x.get("E_value", 0)), reverse=True,
+            )
+            _top_k = min(max(_top_n * 2, 6), len(all_res_tickers)) if all_res_tickers else 6
 
-        # Panel D: L2 分布
-        with tab_d:
-            if pool:
-                l2_map: dict[str, list[str]] = {}
-                for h in pool:
-                    l2_map.setdefault(h.get("bound_l2", "?"), []).append(h.get("ticker", "?"))
-                for l2, tickers in l2_map.items():
-                    st.markdown(f"**{l2}**: {', '.join(tickers)} ({len(tickers)} 席)")
-            else:
-                st.info("池内无持仓。")
+            panel_c_html = (
+                "<div style='display:grid; grid-template-columns:1fr 1fr; gap:12px;'>"
+                "<div>"
+                "<div style='font-size:14px; color:#9B59B6; font-weight:bold; margin-bottom:6px;'>"
+                "📊 共振分 Top N</div>"
+            )
+            for i, tk in enumerate(all_res_tickers[:_top_k]):
+                rs = res_map.get(tk, 0.0)
+                nm = names_map.get(tk, tk)
+                _sel = tk in pool_set
+                _clr = "#F39C12" if _sel else ("#2ECC71" if rs >= 60 else "#888")
+                _tag = " 🛡️" if _sel else ""
+                e_val = float(pool_by_ticker.get(tk, {}).get("E_value", 0)) if _sel else 0
+                e_disp = f"E:{e_val:.0f}" if _sel else "—"
+                panel_c_html += (
+                    f"<div style='display:flex; justify-content:space-between;"
+                    f" padding:4px 0; border-bottom:1px solid #222; font-size:13px;'>"
+                    f"<span style='color:{_clr}; font-weight:{'bold' if _sel else 'normal'};'>"
+                    f"#{i+1} {tk} {nm[:8]}{_tag}</span>"
+                    f"<span style='color:#888;'>R:{rs:.0f} / {e_disp}</span>"
+                    f"</div>"
+                )
+            panel_c_html += "</div><div>"
+            panel_c_html += (
+                "<div style='font-size:14px; color:#F39C12; font-weight:bold; margin-bottom:6px;'>"
+                "🛡️ E 值 Top N（在池）</div>"
+            )
+            for i, h in enumerate(pool_ranked[:_top_k]):
+                tk = h.get("ticker", "?")
+                e_val = float(h.get("E_value", 0))
+                rs = res_map.get(tk, 0.0)
+                nm = names_map.get(tk, tk)
+                panel_c_html += (
+                    f"<div style='display:flex; justify-content:space-between;"
+                    f" padding:4px 0; border-bottom:1px solid #222; font-size:13px;'>"
+                    f"<span style='color:#F39C12; font-weight:bold;'>"
+                    f"#{i+1} {tk} {nm[:8]} 🛡️</span>"
+                    f"<span style='color:#888;'>E:{e_val:.0f} / R:{rs:.0f}</span>"
+                    f"</div>"
+                )
+            if not pool_ranked:
+                panel_c_html += (
+                    "<div style='font-size:13px; color:#888; padding:8px;'>"
+                    "在池为空</div>"
+                )
+            panel_c_html += "</div></div>"
+
+            diverged = []
+            for i, tk in enumerate(all_res_tickers[:_top_n]):
+                if tk not in pool_set:
+                    diverged.append(("res_high", tk))
+            for h in pool_ranked:
+                tk = h.get("ticker", "")
+                if tk in all_res_tickers and all_res_tickers.index(tk) >= _top_n:
+                    diverged.append(("e_high", tk))
+            if diverged:
+                div_tags = ", ".join(
+                    f"<b style='color:#E74C3C;'>{tk}</b>"
+                    if dtype == "res_high"
+                    else f"<b style='color:#F39C12;'>{tk}</b>"
+                    for dtype, tk in diverged[:6]
+                )
+                panel_c_html += (
+                    f"<div style='margin-top:8px; font-size:13px; color:#888;'>"
+                    f"⚡ 共振/E 分歧标的：{div_tags}"
+                    f"（<span style='color:#E74C3C;'>红</span>=共振高但未入池，"
+                    f"<span style='color:#F39C12;'>橙</span>=共振低但 E 守住席位）</div>"
+                )
+
+            st.markdown(
+                f"<div style='background:#111; border-radius:6px; padding:12px;'>"
+                f"{panel_c_html}</div>",
+                unsafe_allow_html=True,
+            )
 
 
 def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None = None) -> dict | None:
@@ -4361,9 +4480,6 @@ elif _sel4 == "D":
             st.markdown("---")
             _render_leaderboard_d(df_scored_d)
 
-            # ---- 续航持有池 ----
-            _render_endurance_pool()
-
             # 共振引擎（传 snap_date 做 calc_date，修 P0-1 错位）
             _resonance_resp = _render_resonance_board_v2(df_scored_d, calc_date=_snap_date)
 
@@ -4409,8 +4525,8 @@ elif _sel4 == "D":
                         except Exception as _snap_e:
                             st.toast(f"快照模块异常：{_snap_e}", icon="🚨")
 
-            # ---- 续航白盒推演 ----
-            _render_endurance_whitebox()
+            # ---- 共振守擂全量推演 ----
+            _render_d_conviction_whitebox(_resonance_resp)
 
             st.markdown("---")
             _d_monthly_top10_slot = st.container()
