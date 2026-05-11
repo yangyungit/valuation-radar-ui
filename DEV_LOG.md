@@ -2,6 +2,13 @@
 
 ---
 
+## 2026-05-11 | D 组续航持有池 UI 与白盒推演
+
+- **`api_client.py`**：新增 `fetch_d_endurance_today` / `fetch_d_endurance_history` / `fetch_l2_state` / `post_d_endurance_replay` 四个 API 调用
+- **`pages/3_资产细筛.py`**：D 赛道 `_d_tab_live` 在排行榜与共振主榜之间插入续航持有池区块
+  - `_render_endurance_pool()`：整池 banner 三指标（最低 E / E 离散度 / fading 在池数）+ 4 张续航卡片（进度条、燃料明细、压力测试值、dormant 兜底标注）
+  - `_render_endurance_whitebox()`：4 面板白盒推演（Panel A 燃料明细 / Panel B 决策日志 / Panel C 排行 vs 续航分歧 / Panel D L2 分布）
+
 ## 2026-05-08 | D 组历史回放成熟版强化（前端侧）
 
 - **calc_date 对齐**：`_render_resonance_board_v2` 传 `calc_date=snap_date`

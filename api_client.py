@@ -1734,6 +1734,63 @@ def fetch_d_history_backfill_status() -> dict:
         return {"success": False, "error": str(e)}
 
 
+# ---------------------------------------------------------------------------
+# D Endurance (续航持有池)
+# ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=300)
+def fetch_d_endurance_today() -> dict:
+    """GET /api/v1/d_endurance/today"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_endurance/today", timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=300)
+def fetch_d_endurance_history(date: str) -> dict:
+    """GET /api/v1/d_endurance/history?date=YYYY-MM-DD"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_endurance/history",
+                         params={"date": date}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=300)
+def fetch_l2_state(as_of_date: str | None = None) -> dict:
+    """GET /api/v1/rotation/state"""
+    params = {}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/rotation/state",
+                         params=params, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def post_d_endurance_replay(days: int = 30, disable_rotation: bool = True) -> dict:
+    """POST /api/v1/d_endurance/replay"""
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/d_endurance/replay",
+            json={"days": days, "disable_rotation": disable_rotation},
+            headers=_internal_headers(),
+            timeout=300,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def ensure_d_snapshot_latest(snap_date: str | None = None, force: bool = False) -> dict:
     """POST /api/v1/d_history/ensure_latest（后端独立补齐最近收盘日 D 快照）"""
     payload = {"force": bool(force)}

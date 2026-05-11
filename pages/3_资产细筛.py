@@ -1947,6 +1947,219 @@ def _render_resonance_zone_block(zone_key: str, rows: list[dict], meta: dict, ke
                 _render_resonance_whitebox(r, meta)
 
 
+def _render_endurance_pool() -> None:
+    """D 组续航持有池 — 排行榜与共振主榜之间。"""
+    from api_client import fetch_d_endurance_today
+
+    data = fetch_d_endurance_today()
+    if not data.get("success") or (not data.get("pool") and not data.get("state")):
+        st.markdown("---")
+        st.markdown("#### ⛽ 续航持有池")
+        st.info("续航持有池暂无数据（首次运行需完成 backfill）。")
+        return
+
+    pool = data.get("pool", [])
+    state = data.get("state", {})
+    snap_date = data.get("snap_date", "")
+
+    st.markdown("---")
+    st.markdown(f"#### ⛽ 续航持有池 （{snap_date}）")
+
+    # Banner: 三指标
+    min_E = state.get("min_E", 0)
+    std_E = state.get("std_E", 0)
+    fading_count = state.get("fading_in_pool_count", 0)
+    cash_warning = state.get("cash_gate_warning", 0)
+
+    banner_cols = st.columns(4)
+    with banner_cols[0]:
+        color = "#E74C3C" if min_E < 35 else ("#F39C12" if min_E < 50 else "#2ECC71")
+        st.markdown(f"<div style='text-align:center'>"
+                    f"<span style='font-size:24px;color:{color};font-weight:bold'>{min_E:.0f}</span>"
+                    f"<br><span style='font-size:13px;color:#888'>最低 E</span></div>",
+                    unsafe_allow_html=True)
+    with banner_cols[1]:
+        st.markdown(f"<div style='text-align:center'>"
+                    f"<span style='font-size:24px;font-weight:bold'>{std_E:.1f}</span>"
+                    f"<br><span style='font-size:13px;color:#888'>E 离散度</span></div>",
+                    unsafe_allow_html=True)
+    with banner_cols[2]:
+        f_color = "#E74C3C" if fading_count >= 2 else "#888"
+        st.markdown(f"<div style='text-align:center'>"
+                    f"<span style='font-size:24px;color:{f_color};font-weight:bold'>{fading_count}</span>"
+                    f"<br><span style='font-size:13px;color:#888'>fading 在池</span></div>",
+                    unsafe_allow_html=True)
+    with banner_cols[3]:
+        cw_text = "⚠️ 预警中" if cash_warning else "✅ 正常"
+        st.markdown(f"<div style='text-align:center'>"
+                    f"<span style='font-size:18px;font-weight:bold'>{cw_text}</span>"
+                    f"<br><span style='font-size:13px;color:#888'>CASH GATE</span></div>",
+                    unsafe_allow_html=True)
+
+    if not pool:
+        st.warning("当前续航池为空（全员降落或 CASH_GATE 清仓）。")
+        return
+
+    # 4 cards
+    card_cols = st.columns(min(len(pool), 4))
+    for idx, h in enumerate(pool[:4]):
+        with card_cols[idx]:
+            E_val = float(h.get("E_value", 0))
+            if E_val >= 70:
+                bar_color = "#2ECC71"
+            elif E_val >= 30:
+                bar_color = "#F39C12"
+            else:
+                bar_color = "#E74C3C"
+
+            status_label = h.get("status", "active")
+            ticker = h.get("ticker", "?")
+            bound_l2 = h.get("bound_l2", "")
+            today_l2 = h.get("today_l2", "")
+            days_held = h.get("days_held", 0)
+            enrolled = h.get("enrolled_date", "")
+
+            l2_display = bound_l2
+            if today_l2 and today_l2 != bound_l2:
+                l2_display = f"{bound_l2} → {today_l2}"
+
+            fb = h.get("fuel_breakdown", {})
+            fuel_total = float(h.get("fuel_total") or 0)
+            decay_used = float(h.get("decay_used") or 0)
+
+            fuel_sign = "⬆" if fuel_total > 0 else ("⬇" if fuel_total < 0 else "→")
+
+            role_tag = fb.get("role_used", "")
+            fallback_tag = " ⚠️ dormant 兜底" if fb.get("role_is_fallback") else ""
+
+            # Stress test: if role drops to 'main', E_next ≈ E * (0.78*0.95) + fuel
+            stress_E = E_val * (0.78 * 0.95) + fuel_total
+            stress_E = max(0, min(100, stress_E))
+
+            st.markdown(f"""
+            <div style="border:2px solid {bar_color};border-radius:10px;padding:14px;margin-bottom:8px">
+                <div style="font-size:18px;font-weight:bold">{ticker}</div>
+                <div style="font-size:13px;color:#888">{l2_display}</div>
+                <div style="margin:8px 0">
+                    <div style="background:#333;border-radius:6px;height:14px;position:relative">
+                        <div style="background:{bar_color};width:{min(E_val, 100):.0f}%;height:100%;border-radius:6px"></div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:2px">
+                        <span>E = {E_val:.1f}</span>
+                        <span>{fuel_sign} {fuel_total:+.1f}</span>
+                    </div>
+                </div>
+                <div style="font-size:13px">
+                    📅 入池 {enrolled} · 持仓 {days_held}d · {status_label}<br>
+                    🔧 role={role_tag}{fallback_tag}<br>
+                    🧪 压力测试(main): E≈{stress_E:.0f}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+def _render_endurance_whitebox() -> None:
+    """续航制白盒推演：Panel A 燃料明细 / Panel B 决策日志 / Panel C 排行 vs 续航分歧 / Panel D L2 分布。"""
+    from api_client import fetch_d_endurance_today
+
+    data = fetch_d_endurance_today()
+    if not data.get("success"):
+        return
+
+    pool = data.get("pool", [])
+    decisions = data.get("decisions", [])
+    state = data.get("state", {})
+
+    with st.expander("📐 续航制白盒推演", expanded=False):
+        tab_a, tab_b, tab_c, tab_d = st.tabs([
+            "⛽ 燃料明细", "📋 决策日志", "🔀 排行 vs 续航", "🗺️ L2 分布"
+        ])
+
+        # Panel A: 燃料明细表
+        with tab_a:
+            if not pool:
+                st.info("池内无持仓。")
+            else:
+                for h in pool:
+                    fb = h.get("fuel_breakdown", {})
+                    ticker = h.get("ticker", "?")
+                    bound_l2 = h.get("bound_l2", "")
+                    today_l2 = h.get("today_l2", "")
+                    E_val = float(h.get("E_value", 0))
+                    decay = float(h.get("decay_used", 0))
+                    role = fb.get("role_used", "?")
+                    fallback = fb.get("role_is_fallback", False)
+
+                    role_tag = f"{role}"
+                    if fallback:
+                        role_tag += " <span style='color:#E74C3C;font-weight:bold'>⚠️ 未入 story，按兜底处理</span>"
+
+                    main_fuel = fb.get("main_fuel", 0)
+                    zone_bonus = fb.get("zone_bonus", 0)
+                    bridge_bonus = fb.get("bridge_bonus", 0)
+                    consist = fb.get("consistency_bonus", 0)
+                    momentum = fb.get("momentum_bonus", 0)
+                    total = fb.get("total", 0)
+
+                    l2_match = "✅" if today_l2 == bound_l2 else "⚠️"
+
+                    st.markdown(f"""
+                    <div style="border:1px solid #444;border-radius:8px;padding:10px;margin-bottom:8px">
+                        <b>{ticker}</b> · {bound_l2} {l2_match}
+                        · role={role_tag} · decay={decay:.3f}<br>
+                        <span style="font-size:13px">
+                        主燃料 {main_fuel:+.1f} | zone {zone_bonus:+.1f} |
+                        bridge {bridge_bonus:+.1f} | 连续 {consist:+.1f} |
+                        动量 {momentum:+.1f} | <b>总计 {total:+.1f}</b>
+                        → E={E_val:.1f}
+                        </span>
+                    </div>""", unsafe_allow_html=True)
+
+        # Panel B: 决策日志
+        with tab_b:
+            if not decisions:
+                st.info("今日无决策记录。")
+            else:
+                _ACTION_COLORS = {
+                    "ENROLLED": "#3498DB", "LANDED": "#E74C3C",
+                    "HANDOFF_RELAY": "#F39C12", "VETERAN_RENEWED": "#2ECC71",
+                    "E_UPDATE": "#888", "CASH_GATE_CLEAR": "#E74C3C",
+                    "CASH_GATE_WARNING": "#F39C12", "FREEZE": "#9B59B6",
+                    "DRIFT_WARNING": "#F39C12",
+                }
+                for d in decisions:
+                    action = d.get("action", "")
+                    color = _ACTION_COLORS.get(action, "#888")
+                    scope = d.get("scope", "")
+                    ticker = d.get("ticker") or ""
+                    detail = d.get("detail", "")
+                    scope_badge = {"system": "🌐", "pool": "🏊", "ticker": "🎯"}.get(scope, "")
+                    st.markdown(
+                        f"<div style='font-size:13px;margin-bottom:4px'>"
+                        f"<span style='color:{color};font-weight:bold'>[{action}]</span> "
+                        f"{scope_badge} {ticker} {detail}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+        # Panel C: 排行 vs 续航分歧
+        with tab_c:
+            st.caption("排行榜 Top-4 vs 续航池持仓差异")
+            pool_tickers = {h.get("ticker") for h in pool}
+            st.markdown(f"续航池: {', '.join(sorted(pool_tickers)) if pool_tickers else '空'}")
+            st.info("排行榜 Top-4 数据需从 session_state 或缓存加载，此面板将在联调后完善。")
+
+        # Panel D: L2 分布
+        with tab_d:
+            if pool:
+                l2_map: dict[str, list[str]] = {}
+                for h in pool:
+                    l2_map.setdefault(h.get("bound_l2", "?"), []).append(h.get("ticker", "?"))
+                for l2, tickers in l2_map.items():
+                    st.markdown(f"**{l2}**: {', '.join(tickers)} ({len(tickers)} 席)")
+            else:
+                st.info("池内无持仓。")
+
+
 def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None = None) -> dict | None:
     """v2 叙事增强 D 组候选榜（主入口）。返回共振引擎原文 resp 供落盘用。"""
     if df_scored_d is None or df_scored_d.empty:
@@ -4138,6 +4351,9 @@ elif _sel4 == "D":
             st.markdown("---")
             _render_leaderboard_d(df_scored_d)
 
+            # ---- 续航持有池 ----
+            _render_endurance_pool()
+
             # 共振引擎（传 snap_date 做 calc_date，修 P0-1 错位）
             _resonance_resp = _render_resonance_board_v2(df_scored_d, calc_date=_snap_date)
 
@@ -4182,6 +4398,9 @@ elif _sel4 == "D":
                                 st.toast(f"快照落盘失败：{_snap_resp.get('error') or _snap_resp.get('reason')}", icon="⚠️")
                         except Exception as _snap_e:
                             st.toast(f"快照模块异常：{_snap_e}", icon="🚨")
+
+            # ---- 续航白盒推演 ----
+            _render_endurance_whitebox()
 
             st.markdown("---")
             _d_monthly_top10_slot = st.container()
@@ -4387,9 +4606,6 @@ def _render_monthly_top10(cls: str) -> None:
         unsafe_allow_html=True,
     )
 
-
-if _sel4 != "D":
-    _render_monthly_top10(_sel4)
 
 # ── 辅助函数 & 常量（月度 Top 10 渲染用）────────────────────────
 _REGIME_BADGE_CN: dict = {
