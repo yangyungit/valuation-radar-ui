@@ -1776,12 +1776,24 @@ def fetch_l2_state(as_of_date: str | None = None) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def post_d_conviction_replay(days: int = 30, disable_rotation: bool = True) -> dict:
-    """POST /api/v1/d_endurance/replay"""
+def post_d_conviction_replay(
+    days: int = 30,
+    disable_rotation: bool = True,
+    include_backfill: bool = False,
+) -> dict:
+    """POST /api/v1/d_endurance/replay
+
+    `include_backfill=True` 时把 `backfill_recomputed` 历史快照也纳入回看
+    （优先 actual，缺则降级），用于冷启动期间 actual 数据不足时跑实证。
+    """
     try:
         r = requests.post(
             f"{API_BASE_URL}/api/v1/d_endurance/replay",
-            json={"days": days, "disable_rotation": disable_rotation},
+            json={
+                "days": days,
+                "disable_rotation": disable_rotation,
+                "include_backfill": include_backfill,
+            },
             headers=_internal_headers(),
             timeout=300,
         )

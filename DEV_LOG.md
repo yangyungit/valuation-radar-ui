@@ -2,6 +2,17 @@
 
 ---
 
+## 2026-05-11 | D 组守擂回看加 include_backfill 复选框 + 实证 toast
+
+**目的**：配合后端 commit `0834a5c`（include_backfill 通路），让前端「守擂回看」按钮能调起跨 status 的 30 天历史回看，把本地 28 天 `backfill_recomputed` 数据也喂进去跑实证。
+
+- **`api_client.py`**：`post_d_conviction_replay` 加 `include_backfill: bool = False` 形参，POST body 同步带上；默认 False 保持向后兼容。
+- **`pages/3_资产细筛.py`** `_render_d_conviction_whitebox()`：「⚙️ D 组守擂参数」标题行加 `含 backfill` 复选框（key=`d_replay_include_backfill`，默认勾掉），勾上后下次「守擂回看」会把 `backfill_recomputed` 历史纳入；toast 文案补一行 `（actual=X / backfill=Y）` 展示 status 命中分布。
+
+**API 契约同步确认**：后端 `POST /api/v1/d_endurance/replay` 已加可选 `include_backfill` 字段，返回 `status_picked` 字典；前端按此契约调用。
+
+---
+
 ## 2026-05-11 | D 组续航持有池 UI 与白盒推演
 
 - **`api_client.py`**：新增 `fetch_d_endurance_today` / `fetch_d_endurance_history` / `fetch_l2_state` / `post_d_endurance_replay` 四个 API 调用

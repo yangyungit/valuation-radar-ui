@@ -1977,22 +1977,39 @@ def _render_d_conviction_whitebox(resonance_resp: dict | None) -> None:
 
     with st.expander("🔬 D 组共振守擂全量推演", expanded=False):
 
-        col_title, col_btn = st.columns([5, 1])
+        col_title, col_flag, col_btn = st.columns([4, 1.2, 1])
         with col_title:
             st.markdown(
                 f"<div style='font-size:14px; color:#3498DB; font-weight:bold;"
                 f" margin-bottom:8px;'>⚙️ D 组守擂参数（当前值）</div>",
                 unsafe_allow_html=True,
             )
+        with col_flag:
+            _include_backfill = st.checkbox(
+                "含 backfill",
+                value=False,
+                key="d_replay_include_backfill",
+                help="纳入 backfill_recomputed 历史快照（冷启动期 actual 数据不足时用）",
+            )
         with col_btn:
             if st.button("守擂回看", help="重跑最近 30 天历史 snapshot 的守擂逻辑"):
                 with st.spinner("回看中..."):
-                    r = post_d_conviction_replay(days=30, disable_rotation=True)
-                    fetch_d_conviction_today.clear()
-                    st.toast(
-                        f"完成: 处理 {r.get('saved', 0)} 天"
-                        if r.get("success") else f"失败: {r.get('error')}"
+                    r = post_d_conviction_replay(
+                        days=30,
+                        disable_rotation=True,
+                        include_backfill=_include_backfill,
                     )
+                    fetch_d_conviction_today.clear()
+                    if r.get("success"):
+                        _sp = r.get("status_picked") or {}
+                        _sp_txt = (
+                            f"（actual={_sp.get('actual', 0)} / "
+                            f"backfill={_sp.get('backfill_recomputed', 0)}）"
+                            if _sp else ""
+                        )
+                        st.toast(f"完成: 处理 {r.get('saved', 0)} 天{_sp_txt}")
+                    else:
+                        st.toast(f"失败: {r.get('error')}")
                     st.rerun()
 
         _sp1, _sp2, _sp3, _sp4 = st.columns(4)
