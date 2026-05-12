@@ -2,6 +2,25 @@
 
 ---
 
+## 2026-05-12 | D 组赛道顶部新增共振守擂制解释卡片
+
+- `pages/3_资产细筛.py`：新增 `_d_resonance_explain_html()` 函数，arena-header 之后、ScorecardD 白盒公式之前渲染，与 A/B 组 `_conv_explain_html()` 同位置。
+- 三层分色文案（E 值积累 / 在位者惯性 / 强制释放）+ 状态标签说明，数字硬编码镜像 `_render_d_conviction_whitebox` metric 面板（holder_decay=0.78 / initial_E=40 / 入池 40 / 降落 30 / 共振下限 60 / top_n=4 / 最长持仓 15 天）。后端改参数需 grep 同步，续第 19 条约定。
+
+---
+
+## 2026-05-12 | Tab5 新增「升维共振」第三模式（叙事动量升维 plan4）
+
+- `pages/2_舆情监控.py` 3611 行 `_wf_mode` radio 加第三选项「升维共振」
+- 4199 行后追加 elif 块：主图 B（多维编码线图）+ 卡片 A（共振 top 5）+ 矩阵图 C（动量×生命周期象限）+ 详细数据表
+- 新增 as_of_date 滑块（仅本模式可见，旧两模式不受影响）
+- 新增 5 子动量权重 slider，可实时调权（不入库）
+- 数据源：`fetch_narrative_momentum`（plan3）+ `fetch_l2_state`（plan1）
+- 顶部 import 加 `fetch_narrative_momentum` / `fetch_l2_state` / `numpy`
+- 遵守架构约束：显式 for 循环、astype(float).dropna()、字号≥13px、UI 文案≤25字
+
+---
+
 ## 2026-05-11 | D 组守擂参数卡片 initial_E 35→40
 
 **目的**：配合后端 commit（双刀调参：role_decay_multiplier + initial_E_for_new）的镜像副本同步——后端 `CONVICTION_D_CONFIG["initial_E_for_new"]` 从 35 改成 40，前端守擂参数展示卡片是手写硬编码，必须同步避免展示与算分口径错位（参考 core-protocols 第 5 节红线 9 教训）。

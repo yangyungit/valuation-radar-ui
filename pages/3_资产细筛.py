@@ -1947,6 +1947,69 @@ def _render_resonance_zone_block(zone_key: str, rows: list[dict], meta: dict, ke
                 _render_resonance_whitebox(r, meta)
 
 
+def _d_resonance_explain_html() -> str:
+    # 镜像副本：数字须与 _render_d_conviction_whitebox metric 面板(~2017-2028 行)一致
+    return """
+    <div style='background:#1a1a1a; border-left:3px solid #9B59B6;
+         padding:14px; margin-bottom:16px; font-size:14px; color:#ccc; border-radius:4px;'>
+    <b>🛡️ 共振守擂制 — E 值积累，过滤一日游闪现</b><br><br>
+
+    <span style='color:#aaa;'>
+    D 组用「E 值能量」替代 A/B 的信念积分，共振分每日注入燃料 → E 值积累 → 达标入池 → 守擂留任。<br>
+    三层防护确保只有持续共振的标的才能占据席位：
+    </span><br><br>
+
+    <b style='color:#9B59B6;'>① E 值积累层</b> —
+    共振分注入燃料，E 值逐日积累，首次入池初始 E = <b>40</b><br>
+    <code style='color:#9B59B6; background:#1a0a2a; padding:2px 8px; border-radius:3px;'>
+    入池门槛：E &ge; 40 &nbsp;|&nbsp; 共振分 &ge; 60
+    </code><br>
+    <span style='color:#888; font-size:13px;'>
+    共振分低于 <b>60</b> 直接拒绝入池，即使 E 够也不放行。
+    </span><br><br>
+
+    <b style='color:#3498DB;'>② 在位者惯性层</b> —
+    在池标的享受慢衰减 <b>holder_decay = 0.78</b>，短期共振回落不会立刻出局<br>
+    <code style='color:#3498DB; background:#001a2a; padding:2px 8px; border-radius:3px;'>
+    降落门槛：E &lt; 30 才退出 &nbsp;|&nbsp; 挑战者衰减更快
+    </code><br>
+    <span style='color:#888; font-size:13px;'>
+    效果：偶尔一两天共振回落不触发换手，持续走弱仍会被淘汰。
+    </span><br><br>
+
+    <b style='color:#E74C3C;'>③ 强制释放层</b> —
+    硬约束兜底，超时或整组无标的时强制清仓<br>
+    <code style='color:#E74C3C; background:#2a0000; padding:2px 8px; border-radius:3px;'>
+    最长持仓 = 15 天 &nbsp;|&nbsp; CASH GATE 整组空仓兜底
+    </code><br>
+    <span style='color:#888; font-size:13px;'>
+    席位数 top_n = <b>4</b>；持仓超 15 天强制释放席位，防止僵尸持仓。
+    </span><br><br>
+
+    <hr style='border:none; border-top:1px solid #333; margin:10px 0;'>
+    <b style='color:#ddd;'>📖 状态标签说明</b><br>
+    <div style='margin-top:8px; display:flex; flex-direction:column; gap:5px; font-size:13px;'>
+      <div>
+        <span style='color:#2ECC71; font-weight:bold;'>🛡️ active / extended</span>
+        <span style='color:#888;'> — 在池守擂，E ≥ 30 且共振 ≥ 60</span>
+      </div>
+      <div>
+        <span style='color:#3498DB; font-weight:bold;'>🆕 new</span>
+        <span style='color:#888;'> — 本日首次入池，初始 E = 40</span>
+      </div>
+      <div>
+        <span style='color:#F39C12; font-weight:bold;'>🌊 达入池线</span>
+        <span style='color:#888;'> — 共振 ≥ 60 但 E 还没到 40，正在积累中</span>
+      </div>
+      <div>
+        <span style='color:#9B59B6; font-weight:bold;'>⏸️ 降落</span>
+        <span style='color:#888;'> — E &lt; 30、共振 &lt; 60 或持仓 ≥ 15 天，释放席位</span>
+      </div>
+    </div>
+    </div>
+    """
+
+
 def _render_d_conviction_whitebox(resonance_resp: dict | None) -> None:
     """D 组共振守擂全量推演（对标 A/B 信念守擂白盒）。"""
     from api_client import fetch_d_conviction_today, post_d_conviction_replay
@@ -4412,6 +4475,8 @@ elif _sel4 == "D":
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    st.markdown(_d_resonance_explain_html(), unsafe_allow_html=True)
 
     # ── 白盒公式展示 ──────────────────────────────────────────────
     st.markdown("""
