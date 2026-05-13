@@ -1432,8 +1432,11 @@ def fetch_quadrant_history(days=30):
     return _narrative_get("/api/v1/narrative/quadrant_history", params={"days": days})
 
 
-def fetch_rotation_waveform(days=90):
-    return _narrative_get("/api/v1/narrative/rotation_waveform", params={"days": days})
+def fetch_rotation_waveform(days=90, as_of_date: str | None = None):
+    params = {"days": days}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    return _narrative_get("/api/v1/narrative/rotation_waveform", params=params)
 
 
 def fetch_l2_daily_profile(l2_sector: str, days: int = 180):
@@ -1862,3 +1865,88 @@ def fetch_narrative_momentum(as_of_date: str | None = None, days: int = 30) -> d
         return r.json()
     except Exception as e:
         return {"success": False, "error": str(e), "data": []}
+
+
+@st.cache_data(ttl=180)
+def fetch_narrative_v3_coverage() -> dict:
+    """GET /api/v1/narrative_v3/coverage。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/narrative_v3/coverage", timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "latest_common_date": None, "sources": {}}
+
+
+@st.cache_data(ttl=180)
+def fetch_narrative_v3_rotation(
+    as_of_date: str | None = None,
+    days: int = 90,
+    mode: str = "main",
+) -> dict:
+    """GET /api/v1/narrative_v3/rotation。"""
+    params: dict = {"days": days, "mode": mode}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/narrative_v3/rotation",
+                         params=params, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "data": [], "state_buckets": {}}
+
+
+@st.cache_data(ttl=180)
+def fetch_narrative_v3_events(as_of_date: str | None = None, days: int = 30) -> dict:
+    """GET /api/v1/narrative_v3/events。"""
+    params: dict = {"days": days}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/narrative_v3/events",
+                         params=params, timeout=20)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "events": []}
+
+
+@st.cache_data(ttl=180)
+def fetch_narrative_v3_l2_detail(
+    l2_sector: str,
+    as_of_date: str | None = None,
+    days: int = 90,
+) -> dict:
+    """GET /api/v1/narrative_v3/l2_detail。"""
+    params: dict = {"l2_sector": l2_sector, "days": days}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/narrative_v3/l2_detail",
+                         params=params, timeout=20)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "series": [], "latest": None}
+
+
+def trigger_narrative_v3_backfill(days: int = 90, force: bool = False) -> dict:
+    """POST /api/v1/narrative_v3/backfill（带 X-Internal-Token）。"""
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/narrative_v3/backfill",
+            json={"days": int(days), "force": bool(force)},
+            headers=_internal_headers(),
+            timeout=300,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if data.get("success"):
+            fetch_narrative_v3_coverage.clear()
+            fetch_narrative_v3_rotation.clear()
+            fetch_narrative_v3_events.clear()
+            fetch_narrative_v3_l2_detail.clear()
+        return data
+    except Exception as e:
+        return {"success": False, "error": str(e)}
