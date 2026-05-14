@@ -78,36 +78,20 @@ import re as _re
 st.set_page_config(page_title="舆情监控", layout="wide")
 
 _api_target_label = "本地后端" if IS_LOCAL_API else "Render 远端"
-_api_target_note = (
-    "当前 Page2 正在读取 localhost:8000；这才是本地词典/雷达恢复验证应使用的目标。"
-    if IS_LOCAL_API
-    else "当前 Page2 正在读取 Render 远端数据；若你要核对本地 narrative.db，请切回 localhost:8000。"
-)
-_api_target_class = "api-target-local" if IS_LOCAL_API else "api-target-remote"
-st.markdown(
-    f"""
-    <div class="api-target-banner {_api_target_class}">
-        <div class="api-target-eyebrow">当前连接目标</div>
-        <div class="api-target-main">{_api_target_label} · <code>{API_BASE_URL}</code></div>
-        <div class="api-target-note">{_api_target_note}</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+_api_target_icon = "🟢" if IS_LOCAL_API else "🟠"
 
 if IS_PROD_REMOTE:
-    st.warning(
-        "⚠️ **直连生产环境** — 当前正在连接 Render 生产后端。"
-        "所有词典修改、触发流水线等**写操作将直接影响生产数据**，请谨慎操作。",
-        icon="🛢️",
-    )
     st.session_state.setdefault("prod_write_confirmed", False)
-    _confirmed = st.checkbox(
-        "我了解风险，确认本次操作会直接写入生产数据库",
-        key="prod_write_confirmed",
-    )
-    if not _confirmed:
-        st.info("未勾选确认时，所有写操作将被自动拦截，不会修改生产数据。")
+    with st.sidebar:
+        st.toggle(
+            "🛢️ 解除生产写保护",
+            key="prod_write_confirmed",
+            help="未解除时所有写操作（词典维护/提案审批/触发流水线等）会被拦截，避免误写生产 narrative.db。",
+        )
+    _lock_state = "🟢 已解除" if st.session_state.get("prod_write_confirmed") else "🛡️ 已锁定"
+    st.caption(f"{_api_target_icon} {_api_target_label} · `{API_BASE_URL}` · 生产写保护：{_lock_state}")
+else:
+    st.caption(f"{_api_target_icon} {_api_target_label} · `{API_BASE_URL}`")
 
 # ---------------------------------------------------------------------------
 # Phase color palette (shared by stepper + phase headers)
@@ -162,48 +146,6 @@ st.markdown("""
     .phase-info { flex: 1; }
     .phase-title { font-size: 17px; font-weight: 700; color: #e0e0e0; }
     .phase-desc  { font-size: 13px; color: #888; margin-top: 2px; }
-
-    /* ---- API target banner ---- */
-    .api-target-banner {
-        border-radius: 10px;
-        padding: 12px 16px;
-        margin: 4px 0 14px 0;
-        border: 1px solid #2a2a2a;
-        background: #11161d;
-    }
-    .api-target-local {
-        border-color: rgba(26,188,156,0.55);
-        background: linear-gradient(135deg, rgba(26,188,156,0.14), rgba(17,22,29,0.92));
-    }
-    .api-target-remote {
-        border-color: rgba(243,156,18,0.55);
-        background: linear-gradient(135deg, rgba(243,156,18,0.14), rgba(17,22,29,0.92));
-    }
-    .api-target-eyebrow {
-        font-size: 12px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: #8b949e;
-        margin-bottom: 4px;
-    }
-    .api-target-main {
-        font-size: 16px;
-        font-weight: 700;
-        color: #f2f4f8;
-        margin-bottom: 4px;
-    }
-    .api-target-main code {
-        font-size: 14px;
-        color: #f8f8f2;
-        background: rgba(255,255,255,0.06);
-        padding: 2px 7px;
-        border-radius: 6px;
-    }
-    .api-target-note {
-        font-size: 13px;
-        color: #c7d1db;
-        line-height: 1.5;
-    }
 
     /* ---- Functional styles (preserved) ---- */
     .inbox-row {
