@@ -1182,6 +1182,21 @@ def debug_narrative_resonance_d(ticker, calc_date=None, scorecard_d=80.0, featur
         return {"success": False, "error": str(e)}
 
 
+def post_arena_score_d(tickers, meta_data=None):
+    """后端 ScorecardD：拉 yfinance + 算三因子，返回 scores/breakdowns/failed_tickers。"""
+    payload = {"tickers": tickers, "meta_data": meta_data or {}}
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/arena/score_d",
+            json=payload,
+            timeout=90,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def trigger_narrative_pipeline(target_date=None):
     payload = {}
     if target_date:
@@ -1294,7 +1309,7 @@ def trigger_generate_seed_proposals():
 
 
 def trigger_retroactive_screen():
-    return _narrative_post("/api/v1/narrative/retroactive_screen", timeout=180)
+    return _narrative_post("/api/v1/narrative/retroactive_screen", timeout=900)
 
 
 def fetch_dictionary_stats():
@@ -1417,8 +1432,11 @@ def fetch_quadrant_history(days=30):
     return _narrative_get("/api/v1/narrative/quadrant_history", params={"days": days})
 
 
-def fetch_rotation_waveform(days=90):
-    return _narrative_get("/api/v1/narrative/rotation_waveform", params={"days": days})
+def fetch_rotation_waveform(days=90, as_of_date: str | None = None):
+    params = {"days": days}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    return _narrative_get("/api/v1/narrative/rotation_waveform", params=params)
 
 
 def fetch_l2_daily_profile(l2_sector: str, days: int = 180):
@@ -1614,3 +1632,321 @@ def get_ticker_affinity_suggestions(ticker):
 def post_ticker_affinity_batch_approve(items):
     """items: list of {"ticker", "l2_sector", "l3_keyword", "affinity_weight"?}"""
     return _narrative_post("/api/v1/narrative/ticker_affinity/batch_approve", json={"items": items})
+
+
+# ==========================================
+# D 组日级快照 — 历史存储与只读查询
+# ==========================================
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_d_today_snap_date() -> str | None:
+    """GET /api/v1/d_history/today → 当前交易日 snap_date。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_history/today", timeout=10)
+        r.raise_for_status()
+        return r.json().get("snap_date")
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_d_history_dates(limit: int = 90) -> dict:
+    """GET /api/v1/d_history/dates"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_history/dates",
+                         params={"limit": limit}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_d_history_momentum(date: str, status: str = "actual") -> dict:
+    """GET /api/v1/d_history/momentum"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_history/momentum",
+                         params={"date": date, "status": status}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_d_history_resonance(date: str, status: str = "actual") -> dict:
+    """GET /api/v1/d_history/resonance"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_history/resonance",
+                         params={"date": date, "status": status}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def save_d_snapshot_today(
+    momentum_resp: dict,
+    resonance_resp: dict,
+    snap_date: str,
+    price_asof_map: dict | None = None,
+) -> dict:
+    """POST /api/v1/d_history/save_today（带 X-Internal-Token）"""
+    payload = {
+        "momentum_resp": momentum_resp,
+        "resonance_resp": resonance_resp,
+        "snap_date": snap_date,
+        "snapshot_source": "page3_local",
+        "price_asof_map": price_asof_map or {},
+    }
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/d_history/save_today",
+            json=payload,
+            headers=_internal_headers(),
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def trigger_d_history_backfill(days: int = 7, force: bool = False) -> dict:
+    """POST /api/v1/d_history/backfill"""
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/d_history/backfill",
+            json={"days": days, "force": force},
+            headers=_internal_headers(),
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def fetch_d_history_backfill_status() -> dict:
+    """GET /api/v1/d_history/backfill_status (no cache)"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_history/backfill_status", timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# D 组共振守擂
+# ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=300)
+def fetch_d_conviction_today() -> dict:
+    """GET /api/v1/d_endurance/today"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_endurance/today", timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=300)
+def fetch_d_conviction_history(date: str) -> dict:
+    """GET /api/v1/d_endurance/history?date=YYYY-MM-DD"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_endurance/history",
+                         params={"date": date}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=300)
+def fetch_l2_state(as_of_date: str | None = None) -> dict:
+    """GET /api/v1/rotation/state"""
+    params = {}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/rotation/state",
+                         params=params, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def post_d_conviction_replay(
+    days: int = 30,
+    disable_rotation: bool = True,
+    include_backfill: bool = False,
+) -> dict:
+    """POST /api/v1/d_endurance/replay
+
+    `include_backfill=True` 时把 `backfill_recomputed` 历史快照也纳入回看
+    （优先 actual，缺则降级），用于冷启动期间 actual 数据不足时跑实证。
+    """
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/d_endurance/replay",
+            json={
+                "days": days,
+                "disable_rotation": disable_rotation,
+                "include_backfill": include_backfill,
+            },
+            headers=_internal_headers(),
+            timeout=300,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def ensure_d_snapshot_latest(snap_date: str | None = None, force: bool = False) -> dict:
+    """POST /api/v1/d_history/ensure_latest（后端独立补齐最近收盘日 D 快照）"""
+    payload = {"force": bool(force)}
+    if snap_date:
+        payload["snap_date"] = snap_date
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/d_history/ensure_latest",
+            json=payload,
+            headers=_internal_headers(),
+            timeout=180,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if data.get("success"):
+            fetch_d_history_dates.clear()
+            fetch_d_history_momentum.clear()
+            fetch_d_history_resonance.clear()
+        return data
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=300)
+def fetch_ticker_factor_snapshot(
+    as_of_date: str | None = None,
+    ticker: str | None = None,
+) -> dict:
+    """GET /api/v1/ticker_factor/snapshot。本 plan 不直接渲染，备用。"""
+    params: dict = {}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    if ticker:
+        params["ticker"] = ticker
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/ticker_factor/snapshot",
+            params=params,
+            timeout=20,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=180)
+def fetch_narrative_momentum(as_of_date: str | None = None, days: int = 30) -> dict:
+    """GET /api/v1/narrative_momentum。供 page2 Tab5 升维共振模式使用。"""
+    params: dict = {"days": days}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/narrative_momentum",
+                         params=params, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "data": []}
+
+
+@st.cache_data(ttl=180)
+def fetch_narrative_v3_coverage() -> dict:
+    """GET /api/v1/narrative_v3/coverage。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/narrative_v3/coverage", timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "latest_common_date": None, "sources": {}}
+
+
+@st.cache_data(ttl=180)
+def fetch_narrative_v3_rotation(
+    as_of_date: str | None = None,
+    days: int = 90,
+    mode: str = "main",
+) -> dict:
+    """GET /api/v1/narrative_v3/rotation。"""
+    params: dict = {"days": days, "mode": mode}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/narrative_v3/rotation",
+                         params=params, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "data": [], "state_buckets": {}}
+
+
+@st.cache_data(ttl=180)
+def fetch_narrative_v3_events(as_of_date: str | None = None, days: int = 30) -> dict:
+    """GET /api/v1/narrative_v3/events。"""
+    params: dict = {"days": days}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/narrative_v3/events",
+                         params=params, timeout=20)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "events": []}
+
+
+@st.cache_data(ttl=180)
+def fetch_narrative_v3_l2_detail(
+    l2_sector: str,
+    as_of_date: str | None = None,
+    days: int = 90,
+) -> dict:
+    """GET /api/v1/narrative_v3/l2_detail。"""
+    params: dict = {"l2_sector": l2_sector, "days": days}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/narrative_v3/l2_detail",
+                         params=params, timeout=20)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "series": [], "latest": None}
+
+
+def trigger_narrative_v3_backfill(days: int = 90, force: bool = False) -> dict:
+    """POST /api/v1/narrative_v3/backfill（带 X-Internal-Token）。"""
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/narrative_v3/backfill",
+            json={"days": int(days), "force": bool(force)},
+            headers=_internal_headers(),
+            timeout=300,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if data.get("success"):
+            fetch_narrative_v3_coverage.clear()
+            fetch_narrative_v3_rotation.clear()
+            fetch_narrative_v3_events.clear()
+            fetch_narrative_v3_l2_detail.clear()
+        return data
+    except Exception as e:
+        return {"success": False, "error": str(e)}

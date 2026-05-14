@@ -24,6 +24,10 @@ from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         fetch_current_regime, push_screen_results,
                         run_classification_api,
                         arena_backfill_score as _api_arena_backfill_score,
+                        fetch_d_history_dates, fetch_d_history_momentum,
+                        fetch_d_history_resonance, save_d_snapshot_today,
+                        fetch_d_today_snap_date, ensure_d_snapshot_latest,
+                        trigger_d_history_backfill, fetch_d_history_backfill_status,
                         API_BASE_URL, IS_PROD_REMOTE)
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
@@ -81,6 +85,74 @@ st.markdown("""
     .score-bar-fg  { border-radius:4px; height:8px; }
 </style>
 """, unsafe_allow_html=True)
+
+
+def _lazy_subtab_nav(
+    key: str,
+    options: list[str],
+    default: str | None = None,
+    accent: str = "#9B59B6",
+) -> str:
+    """Render a tab-like button nav while only executing the selected branch."""
+    if not options:
+        return ""
+
+    default_value = default if default in options else options[0]
+    if st.session_state.get(key) not in options:
+        st.session_state[key] = default_value
+
+    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+    cols = st.columns(len(options))
+    for idx, option in enumerate(options):
+        active = st.session_state.get(key) == option
+        marker = f"lazy-subtab-{key}-{idx}".replace("_", "-")
+        text_color = accent if active else "#c9d1d9"
+        border_color = accent if active else "rgba(139,148,158,0.32)"
+        bottom_width = "3px" if active else "1px"
+        font_weight = "700" if active else "600"
+        bg_color = f"{accent}14" if active else "transparent"
+
+        with cols[idx]:
+            st.markdown(
+                f"<style>"
+                f"div[data-testid='stColumn']:has(#{marker}) "
+                f"[data-testid='stButton'] button{{"
+                f"background:{bg_color} !important;"
+                f"border:0 !important;"
+                f"border-bottom:{bottom_width} solid {border_color} !important;"
+                f"border-radius:0 !important;"
+                f"box-shadow:none !important;"
+                f"color:{text_color} !important;"
+                f"font-weight:{font_weight} !important;"
+                f"min-height:42px !important;"
+                f"padding:7px 8px 9px 8px !important;"
+                f"}}"
+                f"div[data-testid='stColumn']:has(#{marker}) "
+                f"[data-testid='stButton'] button:hover{{"
+                f"background:{accent}1A !important;"
+                f"border-bottom:3px solid {accent} !important;"
+                f"color:{accent} !important;"
+                f"}}"
+                f"</style>"
+                f"<span id='{marker}' style='display:none'></span>",
+                unsafe_allow_html=True,
+            )
+            if st.button(
+                option,
+                key=f"{key}_btn_{idx}",
+                use_container_width=True,
+                type="secondary",
+            ):
+                st.session_state[key] = option
+                st.rerun()
+
+    st.markdown(
+        "<div style='height:1px;background:rgba(139,148,158,0.24);"
+        "margin:-1px 0 18px 0;'></div>",
+        unsafe_allow_html=True,
+    )
+    return st.session_state[key]
+
 
 # ─────────────────────────────────────────────────────────────────
 #  ABCD 宏观剧本元信息（与 Page 3 保持一致）
@@ -1453,9 +1525,92 @@ _RES_CONF_BADGE = {
     "none":   ("#7F8C8D", "无"),
 }
 
+_RES_ZONE_HELP = {
+    "STRONG_NARRATIVE": "强叙事：动量好，叙事证据也够硬。",
+    "WEAK_NARRATIVE": "弱叙事：有叙事证据，但还没达到强叙事门槛。",
+    "NO_NARRATIVE": "无叙事：暂时找不到可靠叙事支撑。",
+}
+
+_RES_BRIDGE_LABEL = {
+    "affinity": "关联词",
+    "cooc": "新闻共现",
+    "industry": "行业先验",
+    "none": "无",
+    "—": "—",
+    "": "—",
+}
+
+_RES_DEGRADED_LABEL = {
+    "no_affinity_data": "缺关联词",
+    "seed_only": "仅种子词未审批",
+    "missing_dictionary_pair": "关联词缺词典映射",
+    "unknown_source": "来源未识别",
+    "no_cooc_data": "缺新闻共现",
+    "stale_cooc_data": "新闻共现过期",
+    "no_keyword_weight": "缺关键词权重",
+    "empty_related_tickers": "新闻缺关联标的",
+    "no_industry_data": "缺行业数据",
+    "no_industry_mapping": "行业未映射",
+    "industry_fallback_to_sector": "用大行业兜底",
+    "missing_l2_factor_pack": "缺叙事快照",
+    "missing_qs_factors": "缺质量因子",
+    "kw_gap_days": "关键词数据滞后",
+}
+
+_RES_DEGRADED_GROUP_LABEL = {
+    "A": "关联词",
+    "C": "新闻",
+    "S": "行业",
+    "factor": "叙事因子",
+}
+
+
+def _res_bridge_label(value: str | None) -> str:
+    key = str(value or "none").strip().lower()
+    return _RES_BRIDGE_LABEL.get(key, key.upper() if key else "—")
+
+
+def _res_degraded_label(value) -> str:
+    if isinstance(value, list):
+        return "、".join(_res_degraded_label(v) for v in value)
+    key = str(value or "").strip()
+    return _RES_DEGRADED_LABEL.get(key, key or "未知")
+
+
+def _res_gate_reason_cn(reason: str) -> str:
+    """Translate backend gate/debug reason into a short UI-facing sentence."""
+    if not reason:
+        return ""
+    text = str(reason)
+    replacements = [
+        ("未进 STRONG 卡点:", "差在哪条:"),
+        ("NarrativeScore", "叙事支撑分"),
+        ("eligible_for_strong=False", "缺少硬证据"),
+        ("all gates passed", "全部门槛通过"),
+        ("bridge weak", "证据偏弱"),
+        ("no bridge evidence", "暂无桥梁证据"),
+        ("SectorPrior cannot enter STRONG", "只有行业先验不能进强叙事"),
+        ("passes A>=0.3", "关联词证据过线"),
+        ("passes C>=0.3", "新闻共现证据过线"),
+        ("B ", "最强证据强度 "),
+        ("vs ", "叙事热度 "),
+        ("A=", "关联词证据="),
+        ("C=", "新闻共现证据="),
+        ("only S=", "只有行业先验证据="),
+    ]
+    for old, new in replacements:
+        text = text.replace(old, new)
+    return text
+
 
 def _render_resonance_hunt_v1_legacy(df_scored_d: pd.DataFrame) -> None:
-    """旧版共振猎场（保留供 v1_legacy 模式回看，禁止再做新功能）。"""
+    """v1 legacy 已废弃，直接跳转 v2。"""
+    _render_resonance_board_v2(df_scored_d)
+    return
+
+
+def _render_resonance_hunt_v1_legacy_DEAD(df_scored_d: pd.DataFrame) -> None:
+    """旧版共振猎场（已废弃，保留注释标记位置以防 git blame 回溯。下次大扫除删掉）。"""
     st.markdown("---")
     st.markdown("#### 🔗 共振猎场 v1 (legacy 只读) — 叙事 × 动量")
     st.caption(
@@ -1588,31 +1743,59 @@ def _render_resonance_hunt_v1_legacy(df_scored_d: pd.DataFrame) -> None:
     )
 
 
-def _render_resonance_health_banner(meta: dict) -> None:
-    """v2 顶部健康度 banner：anchor_date / engine_version / 全局 degraded 计数。"""
+def _render_resonance_health_banner(meta: dict, as_of_date: str | None = None) -> None:
+    """v2 顶部健康度 banner：anchor / cooc / keyword_weight / affinity / zone / cache。"""
     anchor_date = meta.get("anchor_date") or "未刷新"
     engine_version = meta.get("engine_version", "")
     cache_stats = meta.get("cache_stats", {}) or {}
     zone_counts = meta.get("zone_counts", {}) or {}
     degraded_counts = meta.get("degraded_counts", {}) or {}
     cooc_days = meta.get("cooc_window_days", 14)
+    freshness = meta.get("data_freshness", {}) or {}
     n_strong = zone_counts.get("STRONG_NARRATIVE", 0)
     n_weak = zone_counts.get("WEAK_NARRATIVE", 0)
     n_no = zone_counts.get("NO_NARRATIVE", 0)
     cache_label = "缓存命中" if cache_stats.get("hit") else "本次重算"
     cache_color = "#2ECC71" if cache_stats.get("hit") else "#F1C40F"
+    cache_tip = "复用相同输入下已经算过的结果" if cache_stats.get("hit") else "后端刚按当前输入重新计算"
+    try:
+        _ref_date = datetime.strptime(as_of_date, "%Y-%m-%d").date() if as_of_date else datetime.now().date()
+    except Exception:
+        _ref_date = datetime.now().date()
 
     anchor_warn = ""
     if anchor_date and anchor_date != "未刷新":
         try:
             _ad = datetime.strptime(anchor_date, "%Y-%m-%d").date()
-            _gap = (datetime.now().date() - _ad).days
+            _gap = (_ref_date - _ad).days
             if _gap > 30:
-                anchor_warn = f" <span style='color:#E74C3C;'>⚠ 距今 {_gap} 天，建议刷新锚点</span>"
+                anchor_warn = f" <span style='color:#E74C3C;'>⚠ 距今 {_gap} 天</span>"
+            elif _gap >= 7:
+                anchor_warn = f" <span style='color:#F1C40F;'>⚠ {_gap} 天</span>"
             else:
-                anchor_warn = f" <span style='color:#7F8C8D;'>(距今 {_gap} 天)</span>"
+                anchor_warn = f" <span style='color:#7F8C8D;'>({_gap}天)</span>"
         except Exception:
             pass
+
+    cooc_date = freshness.get("cooc_latest_date") or "—"
+    cooc_warn = ""
+    if cooc_date != "—":
+        try:
+            _cd = datetime.strptime(cooc_date, "%Y-%m-%d").date()
+            _cg = (_ref_date - _cd).days
+            if _cg > 2:
+                cooc_warn = f" <span style='color:#E74C3C;'>C 桥已归零</span>"
+            else:
+                cooc_warn = f" <span style='color:#7F8C8D;'>({_cg}天)</span>"
+        except Exception:
+            pass
+
+    kw_date = freshness.get("keyword_weight_latest_date") or "—"
+    kw_rows = freshness.get("keyword_weight_rows", 0)
+
+    seed_pct = freshness.get("affinity_seed_pct", 0.0)
+    seed_color = "#E74C3C" if seed_pct > 80 else "#F1C40F" if seed_pct > 50 else "#2ECC71"
+    seed_tip = " → Page2 审批" if seed_pct > 80 else ""
 
     degraded_total = sum(int(v) for v in degraded_counts.values())
     deg_color = "#E74C3C" if degraded_total > 0 else "#7F8C8D"
@@ -1621,13 +1804,30 @@ def _render_resonance_health_banner(meta: dict) -> None:
         f"""
         <div style='background:#11161c; border:1px solid #2a3038; border-radius:8px;
              padding:14px 18px; margin:8px 0 14px 0; font-size:13px; color:#ccc;
-             display:grid; grid-template-columns:repeat(4,1fr); gap:14px;'>
+             display:grid; grid-template-columns:repeat(3,1fr) repeat(3,1fr); gap:14px;'>
             <div>
-                <div style='color:#7F8C8D; font-size:13px;'>锚点日期 (Z<sub>A</sub>/Z<sub>C</sub>/Z<sub>S</sub>)</div>
+                <div title='把原始证据压到同一评分尺度所用的标尺日期'
+                     style='color:#7F8C8D; font-size:13px;'>评分标尺日期</div>
                 <div style='font-size:15px; font-weight:bold; color:#eee;'>{anchor_date}{anchor_warn}</div>
             </div>
             <div>
-                <div style='color:#7F8C8D; font-size:13px;'>三栏分布 STRONG / WEAK / NO</div>
+                <div title='新闻共现数据最新更新到哪一天；过久会影响新闻共现证据'
+                     style='color:#7F8C8D; font-size:13px;'>新闻共现最新日</div>
+                <div style='font-size:15px; font-weight:bold; color:#eee;'>{cooc_date}{cooc_warn}</div>
+            </div>
+            <div>
+                <div title='计算新闻共现证据时使用的关键词权重表'
+                     style='color:#7F8C8D; font-size:13px;'>关键词权重 {kw_rows}行</div>
+                <div style='font-size:15px; font-weight:bold; color:#eee;'>{kw_date}</div>
+            </div>
+            <div>
+                <div title='关联词里仍来自 seed 初始化、尚未充分人工确认的比例'
+                     style='color:#7F8C8D; font-size:13px;'>种子关联词占比</div>
+                <div style='font-size:15px; font-weight:bold; color:{seed_color};'>{seed_pct:.0f}%{seed_tip}</div>
+            </div>
+            <div>
+                <div title='强叙事 / 弱叙事 / 无叙事 三个分区的标的数量'
+                     style='color:#7F8C8D; font-size:13px;'>强/弱/无叙事分布</div>
                 <div style='font-size:15px; font-weight:bold; color:#eee;'>
                     <span style='color:#E67E22;'>{n_strong}</span> /
                     <span style='color:#F1C40F;'>{n_weak}</span> /
@@ -1635,27 +1835,29 @@ def _render_resonance_health_banner(meta: dict) -> None:
                 </div>
             </div>
             <div>
-                <div style='color:#7F8C8D; font-size:13px;'>桥梁降级总数 (cooc {cooc_days}d)</div>
-                <div style='font-size:15px; font-weight:bold; color:{deg_color};'>{degraded_total}</div>
-            </div>
-            <div>
-                <div style='color:#7F8C8D; font-size:13px;'>计算来源</div>
-                <div style='font-size:15px; font-weight:bold; color:{cache_color};'>{cache_label}</div>
+                <div title='数据缺口表示某些证据源缺失或过期；{cache_tip}'
+                     style='color:#7F8C8D; font-size:13px;'>数据缺口 {degraded_total} · {cache_label}</div>
+                <div style='font-size:15px; font-weight:bold; color:{cache_color};'>
+                    <span style='color:{deg_color};'>{degraded_total}</span> ·
+                    {cache_label}
+                </div>
             </div>
         </div>
         <div style='font-size:13px; color:#666; margin-bottom:10px;'>
-            engine_version: <code style='color:#888;'>{engine_version}</code>
+            计算版本: <code style='color:#888;'>{engine_version}</code>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
     if degraded_counts:
-        with st.expander(f"🔧 全局降级原因明细（{degraded_total} 次）", expanded=False):
+        with st.expander(f"🔧 数据缺口明细（{degraded_total} 次）", expanded=False):
             for _reason, _cnt in sorted(degraded_counts.items(), key=lambda x: -x[1]):
+                _label = _res_degraded_label(_reason)
                 st.markdown(
                     f"<div style='font-size:13px; color:#bbb; padding:2px 0;'>"
-                    f"• <code style='color:#E67E22;'>{_reason}</code> · {_cnt} 次</div>",
+                    f"• <b style='color:#E67E22;'>{_label}</b> "
+                    f"<code style='color:#666;'>({_reason})</code> · {_cnt} 次</div>",
                     unsafe_allow_html=True,
                 )
 
@@ -1670,10 +1872,10 @@ def _render_resonance_main_table(rows: list[dict]) -> None:
         " color:#888; font-size:13px; padding:8px 0; font-weight:bold;'>"
         "<div style='width:60px;'>共振#</div>"
         "<div style='width:140px;'>资产</div>"
-        "<div style='width:80px; text-align:right;'>ScorecardD</div>"
-        "<div style='width:90px; text-align:right;'>NarrativeScore</div>"
-        "<div style='width:90px; text-align:right;'>Resonance</div>"
-        "<div style='width:140px;'>主 L2</div>"
+        "<div title='D组量价动量分，和叙事无关' style='width:80px; text-align:right;'>D组动量分</div>"
+        "<div title='叙事对这只票的支撑强度' style='width:90px; text-align:right;'>叙事支撑分</div>"
+        "<div title='动量分和叙事支撑分合成后的共振强度' style='width:90px; text-align:right;'>共振分</div>"
+        "<div title='当前得分最高的相关叙事线' style='width:140px;'>主叙事线</div>"
         "<div style='width:120px;'>分区</div>"
         "<div style='width:120px;'>桥梁/置信</div>"
         "<div style='width:90px; text-align:right;'>排名变化</div>"
@@ -1694,7 +1896,8 @@ def _render_resonance_main_table(rows: list[dict]) -> None:
             delta_html = "<span style='color:#7F8C8D;'>—</span>"
         top_l2 = (r.get("top_l2") or {}).get("l2_sector") or r.get("top_l2_sector") or "—"
         _top = r.get("top_l2") or {}
-        primary = (_top.get("primary_bridge") or "—").upper()
+        primary = _res_bridge_label(_top.get("primary_bridge") or "—")
+        zone_help = _RES_ZONE_HELP.get(zone, "")
         rows_html += (
             "<div style='display:flex; align-items:center; border-bottom:1px solid #1e1e1e; padding:8px 0; font-size:14px;'>"
             f"<div style='width:60px; color:#aaa; font-weight:bold;'>#{r.get('resonance_rank', '?')}</div>"
@@ -1707,7 +1910,7 @@ def _render_resonance_main_table(rows: list[dict]) -> None:
             f"<div style='width:90px; text-align:right; color:{zmeta['color']}; font-weight:bold; font-size:15px;'>{r.get('Resonance', 0):.1f}</div>"
             f"<div style='width:140px; color:#bbb; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' title='{top_l2}'>{top_l2}</div>"
             f"<div style='width:120px;'>"
-            f"<span style='background:{zmeta['bg']}; color:{zmeta['color']}; border:1px solid {zmeta['color']}55;"
+            f"<span title='{zone_help}' style='background:{zmeta['bg']}; color:{zmeta['color']}; border:1px solid {zmeta['color']}55;"
             f" border-radius:4px; padding:2px 8px; font-size:13px; font-weight:bold; white-space:nowrap;'>{zmeta['label']}</span>"
             "</div>"
             f"<div style='width:120px; display:flex; align-items:center; gap:6px; white-space:nowrap;'>"
@@ -1739,21 +1942,33 @@ def _render_resonance_whitebox(row: dict, meta: dict) -> None:
         )
         return
 
-    st.markdown(
-        f"<div style='font-size:13px; color:#666; margin-bottom:8px;'>"
-        f"engine_version: <code>{eng_v}</code> · input_hash: <code>{hash_v[:16]}…</code></div>",
-        unsafe_allow_html=True,
-    )
-
     z_a = anchors.get("z_a", 0.0)
     z_c = anchors.get("z_c", 0.0)
     z_s = anchors.get("z_s", 0.0)
     st.markdown(
-        f"<div style='font-size:13px; color:#888; margin-bottom:8px;'>"
-        f"锚点 Z<sub>A</sub>={z_a:.2f} · Z<sub>C</sub>={z_c:.2f} · Z<sub>S</sub>={z_s:.2f} "
-        f"· 锚点日期 {anchors.get('anchor_date', '—')}</div>",
+        f"""
+        <details style='font-size:13px; color:#777; margin-bottom:8px;'>
+          <summary style='cursor:pointer; color:#888;'>技术细节：计算版本 / 输入指纹 / 评分标尺</summary>
+          <div style='padding-top:4px; line-height:1.8;'>
+            计算版本: <code>{eng_v}</code><br>
+            输入指纹: <code>{hash_v[:16]}…</code><br>
+            评分标尺: Z<sub>A</sub>={z_a:.2f} · Z<sub>C</sub>={z_c:.2f} · Z<sub>S</sub>={z_s:.2f}
+            · 标尺日期 {anchors.get('anchor_date', '—')}
+          </div>
+        </details>
+        """,
         unsafe_allow_html=True,
     )
+
+    zone_reason = row.get("zone_reason", "")
+    if zone_reason and "卡点" in zone_reason:
+        zone_reason_cn = _res_gate_reason_cn(zone_reason)
+        st.markdown(
+            f"<div style='font-size:13px; color:#E67E22; background:#3a1a1a; "
+            f"padding:6px 10px; border-radius:4px; margin-bottom:8px;'>"
+            f"⚠ {zone_reason_cn}</div>",
+            unsafe_allow_html=True,
+        )
 
     for idx, l2 in enumerate(top3, start=1):
         l2_name = l2.get("l2_sector", "—")
@@ -1769,9 +1984,9 @@ def _render_resonance_whitebox(row: dict, meta: dict) -> None:
         b_v = float(l2.get("B", 0.0) or 0.0)
         raw_a = float(l2.get("raw_A_effective", l2.get("raw_A_unweighted", 0.0)) or 0.0)
         raw_c = float(l2.get("raw_C", 0.0) or 0.0)
-        primary = l2.get("primary_bridge", "none")
+        primary = _res_bridge_label(l2.get("primary_bridge", "none"))
         eligible = bool(l2.get("eligible_for_strong"))
-        gate_reason = l2.get("gate_reason", "")
+        gate_reason = _res_gate_reason_cn(l2.get("gate_reason", ""))
         conf = l2.get("bridge_confidence", "none")
         conf_color, conf_label = _RES_CONF_BADGE.get(conf, _RES_CONF_BADGE["none"])
         deg = l2.get("degraded") or {}
@@ -1780,17 +1995,21 @@ def _render_resonance_whitebox(row: dict, meta: dict) -> None:
             _val = deg.get(_bk)
             if not _val:
                 continue
+            _raw_val = ", ".join(_val) if isinstance(_val, list) else str(_val)
+            _label = _res_degraded_label(_val)
+            _group = _RES_DEGRADED_GROUP_LABEL.get(_bk, _bk)
             if isinstance(_val, list):
                 _val = ", ".join(_val)
             deg_html += (
                 f"<span style='display:inline-block; background:#3a1a1a; color:#E67E22;"
                 f" border:1px solid #E67E2255; border-radius:4px; padding:2px 6px;"
-                f" font-size:13px; margin:2px 4px 2px 0;'>{_bk}:{_val}</span>"
+                f" font-size:13px; margin:2px 4px 2px 0;' title='{_bk}:{_raw_val}'>"
+                f"{_group}:{_label}</span>"
             )
         if not deg_html:
-            deg_html = "<span style='color:#7F8C8D; font-size:13px;'>无降级</span>"
+            deg_html = "<span style='color:#7F8C8D; font-size:13px;'>无数据缺口</span>"
 
-        rank_label = ["主线", "副线", "三线"][idx - 1] if idx <= 3 else f"#{idx}"
+        rank_label = ["第1叙事", "第2叙事", "第3叙事"][idx - 1] if idx <= 3 else f"#{idx}"
 
         st.markdown(
             f"""
@@ -1800,40 +2019,44 @@ def _render_resonance_whitebox(row: dict, meta: dict) -> None:
                     <div style='font-size:14px; font-weight:bold; color:#eee;'>
                         {rank_label} · {l2_name}
                     </div>
-                    <div style='font-size:13px; color:#bbb;'>
-                        f = <b style='color:#E67E22;'>{f_score:.2f}</b>
-                        · 主桥 <b style='color:#3498DB;'>{primary}</b>
-                        · <span style='background:{conf_color}22; color:{conf_color};
-                                 border:1px solid {conf_color}55; border-radius:3px;
+	                    <div style='font-size:13px; color:#bbb;'>
+	                        单条叙事贡献 = <b style='color:#E67E22;'>{f_score:.2f}</b>
+	                        · 主桥 <b style='color:#3498DB;'>{primary}</b>
+	                        · <span style='background:{conf_color}22; color:{conf_color};
+	                                 border:1px solid {conf_color}55; border-radius:3px;
                                  padding:1px 6px; font-size:13px;'>{conf_label}</span>
                     </div>
-                </div>
-                <div style='font-size:14px; color:#bbb; line-height:1.9;'>
-                    <span style='color:#888;'>VS</span>=<b>{vs_v:.1f}</b> ·
-                    <span style='color:#888;'>MS</span>=<b>{ms_v:+.1f}</b> ·
-                    <span style='color:#888;'>D</span>=<b>{d_v:.3f}</b> ·
-                    <span style='color:#888;'>M</span>=<b>{m_v:.3f}</b> ·
-                    <span style='color:#888;'>P_conc</span>=<b>{p_v:.3f}</b> ·
-                    <span style='color:#888;'>B</span>=<b style='color:#3498DB;'>{b_v:.3f}</b>
-                </div>
-                <div style='font-size:14px; color:#bbb; line-height:1.9;'>
-                    <span style='color:#888;'>A</span>=<b>{a_v:.3f}</b>
-                    (raw <code style='color:#666;'>{raw_a:.3f}</code> / Z<sub>A</sub>) ·
-                    <span style='color:#888;'>C</span>=<b>{c_v:.3f}</b>
-                    (raw <code style='color:#666;'>{raw_c:.3f}</code> / Z<sub>C</sub>) ·
-                    <span style='color:#888;'>S</span>=<b>{s_v:.3f}</b>
-                </div>
-                <div style='font-size:13px; color:#888; margin-top:4px;'>
-                    门槛判定: {'<b style="color:#2ECC71;">通过</b>' if eligible else '<b style="color:#E67E22;">未达 STRONG 门槛</b>'} · {gate_reason}
-                </div>
-                <div style='font-size:13px; margin-top:6px;'>降级标签: {deg_html}</div>
-            </div>
-            """,
+	                </div>
+	                <div style='font-size:14px; color:#bbb; line-height:1.9;'>
+	                    <span style='color:#888;'>叙事热度</span>=<b>{vs_v:.1f}</b> ·
+	                    <span style='color:#888;'>热度变化</span>=<b>{ms_v:+.1f}</b> ·
+	                    <span style='color:#888;'>趋势修正</span>=<b>{d_v:.3f}</b> ·
+	                    <span style='color:#888;'>主线质量</span>=<b>{m_v:.3f}</b> ·
+	                    <span style='color:#888;'>集中度修正</span>=<b>{p_v:.3f}</b> ·
+	                    <span style='color:#888;'>最强证据强度</span>=<b style='color:#3498DB;'>{b_v:.3f}</b>
+	                </div>
+	                <div style='font-size:14px; color:#bbb; line-height:1.9;'>
+	                    <span style='color:#888;'>关联词证据</span>=<b>{a_v:.3f}</b> ·
+	                    <span style='color:#888;'>新闻共现证据</span>=<b>{c_v:.3f}</b> ·
+	                    <span style='color:#888;'>行业先验证据</span>=<b>{s_v:.3f}</b>
+	                </div>
+	                <details style='font-size:13px; color:#777; margin-top:4px;'>
+	                  <summary style='cursor:pointer;'>原始值</summary>
+	                  关联词 raw=<code>{raw_a:.3f}</code> / Z<sub>A</sub> ·
+	                  新闻共现 raw=<code>{raw_c:.3f}</code> / Z<sub>C</sub> ·
+	                  叙事分标尺 Z<sub>S</sub>=<code>{z_s:.3f}</code>
+	                </details>
+	                <div style='font-size:13px; color:#888; margin-top:4px;'>
+	                    门槛判定: {'<b style="color:#2ECC71;">通过</b>' if eligible else '<b style="color:#E67E22;">未达强叙事门槛</b>'} · {gate_reason}
+	                </div>
+	                <div style='font-size:13px; margin-top:6px;'>数据缺口: {deg_html}</div>
+	            </div>
+	            """,
             unsafe_allow_html=True,
         )
 
 
-def _render_resonance_zone_block(zone_key: str, rows: list[dict], meta: dict) -> None:
+def _render_resonance_zone_block(zone_key: str, rows: list[dict], meta: dict, key_prefix: str = "today") -> None:
     """三栏分区 expander：每行可点开看白盒；NO_NARRATIVE 区配 CTA 跳 Page2。"""
     zmeta = _RES_ZONE_META[zone_key]
     if not rows:
@@ -1857,13 +2080,13 @@ def _render_resonance_zone_block(zone_key: str, rows: list[dict], meta: dict) ->
             with cols[1]:
                 st.markdown(
                     f"<div style='font-size:14px; color:#bbb; padding-top:4px;'>"
-                    f"主 L2: <b style='color:#3498DB;'>{top_l2}</b></div>",
+                    f"主叙事线: <b style='color:#3498DB;'>{top_l2}</b></div>",
                     unsafe_allow_html=True,
                 )
             with cols[2]:
                 st.markdown(
                     f"<div style='font-size:14px; padding-top:4px;'>"
-                    f"Resonance <b style='color:{zmeta['color']};'>{r.get('Resonance', 0):.1f}</b> · "
+                    f"共振分 <b style='color:{zmeta['color']};'>{r.get('Resonance', 0):.1f}</b> · "
                     f"<span style='background:{conf_color}22; color:{conf_color};"
                     f" border:1px solid {conf_color}55; border-radius:3px; padding:1px 6px;"
                     f" font-size:13px;'>{conf_label}</span></div>",
@@ -1871,7 +2094,7 @@ def _render_resonance_zone_block(zone_key: str, rows: list[dict], meta: dict) ->
                 )
             if zone_key == "NO_NARRATIVE":
                 with cols[3]:
-                    if st.button("→ 添加关联词", key=f"res_cta_{tk}", use_container_width=True):
+                    if st.button("→ 添加关联词", key=f"res_cta_{key_prefix}_{tk}", use_container_width=True):
                         try:
                             st.query_params.update({"ticker": tk, "tab": "affinity"})
                         except Exception:
@@ -1890,15 +2113,440 @@ def _render_resonance_zone_block(zone_key: str, rows: list[dict], meta: dict) ->
                 _render_resonance_whitebox(r, meta)
 
 
-def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None = None) -> None:
-    """v2 叙事增强 D 组候选榜（主入口）。"""
-    if df_scored_d is None or df_scored_d.empty:
-        return
-    st.markdown("---")
-    st.markdown("#### 🎯 叙事增强 D 组候选榜 v2.0 — 三桥共振")
-    st.caption("Resonance = √(ScorecardD × NarrativeScore)；NarrativeScore 由 Affinity / Cooc / SectorPrior 三桥聚合。")
+def _d_resonance_explain_html() -> str:
+    # 镜像副本：数字须与 _render_d_conviction_whitebox metric 面板(~2017-2028 行)一致
+    return """
+    <div style='background:#1a1a1a; border-left:3px solid #9B59B6;
+         padding:14px; margin-bottom:16px; font-size:14px; color:#ccc; border-radius:4px;'>
+    <b>🛡️ 共振守擂制 — E 值能量积累，过滤一日游闪现</b><br><br>
 
+    <span style='color:#aaa;'>
+    D 组用「E 值能量」替代 A/B 的信念积分，共振分每日注入燃料（当日补给） → E 值积累 → 达标入池 → 守擂留任。<br>
+    三层防护确保只有持续共振的标的才能占据席位：
+    </span><br><br>
+
+    <b style='color:#9B59B6;'>① E 值能量积累层</b> —
+    共振分注入燃料，E 值逐日积累，首次入池初始 E = <b>40</b><br>
+    <code style='color:#9B59B6; background:#1a0a2a; padding:2px 8px; border-radius:3px;'>
+    入池门槛：E &ge; 40 &nbsp;|&nbsp; 共振分 &ge; 60
+    </code><br>
+    <span style='color:#888; font-size:13px;'>
+    共振分低于 <b>60</b> 直接拒绝入池，即使 E 够也不放行。
+    </span><br><br>
+
+    <b style='color:#3498DB;'>② 在位者惯性层</b> —
+    在池标的享受慢衰减 <b>holder_decay = 0.78</b>（每日衰减系数），短期共振回落不会立刻出局<br>
+    <code style='color:#3498DB; background:#001a2a; padding:2px 8px; border-radius:3px;'>
+    降落门槛：E &lt; 30 才退出 &nbsp;|&nbsp; 挑战者衰减更快
+    </code><br>
+    <span style='color:#888; font-size:13px;'>
+    效果：偶尔一两天共振回落不触发换手，持续走弱仍会被淘汰。
+    </span><br><br>
+
+    <b style='color:#E74C3C;'>③ 强制释放层</b> —
+    硬约束兜底，超时或整组无标的时强制清仓<br>
+    <code style='color:#E74C3C; background:#2a0000; padding:2px 8px; border-radius:3px;'>
+    最长持仓 = 15 天 &nbsp;|&nbsp; CASH GATE 整组空仓兜底
+    </code><br>
+    <span style='color:#888; font-size:13px;'>
+    席位数 top_n = <b>4</b>；持仓超 15 天强制释放席位，防止僵尸持仓；CASH GATE 用来在整组缺强叙事时保护现金。
+    </span><br><br>
+
+    <hr style='border:none; border-top:1px solid #333; margin:10px 0;'>
+    <b style='color:#ddd;'>📖 状态标签说明</b><br>
+    <div style='margin-top:8px; display:flex; flex-direction:column; gap:5px; font-size:13px;'>
+      <div>
+        <span style='color:#2ECC71; font-weight:bold;'>🛡️ active / extended</span>
+        <span style='color:#888;'> — 在池守擂，E ≥ 30 且共振 ≥ 60</span>
+      </div>
+      <div>
+        <span style='color:#3498DB; font-weight:bold;'>🆕 new</span>
+        <span style='color:#888;'> — 本日首次入池，初始 E = 40</span>
+      </div>
+      <div>
+        <span style='color:#F39C12; font-weight:bold;'>🌊 达入池线</span>
+        <span style='color:#888;'> — 共振 ≥ 60 但 E 还没到 40，正在积累中</span>
+      </div>
+      <div>
+        <span style='color:#9B59B6; font-weight:bold;'>⏸️ 降落</span>
+        <span style='color:#888;'> — E &lt; 30、共振 &lt; 60 或持仓 ≥ 15 天，释放席位</span>
+      </div>
+    </div>
+    </div>
+    """
+
+
+def _render_d_conviction_whitebox(
+    resonance_resp: dict | None,
+    wrap_expander: bool = True,
+) -> None:
+    """D 组共振守擂全量推演（对标 A/B 信念守擂白盒）。"""
+    from api_client import fetch_d_conviction_today, post_d_conviction_replay
+
+    conv_data = fetch_d_conviction_today()
+    pool = conv_data.get("pool", [])
+    decisions = conv_data.get("decisions", [])
+    state = conv_data.get("state", {})
+    snap_date = conv_data.get("snap_date", "")
+
+    res_rows = (resonance_resp or {}).get("data", []) or []
+
+    pool_by_ticker: dict[str, dict] = {}
+    for h in pool:
+        pool_by_ticker[h.get("ticker", "")] = h
+    pool_set = set(pool_by_ticker.keys())
+
+    names_map: dict[str, str] = {}
+    res_map: dict[str, float] = {}
+    for r in res_rows:
+        tk = r.get("Ticker", "")
+        names_map[tk] = r.get("\u540d\u79f0", tk)
+        res_map[tk] = float(r.get("Resonance", 0))
+
+    _entry_th = 40
+    _exit_th = 30
+    _top_n = 4
+
+    _whitebox_ctx = (
+        st.expander("🔬 D 组共振守擂全量推演", expanded=False)
+        if wrap_expander else st.container()
+    )
+    with _whitebox_ctx:
+
+        col_title, col_flag, col_btn = st.columns([4, 1.2, 1])
+        with col_title:
+            st.markdown(
+                f"<div style='font-size:14px; color:#3498DB; font-weight:bold;"
+                f" margin-bottom:8px;'>⚙️ D 组守擂参数（当前值）</div>",
+                unsafe_allow_html=True,
+            )
+        with col_flag:
+            _include_backfill = st.checkbox(
+                "含 backfill",
+                value=False,
+                key="d_replay_include_backfill",
+                help="纳入 backfill_recomputed 历史快照（冷启动期 actual 数据不足时用）",
+            )
+        with col_btn:
+            if st.button("守擂回看", help="重跑最近 30 天历史 snapshot 的守擂逻辑"):
+                with st.spinner("回看中..."):
+                    r = post_d_conviction_replay(
+                        days=30,
+                        disable_rotation=True,
+                        include_backfill=_include_backfill,
+                    )
+                    fetch_d_conviction_today.clear()
+                    if r.get("success"):
+                        _sp = r.get("status_picked") or {}
+                        _sp_txt = (
+                            f"（actual={_sp.get('actual', 0)} / "
+                            f"backfill={_sp.get('backfill_recomputed', 0)}）"
+                            if _sp else ""
+                        )
+                        st.toast(f"完成: 处理 {r.get('saved', 0)} 天{_sp_txt}")
+                    else:
+                        st.toast(f"失败: {r.get('error')}")
+                    st.rerun()
+
+        _sp1, _sp2, _sp3, _sp4 = st.columns(4)
+        with _sp1:
+            st.metric("holder_decay（每日衰减）", "0.78")
+            st.metric("initial_E（初始E）", "40")
+        with _sp2:
+            st.metric("入池门槛 E", "40")
+            st.metric("降落门槛 E", "30")
+        with _sp3:
+            st.metric("席位数 top_n", "4")
+            st.metric("最长持仓天", "15")
+        with _sp4:
+            st.metric("入池共振下限", "60")
+            cw = state.get("cash_gate_warning", 0)
+            st.metric("CASH GATE", "⚠️ 预警" if cw else "正常")
+
+        st.markdown("<hr style='border-color:#333; margin:10px 0;'>", unsafe_allow_html=True)
+
+        tab_a, tab_b, tab_c = st.tabs([
+            "📋 守擂明细（全候选）", "🛡️ 守擂决策推演", "🔀 共振排名 vs E 排名"
+        ])
+
+        # ── Panel A：共振守擂明细（全候选） ──────────────────────────
+        with tab_a:
+            if not res_rows and not pool:
+                st.info("暂无数据，请先确保共振排行榜已加载，并点击「守擂回看」初始化。")
+            else:
+                all_tickers: list[str] = []
+                seen: set[str] = set()
+                for h in sorted(pool, key=lambda x: float(x.get("E_value", 0)), reverse=True):
+                    tk = h.get("ticker", "")
+                    if tk and tk not in seen:
+                        all_tickers.append(tk)
+                        seen.add(tk)
+                for r in res_rows:
+                    tk = r.get("Ticker", "")
+                    if tk and tk not in seen:
+                        all_tickers.append(tk)
+                        seen.add(tk)
+
+                header_html = (
+                    "<div style='display:flex; gap:6px; padding:4px 0; border-bottom:2px solid #333;"
+                    " font-size:13px; color:#888; font-weight:bold;'>"
+                    "<span style='width:70px;'>Ticker</span>"
+                    "<span style='width:100px;'>名称</span>"
+                    "<span style='width:75px; text-align:right;'>共振分</span>"
+                    "<span style='width:65px; text-align:right;'>E值</span>"
+                    "<span style='width:65px; text-align:right;'>燃料</span>"
+                    "<span style='width:65px; text-align:right;'>衰减</span>"
+                    "<span style='width:65px; text-align:center;'>角色</span>"
+                    "<span style='width:65px; text-align:right;'>持仓天</span>"
+                    "<span style='flex:1;'>E值进度</span>"
+                    "<span style='width:90px; text-align:center;'>状态</span>"
+                    "</div>"
+                )
+                rows_html = ""
+                for tk in all_tickers:
+                    in_pool = tk in pool_set
+                    h = pool_by_ticker.get(tk, {})
+                    res_score = res_map.get(tk, 0.0)
+                    nm = names_map.get(tk, tk)
+
+                    if in_pool:
+                        E_val = float(h.get("E_value", 0))
+                        fb = h.get("fuel_breakdown", {})
+                        fuel = float(h.get("fuel_total") or 0)
+                        decay = float(h.get("decay_used") or 0)
+                        role = fb.get("role_used", "?")
+                        days_held = h.get("days_held", 0)
+                        status_raw = h.get("status", "active")
+
+                        row_bg = "#1e2a1e"
+                        tk_color = "#F39C12"
+                        badge = f"🛡️ {status_raw}"
+                        bar_pct = min(E_val, 100)
+                        bar_color = "#F39C12"
+                        e_text = f"{E_val:.0f}"
+                        fuel_text = f"{fuel:+.1f}"
+                        decay_text = f"{decay:.2f}"
+                        role_text = role
+                        days_text = str(days_held)
+                    else:
+                        E_val = 0
+                        row_bg = "#111"
+                        tk_color = "#555"
+                        bar_pct = 0
+                        bar_color = "#333"
+                        e_text = "—"
+                        fuel_text = "—"
+                        decay_text = "—"
+                        role_text = "—"
+                        days_text = "—"
+
+                        if res_score >= 60:
+                            badge = "达入池线"
+                            tk_color = "#3498DB"
+                            row_bg = "#1a1f2a"
+                        else:
+                            badge = "未达入池线"
+
+                    delta_html = ""
+                    if in_pool:
+                        delta_clr = "#2ECC71" if fuel >= 0 else "#E74C3C"
+                        delta_html = f"<span style='color:{delta_clr};'>{fuel_text}</span>"
+                    else:
+                        delta_html = f"<span style='color:#555;'>{fuel_text}</span>"
+
+                    bar_section = ""
+                    if in_pool:
+                        bar_section = (
+                            f"<div style='flex:1; position:relative; background:#1e1e1e;"
+                            f" border-radius:4px; height:8px; min-width:80px;'>"
+                            f"<div style='width:{bar_pct:.0f}%; background:{bar_color};"
+                            f" border-radius:4px; height:8px;'></div>"
+                            f"<div style='position:absolute; top:0; left:{_entry_th}%;"
+                            f" width:2px; height:8px; background:#3498DB; opacity:0.8;'></div>"
+                            f"<div style='position:absolute; top:0; left:{_exit_th}%;"
+                            f" width:2px; height:8px; background:#E74C3C; opacity:0.8;'></div>"
+                            f"</div>"
+                        )
+                    else:
+                        bar_section = (
+                            f"<div style='flex:1; position:relative; background:#1e1e1e;"
+                            f" border-radius:4px; height:8px; min-width:80px;'>"
+                            f"<div style='width:0%; height:8px;'></div>"
+                            f"</div>"
+                        )
+
+                    rows_html += (
+                        f"<div style='display:flex; gap:6px; align-items:center; padding:4px 0;"
+                        f" border-bottom:1px solid #222; background:{row_bg}; font-size:13px;'>"
+                        f"<span style='width:70px; font-weight:bold; color:{tk_color};'>{tk}</span>"
+                        f"<span style='width:100px; color:#aaa; overflow:hidden; text-overflow:ellipsis;"
+                        f" white-space:nowrap;'>{nm}</span>"
+                        f"<span style='width:75px; text-align:right; color:#9B59B6; font-weight:bold;'>"
+                        f"{res_score:.1f}</span>"
+                        f"<span style='width:65px; text-align:right; font-weight:bold; color:{tk_color};'>"
+                        f"{e_text}</span>"
+                        f"<span style='width:65px; text-align:right;'>{delta_html}</span>"
+                        f"<span style='width:65px; text-align:right; color:#888;'>{decay_text}</span>"
+                        f"<span style='width:65px; text-align:center; color:{'#F39C12' if in_pool else '#3498DB'};'>"
+                        f"{'在池' if in_pool else '候选'}</span>"
+                        f"<span style='width:65px; text-align:right; color:#888;'>{days_text}</span>"
+                        f"{bar_section}"
+                        f"<span style='width:90px; text-align:center; font-size:13px; color:#aaa;'>"
+                        f"{badge}</span>"
+                        f"</div>"
+                    )
+
+                st.markdown(
+                    f"<div style='font-size:13px; color:#888; margin-bottom:4px;'>"
+                    f"🔵 蓝线 = 入池线({_entry_th}) ｜ 🔴 红线 = 降落线({_exit_th}) ｜"
+                    f" 🛡️ = 在池持仓 ｜ 池内按 E 降序，池外按共振分降序</div>"
+                    f"<div style='background:#111; border-radius:6px; padding:8px;'>"
+                    f"{header_html}{rows_html}</div>",
+                    unsafe_allow_html=True,
+                )
+
+        # ── Panel B：守擂决策推演 ────────────────────────────────────
+        with tab_b:
+            st.markdown(
+                "<div style='font-size:15px; font-weight:bold; color:#2ECC71;"
+                " margin-bottom:8px;'>守擂决策推演</div>",
+                unsafe_allow_html=True,
+            )
+            if not decisions:
+                st.info("今日无决策记录。")
+            else:
+                _ACTION_META = {
+                    "ENROLLED":         ("#3498DB", "🆕 入池"),
+                    "LANDED":           ("#E74C3C", "📉 降落"),
+                    "E_UPDATE":         ("#888",    "🔄 E 更新"),
+                    "HANDOFF_RELAY":    ("#F39C12", "🔀 接力转场"),
+                    "VETERAN_RENEWED":  ("#2ECC71", "🏅 老兵续期"),
+                    "CASH_GATE_CLEAR":  ("#E74C3C", "🚨 清仓"),
+                    "CASH_GATE_WARNING": ("#F39C12", "⚠️ 预警"),
+                    "FREEZE":           ("#9B59B6", "❄️ 冻结"),
+                    "DRIFT_WARNING":    ("#F39C12", "⚠️ 漂移"),
+                }
+                panel_b_html = ""
+                for d in decisions:
+                    action = d.get("action", "")
+                    clr, lbl = _ACTION_META.get(action, ("#888", action))
+                    tk = d.get("ticker") or ""
+                    nm = names_map.get(tk, tk)
+                    detail = d.get("detail", "")
+                    e_now = float(pool_by_ticker.get(tk, {}).get("E_value", 0))
+                    e_disp = f"E: {e_now:.0f}" if tk in pool_set else ""
+                    panel_b_html += (
+                        f"<div style='display:flex; align-items:center; gap:8px;"
+                        f" padding:6px 8px; border-bottom:1px solid #222;"
+                        f" border-left:3px solid {clr}; margin-bottom:4px;"
+                        f" background:#111; border-radius:0 4px 4px 0; font-size:13px;'>"
+                        f"<span style='width:60px; font-weight:bold; color:{clr};'>{tk}</span>"
+                        f"<span style='width:100px; color:#aaa;'>{nm[:8]}</span>"
+                        f"<span style='width:100px; font-weight:bold; color:{clr};'>{lbl}</span>"
+                        f"<span style='color:#888;'>{detail}</span>"
+                        f"<span style='margin-left:auto; color:#666; font-size:13px;'>{e_disp}</span>"
+                        f"</div>"
+                    )
+                st.markdown(
+                    f"<div style='background:#0d0d0d; border-radius:6px; padding:8px;'>"
+                    f"{panel_b_html}</div>",
+                    unsafe_allow_html=True,
+                )
+
+        # ── Panel C：共振排名 vs E 排名对比 ─────────────────────────
+        with tab_c:
+            st.markdown(
+                "<div style='font-size:15px; font-weight:bold; color:#9B59B6;"
+                " margin-bottom:8px;'>共振排名 vs E 排名对比</div>",
+                unsafe_allow_html=True,
+            )
+            all_res_tickers = [r.get("Ticker", "") for r in res_rows if r.get("Ticker")]
+            pool_ranked = sorted(
+                pool, key=lambda x: float(x.get("E_value", 0)), reverse=True,
+            )
+            _top_k = min(max(_top_n * 2, 6), len(all_res_tickers)) if all_res_tickers else 6
+
+            panel_c_html = (
+                "<div style='display:grid; grid-template-columns:1fr 1fr; gap:12px;'>"
+                "<div>"
+                "<div style='font-size:14px; color:#9B59B6; font-weight:bold; margin-bottom:6px;'>"
+                "📊 共振分 Top N</div>"
+            )
+            for i, tk in enumerate(all_res_tickers[:_top_k]):
+                rs = res_map.get(tk, 0.0)
+                nm = names_map.get(tk, tk)
+                _sel = tk in pool_set
+                _clr = "#F39C12" if _sel else ("#2ECC71" if rs >= 60 else "#888")
+                _tag = " 🛡️" if _sel else ""
+                e_val = float(pool_by_ticker.get(tk, {}).get("E_value", 0)) if _sel else 0
+                e_disp = f"E:{e_val:.0f}" if _sel else "—"
+                panel_c_html += (
+                    f"<div style='display:flex; justify-content:space-between;"
+                    f" padding:4px 0; border-bottom:1px solid #222; font-size:13px;'>"
+                    f"<span style='color:{_clr}; font-weight:{'bold' if _sel else 'normal'};'>"
+                    f"#{i+1} {tk} {nm[:8]}{_tag}</span>"
+                    f"<span style='color:#888;'>共振:{rs:.0f} / {e_disp}</span>"
+                    f"</div>"
+                )
+            panel_c_html += "</div><div>"
+            panel_c_html += (
+                "<div style='font-size:14px; color:#F39C12; font-weight:bold; margin-bottom:6px;'>"
+                "🛡️ E 值 Top N（在池）</div>"
+            )
+            for i, h in enumerate(pool_ranked[:_top_k]):
+                tk = h.get("ticker", "?")
+                e_val = float(h.get("E_value", 0))
+                rs = res_map.get(tk, 0.0)
+                nm = names_map.get(tk, tk)
+                panel_c_html += (
+                    f"<div style='display:flex; justify-content:space-between;"
+                    f" padding:4px 0; border-bottom:1px solid #222; font-size:13px;'>"
+                    f"<span style='color:#F39C12; font-weight:bold;'>"
+                    f"#{i+1} {tk} {nm[:8]} 🛡️</span>"
+                    f"<span style='color:#888;'>E:{e_val:.0f} / 共振:{rs:.0f}</span>"
+                    f"</div>"
+                )
+            if not pool_ranked:
+                panel_c_html += (
+                    "<div style='font-size:13px; color:#888; padding:8px;'>"
+                    "在池为空</div>"
+                )
+            panel_c_html += "</div></div>"
+
+            diverged = []
+            for i, tk in enumerate(all_res_tickers[:_top_n]):
+                if tk not in pool_set:
+                    diverged.append(("res_high", tk))
+            for h in pool_ranked:
+                tk = h.get("ticker", "")
+                if tk in all_res_tickers and all_res_tickers.index(tk) >= _top_n:
+                    diverged.append(("e_high", tk))
+            if diverged:
+                div_tags = ", ".join(
+                    f"<b style='color:#E74C3C;'>{tk}</b>"
+                    if dtype == "res_high"
+                    else f"<b style='color:#F39C12;'>{tk}</b>"
+                    for dtype, tk in diverged[:6]
+                )
+                panel_c_html += (
+                    f"<div style='margin-top:8px; font-size:13px; color:#888;'>"
+                    f"⚡ 共振/E 分歧标的：{div_tags}"
+                    f"（<span style='color:#E74C3C;'>红</span>=共振高但未入池，"
+                    f"<span style='color:#F39C12;'>橙</span>=共振低但 E 守住席位）</div>"
+                )
+
+            st.markdown(
+                f"<div style='background:#111; border-radius:6px; padding:12px;'>"
+                f"{panel_c_html}</div>",
+                unsafe_allow_html=True,
+            )
+
+
+def _build_d_resonance_candidates(df_scored_d: pd.DataFrame) -> list[dict]:
+    """Build the payload consumed by the D-group narrative resonance engine."""
     candidates = []
+    if df_scored_d is None or df_scored_d.empty:
+        return candidates
     for _, _row in df_scored_d.iterrows():
         candidates.append({
             "ticker": str(_row["Ticker"]).strip().upper(),
@@ -1906,9 +2554,17 @@ def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None 
             "scorecard_d": float(_row["竞技得分"]),
             "scorecard_rank": int(_row.get("排名") or 0),
         })
+    return candidates
+
+
+def _fetch_resonance_board_v2(
+    df_scored_d: pd.DataFrame,
+    calc_date: str | None = None,
+) -> tuple[dict | None, list[dict]]:
+    """Fetch D-group resonance data without rendering the board."""
+    candidates = _build_d_resonance_candidates(df_scored_d)
     if not candidates:
-        st.info("D 组当前无候选。")
-        return
+        return None, candidates
 
     with st.spinner(f"正在调用后端三桥共振引擎（{len(candidates)} 只标的）…"):
         resp = post_narrative_resonance_d(
@@ -1918,10 +2574,32 @@ def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None 
             cooc_window_days=14,
         )
 
+    return resp, candidates
+
+
+def _render_resonance_board_v2_response(
+    resp: dict | None,
+    candidates: list[dict],
+    calc_date: str | None = None,
+) -> None:
+    """Render an already-fetched v2 resonance response."""
+    st.markdown("---")
+    st.markdown("#### 🎯 叙事增强 D 组候选榜 v2.0 — 三桥共振")
+    st.caption(
+        "共振分 = √(D组动量分 × 叙事支撑分)；"
+        "叙事支撑分由关联词 / 新闻共现 / 行业先验三桥聚合。"
+    )
+
+    if not candidates:
+        st.info("D 组当前无候选。")
+        return
+    if not resp:
+        st.info("暂无叙事增强数据。")
+        return
     if not resp.get("success"):
         st.error(
             f"叙事共振引擎调用失败：{resp.get('error', '未知')}。"
-            "请检查 RESONANCE_INTERNAL_TOKEN 是否配置 + 后端 anchors / keyword_weight_daily 是否就绪。"
+            "请检查 RESONANCE_INTERNAL_TOKEN 是否配置 + 后端评分标尺 / 关键词权重是否就绪。"
         )
         return
 
@@ -1930,7 +2608,7 @@ def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None 
     _render_resonance_health_banner(meta)
 
     if not rows:
-        st.info("后端返回空数据（可能 feature_mode=v2_off 或当日无候选）。")
+        st.info("后端返回空数据（可能新版共振榜关闭或当日无候选）。")
         return
 
     st.markdown("##### 共振主榜")
@@ -1941,19 +2619,19 @@ def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None 
     no_rows = [r for r in rows if r.get("zone") == "NO_NARRATIVE"]
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("##### 三栏分区（可点开看白盒分解）")
-    _render_resonance_zone_block("STRONG_NARRATIVE", strong_rows, meta)
-    _render_resonance_zone_block("WEAK_NARRATIVE", weak_rows, meta)
-    _render_resonance_zone_block("NO_NARRATIVE", no_rows, meta)
+    _render_resonance_zone_block("STRONG_NARRATIVE", strong_rows, meta, key_prefix="today")
+    _render_resonance_zone_block("WEAK_NARRATIVE", weak_rows, meta, key_prefix="today")
+    _render_resonance_zone_block("NO_NARRATIVE", no_rows, meta, key_prefix="today")
 
     qp = st.query_params
     debug_flag = qp.get("debug")
     if debug_flag == "resonance":
         st.markdown("---")
-        st.markdown("##### 🔬 watch_only 调试模式（仅 ?debug=resonance 时启用）")
+        st.markdown("##### 🔬 调试模式（仅 ?debug=resonance 时启用）")
         _debug_tk_default = candidates[0]["ticker"] if candidates else ""
         _debug_tk = st.text_input("Debug ticker", value=_debug_tk_default, key="res_debug_ticker").strip().upper()
         _debug_score = st.number_input(
-            "Debug ScorecardD（用于 fixture 调试）",
+            "调试用 D组动量分",
             min_value=0.0, max_value=100.0, value=80.0, step=1.0, key="res_debug_score",
         )
         if st.button("运行 debug endpoint", key="res_debug_btn"):
@@ -1966,6 +2644,208 @@ def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None 
                 st.json(_dbg)
             else:
                 st.error(f"debug 失败：{_dbg.get('error', '未知')}")
+
+
+def _render_resonance_board_v2(df_scored_d: pd.DataFrame, calc_date: str | None = None) -> dict | None:
+    """v2 叙事增强 D 组候选榜（主入口）。返回共振引擎原文 resp 供落盘用。"""
+    resp, candidates = _fetch_resonance_board_v2(df_scored_d, calc_date=calc_date)
+    _render_resonance_board_v2_response(resp, candidates, calc_date=calc_date)
+    return resp
+
+
+# ─────────────────────────────────────────────────────────────────
+#  D 组历史快照 tab
+# ─────────────────────────────────────────────────────────────────
+
+_STATUS_LABEL_MAP = {
+    "actual": ("真实快照", "#2ECC71"),
+    "manual_same_day": ("当日手动", "#F1C40F"),
+    "backfill_recomputed": ("事后回填", "#7F8C8D"),
+}
+
+
+def _render_history_status_bar(meta: dict) -> None:
+    """历史模式状态条。"""
+    status = meta.get("snapshot_status", "actual")
+    label, color = _STATUS_LABEL_MAP.get(status, (status, "#7F8C8D"))
+    tc = meta.get("ticker_count", "?")
+    st.markdown(
+        f"""
+        <div style='border:2px solid {color}; background:#11161c;
+             border-radius:8px; padding:12px 16px; margin:8px 0 14px 0;
+             font-size:14px; color:#ddd;'>
+            <span style='color:{color}; font-weight:bold; font-size:15px;'>{label}</span>
+            ｜ {meta.get('snap_date', '?')}
+            ｜ {tc} 只
+            ｜ 生成于 {meta.get('created_at', '?')}
+            ｜ engine: <code>{(meta.get('engine_version') or '?')[:24]}</code>
+            ｜ anchor: {meta.get('anchor_date', '?')}
+            ｜ Cooc: {meta.get('cooc_latest_date', '?')}
+            ｜ KW: {meta.get('keyword_weight_latest_date', '?')}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_d_history_tab() -> None:
+    """历史快照 tab：日期选择器 + 批量补齐 + 状态条 + podium + 复用现有 render 函数。"""
+
+    # ── 批量回放补齐区 ──
+    with st.expander("批量补齐历史快照", expanded=False):
+        bf_c1, bf_c2, bf_c3 = st.columns([1, 1, 2])
+        with bf_c1:
+            bf_days = st.radio("回填天数", [7, 14, 30], horizontal=True, key="d_bf_days")
+        with bf_c2:
+            bf_force = st.checkbox("重算回放数据", key="d_bf_force")
+        with bf_c3:
+            if st.button("开始补齐", key="d_bf_trigger"):
+                resp = trigger_d_history_backfill(bf_days, bf_force)
+                if resp.get("accepted") or resp.get("success"):
+                    st.success(f"已提交 {bf_days} 天回填任务")
+                else:
+                    st.warning(f"提交失败：{resp.get('error', '?')}")
+            if st.button("刷新进度", key="d_bf_refresh"):
+                st.cache_data.clear()
+        bfs = fetch_d_history_backfill_status()
+        state = bfs.get("state", {})
+        if state.get("started_at"):
+            running = state.get("running", False)
+            saved = len(state.get("saved_dates", []))
+            skipped = len(state.get("skipped_dates", []))
+            failed = len(state.get("failed_dates", []))
+            total = len(state.get("processed_dates", []))
+            status_icon = "🔄" if running else "✅"
+            st.markdown(
+                f"{status_icon} **{'运行中' if running else '已完成'}** "
+                f"| 已处理 {total} | 写入 {saved} | 跳过 {skipped} | 失败 {failed}"
+            )
+            reasons = state.get("per_date_reason", {})
+            if reasons:
+                with st.expander("逐日详情", expanded=False):
+                    for d, r in sorted(reasons.items(), reverse=True):
+                        st.text(f"{d}: {r}")
+
+    # ── 补齐最近收盘日 ──
+    ctl_cols = st.columns([1.2, 3])
+    with ctl_cols[0]:
+        if st.button("补齐最近收盘日", key="d_hist_ensure_latest"):
+            with st.spinner("正在补齐最近收盘日 D 组快照…"):
+                _ensure_date = fetch_d_today_snap_date()
+                _ensure_resp = ensure_d_snapshot_latest(_ensure_date)
+            if _ensure_resp.get("success"):
+                st.success(f"快照状态：{_ensure_resp.get('snap_date')} / {_ensure_resp.get('reason')}")
+            else:
+                st.warning(f"补齐失败：{_ensure_resp.get('error') or _ensure_resp.get('reason')}")
+
+    dates_resp = fetch_d_history_dates(limit=90)
+    if not dates_resp.get("success") or not dates_resp.get("data"):
+        st.info("暂无历史快照数据。")
+        return
+
+    dates_meta = dates_resp["data"]
+    option_keys = [
+        f"{d['snap_date']}|{d.get('snapshot_status', 'actual')}"
+        for d in dates_meta
+    ]
+    dates_lookup = {
+        f"{d['snap_date']}|{d.get('snapshot_status', 'actual')}": d
+        for d in dates_meta
+    }
+
+    def _fmt_date(option_key):
+        m = dates_lookup.get(option_key, {})
+        d = m.get("snap_date", option_key.split("|", 1)[0])
+        s = m.get("snapshot_status", "actual")
+        tc = m.get("ticker_count", "?")
+        if s == "actual":
+            return f"[实盘] {d}（{tc}只）"
+        if s == "backfill_recomputed":
+            return f"[回放] {d}（{tc}只）"
+        lbl, _ = _STATUS_LABEL_MAP.get(s, ("?", ""))
+        return f"{d} · {lbl}（{tc}只）"
+
+    selected_key = st.selectbox(
+        "查看日期", option_keys, index=0, key="d_hist_date_sel",
+        format_func=_fmt_date,
+    )
+    sel_meta = dates_lookup.get(selected_key, dates_meta[0])
+    selected_date = sel_meta.get("snap_date", selected_key.split("|", 1)[0])
+    selected_status = sel_meta.get("snapshot_status", "actual")
+    _render_history_status_bar(sel_meta)
+
+    # 动量榜
+    st.markdown("##### 动量排行（历史快照）")
+    mom_resp = fetch_d_history_momentum(selected_date, status=selected_status)
+    if mom_resp.get("success"):
+        mom_data = mom_resp.get("data", [])
+        if mom_data:
+            df_mom = pd.DataFrame(mom_data)
+            col_map = {
+                "ticker": "Ticker", "cn_name": "名称",
+                "score": "竞技得分", "rank": "排名",
+                "vol_z": "Vol_Z", "rs_20d": "RS_20d", "ma60_dist": "MA60偏离",
+            }
+            for old, new in col_map.items():
+                if old in df_mom.columns:
+                    df_mom.rename(columns={old: new}, inplace=True)
+            if "breakdown" in df_mom.columns:
+                df_mom["因子1_分"] = df_mom["breakdown"].apply(lambda b: float((b or {}).get("vol_z_score", 0.0) or 0.0))
+                df_mom["因子2_分"] = df_mom["breakdown"].apply(lambda b: float((b or {}).get("rs_20d_score", 0.0) or 0.0))
+                df_mom["因子3_分"] = df_mom["breakdown"].apply(lambda b: float((b or {}).get("ma60_score", 0.0) or 0.0))
+            for c in ["竞技得分", "Vol_Z", "RS_20d", "MA60偏离", "因子1_分", "因子2_分", "因子3_分"]:
+                if c in df_mom.columns:
+                    df_mom[c] = pd.to_numeric(df_mom[c], errors="coerce").fillna(0.0)
+            if "排名" not in df_mom.columns and "竞技得分" in df_mom.columns:
+                df_mom = df_mom.sort_values("竞技得分", ascending=False).reset_index(drop=True)
+                df_mom["排名"] = range(1, len(df_mom) + 1)
+            st.markdown("---")
+            st.markdown("#### 赛道翘楚 — Top 3（历史）")
+            _render_podium_d(df_mom.head(3))
+            st.markdown("---")
+            _render_leaderboard_d(df_mom)
+        else:
+            st.info("该日期无动量数据。")
+    else:
+        st.warning(f"动量榜读取失败：{mom_resp.get('error', '?')}")
+
+    # 共振榜
+    st.markdown("##### 共振排行（历史快照）")
+    res_resp = fetch_d_history_resonance(selected_date, status=selected_status)
+    if res_resp.get("success"):
+        rows = res_resp.get("data", [])
+        meta = res_resp.get("meta", {})
+        if rows:
+            # 真实性状态条（仅 backfill_recomputed 有 anchor_mode / kw_gap_days）
+            a_mode = meta.get("anchor_mode", "")
+            kw_gap = meta.get("kw_gap_days")
+            deg = meta.get("degraded_counts") or {}
+            if selected_status == "backfill_recomputed" and (a_mode or kw_gap is not None):
+                parts = []
+                if a_mode:
+                    parts.append(f"anchor: {a_mode}")
+                if kw_gap is not None:
+                    parts.append(f"关键词数据滞后天数: {kw_gap}天")
+                if deg:
+                    parts.append(f"degraded: {deg}")
+                st.markdown(
+                    f"<div style='background:#1a1a2e;border:1px solid #555;border-radius:6px;"
+                    f"padding:8px 14px;margin-bottom:10px;font-size:13px;color:#aaa;'>"
+                    f"{'  |  '.join(parts)}</div>",
+                    unsafe_allow_html=True,
+                )
+            _render_resonance_health_banner(meta, as_of_date=selected_date)
+            _render_resonance_main_table(rows)
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("##### 三栏分区（可点开看白盒分解）")
+            _hist_prefix = f"hist_{selected_date}"
+            for zk in ("STRONG_NARRATIVE", "WEAK_NARRATIVE", "NO_NARRATIVE"):
+                zr = [r for r in rows if r.get("zone") == zk]
+                _render_resonance_zone_block(zk, zr, meta, key_prefix=_hist_prefix)
+        else:
+            st.info("该日期无共振数据。")
+    else:
+        st.warning(f"共振榜读取失败：{res_resp.get('error', '?')}")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -2882,25 +3762,7 @@ with st.sidebar:
         format_func=lambda x: f"{x} — {_regime_labels[x]}",
         index=_default_raw_idx,
     )
-    _res_mode_options = ["v2_on", "v2_off", "v1_legacy"]
-    _res_mode_default = os.environ.get("ENABLE_NARRATIVE_RESONANCE_V2", "v2_on").strip()
-    if _res_mode_default not in _res_mode_options:
-        _res_mode_default = "v2_on"
-    _res_mode_current = st.session_state.get("narrative_resonance_v2_mode", _res_mode_default)
-    if _res_mode_current not in _res_mode_options:
-        _res_mode_current = _res_mode_default
-    narrative_resonance_mode = st.selectbox(
-        "叙事增强 D 组榜",
-        options=_res_mode_options,
-        index=_res_mode_options.index(_res_mode_current),
-        format_func=lambda x: {
-            "v2_on": "v2_on — 新叙事增强榜",
-            "v2_off": "v2_off — 仅保留 ScorecardD",
-            "v1_legacy": "v1_legacy — 旧共振只读回看",
-        }.get(x, x),
-        help="v2_on 使用三桥叙事增强系统；v2_off 不显示叙事榜；v1_legacy 仅用于对照旧口径。",
-    )
-    st.session_state["narrative_resonance_v2_mode"] = narrative_resonance_mode
+    st.session_state["narrative_resonance_v2_mode"] = "v2_on"
     st.markdown("---")
     st.header("🛠️ 系统维护")
     if st.button("🔄 仅清除当前页缓存"):
@@ -3194,6 +4056,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ─────────────────────────────────────────────────────────────────
 
 _sel4 = st.session_state["page4_selected_group"]
+_d_monthly_top10_slot = None
 
 if _sel4 == "A":
     df_a  = df_all[df_all["类别"] == "A"].copy()
@@ -3834,19 +4697,52 @@ elif _sel4 == "D":
     </div>
     """, unsafe_allow_html=True)
 
+    st.markdown(_d_resonance_explain_html(), unsafe_allow_html=True)
+
     if df_d.empty:
         st.info("当前 D 级赛道暂无参赛资产。请检查数据加载状态或清除缓存后重试。")
     else:
-        with st.spinner("正在拉取 D 组爆点因子数据（Vol_Z、RS vs SPY、MA60 位置）…"):
-            _factors_d = get_arena_d_factors(tuple(df_d["Ticker"].tolist()))
+        # ── tabs 外：先 resolve snap_date，算分 + 落盘（每次 rerun 只跑一次）──
+        _snap_date = fetch_d_today_snap_date()
 
-        df_d["Vol_Z"]   = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("vol_z",    0.0)))
-        df_d["RS_20d"]  = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("rs_20d",   0.0)))
-        df_d["MA60偏离"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("ma60_dist", 0.0)))
+        _d_tickers = df_d["Ticker"].tolist()
+        _d_meta = {t: {"cn_name": n} for t, n in zip(df_d["Ticker"], df_d.get("名称", [""] * len(df_d)))}
 
-        df_scored_d = compute_scorecard_d(df_d)
+        _score_d_api_ok = False
+        _sd_resp = None
+        with st.spinner("正在调用后端 ScorecardD 评分（Vol_Z、RS vs SPY、MA60）…"):
+            from api_client import post_arena_score_d
+            _sd_resp = post_arena_score_d(_d_tickers, _d_meta)
 
-        # 保存至 session_state 供下游使用
+        if _sd_resp and _sd_resp.get("success"):
+            _sd_scores = _sd_resp.get("scores", {})
+            _sd_bd = _sd_resp.get("breakdowns", {})
+            _sd_failed = _sd_resp.get("failed_tickers", [])
+            if _sd_failed:
+                st.warning(f"⚠ ScorecardD 因子拉取失败: {', '.join(_sd_failed)}")
+
+            df_d["Vol_Z"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("vol_z_raw", 0.0)))
+            df_d["RS_20d"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("rs_20d_raw", 0.0)))
+            df_d["MA60偏离"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("ma60_raw", 0.0)))
+            df_d["竞技得分"] = df_d["Ticker"].map(lambda t: float(_sd_scores.get(t, 0.0)))
+            df_d["因子1_分"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("vol_z_score", 0.0)))
+            df_d["因子2_分"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("rs_20d_score", 0.0)))
+            df_d["因子3_分"] = df_d["Ticker"].map(lambda t: float(_sd_bd.get(t, {}).get("ma60_score", 0.0)))
+            df_d = df_d.sort_values("竞技得分", ascending=False).reset_index(drop=True)
+            df_d["排名"] = range(1, len(df_d) + 1)
+            df_scored_d = df_d
+            _score_d_api_ok = True
+        else:
+            st.warning(f"⚠ 后端 ScorecardD API 失败（{(_sd_resp or {}).get('error', '未知')}），降级为本地计算。")
+
+        if not _score_d_api_ok:
+            with st.spinner("正在拉取 D 组爆点因子数据（Vol_Z、RS vs SPY、MA60 位置）…"):
+                _factors_d = get_arena_d_factors(tuple(_d_tickers))
+            df_d["Vol_Z"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("vol_z", 0.0)))
+            df_d["RS_20d"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("rs_20d", 0.0)))
+            df_d["MA60偏离"] = df_d["Ticker"].map(lambda t: float(_factors_d.get(t, {}).get("ma60_dist", 0.0)))
+            df_scored_d = compute_scorecard_d(df_d)
+
         n_d = len(df_scored_d)
         if n_d > 0:
             leaders = st.session_state.get("p4_arena_leaders", {})
@@ -3857,131 +4753,295 @@ elif _sel4 == "D":
             st.session_state["p4_arena_leaders"] = leaders
             _record_arena_history("D", _expand_arena_records(leaders["D"], df_scored_d))
 
-            # 全局数据流：D 组 Top-3 Ticker → arena_winners
             _aw = st.session_state.get("arena_winners", {})
             _aw["D"] = [row["Ticker"] for _, row in df_scored_d.head(3).iterrows()]
             st.session_state["arena_winners"] = _aw
             _sync_arena_to_backend()
 
-        # ── KPI 卡片 ─────────────────────────────────────────────
-        st.markdown("---")
+        # 共振响应放在 D 组共享准备层：既供叙事增强榜展示，也供快照落盘校验。
+        _resonance_resp, _resonance_candidates = _fetch_resonance_board_v2(
+            df_scored_d,
+            calc_date=_snap_date,
+        )
 
-        # ── 颁奖台 ────────────────────────────────────────────────
-        st.markdown("#### 🏆 赛道翘楚 — Top 3 高亮置顶")
-        _render_podium_d(df_scored_d.head(3))
+        # session_state 防抖 + 严校验落盘
+        if _snap_date and _score_d_api_ok and _sd_resp and _resonance_resp and _resonance_resp.get("success"):
+            if st.session_state.get("_d_snap_saved_date") != _snap_date:
+                _try_save = True
+                res_meta = _resonance_resp.get("meta", {})
+                if res_meta.get("feature_mode") == "v2_off":
+                    _try_save = False
+                if not _sd_resp.get("scores") or not _resonance_resp.get("data"):
+                    _try_save = False
+                if _try_save and res_meta.get("calc_date") and res_meta.get("calc_date") != _snap_date:
+                    st.toast(f"calc_date {res_meta.get('calc_date')} ≠ snap_date {_snap_date}，跳过落盘", icon="⚠️")
+                    _try_save = False
+                if _try_save:
+                    _res_tickers = {r["Ticker"] for r in _resonance_resp.get("data", [])}
+                    _mom_tickers = set(_sd_resp.get("scores", {}).keys())
+                    if _res_tickers != _mom_tickers:
+                        st.toast("ticker 集合错位，跳过落盘", icon="⚠️")
+                        _try_save = False
+                if _try_save:
+                    _price_asof_map = {
+                        tk: bd.get("price_asof")
+                        for tk, bd in (_sd_resp.get("breakdowns") or {}).items()
+                        if bd.get("price_asof")
+                    }
+                    try:
+                        _snap_resp = save_d_snapshot_today(
+                            _sd_resp, _resonance_resp,
+                            snap_date=_snap_date,
+                            price_asof_map=_price_asof_map,
+                        )
+                        if _snap_resp.get("success"):
+                            st.session_state["_d_snap_saved_date"] = _snap_date
+                            if _snap_resp.get("reason") == "saved":
+                                fetch_d_history_dates.clear()
+                                fetch_d_history_momentum.clear()
+                                fetch_d_history_resonance.clear()
+                                st.toast(f"今日快照已落盘（{_snap_date}）", icon="✅")
+                        else:
+                            st.toast(f"快照落盘失败：{_snap_resp.get('error') or _snap_resp.get('reason')}", icon="⚠️")
+                    except Exception as _snap_e:
+                        st.toast(f"快照模块异常：{_snap_e}", icon="🚨")
 
-        st.markdown("---")
+        _d_view_options = [
+            "📊 动量基准榜",
+            "🎯 叙事增强榜",
+            "🛡️ 共振守擂全量推演",
+            "🗂️ 历史快照",
+        ]
+        _d_view = _lazy_subtab_nav(
+            key="page3_d_view",
+            options=_d_view_options,
+            default=_d_view_options[0],
+            accent=meta["color"],
+        )
 
-        # ── 完整排行榜 ─────────────────────────────────────────────
-        _render_leaderboard_d(df_scored_d)
+        if _d_view == _d_view_options[0]:
+            st.markdown("---")
+            st.markdown("#### 🏆 赛道翘楚 — Top 3 高亮置顶")
+            _render_podium_d(df_scored_d.head(3))
+            st.markdown("---")
+            _render_leaderboard_d(df_scored_d)
 
-        # ── 叙事增强 D 组榜（v2 三桥共振 / v1_legacy 旧猎场 / v2_off 静默）──
-        _resonance_mode = st.session_state.get("narrative_resonance_v2_mode", "v2_on")
-        if _resonance_mode == "v2_on":
-            _render_resonance_board_v2(df_scored_d)
-        elif _resonance_mode == "v1_legacy":
-            _render_resonance_hunt_v1_legacy(df_scored_d)
+            _d_monthly_top10_slot = st.container()
 
-        st.markdown("---")
+        elif _d_view == _d_view_options[1]:
+            _render_resonance_board_v2_response(
+                _resonance_resp,
+                _resonance_candidates,
+                calc_date=_snap_date,
+            )
+
+        elif _d_view == _d_view_options[2]:
+            st.markdown("#### 🛡️ 共振守擂全量推演")
+            _render_d_conviction_whitebox(_resonance_resp, wrap_expander=False)
+
+        elif _d_view == _d_view_options[3]:
+            _render_d_history_tab()
 
 
 # ─────────────────────────────────────────────────────────────────
 #  历史榜单 — 只显示当前选中赛道（_sel4）的月度 Top 10
+#  D 赛道仅在"动量基准榜"子入口内渲染月度 Top 10
 # ─────────────────────────────────────────────────────────────────
-_hist_meta = CLASS_META[_sel4]
-st.markdown("---")
-st.markdown(
-    f"### 📅 {_hist_meta['icon']} {_hist_meta['label']} — 历史月度 Top 10",
-)
-_hist_macro_note = (
-    "本赛道评分不受宏观剧本变化影响，四剧本裁决列仅供市场环境参考。"
-    if _sel4 in ("A", "D", "Z")
-    else "B 组权重随剧本动态调整；C 组宏观顺风标的随剧本切换，切换月份将自动插入白盒注释行。"
-)
-st.caption(
-    f"当前赛道：{_hist_meta['label']}。纵向追踪每月末排名，"
-    "方便确认哪些标的被持续输送至 Page 5 / Page 6。"
-    "「四剧本裁决」列来自 Page 1 月度表（与 C 组宏观匹配同源）。"
-    f"切换顶部 ABCD 色块即可查看其他赛道历史。{_hist_macro_note}"
-)
 
-# ── 回填控制区 ───────────────────────────────────────────────────
-_BF_MONTHS = 60
-_bf_col1, _bf_col2 = st.columns([1, 3])
-with _bf_col1:
-    _do_backfill = st.button("🔄 回填历史数据", use_container_width=True,
-                             help="用 yfinance 历史价格数据重算过去 60 个月各赛道排名并写入档案")
-with _bf_col2:
+
+def _render_monthly_top10(cls: str) -> None:
+    """渲染指定赛道的历史月度 Top 10（含回填控制区 + 等价性断言 + 数据表）。"""
+    _hm = CLASS_META[cls]
+    st.markdown("---")
     st.markdown(
-        "<div style='font-size:13px; color:#666; padding-top:8px;'>"
-        "注：固定回填过去 60 个月。每月末先 Point-in-Time 重新执行 ABCD 分类（消除前视偏差），再在各赛道内评分。"
-        "首次下载约需 60-120 秒（5 年数据量较大）。</div>",
+        f"### 📅 {_hm['icon']} {_hm['label']} — 历史月度 Top 10",
+    )
+    _hist_macro_note = (
+        "本赛道评分不受宏观剧本变化影响，四剧本裁决列仅供市场环境参考。"
+        if cls in ("A", "D", "Z")
+        else "B 组权重随剧本动态调整；C 组宏观顺风标的随剧本切换，切换月份将自动插入白盒注释行。"
+    )
+    st.caption(
+        f"当前赛道：{_hm['label']}。纵向追踪每月末排名，"
+        "方便确认哪些标的被持续输送至 Page 5 / Page 6。"
+        "「四剧本裁决」列来自 Page 1 月度表（与 C 组宏观匹配同源）。"
+        f"切换顶部 ABCD 色块即可查看其他赛道历史。{_hist_macro_note}"
+    )
+
+    _BF_MONTHS = 60
+    _bf_col1, _bf_col2 = st.columns([1, 3])
+    with _bf_col1:
+        _do_backfill = st.button("🔄 回填历史数据", use_container_width=True,
+                                 help="用 yfinance 历史价格数据重算过去 60 个月各赛道排名并写入档案")
+    with _bf_col2:
+        st.markdown(
+            "<div style='font-size:13px; color:#666; padding-top:8px;'>"
+            "注：固定回填过去 60 个月。每月末先 Point-in-Time 重新执行 ABCD 分类（消除前视偏差），再在各赛道内评分。"
+            "首次下载约需 60-120 秒（5 年数据量较大）。</div>",
+            unsafe_allow_html=True,
+        )
+
+    if _do_backfill:
+        _old_hist_snapshot: dict = _api_fetch_history() or {}
+        with st.spinner(f"正在下载 {len(all_assets)} 只标的约 6 年历史数据并逐月 PIT 分拣 + 评分…"
+                        f"（含 12 个月信念热身期，共计算 {_BF_MONTHS + 12} 个月）"):
+            _bf_meta = get_stock_metadata(tuple(all_assets.keys()))
+            _bf_saved, _bf_err = _backfill_arena_history(
+                all_assets, months_back=_BF_MONTHS,
+                monthly_probs=(
+                    fetch_current_regime().get("horsemen_monthly_probs")
+                    or st.session_state.get("horsemen_monthly_probs", {})
+                ),
+                meta_data=_bf_meta,
+                warmup_months=12,
+            )
+        if _bf_err and "部分成功" in _bf_err:
+            st.warning(
+                f"⚠️ 回填{_bf_err}。前面批次已持久化，可稍后再点一次回填补剩余月份。",
+                icon="⚠️",
+            )
+        elif _bf_err:
+            st.error(f"回填失败：{_bf_err}")
+        else:
+            st.success(f"回填完成！已写入 {_bf_saved} 个月的历史档案。")
+            _api_fetch_history.clear()
+            _new_hist  = _api_fetch_history()
+            _old_hist  = _old_hist_snapshot
+            _mismatch_details: list = []
+            for _mk in sorted(set(_new_hist) & set(_old_hist)):
+                for _mcls in ("B", "C", "D", "Z"):
+                    _new_recs = [r["ticker"] for r in (_new_hist.get(_mk, {}).get(_mcls, []) or [])[:3]]
+                    _old_recs = [r["ticker"] for r in (_old_hist.get(_mk, {}).get(_mcls, []) or [])[:3]]
+                    if _new_recs and _old_recs and _new_recs != _old_recs:
+                        _score_diff = [
+                            (r["ticker"], round(r.get("score", 0) - next(
+                                (o.get("score", 0) for o in (_old_hist.get(_mk, {}).get(_mcls, []) or [])
+                                 if o["ticker"] == r["ticker"]), 0), 2))
+                            for r in (_new_hist.get(_mk, {}).get(_mcls, []) or [])[:5]
+                            if any(o["ticker"] == r["ticker"] for o in (_old_hist.get(_mk, {}).get(_mcls, []) or []))
+                        ]
+                        _mismatch_details.append(f"{_mk}/{_mcls}: 新={_new_recs} 旧={_old_recs} 分差前5={_score_diff}")
+            if _mismatch_details:
+                st.error(
+                    f"🚨 **等价性断言失败**：B/C/D/Z 搬家前后榜单不一致（共 {len(_mismatch_details)} 处），"
+                    "请人工核查 arena_scoring.py 是否与前端公式完全一致：",
+                    icon="🚨",
+                )
+                for _line in _mismatch_details[:10]:
+                    st.markdown(f"- `{_line}`")
+            else:
+                st.success("✅ 等价性断言通过：B/C/D/Z Top 3 与旧库完全一致，可安全上线。")
+            st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    _history_data      = _load_arena_history()
+    _horsemen_arch     = _load_horsemen_verdict_archive()
+    _mi  = ["🥇", "🥈", "🥉"]
+    _mc  = ["#FFD700", "#C0C0C0", "#CD7F32"]
+
+    if not _history_data:
+        st.info("暂无历史记录。点击上方「回填历史数据」按钮，一键生成过去 N 个月的档案。", icon="📋")
+        return
+
+    _sorted_months = sorted(_history_data.keys(), reverse=True)
+    _cls_months    = [mo for mo in _sorted_months if cls in _history_data[mo]]
+
+    if not _cls_months:
+        st.info(
+            f"{_hm['icon']} {_hm['label']} 暂无历史记录。"
+            "点击上方「回填历史数据」按钮生成档案。",
+            icon="📋",
+        )
+        return
+
+    _streaks_map = _compute_streaks(_history_data, cls)
+
+    _TH = (
+        "display:flex; align-items:center; padding:6px 8px; "
+        "border-bottom:2px solid #2a2a2a; font-size:13px; color:#555; font-weight:bold;"
+    )
+    _header_row = (
+        f"<div style='{_TH}'>"
+        f"<div style='width:80px; flex-shrink:0;'>月份</div>"
+        f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>四剧本裁决</div>"
+        f"<div style='flex:1; padding-left:4px;'>🥇 冠军</div>"
+        f"<div style='flex:1; padding-left:4px;'>🥈 亚军</div>"
+        f"<div style='flex:1; padding-left:4px;'>🥉 季军</div>"
+        f"<div style='flex:2; padding-left:4px; color:#666;'>#4 — #10 候补</div>"
+        f"</div>"
+    )
+    _all_verdicts = [_resolve_horsemen_verdict_cn(_mo, _horsemen_arch) for _mo in _cls_months]
+    _data_rows = ""
+    for _idx, _mo in enumerate(_cls_months):
+        _recs_raw  = _history_data[_mo].get(cls, [])
+        if isinstance(_recs_raw, dict):
+            _recs = _recs_raw.get("tickers", [])
+        else:
+            _recs = _recs_raw
+        _mo_streaks = _streaks_map.get(_mo, {})
+        _v_cn   = _all_verdicts[_idx]
+        _next_v_cn = _all_verdicts[_idx + 1] if _idx + 1 < len(_cls_months) else ""
+        _regime_shifted = bool(_v_cn and _next_v_cn and _v_cn != _next_v_cn)
+
+        if _regime_shifted:
+            _prev_emoji = _REGIME_EMOJI.get(_next_v_cn, "")
+            _curr_badge, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
+            _v_html = (
+                f"<div style='line-height:1.3;'>"
+                f"<div style='font-size:13px; color:#777;'>{_prev_emoji}→</div>"
+                f"{_curr_badge}"
+                f"</div>"
+            )
+        else:
+            _v_html, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
+
+        _bg    = "#111" if _idx % 2 == 0 else "#0d0d0d"
+        _row   = (
+            f"<div style='display:flex; align-items:center; padding:8px 8px; "
+            f"background:{_bg}; border-bottom:1px solid #1a1a1a;'>"
+            f"<div style='width:80px; font-size:13px; font-weight:bold; "
+            f"color:{_hm['color']}; flex-shrink:0;'>{_mo}</div>"
+            f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>{_v_html}</div>"
+        )
+        for _ri in range(3):
+            if _ri < len(_recs):
+                _row += _hist_cell(_recs[_ri], _mc[_ri], _mo_streaks.get(_recs[_ri]["ticker"], 0))
+            else:
+                _row += _hist_empty()
+        _rest = _recs[3:10]
+        if _rest:
+            _rest_items = []
+            for _ri2, _rec2 in enumerate(_rest, start=4):
+                _rest_items.append(
+                    f"<span style='color:#666; white-space:nowrap;'>"
+                    f"<span style='color:#555;'>#{_ri2}</span> {_rec2['ticker']}</span>"
+                )
+            _rest_html = (
+                f"<div style='flex:2; display:flex; flex-wrap:wrap; gap:4px 10px; "
+                f"align-items:baseline; padding-left:4px; font-size:13px;'>"
+                + "".join(_rest_items)
+                + "</div>"
+            )
+        else:
+            _rest_html = "<div style='flex:2; font-size:13px; color:#333; padding-left:4px;'>—</div>"
+        _row += _rest_html
+        _row += "</div>"
+        _data_rows += _row
+
+        if _regime_shifted:
+            _anno = _regime_shift_annotation(_next_v_cn, _v_cn, cls)
+            if _anno:
+                _data_rows += _anno
+
+    st.markdown(
+        f"<div style='border:1px solid {_hm['color']}44; border-radius:8px; "
+        f"overflow:hidden;'>{_header_row}{_data_rows}</div>",
         unsafe_allow_html=True,
     )
 
-if _do_backfill:
-    # 回填前先抓一份快照，用于后续等价性断言比对（_history 页面级变量此时尚未赋值，必须显式取）
-    _old_hist_snapshot: dict = _api_fetch_history() or {}
-    with st.spinner(f"正在下载 {len(all_assets)} 只标的约 6 年历史数据并逐月 PIT 分拣 + 评分…"
-                    f"（含 12 个月信念热身期，共计算 {_BF_MONTHS + 12} 个月）"):
-        _bf_meta = get_stock_metadata(tuple(all_assets.keys()))
-        _bf_saved, _bf_err = _backfill_arena_history(
-            all_assets, months_back=_BF_MONTHS,
-            monthly_probs=(
-                fetch_current_regime().get("horsemen_monthly_probs")
-                or st.session_state.get("horsemen_monthly_probs", {})
-            ),
-            meta_data=_bf_meta,
-            warmup_months=12,
-        )
-    if _bf_err and "部分成功" in _bf_err:
-        st.warning(
-            f"⚠️ 回填{_bf_err}。前面批次已持久化，可稍后再点一次回填补剩余月份。",
-            icon="⚠️",
-        )
-    elif _bf_err:
-        st.error(f"回填失败：{_bf_err}")
-    else:
-        st.success(f"回填完成！已写入 {_bf_saved} 个月的历史档案。")
-        # ── Phase 4 等价性断言：B/C/D/Z 新旧榜单比对 ──
-        _api_fetch_history.clear()
-        _new_hist  = _api_fetch_history()
-        _old_hist  = _old_hist_snapshot  # 回填前快照（在 spinner 之前抓取，避免 NameError）
-        _mismatch_details: list = []
-        for _mk in sorted(set(_new_hist) & set(_old_hist)):
-            for _cls in ("B", "C", "D", "Z"):
-                _new_recs = [r["ticker"] for r in (_new_hist.get(_mk, {}).get(_cls, []) or [])[:3]]
-                _old_recs = [r["ticker"] for r in (_old_hist.get(_mk, {}).get(_cls, []) or [])[:3]]
-                if _new_recs and _old_recs and _new_recs != _old_recs:
-                    _score_diff = [
-                        (r["ticker"], round(r.get("score", 0) - next(
-                            (o.get("score", 0) for o in (_old_hist.get(_mk, {}).get(_cls, []) or [])
-                             if o["ticker"] == r["ticker"]), 0), 2))
-                        for r in (_new_hist.get(_mk, {}).get(_cls, []) or [])[:5]
-                        if any(o["ticker"] == r["ticker"] for o in (_old_hist.get(_mk, {}).get(_cls, []) or []))
-                    ]
-                    _mismatch_details.append(f"{_mk}/{_cls}: 新={_new_recs} 旧={_old_recs} 分差前5={_score_diff}")
-        if _mismatch_details:
-            st.error(
-                f"🚨 **等价性断言失败**：B/C/D/Z 搬家前后榜单不一致（共 {len(_mismatch_details)} 处），"
-                "请人工核查 arena_scoring.py 是否与前端公式完全一致：",
-                icon="🚨",
-            )
-            for _line in _mismatch_details[:10]:
-                st.markdown(f"- `{_line}`")
-        else:
-            st.success("✅ 等价性断言通过：B/C/D/Z Top 3 与旧库完全一致，可安全上线。")
-        st.rerun()
 
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ── 当前赛道历史数据展示 ─────────────────────────────────────────
-_history           = _load_arena_history()
-_horsemen_archive  = _load_horsemen_verdict_archive()
-_medal_icons  = ["🥇", "🥈", "🥉"]
-_medal_colors = ["#FFD700", "#C0C0C0", "#CD7F32"]
-
-# Page 1 裁决表为中文「剧本裁决」列
+# ── 辅助函数 & 常量（月度 Top 10 渲染用）────────────────────────
 _REGIME_BADGE_CN: dict = {
     "软着陆": ("<span style='color:#2ECC71; font-size:13px; font-weight:bold;'>🚗 软着陆</span>", "#2ECC71"),
     "再通胀": ("<span style='color:#E74C3C; font-size:13px; font-weight:bold;'>🔥 再通胀</span>", "#E74C3C"),
@@ -3989,11 +5049,20 @@ _REGIME_BADGE_CN: dict = {
     "衰退":   ("<span style='color:#3498DB; font-size:13px; font-weight:bold;'>❄️ 衰退</span>",   "#3498DB"),
 }
 _REGIME_BADGE_EMPTY = ("<span style='color:#444; font-size:13px;'>—</span>", "#444")
+_REGIME_CN_TO_CODE: dict = {"软着陆": "Soft", "再通胀": "Hot", "滞胀": "Stag", "衰退": "Rec"}
+_REGIME_EMOJI: dict = {"软着陆": "🚗", "再通胀": "🔥", "滞胀": "🚨", "衰退": "❄️"}
+_B_FACTOR_LABELS = ("Quality", "Resilience", "Sharpe", "RS120d", "MCap", "Revenue", "MacroAlign")
+
+_HIST_CONV_ICONS: dict = {
+    "defending":  ("🛡️", "#2ECC71"),
+    "new_entry":  ("🆕", "#3498DB"),
+    "challenged": ("⚔️", "#F39C12"),
+    "cold_start": ("🔰", "#9B59B6"),
+}
 
 
 def _compute_streaks(history: dict, cls: str) -> dict:
-    """按时间正序遍历，计算每个月每个标的在该赛道 Top 10 的连续在榜月数。
-    返回 {month: {ticker: streak_count}}。"""
+    """按时间正序遍历，计算每个月每个标的在该赛道 Top 10 的连续在榜月数。"""
     sorted_months = sorted(k for k in history if not k.startswith("_"))
     prev_tickers: set = set()
     prev_streaks: dict = {}
@@ -4027,14 +5096,6 @@ def _streak_badge_html(streak: int) -> str:
             f"flex-shrink:0; margin-left:4px;'>{streak}月</span>")
 
 
-_HIST_CONV_ICONS: dict = {
-    "defending":  ("🛡️", "#2ECC71"),
-    "new_entry":  ("🆕", "#3498DB"),
-    "challenged": ("⚔️", "#F39C12"),
-    "cold_start": ("🔰", "#9B59B6"),
-}
-
-
 def _hist_cell(rec: dict, medal_color: str, streak: int = 0) -> str:
     _streak_html = _streak_badge_html(streak) if streak >= 1 else ""
     _conv = rec.get("conviction")
@@ -4063,13 +5124,7 @@ def _hist_empty() -> str:
     return "<div style='flex:1; font-size:13px; color:#333; padding-left:4px;'>—</div>"
 
 
-_REGIME_CN_TO_CODE: dict = {"软着陆": "Soft", "再通胀": "Hot", "滞胀": "Stag", "衰退": "Rec"}
-_REGIME_EMOJI: dict = {"软着陆": "🚗", "再通胀": "🔥", "滞胀": "🚨", "衰退": "❄️"}
-_B_FACTOR_LABELS = ("Quality", "Resilience", "Sharpe", "RS120d", "MCap", "Revenue", "MacroAlign")
-
-
 def _regime_shift_annotation(prev_cn: str, curr_cn: str, cls: str) -> str:
-    """Return annotation-row HTML describing regime shift impact; empty string for A/D/Z."""
     if cls not in ("B", "C"):
         return ""
     prev_code = _REGIME_CN_TO_CODE.get(prev_cn, "")
@@ -4127,103 +5182,10 @@ def _regime_shift_annotation(prev_cn: str, curr_cn: str, cls: str) -> str:
     )
 
 
-if not _history:
-    st.info("暂无历史记录。点击上方「回填历史数据」按钮，一键生成过去 N 个月的档案。", icon="📋")
+# ── D 赛道：月度 Top 10 渲染到"动量基准榜"子入口的预留 container 中 ──
+if _sel4 == "D":
+    if _d_monthly_top10_slot is not None:
+        with _d_monthly_top10_slot:
+            _render_monthly_top10("D")
 else:
-    _sorted_months = sorted(_history.keys(), reverse=True)
-    _cls_months    = [mo for mo in _sorted_months if _sel4 in _history[mo]]
-
-    if not _cls_months:
-        st.info(
-            f"{_hist_meta['icon']} {_hist_meta['label']} 暂无历史记录。"
-            "点击上方「回填历史数据」按钮生成档案。",
-            icon="📋",
-        )
-    else:
-        _streaks_map = _compute_streaks(_history, _sel4)
-
-        _TH = (
-            "display:flex; align-items:center; padding:6px 8px; "
-            "border-bottom:2px solid #2a2a2a; font-size:13px; color:#555; font-weight:bold;"
-        )
-        _header_row = (
-            f"<div style='{_TH}'>"
-            f"<div style='width:80px; flex-shrink:0;'>月份</div>"
-            f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>四剧本裁决</div>"
-            f"<div style='flex:1; padding-left:4px;'>🥇 冠军</div>"
-            f"<div style='flex:1; padding-left:4px;'>🥈 亚军</div>"
-            f"<div style='flex:1; padding-left:4px;'>🥉 季军</div>"
-            f"<div style='flex:2; padding-left:4px; color:#666;'>#4 — #10 候补</div>"
-            f"</div>"
-        )
-        # Pre-compute verdicts to enable look-ahead shift detection
-        # _cls_months is newest-first; _cls_months[i+1] = chronologically previous month
-        _all_verdicts = [_resolve_horsemen_verdict_cn(_mo, _horsemen_archive) for _mo in _cls_months]
-        _data_rows = ""
-        for _idx, _mo in enumerate(_cls_months):
-            _recs_raw  = _history[_mo].get(_sel4, [])
-            if isinstance(_recs_raw, dict):
-                _recs = _recs_raw.get("tickers", [])
-            else:
-                _recs = _recs_raw
-            _mo_streaks = _streaks_map.get(_mo, {})
-            _v_cn   = _all_verdicts[_idx]
-            _next_v_cn = _all_verdicts[_idx + 1] if _idx + 1 < len(_cls_months) else ""
-            _regime_shifted = bool(_v_cn and _next_v_cn and _v_cn != _next_v_cn)
-
-            if _regime_shifted:
-                _prev_emoji = _REGIME_EMOJI.get(_next_v_cn, "")
-                _curr_badge, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
-                _v_html = (
-                    f"<div style='line-height:1.3;'>"
-                    f"<div style='font-size:13px; color:#777;'>{_prev_emoji}→</div>"
-                    f"{_curr_badge}"
-                    f"</div>"
-                )
-            else:
-                _v_html, _ = _REGIME_BADGE_CN.get(_v_cn, _REGIME_BADGE_EMPTY)
-
-            _bg    = "#111" if _idx % 2 == 0 else "#0d0d0d"
-            _row   = (
-                f"<div style='display:flex; align-items:center; padding:8px 8px; "
-                f"background:{_bg}; border-bottom:1px solid #1a1a1a;'>"
-                f"<div style='width:80px; font-size:13px; font-weight:bold; "
-                f"color:{_hist_meta['color']}; flex-shrink:0;'>{_mo}</div>"
-                f"<div style='width:118px; flex-shrink:0; padding-left:4px;'>{_v_html}</div>"
-            )
-            for _ri in range(3):
-                if _ri < len(_recs):
-                    _row += _hist_cell(_recs[_ri], _medal_colors[_ri], _mo_streaks.get(_recs[_ri]["ticker"], 0))
-                else:
-                    _row += _hist_empty()
-            # #4-#10 候补：灰色小字紧凑排列
-            _rest = _recs[3:10]
-            if _rest:
-                _rest_items = []
-                for _ri2, _rec2 in enumerate(_rest, start=4):
-                    _rest_items.append(
-                        f"<span style='color:#666; white-space:nowrap;'>"
-                        f"<span style='color:#555;'>#{_ri2}</span> {_rec2['ticker']}</span>"
-                    )
-                _rest_html = (
-                    f"<div style='flex:2; display:flex; flex-wrap:wrap; gap:4px 10px; "
-                    f"align-items:baseline; padding-left:4px; font-size:13px;'>"
-                    + "".join(_rest_items)
-                    + "</div>"
-                )
-            else:
-                _rest_html = "<div style='flex:2; font-size:13px; color:#333; padding-left:4px;'>—</div>"
-            _row += _rest_html
-            _row += "</div>"
-            _data_rows += _row
-
-            if _regime_shifted:
-                _anno = _regime_shift_annotation(_next_v_cn, _v_cn, _sel4)
-                if _anno:
-                    _data_rows += _anno
-
-        st.markdown(
-            f"<div style='border:1px solid {_hist_meta['color']}44; border-radius:8px; "
-            f"overflow:hidden;'>{_header_row}{_data_rows}</div>",
-            unsafe_allow_html=True,
-        )
+    _render_monthly_top10(_sel4)
