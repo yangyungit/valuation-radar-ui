@@ -2,6 +2,13 @@
 
 ---
 
+## 2026-05-18 | Page2 Tab5 板块深度剖析隐藏 Catalyst_Overlay（Plan C）
+
+前端 `_EVENT_OVERLAY_L2` 常量与后端 `bridge_engine.EVENT_OVERLAY_L2` 同步。
+后续后端如加新事件性 L2，必须 grep 前端同步。
+
+---
+
 ## 2026-05-18 | Page3 D 组健康卡加 data_quality 红/绿条（Plan B）
 
 `_render_resonance_health_banner` 末尾读 `meta.data_quality`：治理前样本显示橙色警告，治理后显示绿色确认。
