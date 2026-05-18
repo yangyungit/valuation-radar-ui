@@ -4912,7 +4912,8 @@ if active_phase == 5:
                 key="regime_drill_days",
                 help="从今天往前推算的单板块剖析窗口",
             )
-        _sector_order = list(_L2_ZH.keys())
+        _EVENT_OVERLAY_L2 = {"Catalyst_Overlay"}
+        _sector_order = [s for s in _L2_ZH if s not in _EVENT_OVERLAY_L2]
         _Q_COLORS = {
             "主升浪": "#E74C3C",
             "蓄势区": "#2ECC71",
