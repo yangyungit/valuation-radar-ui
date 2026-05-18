@@ -2,6 +2,12 @@
 
 ---
 
+## 2026-05-18 | Page3 D 组健康卡加 data_quality 红/绿条（Plan B）
+
+`_render_resonance_health_banner` 末尾读 `meta.data_quality`：治理前样本显示橙色警告，治理后显示绿色确认。
+
+---
+
 ## 2026-05-18 | 后端 C 桥治理 Plan A 上线
 
 后端 `bridge_engine.py` 修了 C 桥 SQL 闸门 + 单词支配限流，前端 Page 3 health banner / Page 2 升维共振直接消费修正后结果，无前端代码变更。

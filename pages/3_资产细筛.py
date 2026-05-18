@@ -1861,6 +1861,13 @@ def _render_resonance_health_banner(meta: dict, as_of_date: str | None = None) -
                     unsafe_allow_html=True,
                 )
 
+    data_quality = meta.get("data_quality", {})
+    dq = data_quality.get("quality", "")
+    if dq == "pre_plan_a":
+        st.warning(f"⚠️ 治理前样本：{data_quality.get('warning', 'C 桥未治理')}，不建议直接回测")
+    elif dq.startswith("post_"):
+        st.info(f"✅ 已应用治理：{data_quality.get('applied_by', '')}")
+
 
 def _render_resonance_main_table(rows: list[dict]) -> None:
     """v2 共振主表（显式 for 循环渲染，符合架构约束）。"""
