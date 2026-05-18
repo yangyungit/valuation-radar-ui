@@ -2,6 +2,12 @@
 
 ---
 
+## 2026-05-18 | 后端 C 桥治理 Plan A 上线
+
+后端 `bridge_engine.py` 修了 C 桥 SQL 闸门 + 单词支配限流，前端 Page 3 health banner / Page 2 升维共振直接消费修正后结果，无前端代码变更。
+
+---
+
 ## 2026-05-12 | D 组赛道顶部新增共振守擂制解释卡片
 
 - `pages/3_资产细筛.py`：新增 `_d_resonance_explain_html()` 函数，arena-header 之后、ScorecardD 白盒公式之前渲染，与 A/B 组 `_conv_explain_html()` 同位置。
