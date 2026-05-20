@@ -709,14 +709,8 @@ def _render_slow_clock_summary(status: dict):
     parts = []
     if res.get("promoted"):
         parts.append(f"晋升 {res['promoted']}")
-    if res.get("dormanted"):
-        parts.append(f"休眠 {res['dormanted']}")
-    if res.get("archived"):
-        parts.append(f"归档 {res['archived']}")
     if res.get("frozen_l2s"):
         parts.append(f"冻结L2 {res['frozen_l2s']}")
-    if res.get("noise_rejected"):
-        parts.append(f"噪声剔除 {res['noise_rejected']}")
     if res.get("expired_zombies"):
         parts.append(f"僵尸过期 {res['expired_zombies']}")
     if res.get("uncat_migrated"):
