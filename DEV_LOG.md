@@ -2,6 +2,17 @@
 
 ---
 
+## 2026-05-22 | Page 0 §2.6 变点检测表格列名同步后端 CUSUM reset 语义
+
+后端 `_compute_cusum_series()` 改 Page-Hinkley 风格（触发即 reset）后，`trigger_days` 字段语义从「连续触发天数」改为「近 30 日触发次数」；`triggered` 从「当下在阈值上方」改为「这一天发生触发事件」。前端表格列名同步：
+
+- `触发` → `今日触发`
+- `触发天数` → `近30日触发次数`
+
+字段名后端保留 `trigger_days` 不破坏 schema，仅前端中文 label 改名。
+
+---
+
 ## 2026-05-22 | Page 0 §2.6 多变量 CUSUM 变点检测（新 Section）
 
 **动因**：Page 0 已有 §② chaos 闸门答「未来会不会大跌」（清仓行动），缺一个并联模块答「当前是不是发生 regime shift」（让人重新审视阵型，不是清仓）。两者负责不同维度的风险。笔记原文 `obsidian_notes/99_Human_Zone/变点检测.md`。

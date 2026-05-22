@@ -891,10 +891,10 @@ else:
             "z_curr":       "当前 Z",
             "s_pos_curr":   "CUSUM+",
             "s_neg_curr":   "CUSUM-",
-            "triggered":    "触发",
-            "trigger_days": "触发天数",
+            "triggered":    "今日触发",
+            "trigger_days": "近30日触发次数",
         })
-        _df_v["触发"] = _df_v["触发"].map({True: "🟢 已触发", False: "—"})
+        _df_v["今日触发"] = _df_v["今日触发"].map({True: "🟢 触发", False: "—"})
 
         def _color_z_cp(v):
             try:
@@ -916,10 +916,10 @@ else:
 
         st.dataframe(
             _df_v.style.format({
-                "当前 Z":   "{:+.2f}",
-                "CUSUM+":   "{:+.2f}",
-                "CUSUM-":   "{:+.2f}",
-                "触发天数": "{:d}",
+                "当前 Z":         "{:+.2f}",
+                "CUSUM+":         "{:+.2f}",
+                "CUSUM-":         "{:+.2f}",
+                "近30日触发次数": "{:d}",
             }).map(_color_z_cp,     subset=["当前 Z"])
               .map(_color_cusum_cp, subset=["CUSUM+", "CUSUM-"]),
             use_container_width=True, hide_index=True,
