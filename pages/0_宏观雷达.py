@@ -50,6 +50,7 @@ with st.spinner("📊 加载市场结构数据..."):
     df_prices       = get_global_data(_PAGE_TICKERS, years=10)
     _radar          = fetch_macro_radar()
     _current_regime = fetch_current_regime()
+    _chain_regime   = compute_macro_regime_api(z_window=750)
 
 # ============================================================
 # Section 1: 宏观全景雷达（保留原散点图）
@@ -216,6 +217,16 @@ else:
         _horsemen_daily_mtm = pd.Series(dtype=str)
         _horsemen_daily_mtm_display = pd.Series(dtype=str)
 
+    _chaos_trig_raw_mtm = (_chain_regime or {}).get("horsemen_daily_chaos_trigger", {}) or {}
+    if _chaos_trig_raw_mtm:
+        _chaos_trig_idx = pd.to_datetime(list(_chaos_trig_raw_mtm.keys()), errors="coerce")
+        _chaos_trig_s = pd.Series(
+            list(_chaos_trig_raw_mtm.values()), index=_chaos_trig_idx
+        ).dropna().sort_index().astype(bool)
+        _chaos_trig_dates = _chaos_trig_s[_chaos_trig_s].index
+    else:
+        _chaos_trig_dates = pd.DatetimeIndex([])
+
     def _classify_mtm(row):
         c, m60, m200 = row['close'], row['ma60'], row['ma200']
         if c > m60 and m60 > m200:   return "主升狂飙"
@@ -239,6 +250,14 @@ else:
             if _df.empty:
                 st.warning(f"⚠️ {ticker} 数据不足（需至少 200 个交易日），无法计算 MA200")
                 return
+
+            _show_chaos = st.toggle(
+                "叠加 GBDT 卖出信号",
+                value=True,
+                key=f"mtm_chaos_overlay_{ticker}",
+                help="GBDT chaos 概率 P>0.50 持续 5 个交易日 → 触发清仓 BIL 闸门。算法详见 Page 1 §宏观时钟。",
+            )
+
             _latest    = _df.iloc[-1]
             _phase     = _latest['phase']
             _price     = float(_latest['close'])
@@ -323,6 +342,29 @@ else:
                 mode='lines', name='MA200',
                 line=dict(color='rgba(52,152,219,0.5)', width=1, dash='dash'),
             ))
+
+            if _show_chaos and len(_chaos_trig_dates) > 0:
+                _trig_in_range = _chaos_trig_dates.intersection(_df.index)
+                if len(_trig_in_range) > 0:
+                    _trig_close = _df.loc[_trig_in_range, 'close'].astype(float)
+                    _fig.add_trace(go.Scatter(
+                        x=_trig_in_range,
+                        y=_trig_close.values,
+                        mode='markers',
+                        name='GBDT 卖出信号',
+                        marker=dict(
+                            symbol='triangle-down',
+                            color='#C0392B',
+                            size=12,
+                            line=dict(color='#FFFFFF', width=1),
+                        ),
+                        hovertemplate=(
+                            f"日期: %{{x|%Y-%m-%d}}<br>"
+                            f"{ticker} 收盘: $%{{y:.2f}}<br>"
+                            f"GBDT 触发<extra></extra>"
+                        ),
+                    ))
+
             _fig.update_layout(
                 height=340,
                 margin=dict(l=20, r=20, t=40, b=20),
@@ -442,9 +484,6 @@ st.markdown("---")
 st.header("📡 风格传导链 (Style Transmission Chain)")
 st.caption("宏观 → 折现率 → Regime → 因子 → 行业 → 价格：每层切换时间戳一字排开，回答\"风格何时切换\"")
 
-# --- 数据准备 ---
-with st.spinner("📡 加载传导链数据..."):
-    _chain_regime = compute_macro_regime_api(z_window=750)
 _chain_data = (_chain_regime or {}).get("data", {}) or {}
 
 # --- 上游 3 层摘要卡 + 折叠详情（数据来自后端 upstream_summary）---

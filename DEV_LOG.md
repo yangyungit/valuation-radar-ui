@@ -2,6 +2,25 @@
 
 ---
 
+## 2026-05-22 | Page 0 §2 大盘趋势状态机叠加 GBDT 卖出信号
+
+**动因**：主理人想在 SPY/QQQ K 线图上直接看到 Page 1 §宏观时钟里 GBDT chaos 概率曲线的触发日（P>0.50 持续 5 个交易日），免得来回切页对照「价格阶段」与「风险触发」时间错位。已有 §2 chaos 月度背景灰染色只能看到「这个月有触发」，看不到「具体哪一天触发」，颗粒度不够。
+
+**改动**（`pages/0_宏观雷达.py` 单文件）：
+
+1. `compute_macro_regime_api(z_window=750)` 的调用从 §2.5 上移到顶部数据层 spinner（与 `_radar` / `_current_regime` 并列），让 §2 也能消费 `horsemen_daily_chaos_trigger`。§2.5 内删掉重复 fetch，只保留 `_chain_data` 解构。
+2. §2 准备月度 chaos 背景的代码块之后，新增 `_chaos_trig_dates: pd.DatetimeIndex`，从 `horsemen_daily_chaos_trigger` 解出 `True` 的日期。
+3. `_render_mtm_tab` 内：
+   - 顶部加 `st.toggle("叠加 GBDT 卖出信号", value=True, key=f"mtm_chaos_overlay_{ticker}")`，默认开启
+   - 在 MA200 trace 之后、`update_layout` 之前加一个 markers trace：红色 ▼ 倒三角（`#C0392B`, size=12），y = 当日收盘价，与 `_df.index` 取交集避免越界
+   - hovertemplate 显示「日期 + 收盘价 + GBDT 触发」三行
+
+**设计选择**：标记 y 位置直接打在 close 上而不是偏移到顶部——卖出信号本质是「这一天的价格水平上触发了离场」，叠在 close 上语义最直接。默认开启因为风险信号属于「应该被看见」的类别，不像调试性叠加层默认应关。
+
+**架构守约**：信号判定（`P>0.50 持续 5 日`）完全在后端 `macro_engine.py` 算，前端只读 `horsemen_daily_chaos_trigger` 渲染（守「业务逻辑不下沉前端」红线）。
+
+---
+
 ## 2026-05-12 | D 组赛道顶部新增共振守擂制解释卡片
 
 - `pages/3_资产细筛.py`：新增 `_d_resonance_explain_html()` 函数，arena-header 之后、ScorecardD 白盒公式之前渲染，与 A/B 组 `_conv_explain_html()` 同位置。
