@@ -808,6 +808,30 @@ def fetch_macro_radar() -> dict:
     except Exception:
         return {"success": False, "metrics": [], "spy_mom20": 0.0, "insights": {}}
 
+
+@st.cache_data(ttl=3600)
+def fetch_changepoint() -> dict:
+    """从后端获取变点检测数据包（多变量 CUSUM）。
+    Render 冷启动 502/504 时自动重试一次。失败返回 {"success": False, "error": ...}。
+    """
+    import time as _time
+    last_exc = None
+    for attempt in range(2):
+        try:
+            if attempt > 0:
+                _time.sleep(15)
+            r = requests.get(f"{API_BASE_URL}/api/v1/macro/changepoint", timeout=60)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_exc = e
+            err = str(e)
+            if attempt == 0 and any(c in err for c in ("502", "504", "Connection")):
+                continue
+            break
+    return {"success": False, "error": str(last_exc)}
+
+
 @st.cache_data(ttl=300)
 def fetch_current_regime() -> dict:
     """从后端 universe.db 读取最新 macro regime 数据包。失败时返回 {}。

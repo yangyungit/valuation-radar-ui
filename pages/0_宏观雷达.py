@@ -9,6 +9,7 @@ from api_client import (
     fetch_current_regime,
     get_global_data,
     compute_macro_regime_api,
+    fetch_changepoint,
 )
 
 st.set_page_config(page_title="宏观雷达", layout="wide")
@@ -26,7 +27,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🔭 宏观雷达 (Macro Radar)")
-st.caption("市场结构总览 · 全景雷达 · 趋势状态机 · 分化证据链 · 主力归因")
+st.caption("市场结构总览 · 全景雷达 · 趋势状态机 · 传导链 · 变点检测 · 分化证据链 · 主力归因")
 
 # --- 侧边栏缓存控制 ---
 with st.sidebar:
@@ -35,6 +36,7 @@ with st.sidebar:
         fetch_current_regime.clear()
         compute_macro_regime_api.clear()
         get_global_data.clear()
+        fetch_changepoint.clear()
         st.rerun()
 
 # ============================================================
@@ -806,6 +808,217 @@ st.caption(
     "色标含义 · 共振:本层与上层同向(传导已完成) · 提前防御:上层进攻本层防守(早期信号最有价值) · "
     "滞后:本层先动上层未跟(罕见) · 中性:其中一层处于过渡态"
 )
+
+# ============================================================
+# Section 2.6: 变点检测 (Change-Point Detection)
+# 多变量 CUSUM 算法，输出 4 级信号。与 §② chaos 闸门并联不替代。
+# 笔记: obsidian_notes/99_Human_Zone/变点检测.md
+# ============================================================
+st.markdown("---")
+st.header("📡 变点检测 (Change-Point Detection)")
+st.caption("多变量 CUSUM · 当前是不是发生 regime shift？与 chaos 闸门并联不替代（chaos 答\"未来会不会大跌\"→ 清仓；本节答\"是否换挡\"→ 调阵型）")
+
+_cp = fetch_changepoint()
+
+if not _cp.get("success"):
+    st.warning(f"⚠️ 变点检测数据暂不可用：{_cp.get('error', '未知错误')}")
+else:
+    _cp_level = _cp.get("level", "无信号")
+    _cp_n_trig = int(_cp.get("n_triggered", 0))
+    _cp_n_weak = int(_cp.get("n_weak", 0))
+    _cp_n_vars = int(_cp.get("n_vars", 0))
+    _cp_dur = int(_cp.get("duration_days", 0))
+    _cp_asof = str(_cp.get("asof", "—"))
+    _cp_consts = _cp.get("constants", {}) or {}
+    _cp_K = int(_cp_consts.get("K", 4))
+    _cp_confirm = int(_cp_consts.get("confirm_days", 5))
+    _cp_weak_z = float(_cp_consts.get("weak_z_threshold", 3.0))
+    _cp_h = float(_cp_consts.get("h", 5.0))
+    _cp_k = float(_cp_consts.get("k", 0.5))
+    _cp_window = int(_cp_consts.get("z_window", 750))
+
+    _LEVEL_COLOR = {
+        "确认信号": "#E74C3C",
+        "强信号":   "#F39C12",
+        "弱信号":   "#F1C40F",
+        "无信号":   "#2ECC71",
+    }
+    _LEVEL_ICON = {
+        "确认信号": "🚨",
+        "强信号":   "🟠",
+        "弱信号":   "🟡",
+        "无信号":   "🟢",
+    }
+    _level_color = _LEVEL_COLOR.get(_cp_level, "#888")
+    _level_icon = _LEVEL_ICON.get(_cp_level, "⚪")
+
+    _progress_pct = min(_cp_dur / max(_cp_confirm, 1), 1.0) * 100.0
+    _banner_action = {
+        "确认信号": "建议立即重新审视各档资产权重（A 压舱石 / B 大猩猩 / C 时代之王 / D 预备队）",
+        "强信号":   f"持续 {_cp_dur}/{_cp_confirm} 天 → 达 {_cp_confirm} 天将升级为确认信号",
+        "弱信号":   "留意但不动作（可能单一指标异常）",
+        "无信号":   "宏观状态稳定，无明显 regime shift 迹象",
+    }.get(_cp_level, "")
+
+    st.markdown(f"""
+<div style='background:#1a1a1a; border-left:5px solid {_level_color}; border-radius:8px; padding:14px 20px; margin-bottom:12px;'>
+    <div style='display:flex; align-items:center; gap:24px; flex-wrap:wrap;'>
+        <div style='min-width:160px;'>
+            <div style='font-size:13px; color:#aaa; margin-bottom:4px;'>当前级别（{_cp_asof}）</div>
+            <div style='font-size:24px; font-weight:bold; color:{_level_color};'>{_level_icon} {_cp_level}</div>
+        </div>
+        <div style='font-size:13px; color:#aaa; line-height:2.0; border-left:1px solid #333; padding-left:24px;'>
+            <b>触发变量</b> <span style='color:#ddd;'>{_cp_n_trig} / {_cp_n_vars}</span>（阈值 ≥ {_cp_K}）<br>
+            <b>|z|&gt;{_cp_weak_z:.0f} 变量</b> <span style='color:#ddd;'>{_cp_n_weak} / {_cp_n_vars}</span><br>
+            <b>强信号持续</b> <span style='color:#ddd;'>{_cp_dur}</span> 天（确认需 ≥ {_cp_confirm}）
+        </div>
+        <div style='flex:1; min-width:220px;'>
+            <div style='font-size:13px; color:#aaa; margin-bottom:6px;'>距离确认信号进度</div>
+            <div style='background:#0a0a0a; height:10px; border-radius:5px; position:relative;'>
+                <div style='background:{_level_color}; width:{_progress_pct:.1f}%; height:100%; border-radius:5px;'></div>
+            </div>
+            <div style='font-size:12px; color:#888; margin-top:6px;'>{_banner_action}</div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+    _vars = _cp.get("variables", []) or []
+    if _vars:
+        st.markdown("**📋 变量触发明细（按 |z| 降序）**")
+        _df_v = pd.DataFrame(_vars).rename(columns={
+            "name":         "变量",
+            "z_curr":       "当前 Z",
+            "s_pos_curr":   "CUSUM+",
+            "s_neg_curr":   "CUSUM-",
+            "triggered":    "触发",
+            "trigger_days": "触发天数",
+        })
+        _df_v["触发"] = _df_v["触发"].map({True: "🟢 已触发", False: "—"})
+
+        def _color_z_cp(v):
+            try:
+                f = float(v)
+                if abs(f) > 3:    return "color: #E74C3C; font-weight: bold"
+                if abs(f) > 1.5:  return "color: #F1C40F"
+                return "color: #aaa"
+            except Exception:
+                return "color: #aaa"
+
+        def _color_cusum_cp(v):
+            try:
+                f = float(v)
+                if abs(f) > _cp_h:        return "color: #E74C3C; font-weight: bold"
+                if abs(f) > _cp_h * 0.6:  return "color: #F1C40F"
+                return "color: #aaa"
+            except Exception:
+                return "color: #aaa"
+
+        st.dataframe(
+            _df_v.style.format({
+                "当前 Z":   "{:+.2f}",
+                "CUSUM+":   "{:+.2f}",
+                "CUSUM-":   "{:+.2f}",
+                "触发天数": "{:d}",
+            }).map(_color_z_cp,     subset=["当前 Z"])
+              .map(_color_cusum_cp, subset=["CUSUM+", "CUSUM-"]),
+            use_container_width=True, hide_index=True,
+        )
+
+    _tl = _cp.get("timeline", []) or []
+    if _tl:
+        _df_tl = pd.DataFrame(_tl)
+        _df_tl["date"] = pd.to_datetime(_df_tl["date"])
+        fig_cp = go.Figure()
+        fig_cp.add_trace(go.Scatter(
+            x=_df_tl["date"], y=_df_tl["n_triggered"],
+            mode="lines",
+            line=dict(color="#8E44AD", width=2),
+            fill="tozeroy",
+            name="触发变量数 n_t",
+            hovertemplate="日期: %{x|%Y-%m-%d}<br>触发变量数: %{y}<extra></extra>",
+        ))
+        fig_cp.add_hline(
+            y=_cp_K, line_dash="dash", line_color="#E74C3C",
+            annotation_text=f"强信号阈值 K={_cp_K}", annotation_position="right",
+        )
+        if len(_df_tl) > 0:
+            fig_cp.add_trace(go.Scatter(
+                x=[_df_tl["date"].iloc[-1]],
+                y=[_df_tl["n_triggered"].iloc[-1]],
+                mode="markers",
+                marker=dict(color=_level_color, size=12, symbol="circle",
+                           line=dict(color="#FFFFFF", width=1)),
+                name="当前",
+                showlegend=False,
+                hovertemplate=f"当前: {_cp_level}<br>触发: %{{y}} 个变量<extra></extra>",
+            ))
+        fig_cp.update_layout(
+            height=320,
+            margin=dict(l=20, r=20, t=40, b=20),
+            plot_bgcolor="#111111", paper_bgcolor="#111111",
+            font=dict(color="#ddd"),
+            hovermode="x unified",
+            xaxis=dict(showgrid=False),
+            yaxis=dict(title=f"触发变量数 (共 {_cp_n_vars} 个)", showgrid=True,
+                       gridcolor="rgba(255,255,255,0.06)"),
+            title=dict(text="近 250 个交易日触发变量数 (n_t)", font=dict(size=14),
+                       x=0.01, xanchor="left"),
+            legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
+        )
+        st.plotly_chart(fig_cp, use_container_width=True)
+
+    with st.expander("📖 算法白盒 & 何时该看 & 与 chaos 闸门的区别", expanded=False):
+        st.markdown(f"""
+**变点检测 vs chaos 闸门**
+
+| | 答的是 | 触发后做什么 |
+|---|---|---|
+| **chaos 闸门**（§②） | 未来 N 天会不会大跌 | **清仓**（直接行动） |
+| **变点检测**（本节） | 当前是不是发生 regime shift | **调阵型**（不是清仓） |
+
+「调阵型」具体指：重新评估各档资产权重 + 触发因子重新审视。两者**并联使用**：chaos = 快应急刹车；变点 = 换挡提示。
+
+---
+
+**三级信号**
+
+| 级别 | 触发条件 | 处理 |
+|---|---|---|
+| 🟡 **弱信号** | 单一变量 \\|z\\| > {_cp_weak_z:.0f} 或 1 ≤ n < {_cp_K} | 留意但不动作 |
+| 🟠 **强信号** | n ≥ {_cp_K}（{_cp_K}/{_cp_n_vars} 变量同时触发） | 进入审视模式 |
+| 🚨 **确认信号** | 强信号持续 {_cp_confirm} 个交易日 | 触发调阵型 |
+
+确认期是防单日噪声——避免 VIX 单日大涨 50% 又当天回落导致误报。
+
+---
+
+**CUSUM 算法常量**
+
+- `k = {_cp_k}`（允许偏差，小 = 灵敏）
+- `h = {_cp_h}`（触发阈值，大 = 稳健）
+- `z_window = {_cp_window}`（≈3 年滚动 Z-Score）
+- 月频/周频变量加 **dedup mask**：原始值未变化的天不累加（防 ffill 后 CUSUM 爆炸误触发）
+- 触发后**不 reset** CUSUM：让累积量持续在阈值上方表示压力持续
+
+---
+
+**14 监控变量分布**
+
+- 利率类 (3)：DGS10 / DGS2 / 10Y-2Y 利差
+- 风险类 (4)：VIX / HY_Spread / TLT-SHY / HYG-IEF
+- 货币类 (1)：UUP-SHY
+- 商品类 (1)：CPER-GLD（铜金比）
+- 通胀类 (2)：Core_CPI_YoY / T10YIE
+- 就业类 (2)：PAYEMS_YoY / ICSA
+- 产出类 (1)：INDPRO_YoY
+
+---
+
+**输出位置**
+
+变点检测的输出是「让人重新审视」，**不是「自动调仓」**——不接入下单链。
+""")
 
 # ============================================================
 # Section 3: 市场分化证据链 (Market Differentiation)
