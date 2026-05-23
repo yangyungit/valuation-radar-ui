@@ -53,6 +53,18 @@ with st.spinner("📊 加载市场结构数据..."):
     _radar          = fetch_macro_radar()
     _current_regime = fetch_current_regime()
     _chain_regime   = compute_macro_regime_api(z_window=750)
+    _cp             = fetch_changepoint()
+
+# 变点检测「确认信号」日期集（连续 5 天 n_t≥4），用于 §2 MTM 主图底部紫色竖杠。
+# 严格按后端 timeline.level 字段筛，不在前端重算 streak，避免与 §2.6 数值漂移。
+_cp_confirm_dates = pd.DatetimeIndex([])
+if _cp.get("success"):
+    _tl_cp_raw = _cp.get("timeline", []) or []
+    if _tl_cp_raw:
+        _cp_confirm_dates = pd.to_datetime(
+            [t["date"] for t in _tl_cp_raw if t.get("level") == "确认信号"],
+            errors="coerce",
+        ).dropna()
 
 # ============================================================
 # Section 1: 宏观全景雷达（保留原散点图）
@@ -307,6 +319,18 @@ else:
                         line_width=0, layer="below"
                     ))
 
+            # 变点检测「确认信号」紫色竖杠（图底 4%，避开 K 线主区）
+            if len(_cp_confirm_dates) > 0:
+                _cp_in_range = _cp_confirm_dates.intersection(_df.index)
+                for _cp_dt in _cp_in_range:
+                    _bg_shapes.append(dict(
+                        type="line",
+                        x0=_cp_dt, x1=_cp_dt,
+                        y0=0, y1=0.04, yref="paper",
+                        line=dict(color="rgba(142,68,173,0.85)", width=1.5),
+                        layer="above",
+                    ))
+
             _change_pts = [0]
             for _i in range(1, len(_df)):
                 if _df['phase'].iloc[_i] != _df['phase'].iloc[_i - 1]:
@@ -392,8 +416,9 @@ else:
                 <div style='font-size:13px; color:#888; line-height:1.7;'>
                     📌 <b style='color:#bbb;'>图层说明：</b>
                     背景色带 = 四大剧本宏观裁决（基本面维度）；
-                    折线颜色 = 技术形态状态机（价格维度）。
-                    两者不一致时信号最有价值：🟢背景+🔴折线 = 基本面好但技术超跌，潜在抄底窗口；🔴背景+🟢折线 = 宏观恶化但技术仍强，需警惕。
+                    折线颜色 = 技术形态状态机（价格维度）；
+                    🟪 <b style='color:#8E44AD;'>图底紫色竖杠</b> = 变点检测「确认信号」（多变量 CUSUM 连续 5 天 n_t ≥ 4，对应「调阵型」时刻，详见 §2.6）。
+                    背景与折线不一致时信号最有价值：🟢背景+🔴折线 = 基本面好但技术超跌，潜在抄底窗口；🔴背景+🟢折线 = 宏观恶化但技术仍强，需警惕。
                 </div>
             </div>
             <div style='background:#111; border:1px solid #2a2a2a; border-radius:6px; padding:14px 18px; margin-top:8px;'>
@@ -817,8 +842,6 @@ st.caption(
 st.markdown("---")
 st.header("📡 变点检测 (Change-Point Detection)")
 st.caption("多变量 CUSUM · 当前是不是发生 regime shift？与 chaos 闸门并联不替代（chaos 答\"未来会不会大跌\"→ 清仓；本节答\"是否换挡\"→ 调阵型）")
-
-_cp = fetch_changepoint()
 
 if not _cp.get("success"):
     st.warning(f"⚠️ 变点检测数据暂不可用：{_cp.get('error', '未知错误')}")
