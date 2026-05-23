@@ -962,7 +962,7 @@ else:
             xaxis=dict(showgrid=False),
             yaxis=dict(title=f"触发变量数 (共 {_cp_n_vars} 个)", showgrid=True,
                        gridcolor="rgba(255,255,255,0.06)"),
-            title=dict(text="近 250 个交易日触发变量数 (n_t)", font=dict(size=14),
+            title=dict(text="2017 年至今 触发变量数 (n_t)", font=dict(size=14),
                        x=0.01, xanchor="left"),
             legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
         )
