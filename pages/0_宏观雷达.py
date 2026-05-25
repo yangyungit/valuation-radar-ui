@@ -1157,8 +1157,9 @@ else:
         _df_sr_tl = pd.DataFrame(_sr_timeline)
         _df_sr_tl["date"] = pd.to_datetime(_df_sr_tl["date"])
 
-        # ── SPY 价格图 × sector_rotation winner 染色背景 ──
-        # 与下面的 winner 色带共享 6 年时间窗，肉眼检验 sector_rotation 切换在 SPY 走势上对不对得上。
+        # ── 两张并列 SPY 染色图 ──
+        # 上：horsemen（月频基本面）winner 染色；下：sector_rotation（日频资金流）winner 染色。
+        # 用同一段 SPY 价格做底图，肉眼对比两套体系对宏观切换的定义。
         _sr_bg_color = {
             "Soft": "rgba(46,204,113,0.18)",
             "Hot":  "rgba(231,76,60,0.18)",
@@ -1170,6 +1171,20 @@ else:
             "Hot":  "#E74C3C",
             "Stag": "#F1C40F",
             "Rec":  "#3498DB",
+        }
+        _hm_bg_color = {
+            "软着陆": "rgba(46,204,113,0.18)",
+            "再通胀": "rgba(231,76,60,0.18)",
+            "滞胀":   "rgba(241,196,15,0.18)",
+            "衰退":   "rgba(52,152,219,0.18)",
+            "混沌期": "rgba(128,128,128,0.20)",
+        }
+        _hm_legend_color = {
+            "软着陆": "#2ECC71",
+            "再通胀": "#E74C3C",
+            "滞胀":   "#F1C40F",
+            "衰退":   "#3498DB",
+            "混沌期": "#888888",
         }
         if (
             df_prices is not None
@@ -1184,6 +1199,88 @@ else:
                 .astype(float)
                 .loc[_sr_start:_sr_end]
             )
+
+            # ── 上图：SPY × horsemen winner 染色 ──
+            _hmp_sr27 = (_current_regime or {}).get("horsemen_monthly_probs", {}) or {}
+            _en_to_cn_sr27 = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
+            _hm_recs_sr27 = []
+            for _m_str, _probs in _hmp_sr27.items():
+                try:
+                    _m_ts = pd.Timestamp(str(_m_str) + "-01")
+                except Exception:
+                    continue
+                if not isinstance(_probs, dict):
+                    continue
+                _cands = {k: float(_probs.get(k, 0.0) or 0.0) for k in _en_to_cn_sr27.keys()}
+                _winner_en_27 = max(_cands, key=lambda k: _cands[k])
+                _winner_cn_27 = _en_to_cn_sr27.get(_winner_en_27, "软着陆")
+                _chaos_27 = bool(_probs.get("chaos_gbdt_trigger", False))
+                _hm_recs_sr27.append((_m_ts, _winner_cn_27, _chaos_27))
+
+            if _hm_recs_sr27 and not _spy_sr.empty:
+                _df_hm_sr27 = (
+                    pd.DataFrame(_hm_recs_sr27, columns=["date", "verdict", "chaos"])
+                    .set_index("date").sort_index()
+                )
+                _hm_daily_27 = _df_hm_sr27["verdict"].reindex(_spy_sr.index, method="ffill")
+                _hm_chaos_27 = _df_hm_sr27["chaos"].reindex(_spy_sr.index, method="ffill").fillna(False).astype(bool)
+                _hm_disp_27 = _hm_daily_27.copy()
+                _hm_disp_27.loc[_hm_chaos_27] = "混沌期"
+                _hm_disp_27 = _hm_disp_27.dropna()
+
+                _hm_bg_shapes = []
+                _prev_h = None
+                _seg_start_h = None
+                for _dt, _h in _hm_disp_27.items():
+                    if _h != _prev_h:
+                        if _prev_h is not None and _seg_start_h is not None:
+                            _hm_bg_shapes.append(dict(
+                                type="rect", x0=_seg_start_h, x1=_dt,
+                                y0=0, y1=1, yref="paper",
+                                fillcolor=_hm_bg_color.get(_prev_h, "rgba(128,128,128,0.1)"),
+                                line_width=0, layer="below",
+                            ))
+                        _prev_h = _h
+                        _seg_start_h = _dt
+                if _prev_h is not None and _seg_start_h is not None:
+                    _hm_bg_shapes.append(dict(
+                        type="rect", x0=_seg_start_h, x1=_hm_disp_27.index[-1],
+                        y0=0, y1=1, yref="paper",
+                        fillcolor=_hm_bg_color.get(_prev_h, "rgba(128,128,128,0.1)"),
+                        line_width=0, layer="below",
+                    ))
+
+                _fig_spy_hm = go.Figure()
+                _fig_spy_hm.add_trace(go.Scatter(
+                    x=_spy_sr.index, y=_spy_sr.values,
+                    mode="lines", name="SPY 收盘",
+                    line=dict(color="#FFFFFF", width=1.6),
+                    hovertemplate="%{x|%Y-%m-%d}<br>SPY: $%{y:.2f}<extra></extra>",
+                ))
+                for _k in ["软着陆", "再通胀", "滞胀", "衰退", "混沌期"]:
+                    _fig_spy_hm.add_trace(go.Scatter(
+                        x=[None], y=[None], mode="markers",
+                        marker=dict(size=12, color=_hm_legend_color.get(_k, "#888"), symbol="square"),
+                        name=_k, showlegend=True,
+                    ))
+                _fig_spy_hm.update_layout(
+                    height=280,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
+                    font=dict(color="#ddd"),
+                    showlegend=True,
+                    legend=dict(orientation="h", y=1.18, x=0.5, xanchor="center", font=dict(size=12)),
+                    hovermode="x unified",
+                    xaxis=dict(showgrid=False),
+                    yaxis=dict(title="SPY 收盘价 ($)", showgrid=True, gridcolor="rgba(255,255,255,0.06)"),
+                    title=dict(
+                        text="SPY 历史路况：horsemen winner 染色背景 — 月频基本面剧本对宏观切换的定义",
+                        font=dict(size=14), x=0.01, xanchor="left",
+                    ),
+                    shapes=_hm_bg_shapes,
+                )
+                st.plotly_chart(_fig_spy_hm, use_container_width=True)
+
             if not _spy_sr.empty:
                 _winner_aligned = (
                     _df_sr_tl.set_index("date")["winner"]
