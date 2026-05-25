@@ -1157,6 +1157,95 @@ else:
         _df_sr_tl = pd.DataFrame(_sr_timeline)
         _df_sr_tl["date"] = pd.to_datetime(_df_sr_tl["date"])
 
+        # ── SPY 价格图 × sector_rotation winner 染色背景 ──
+        # 与下面的 winner 色带共享 6 年时间窗，肉眼检验 sector_rotation 切换在 SPY 走势上对不对得上。
+        _sr_bg_color = {
+            "Soft": "rgba(46,204,113,0.18)",
+            "Hot":  "rgba(231,76,60,0.18)",
+            "Stag": "rgba(241,196,15,0.18)",
+            "Rec":  "rgba(52,152,219,0.18)",
+        }
+        _sr_legend_color = {
+            "Soft": "#2ECC71",
+            "Hot":  "#E74C3C",
+            "Stag": "#F1C40F",
+            "Rec":  "#3498DB",
+        }
+        if (
+            df_prices is not None
+            and "SPY" in df_prices.columns
+            and len(df_prices) > 0
+        ):
+            _sr_start = _df_sr_tl["date"].iloc[0]
+            _sr_end   = _df_sr_tl["date"].iloc[-1]
+            _spy_sr = (
+                df_prices["SPY"]
+                .dropna()
+                .astype(float)
+                .loc[_sr_start:_sr_end]
+            )
+            if not _spy_sr.empty:
+                _winner_aligned = (
+                    _df_sr_tl.set_index("date")["winner"]
+                    .reindex(_spy_sr.index, method="ffill")
+                    .dropna()
+                )
+                _sr_bg_shapes = []
+                _prev_w = None
+                _seg_start_w = None
+                for _dt, _w in _winner_aligned.items():
+                    if _w != _prev_w:
+                        if _prev_w is not None and _seg_start_w is not None:
+                            _sr_bg_shapes.append(dict(
+                                type="rect", x0=_seg_start_w, x1=_dt,
+                                y0=0, y1=1, yref="paper",
+                                fillcolor=_sr_bg_color.get(_prev_w, "rgba(128,128,128,0.1)"),
+                                line_width=0, layer="below",
+                            ))
+                        _prev_w = _w
+                        _seg_start_w = _dt
+                if _prev_w is not None and _seg_start_w is not None:
+                    _sr_bg_shapes.append(dict(
+                        type="rect", x0=_seg_start_w, x1=_winner_aligned.index[-1],
+                        y0=0, y1=1, yref="paper",
+                        fillcolor=_sr_bg_color.get(_prev_w, "rgba(128,128,128,0.1)"),
+                        line_width=0, layer="below",
+                    ))
+
+                _fig_spy_sr = go.Figure()
+                _fig_spy_sr.add_trace(go.Scatter(
+                    x=_spy_sr.index, y=_spy_sr.values,
+                    mode="lines", name="SPY 收盘",
+                    line=dict(color="#FFFFFF", width=1.6),
+                    hovertemplate="%{x|%Y-%m-%d}<br>SPY: $%{y:.2f}<extra></extra>",
+                ))
+                # legend 占位：4 个 winner 背景色块（用空散点假装图例）
+                for _k in ["Soft", "Hot", "Stag", "Rec"]:
+                    _fig_spy_sr.add_trace(go.Scatter(
+                        x=[None], y=[None],
+                        mode="markers",
+                        marker=dict(size=12, color=_sr_legend_color.get(_k, "#888"), symbol="square"),
+                        name=_SR_CN.get(_k, _k),
+                        showlegend=True,
+                    ))
+                _fig_spy_sr.update_layout(
+                    height=280,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
+                    font=dict(color="#ddd"),
+                    showlegend=True,
+                    legend=dict(orientation="h", y=1.18, x=0.5, xanchor="center", font=dict(size=12)),
+                    hovermode="x unified",
+                    xaxis=dict(showgrid=False),
+                    yaxis=dict(title="SPY 收盘价 ($)", showgrid=True, gridcolor="rgba(255,255,255,0.06)"),
+                    title=dict(
+                        text="SPY 历史路况：sector_rotation winner 染色背景 — 肉眼验证资金流剧本对宏观切换的定义",
+                        font=dict(size=14), x=0.01, xanchor="left",
+                    ),
+                    shapes=_sr_bg_shapes,
+                )
+                st.plotly_chart(_fig_spy_sr, use_container_width=True)
+
         # winner 离散编码 → 阶梯式 colorscale，避免 plotly 在过渡像素上插值出脏色
         _winner_codes = {"Soft": 0, "Hot": 1, "Stag": 2, "Rec": 3}
         _df_sr_tl["winner_code"] = _df_sr_tl["winner"].map(_winner_codes).astype(float)
