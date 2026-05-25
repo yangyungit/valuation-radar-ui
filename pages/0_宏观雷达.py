@@ -319,15 +319,17 @@ else:
                         line_width=0, layer="below"
                     ))
 
-            # 变点检测「确认信号」紫色竖杠（图底 4%，避开 K 线主区）
+            # 变点检测「确认信号」紫色竖杠（图底 10%，避开 K 线主区）
+            # mixed reference 必须显式 xref="x"，否则 plotly 把竖线当 paper 坐标解析失败。
             if len(_cp_confirm_dates) > 0:
                 _cp_in_range = _cp_confirm_dates.intersection(_df.index)
                 for _cp_dt in _cp_in_range:
                     _bg_shapes.append(dict(
                         type="line",
+                        xref="x", yref="paper",
                         x0=_cp_dt, x1=_cp_dt,
-                        y0=0, y1=0.04, yref="paper",
-                        line=dict(color="rgba(142,68,173,0.85)", width=1.5),
+                        y0=0, y1=0.10,
+                        line=dict(color="rgba(142,68,173,0.95)", width=2.5),
                         layer="above",
                     ))
 
