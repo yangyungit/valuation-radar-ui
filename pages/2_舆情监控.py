@@ -67,6 +67,12 @@ from api_client import (
     fetch_narrative_v3_events,
     fetch_narrative_v3_l2_detail,
     trigger_narrative_v3_backfill,
+    fetch_narrative_episodes,
+    fetch_narrative_handoffs,
+    fetch_market_regime,
+    fetch_sequence_strip,
+    fetch_l2_episode_detail,
+    trigger_episodes_backfill,
     API_BASE_URL,
     IS_LOCAL_API,
     IS_PROD_REMOTE,
@@ -272,12 +278,12 @@ def _render_narrative_rotation_v3(
 
     window_labels = ["近1月", "近1季", "近半年"]
     days_map = {"近1月": 30, "近1季": 90, "近半年": 180}
-    mode_labels = ["主线优先", "接力观察", "背离观察", "全部候选"]
+    mode_labels = ["主线 / 接力", "交接链路", "风险 / 退潮", "全部 episode"]
     mode_map = {
-        "主线优先": "main",
-        "接力观察": "handoff",
-        "背离观察": "divergence",
-        "全部候选": "all",
+        "主线 / 接力": "main",
+        "交接链路": "handoff",
+        "风险 / 退潮": "divergence",
+        "全部 episode": "all",
     }
 
     ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1.1, 1.1, 1.2, 0.9])
@@ -331,15 +337,92 @@ def _render_narrative_rotation_v3(
             f"生命周期 {sources.get('l2_lifecycle_state') or '—'}"
         )
 
+    market = fetch_market_regime(as_of_date=asof)
+    if market.get("success"):
+        family_zh = {
+            "main": "主线",
+            "relay": "接力",
+            "leading": "资金先行",
+            "risk": "虚热",
+            "fading": "退潮",
+        }
+        active_eps = market.get("active_episodes", []) or []
+        main_eps = [ep for ep in active_eps if ep.get("regime_family") == "main"]
+        relay_eps = [
+            ep for ep in active_eps
+            if ep.get("regime_family") in {"relay", "leading"}
+        ]
+        structure_label = market.get("structure_label") or "vacuum_cold"
+        banner_lines: list[str] = []
+        if structure_label == "single" and main_eps:
+            ep = main_eps[0]
+            banner_lines.append(
+                f"当前主线：{_display_name(ep.get('l2_sector'))}"
+                f"（第 {int(ep.get('duration_days') or 0)} 天，"
+                f"{int(ep.get('confirm_days') or 0)}/{int(ep.get('total_days') or 0)}）"
+                f"｜主线浓度 {float(market.get('main_concentration') or 0.0):.0%}"
+            )
+        elif structure_label == "parallel" and main_eps:
+            names = " · ".join(_display_name(ep.get("l2_sector")) for ep in main_eps[:3])
+            banner_lines.append(
+                f"并行主线：{names}｜浓度 {float(market.get('main_concentration') or 0.0):.0%}"
+            )
+        elif structure_label == "battlefield":
+            banner_lines.append(
+                f"多线混战（{int(market.get('main_count') or 0)} 个 main）"
+                f"｜浓度 {float(market.get('main_concentration') or 0.0):.0%}"
+            )
+        elif structure_label == "vacuum_switch_window":
+            names = " · ".join(_display_name(ep.get("l2_sector")) for ep in relay_eps[:3])
+            banner_lines.append(f"主线交接窗口期（旧退新接力中）｜候选 {names or '—'}")
+        elif structure_label == "vacuum_fake_heat":
+            banner_lines.append("市场无明确主线（多线虚热）｜警惕骗炮")
+        else:
+            banner_lines.append("市场无明确主线（整体冷淡）｜建议 CASH")
+        for line in banner_lines:
+            st.markdown(
+                "<div style='background:#151515;border:1px solid rgba(255,255,255,0.10);"
+                "border-radius:4px;padding:10px 13px;margin:8px 0 10px 0;"
+                "font-size:15px;font-weight:700;color:#e9e9e9;'>"
+                f"{html_lib.escape(line)}</div>",
+                unsafe_allow_html=True,
+            )
+    else:
+        st.caption(f"市场结构读取失败：{market.get('error', '未知错误')}")
+
     rot = fetch_narrative_v3_rotation(as_of_date=asof, days=days, mode=mode)
     events_resp = fetch_narrative_v3_events(as_of_date=asof, days=min(days, 30))
-    series = rot.get("data", []) if rot.get("success") else []
+    episode_resp = fetch_narrative_episodes(as_of_date=asof, days=days, min_duration=2)
+    handoff_resp = fetch_narrative_handoffs(
+        as_of_date=asof,
+        days=days,
+        min_score=0.5,
+        outcome_filter=["confirmed", "ongoing", "failed"],
+    )
+    handoff_high_resp = fetch_narrative_handoffs(
+        as_of_date=asof,
+        days=days,
+        min_score=0.7,
+        outcome_filter=["confirmed", "ongoing"],
+    )
+    handoff_failed_resp = fetch_narrative_handoffs(
+        as_of_date=asof,
+        days=180,
+        min_score=0.5,
+        outcome_filter=["failed"],
+    )
+    sequence_resp = fetch_sequence_strip(as_of_date=asof, days=days)
+    episodes = episode_resp.get("episodes", []) if episode_resp.get("success") else []
+    handoffs = handoff_resp.get("handoffs", []) if handoff_resp.get("success") else []
 
     if not rot.get("success"):
         st.warning(f"V3 轮动数据读取失败：{rot.get('error', '未知错误')}")
         return
-    if not series:
-        st.info("暂无 V3 状态数据。生成状态后，新图会在这里显示新闻×资金的轮动轨迹。")
+    if not episode_resp.get("success"):
+        st.warning(f"Episode 数据读取失败：{episode_resp.get('error', '未知错误')}")
+        return
+    if not episodes:
+        st.info("暂无 V3 episode 数据。生成状态后，新图会在这里显示叙事权力交接。")
         bf_cols = st.columns([1, 1, 4])
         with bf_cols[0]:
             if st.button("生成90天V3", key="rotation_v3_backfill_btn"):
@@ -350,13 +433,16 @@ def _render_narrative_rotation_v3(
                 else:
                     st.warning(f"V3生成失败：{bf.get('error') or bf.get('reason', '未知错误')}")
         with bf_cols[1]:
-            if st.button("强制重算", key="rotation_v3_backfill_force_btn"):
-                bf = trigger_narrative_v3_backfill(days=90, force=True)
+            if st.button("生成90天Episode", key="rotation_episode_backfill_btn"):
+                bf = trigger_episodes_backfill(days=90, force=True)
                 if bf.get("success"):
-                    st.success(f"V3重算完成：computed={bf.get('computed', 0)}")
+                    st.success(
+                        f"Episode生成完成：episodes={bf.get('episodes_created', 0)} "
+                        f"handoffs={bf.get('handoffs_created', 0)}"
+                    )
                     st.rerun()
                 else:
-                    st.warning(f"V3重算失败：{bf.get('error') or bf.get('reason', '未知错误')}")
+                    st.warning(f"Episode生成失败：{bf.get('error') or bf.get('reason', '未知错误')}")
         return
 
     palette = [
@@ -371,55 +457,117 @@ def _render_narrative_rotation_v3(
         rec = sector_records.get(sec, {}) if isinstance(sector_records, dict) else {}
         return rec.get("color") or color_map.get(sec, palette[abs(hash(sec)) % len(palette)])
 
-    def _line_width(money_val: float) -> float:
-        if not money_layer:
-            return 2.4
-        return max(1.2, min(5.0, 1.2 + float(money_val or 0.0) / 100.0 * 3.8))
+    family_style = {
+        "main": {"width": 4.0, "opacity": 1.0, "dash": "solid"},
+        "relay": {"width": 2.5, "opacity": 0.85, "dash": "solid"},
+        "leading": {"width": 2.5, "opacity": 0.85, "dash": "dash"},
+        "risk": {"width": 2.0, "opacity": 0.55, "dash": "solid"},
+        "fading": {"width": 1.5, "opacity": 0.25, "dash": "solid"},
+    }
 
-    def _opacity(breadth_val: float) -> float:
-        if not money_layer:
-            return 0.86
-        return max(0.25, min(1.0, 0.25 + float(breadth_val or 0.0) / 100.0 * 0.75))
+    family_zh = {
+        "main": "主线",
+        "relay": "接力",
+        "leading": "资金先行",
+        "risk": "虚热背离",
+        "fading": "退潮",
+    }
+
+    def _evidence_badge(signals: dict) -> str:
+        keys = ["news_hot", "money_strong", "breadth_high", "persistence_high"]
+        return "".join("■" if bool(signals.get(k)) else "□" for k in keys)
+
+    handoff_episode_ids: set[str] = set()
+    for hf in handoffs:
+        handoff_episode_ids.add(str(hf.get("from_episode_id") or ""))
+        handoff_episode_ids.add(str(hf.get("to_episode_id") or ""))
+    if mode == "main":
+        visible_episodes = [ep for ep in episodes if ep.get("regime_family") in {"main", "relay"}]
+    elif mode == "handoff":
+        visible_episodes = [
+            ep for ep in episodes
+            if str(ep.get("episode_id")) in handoff_episode_ids
+        ]
+    elif mode == "divergence":
+        visible_episodes = [ep for ep in episodes if ep.get("regime_family") in {"risk", "fading"}]
+    else:
+        visible_episodes = [
+            ep for ep in episodes
+            if ep.get("regime_family") in {"main", "relay", "leading", "risk", "fading"}
+        ]
+    visible_episodes = sorted(
+        visible_episodes,
+        key=lambda ep: (
+            {"main": 0, "relay": 1, "leading": 2, "risk": 3, "fading": 4}.get(ep.get("regime_family"), 9),
+            -float(ep.get("state_health_now") or 0.0),
+            str(ep.get("l2_sector") or ""),
+        ),
+    )[:18 if mode == "all" else 12]
+
+    ep_by_id = {str(ep.get("episode_id")): ep for ep in episodes}
 
     fig = go.Figure()
     latest_points: list[tuple[str, dict]] = []
-    for item in series:
-        sec = item.get("l2_sector", "")
-        pts = item.get("points", []) or []
+    for ep in visible_episodes:
+        sec = ep.get("l2_sector", "")
+        pts = ep.get("points", []) or []
         if not sec or not pts:
             continue
+        family = ep.get("regime_family") or "normal"
+        style = family_style.get(family)
+        if not style:
+            continue
         sec_name = _display_name(sec)
+        line_color = "#8a8a8a" if family == "fading" else _color(sec)
         latest_pt = pts[-1]
         latest_points.append((sec, latest_pt))
-        x_vals = [p.get("date") for p in pts]
-        y_vals = [float(p.get("news_heat", 0.0) or 0.0) for p in pts]
-        dash = "dash" if latest_pt.get("divergence_flag") and money_layer else "solid"
-        hover = []
-        for p in pts:
-            hover.append(
-                f"<b>{html_lib.escape(sec_name)}</b><br>"
-                f"日期: {p.get('date')}<br>"
-                f"状态: {p.get('final_state', '—')}<br>"
-                f"新闻热度: {float(p.get('news_heat', 0.0) or 0.0):.1f}<br>"
-                f"资金动量: {float(p.get('money_momentum', 0.0) or 0.0):.1f}<br>"
-                f"breadth: {float(p.get('money_breadth', 0.0) or 0.0):.0f}<br>"
-                f"资金斜率: {float(p.get('money_momentum_3d', 0.0) or 0.0):+.1f}"
+        base_opacity = float(style["opacity"])
+        if not money_layer:
+            base_opacity = min(1.0, base_opacity + 0.1)
+
+        def _hover(rows: list[dict]) -> list[str]:
+            out: list[str] = []
+            for p in rows:
+                out.append(
+                    f"<b>{html_lib.escape(sec_name)}</b><br>"
+                    f"episode: {str(ep.get('episode_id', ''))[:8]}<br>"
+                    f"family: {family_zh.get(family, family)}<br>"
+                    f"日期: {p.get('date')}<br>"
+                    f"状态: {p.get('final_state', '—')}<br>"
+                    f"新闻热度: {float(p.get('news_heat', 0.0) or 0.0):.1f}<br>"
+                    f"资金动量: {float(p.get('money_momentum', 0.0) or 0.0):.1f}<br>"
+                    f"breadth: {float(p.get('money_breadth', 0.0) or 0.0):.0f}"
+                )
+            return out
+
+        def _add_segment(rows: list[dict], opacity: float, name_suffix: str = "") -> None:
+            if len(rows) < 2:
+                return
+            fig.add_trace(go.Scatter(
+                x=[p.get("date") for p in rows],
+                y=[float(p.get("news_heat", 0.0) or 0.0) for p in rows],
+                mode="lines",
+                name=f"{sec_name}{name_suffix}",
+                line=dict(color=line_color, width=style["width"], dash=style["dash"]),
+                opacity=opacity,
+                hovertext=_hover(rows),
+                hoverinfo="text",
+                showlegend=False,
+            ))
+
+        if ep.get("ongoing_flag") and len(pts) >= 2:
+            _add_segment(pts[:-1], base_opacity)
+            _add_segment(pts[-2:], base_opacity * 0.5, " PIT")
+            fig.add_annotation(
+                x=pts[-1].get("date"),
+                y=float(pts[-1].get("news_heat", 0.0) or 0.0),
+                text="今日 PIT",
+                showarrow=False,
+                yshift=16,
+                font=dict(color=line_color, size=13),
             )
-        fig.add_trace(go.Scatter(
-            x=x_vals,
-            y=y_vals,
-            mode="lines",
-            name=sec_name,
-            line=dict(
-                color=_color(sec),
-                width=_line_width(float(latest_pt.get("money_momentum", 0.0) or 0.0)),
-                dash=dash,
-            ),
-            opacity=_opacity(float(latest_pt.get("money_breadth", 0.0) or 0.0)),
-            hovertext=hover,
-            hoverinfo="text",
-            showlegend=False,
-        ))
+        else:
+            _add_segment(pts, base_opacity)
 
         event_pts = [p for p in pts if p.get("state_changed") or p.get("event_type")]
         if event_pts:
@@ -428,7 +576,7 @@ def _render_narrative_rotation_v3(
                 y=[float(p.get("news_heat", 0.0) or 0.0) for p in event_pts],
                 mode="markers",
                 marker=dict(
-                    color=_color(sec),
+                    color=line_color,
                     size=8,
                     symbol="diamond",
                     line=dict(color="white", width=1.0),
@@ -444,16 +592,81 @@ def _render_narrative_rotation_v3(
                 showlegend=False,
             ))
 
-        fig.add_annotation(
-            x=x_vals[-1],
-            y=y_vals[-1],
-            text=html_lib.escape(sec_name),
-            showarrow=False,
-            xanchor="left",
-            xshift=10,
-            font=dict(color=_color(sec), size=12),
-            bgcolor="rgba(17,17,17,0.65)",
-        )
+        if family == "risk":
+            risk_pts = pts[::3] or pts[-1:]
+            fig.add_trace(go.Scatter(
+                x=[p.get("date") for p in risk_pts],
+                y=[float(p.get("news_heat", 0.0) or 0.0) for p in risk_pts],
+                mode="markers",
+                marker=dict(color="#FF4D4F", size=9, symbol="x"),
+                hovertext=[f"{html_lib.escape(sec_name)} · 虚热背离" for _ in risk_pts],
+                hoverinfo="text",
+                showlegend=False,
+            ))
+
+        if ep.get("ongoing_flag"):
+            badge = _evidence_badge(ep.get("latest_signals") or latest_pt.get("signals") or {})
+            text = (
+                f"{html_lib.escape(sec_name)}<br>"
+                f"{family_zh.get(family, family)} · 第 {int(ep.get('duration_days') or 0)} 天 · "
+                f"health {float(ep.get('state_health_now') or 0.0):.2f}<br>"
+                f"{badge} · {int(ep.get('confirm_days') or 0)}/{int(ep.get('total_days') or 0)} confirmed"
+            )
+            fig.add_annotation(
+                x=latest_pt.get("date"),
+                y=float(latest_pt.get("news_heat", 0.0) or 0.0),
+                text=text,
+                showarrow=False,
+                xanchor="left",
+                xshift=10,
+                align="left",
+                font=dict(color=line_color, size=13),
+                bgcolor="rgba(17,17,17,0.72)",
+                bordercolor="rgba(255,255,255,0.12)",
+                borderwidth=1,
+            )
+
+    arc_handoffs = (handoff_high_resp.get("handoffs", []) if handoff_high_resp.get("success") else [])[:3]
+    failed_arc = (handoff_failed_resp.get("handoffs", []) if handoff_failed_resp.get("success") else [])[:1]
+    for hf in arc_handoffs + failed_arc:
+        from_ep = ep_by_id.get(str(hf.get("from_episode_id")))
+        to_ep = ep_by_id.get(str(hf.get("to_episode_id")))
+        if not from_ep or not to_ep:
+            continue
+        from_pts = from_ep.get("points", []) or []
+        to_pts = to_ep.get("points", []) or []
+        if not from_pts or not to_pts:
+            continue
+        from_pt = from_pts[-1]
+        to_pt = to_pts[0]
+        from_x = pd.to_datetime(from_pt.get("date"))
+        to_x = pd.to_datetime(to_pt.get("date"))
+        mid_x = from_x + (to_x - from_x) / 2
+        from_y = float(from_pt.get("news_heat", 0.0) or 0.0)
+        to_y = float(to_pt.get("news_heat", 0.0) or 0.0)
+        mid_y = min(10.4, max(from_y, to_y) + 1.2)
+        failed = hf.get("handoff_outcome") == "failed"
+        fig.add_trace(go.Scatter(
+            x=[from_x, mid_x, to_x],
+            y=[from_y, mid_y, to_y],
+            mode="lines+text",
+            text=["", f"{int(hf.get('lag_days') or 0)}d{' ✗' if failed else ''}", ""],
+            textposition="top center",
+            line=dict(
+                color="#ff6b6b" if failed else "#f7c948",
+                width=1.8,
+                dash="dash" if failed else "dot",
+                shape="spline",
+            ),
+            opacity=0.75,
+            hovertext=(
+                f"{_display_name(hf.get('from_l2_sector'))} → "
+                f"{_display_name(hf.get('to_l2_sector'))}<br>"
+                f"score {float(hf.get('handoff_score') or 0.0):.2f} · {hf.get('handoff_outcome')}"
+            ),
+            hoverinfo="text",
+            showlegend=False,
+        ))
 
     fig.update_layout(
         plot_bgcolor="#111111",
@@ -472,7 +685,41 @@ def _render_narrative_rotation_v3(
         showlegend=False,
     )
     st.plotly_chart(fig, use_container_width=True, key="page2_tab5_rotation_v3_main")
-    st.caption("颜色=L2身份｜高度=新闻热度｜线粗=资金动量｜透明度=breadth｜虚线=背离｜菱形=状态切换")
+    st.caption("颜色=L2身份｜粗实线=主线｜虚线=资金先行｜红叉=虚热背离｜弧线=高置信接力｜右侧=episode 状态")
+
+    if sequence_resp.get("success"):
+        segments = sequence_resp.get("segments", []) or []
+        total_seg_days = sum(max(1, int(seg.get("duration_days") or 1)) for seg in segments) or 1
+        strip_html = (
+            "<div style='height:24px;display:flex;width:100%;background:#202020;"
+            "border:1px solid rgba(255,255,255,0.10);border-radius:4px;overflow:hidden;margin:4px 0 12px 0;'>"
+        )
+        for seg in segments:
+            seg_days = max(1, int(seg.get("duration_days") or 1))
+            l2s = seg.get("l2_sectors") or []
+            if seg.get("is_vacuum"):
+                bg = "#555555"
+                label = f"主线真空 {seg_days} 天" if seg_days / total_seg_days > 0.08 else ""
+            elif seg.get("is_parallel") and len(l2s) >= 2:
+                c1 = _color(l2s[0])
+                c2 = _color(l2s[1])
+                bg = f"linear-gradient(to bottom,{c1} 0%,{c1} 50%,{c2} 50%,{c2} 100%)"
+                label = ""
+            else:
+                bg = _color(l2s[0]) if l2s else "#555555"
+                label = ""
+            title = (
+                f"{seg.get('from_date')} → {seg.get('to_date')} | "
+                f"{' · '.join(_display_name(x) for x in l2s) if l2s else '主线真空'}"
+            )
+            strip_html += (
+                f"<div title='{html_lib.escape(title)}' style='height:24px;flex:{seg_days} 0 0;"
+                f"background:{bg};display:flex;align-items:center;justify-content:center;"
+                "font-size:13px;color:#f2f2f2;white-space:nowrap;overflow:hidden;'>"
+                f"{html_lib.escape(label)}</div>"
+            )
+        strip_html += "</div>"
+        st.markdown(strip_html, unsafe_allow_html=True)
 
     buckets = rot.get("state_buckets", {}) if isinstance(rot, dict) else {}
     bucket_defs = [
@@ -518,10 +765,12 @@ def _render_narrative_rotation_v3(
             ev_name = html_lib.escape(_display_name(ev.get("l2_sector")))
             ev_type = html_lib.escape(str(ev.get("event_type", "")))
             summary = html_lib.escape(str(ev.get("summary", "")))
+            ep_short = str(ev.get("episode_id") or "")[:8]
+            ep_text = f"[{ep_short}] " if ep_short else ""
             st.markdown(
                 "<div style='border-left:3px solid #3498DB;background:#161616;"
                 "padding:8px 12px;margin-bottom:6px;border-radius:4px;font-size:13px;'>"
-                f"<b>{ev.get('date')}</b>　{ev_name} → "
+                f"<b>{ev.get('date')}</b>　{ep_text}{ev_name} → "
                 f"<span style='color:#ddd;font-weight:700;'>{ev_type}</span><br>"
                 f"<span style='color:#888;'>{summary}</span>"
                 "</div>",
@@ -554,6 +803,27 @@ def _render_narrative_rotation_v3(
     )
     detail = fetch_narrative_v3_l2_detail(detail_sec, as_of_date=asof, days=days)
     detail_series = detail.get("series", []) if detail.get("success") else []
+    episode_detail = fetch_l2_episode_detail(detail_sec, as_of_date=asof, days=days)
+    recent_episodes = episode_detail.get("recent_episodes", []) if episode_detail.get("success") else []
+    if recent_episodes:
+        table_lines = [
+            "| episode | family | state_timeline | duration | state_health |",
+            "|---|---|---|---:|---:|",
+        ]
+        for ep in recent_episodes[:8]:
+            timeline = " / ".join(
+                f"{seg.get('state')}:{int(seg.get('days') or 0)}d"
+                for seg in (ep.get("state_timeline") or [])[:4]
+            )
+            table_lines.append(
+                f"| {str(ep.get('episode_id') or '')[:8]} | "
+                f"{family_zh.get(ep.get('regime_family'), ep.get('regime_family'))} | "
+                f"{timeline or '—'} | "
+                f"{int(ep.get('duration_days') or 0)} | "
+                f"{float(ep.get('state_health_now') or 0.0):.2f} |"
+            )
+        st.markdown("该 L2 近 90 天 episode 列表")
+        st.markdown("\n".join(table_lines))
     if not detail.get("success"):
         st.warning(f"下钻读取失败：{detail.get('error', '未知错误')}")
         return
@@ -3057,7 +3327,7 @@ if active_phase == 5:
         # ---------- Fetch APIs：仅四象限雷达打开时执行 ----------
         l2l3_resp = fetch_l2_l3_detail(days=7)
         l2l3_data = l2l3_resp.get("data", [])
-        qh_resp = fetch_quadrant_history(days=45)
+        qh_resp = fetch_quadrant_history(days=10000)
         qh_data = qh_resp.get("data", [])
 
         if l2l3_resp.get("degraded"):
