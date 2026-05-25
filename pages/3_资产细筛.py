@@ -2188,7 +2188,7 @@ def _render_d_conviction_whitebox(
     wrap_expander: bool = True,
 ) -> None:
     """D 组共振守擂全量推演（对标 A/B 信念守擂白盒）。"""
-    from api_client import fetch_d_conviction_today, post_d_conviction_replay
+    from api_client import fetch_d_conviction_today, fetch_market_regime, post_d_conviction_replay
 
     conv_data = fetch_d_conviction_today()
     pool = conv_data.get("pool", [])
@@ -2205,10 +2205,22 @@ def _render_d_conviction_whitebox(
 
     names_map: dict[str, str] = {}
     res_map: dict[str, float] = {}
+    res_by_ticker: dict[str, dict] = {}
     for r in res_rows:
         tk = r.get("Ticker", "")
         names_map[tk] = r.get("\u540d\u79f0", tk)
         res_map[tk] = float(r.get("Resonance", 0))
+        res_by_ticker[tk] = r
+
+    episode_by_l2: dict[str, dict] = {}
+    try:
+        regime_resp = fetch_market_regime(snap_date or None)
+        for ep in regime_resp.get("active_episodes", []) or []:
+            l2 = ep.get("l2_sector")
+            if l2:
+                episode_by_l2[str(l2)] = ep
+    except Exception:
+        episode_by_l2 = {}
 
     _entry_th = 40
     _exit_th = 30
@@ -2302,6 +2314,7 @@ def _render_d_conviction_whitebox(
                     "<span style='width:75px; text-align:right;'>共振分</span>"
                     "<span style='width:65px; text-align:right;'>E值</span>"
                     "<span style='width:65px; text-align:right;'>燃料</span>"
+                    "<span style='width:75px; text-align:right;'>episode</span>"
                     "<span style='width:65px; text-align:right;'>衰减</span>"
                     "<span style='width:65px; text-align:center;'>角色</span>"
                     "<span style='width:65px; text-align:right;'>持仓天</span>"
@@ -2313,6 +2326,7 @@ def _render_d_conviction_whitebox(
                 for tk in all_tickers:
                     in_pool = tk in pool_set
                     h = pool_by_ticker.get(tk, {})
+                    r = res_by_ticker.get(tk, {})
                     res_score = res_map.get(tk, 0.0)
                     nm = names_map.get(tk, tk)
 
@@ -2335,6 +2349,22 @@ def _render_d_conviction_whitebox(
                         decay_text = f"{decay:.2f}"
                         role_text = role
                         days_text = str(days_held)
+                        ef_val = fb.get("episode_fuel")
+                        ep_sub = fb.get("episode_sub", {}) or {}
+                        fam = ep_sub.get("family")
+                        if ef_val is None or fam is None:
+                            episode_html = "<span style='color:#555;'>—</span>"
+                        else:
+                            ef_num = float(ef_val)
+                            ef_color = "#2ECC71" if ef_num > 0 else ("#E74C3C" if ef_num < 0 else "#888")
+                            ep_title = (
+                                f"{fam} · 第 {ep_sub.get('duration_days', '—')} 天 · "
+                                f"confirm {ep_sub.get('confirm_4d_ratio', '—')}"
+                            )
+                            episode_html = (
+                                f"<span title='{ep_title}' style='color:{ef_color}; font-size:13px;'>"
+                                f"{ef_num:+.1f}({str(fam)[:3]})</span>"
+                            )
                     else:
                         E_val = 0
                         row_bg = "#111"
@@ -2346,6 +2376,24 @@ def _render_d_conviction_whitebox(
                         decay_text = "—"
                         role_text = "—"
                         days_text = "—"
+                        top_l2 = ""
+                        _top_l2 = r.get("top_l2") or {}
+                        if isinstance(_top_l2, dict):
+                            top_l2 = _top_l2.get("l2_sector") or r.get("top_l2_sector") or ""
+                        else:
+                            top_l2 = r.get("top_l2_sector") or ""
+                        ep = episode_by_l2.get(str(top_l2), {}) if top_l2 else {}
+                        ep_fam = ep.get("regime_family")
+                        ep_dd = int(ep.get("duration_days") or 0) if ep else 0
+                        if ep_fam in {"risk", "fading"} and ep_dd >= 3:
+                            ep_health = float(ep.get("state_health_now") or 0.0)
+                            ep_color = "#E74C3C" if ep_fam == "risk" else "#F39C12"
+                            episode_html = (
+                                f"<span title='{top_l2}' style='color:{ep_color}; font-size:13px;'>"
+                                f"{ep_fam} · {ep_dd}d · {ep_health:.2f}</span>"
+                            )
+                        else:
+                            episode_html = "<span style='color:#555;'>—</span>"
 
                         if res_score >= 60:
                             badge = "达入池线"
@@ -2393,6 +2441,7 @@ def _render_d_conviction_whitebox(
                         f"<span style='width:65px; text-align:right; font-weight:bold; color:{tk_color};'>"
                         f"{e_text}</span>"
                         f"<span style='width:65px; text-align:right;'>{delta_html}</span>"
+                        f"<span style='width:75px; text-align:right;'>{episode_html}</span>"
                         f"<span style='width:65px; text-align:right; color:#888;'>{decay_text}</span>"
                         f"<span style='width:65px; text-align:center; color:{'#F39C12' if in_pool else '#3498DB'};'>"
                         f"{'在池' if in_pool else '候选'}</span>"

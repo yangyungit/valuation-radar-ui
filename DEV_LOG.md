@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-05-25 | D 组阶段 2 白盒展示 episode_fuel
+
+Page3 D 组共振守擂白盒推演消费后端阶段 2 字段：池内守擂明细新增 `episode` 列，展示 `episode_fuel` 贡献与 family tooltip；池外候选命中 risk/fading 且持续 ≥3 天时展示 episode 短标签。字段缺失时显示 `—`，兼容灰度关闭。Phase 4 handoff 与 Page2 Tab5 不动。
+
+---
+
+## 2026-05-22 | Page2 Tab5 episode 权力交接图
+
+新增叙事 episode 派生引擎（双层 `regime_family + state`）的前端消费，Page2 Tab5 主图按 family 着色并叠加高置信接力弧、`state_health` 徽章、市场结构 banner 与主线序列条，保留原 5 个状态分桶卡片和 L2 下钻图。
+
+## 2026-05-22 | 修字号违规两处
+
+`pages/2_舆情监控.py` 主图"今日 PIT" annotation 字号从 11px 提到 13px、序列条段标签字号从 12px 提到 13px，符合 architecture-constraints 字号规范（正文 ≥13px）。
+
 ## 2026-05-22 | 删除 page2 Tab5 升维共振死分支
 
 `pages/2_舆情监控.py`：删除约 293 行的 `elif _wf_mode == "升维共振":` 代码块。该分支因 `_wf_mode_options = ["主线轮动", "信号分析"]` 永远走不到，且内部引用了全文件未定义的 `_wf_as_of_date` 以及未 import 的 `fetch_narrative_momentum` / `fetch_l2_state`，实际上是 NameError 炸弹。AST parse + ReadLints 均通过。
