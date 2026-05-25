@@ -10,6 +10,7 @@ from api_client import (
     get_global_data,
     compute_macro_regime_api,
     fetch_changepoint,
+    fetch_sector_rotation,
 )
 
 st.set_page_config(page_title="宏观雷达", layout="wide")
@@ -37,6 +38,7 @@ with st.sidebar:
         compute_macro_regime_api.clear()
         get_global_data.clear()
         fetch_changepoint.clear()
+        fetch_sector_rotation.clear()
         st.rerun()
 
 # ============================================================
@@ -54,6 +56,7 @@ with st.spinner("📊 加载市场结构数据..."):
     _current_regime = fetch_current_regime()
     _chain_regime   = compute_macro_regime_api(z_window=750)
     _cp             = fetch_changepoint()
+    _sr             = fetch_sector_rotation()
 
 # 变点检测「确认信号」日期集（单日 n_t≥K），用于 §2 MTM 主图底部紫色竖杠。
 # 严格按后端 timeline.level 字段筛，不在前端重算 streak，避免与 §2.6 数值漂移。
@@ -421,6 +424,7 @@ else:
                     背景色带 = 四大剧本宏观裁决（基本面维度）；
                     折线颜色 = 技术形态状态机（价格维度）；
                     🟪 <b style='color:#8E44AD;'>图底紫色竖杠</b> = 变点检测「确认信号」（多变量 CUSUM 单日 n_t ≥ {_cp_K_global}，对应「调阵型」时刻，详见 §2.6）。
+                    🎭 <b>剧本切换</b>看 §2.7「板块轮动剧本」——变点告诉你"什么时候变"，剧本告诉你"变成什么"。
                     背景与折线不一致时信号最有价值：🟢背景+🔴折线 = 基本面好但技术超跌，潜在抄底窗口；🔴背景+🟢折线 = 宏观恶化但技术仍强，需警惕。
                 </div>
             </div>
@@ -1045,6 +1049,235 @@ else:
 **输出位置**
 
 变点检测的输出是「让人重新审视」，**不是「自动调仓」**——不接入下单链。
+""")
+
+# ============================================================
+# Section 2.7: 板块轮动剧本 (Sector Rotation Scenario)
+# 11 板块 RS 多窗口加权匹配 4 剧本模板，与 horsemen 基本面体系并联
+# 算法 Sam Stovall Sector Rotation Model 工程化版，后端 macro_engine 计算
+# ============================================================
+st.markdown("---")
+st.header("🎭 板块轮动剧本 (Sector Rotation Scenario)")
+st.caption("11 板块谁在领涨能分剧本 · 与 horsemen 基本面投票并联 · 资金流领先于基本面 2-3 个月")
+
+if not _sr.get("success"):
+    st.warning(f"⚠️ 板块轮动数据暂不可用：{_sr.get('error', '未知错误')}")
+else:
+    _sr_probs     = _sr.get("probs", {}) or {}
+    _sr_winner    = str(_sr.get("winner", "—"))
+    _sr_ranks     = _sr.get("ranks", {}) or {}
+    _sr_rs_curr   = _sr.get("rs_curr", {}) or {}
+    _sr_templates = _sr.get("templates", {}) or {}
+    _sr_timeline  = _sr.get("timeline", []) or []
+    _sr_asof      = str(_sr.get("asof", "—"))
+
+    _SR_CN = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
+    _SR_COLOR = {"Soft": "#2ECC71", "Hot": "#E74C3C", "Stag": "#F1C40F", "Rec": "#3498DB"}
+
+    _sr_winner_cn    = _SR_CN.get(_sr_winner, _sr_winner)
+    _sr_winner_color = _SR_COLOR.get(_sr_winner, "#888")
+    _sr_winner_prob  = float(_sr_probs.get(_sr_winner, 0.0))
+
+    # ── 当前剧本 banner + 4 概率条 ──
+    _sorted_probs = sorted(_sr_probs.items(), key=lambda kv: kv[1], reverse=True)
+    _prob_bars_html = ""
+    for k, v in _sorted_probs:
+        cn = _SR_CN.get(k, k)
+        col = _SR_COLOR.get(k, "#888")
+        pct = float(v) * 100.0
+        _prob_bars_html += (
+            f"<div style='margin-bottom:6px;'>"
+            f"<div style='display:flex; justify-content:space-between; font-size:13px; margin-bottom:2px;'>"
+            f"<span style='color:#ddd;'>{cn}</span>"
+            f"<span style='color:{col}; font-weight:bold;'>{pct:.1f}%</span>"
+            f"</div>"
+            f"<div style='background:#0a0a0a; height:8px; border-radius:4px;'>"
+            f"<div style='background:{col}; width:{pct:.1f}%; height:100%; border-radius:4px;'></div>"
+            f"</div></div>"
+        )
+
+    st.markdown(f"""
+<div style='background:#1a1a1a; border-left:5px solid {_sr_winner_color}; border-radius:8px; padding:14px 20px; margin-bottom:12px;'>
+    <div style='display:flex; align-items:center; gap:32px; flex-wrap:wrap;'>
+        <div style='min-width:180px;'>
+            <div style='font-size:13px; color:#aaa; margin-bottom:4px;'>当前剧本（{_sr_asof}）</div>
+            <div style='font-size:28px; font-weight:bold; color:{_sr_winner_color};'>{_sr_winner_cn}</div>
+            <div style='font-size:14px; color:#ccc; margin-top:2px;'>{_sr_winner_prob*100:.1f}% 资金流投票</div>
+        </div>
+        <div style='flex:1; min-width:260px;'>
+            {_prob_bars_html}
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── 与 horsemen 对照 ──
+    _hm_winner_en = str((_chain_regime or {}).get("data", {}).get("current_macro_regime", "Soft"))
+    _hm_winner_cn = _SR_CN.get(_hm_winner_en, _hm_winner_en)
+    _hm_winner_color = _SR_COLOR.get(_hm_winner_en, "#888")
+
+    if _hm_winner_en == _sr_winner:
+        _diag_text = "共振 — 基本面与资金流都指向同一剧本"
+        _diag_color = "#2ECC71"
+        _diag_logic = "两套独立体系给出一致信号，剧本判断高置信"
+    else:
+        _diag_text = "分歧 — 基本面与资金流给出不同剧本"
+        _diag_color = "#F1C40F"
+        _diag_logic = (
+            f"horsemen（月频基本面）判 <b style='color:{_hm_winner_color};'>{_hm_winner_cn}</b>，"
+            f"sector_rotation（日频资金流）判 <b style='color:{_sr_winner_color};'>{_sr_winner_cn}</b>。"
+            "资金流通常领先基本面 2-3 个月——分歧出现时观察基本面是否跟上。"
+        )
+
+    st.markdown(f"""
+<div style='background:#111; border:1px solid #2a2a2a; border-radius:6px; padding:12px 18px; margin-bottom:12px;'>
+    <div style='display:flex; align-items:center; gap:18px; flex-wrap:wrap;'>
+        <div style='flex:1; min-width:240px;'>
+            <div style='font-size:13px; color:#aaa; margin-bottom:6px;'>① horsemen 基本面投票</div>
+            <div style='font-size:18px; font-weight:bold; color:{_hm_winner_color};'>{_hm_winner_cn}</div>
+            <div style='font-size:12px; color:#888;'>数据源：14 个 FRED + ETF 比率，月频 GBDT</div>
+        </div>
+        <div style='flex:1; min-width:240px;'>
+            <div style='font-size:13px; color:#aaa; margin-bottom:6px;'>② sector_rotation 资金流投票</div>
+            <div style='font-size:18px; font-weight:bold; color:{_sr_winner_color};'>{_sr_winner_cn} ({_sr_winner_prob*100:.1f}%)</div>
+            <div style='font-size:12px; color:#888;'>数据源：11 板块 RS 排名匹配模板，日频 EMA 平滑</div>
+        </div>
+        <div style='flex:0 0 100%; border-top:1px solid #2a2a2a; padding-top:10px; margin-top:4px;'>
+            <span style='color:{_diag_color}; font-weight:bold; font-size:14px;'>{_diag_text}</span>
+            <span style='color:#aaa; font-size:13px; margin-left:8px;'>{_diag_logic}</span>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── 6 年时序 stack area chart ──
+    if _sr_timeline:
+        _df_sr_tl = pd.DataFrame(_sr_timeline)
+        _df_sr_tl["date"] = pd.to_datetime(_df_sr_tl["date"])
+        fig_sr = go.Figure()
+        for k in ["Soft", "Hot", "Stag", "Rec"]:
+            fig_sr.add_trace(go.Scatter(
+                x=_df_sr_tl["date"],
+                y=_df_sr_tl[k].astype(float),
+                mode="lines",
+                stackgroup="one",
+                name=_SR_CN.get(k, k),
+                line=dict(width=0.5, color=_SR_COLOR.get(k, "#888")),
+                fillcolor=_SR_COLOR.get(k, "#888"),
+                hovertemplate=f"%{{x|%Y-%m-%d}}<br>{_SR_CN.get(k, k)}: %{{y:.1%}}<extra></extra>",
+            ))
+        fig_sr.update_layout(
+            height=320,
+            margin=dict(l=20, r=20, t=40, b=20),
+            plot_bgcolor="#111111", paper_bgcolor="#111111",
+            font=dict(color="#ddd"),
+            hovermode="x unified",
+            yaxis=dict(title="4 剧本概率（堆叠 = 100%）", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                       tickformat=".0%", range=[0, 1]),
+            xaxis=dict(showgrid=False),
+            title=dict(text="6 年板块轮动剧本概率演化（堆叠面积）", font=dict(size=14), x=0.01, xanchor="left"),
+            legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
+        )
+        st.plotly_chart(fig_sr, use_container_width=True)
+
+    # ── 当前 11 板块 RS 排名表 ──
+    if _sr_ranks:
+        st.markdown("**📋 当前板块 RS 排名（rank=1 最强，标记每个板块在 4 剧本模板中的角色）**")
+        _table_rows = []
+        for t, r in sorted(_sr_ranks.items(), key=lambda kv: kv[1]):
+            row = {"排名": int(r), "板块": t, "RS 60D": float(_sr_rs_curr.get(t, 0.0))}
+            for scen in ["Soft", "Hot", "Stag", "Rec"]:
+                tpl = _sr_templates.get(scen, {}) or {}
+                strong_set = set(tpl.get("strong") or [])
+                weak_set   = set(tpl.get("weak") or [])
+                if t in strong_set:   role = "强"
+                elif t in weak_set:   role = "弱"
+                else:                 role = "中"
+                row[_SR_CN.get(scen, scen)] = role
+            _table_rows.append(row)
+        _df_sr_tbl = pd.DataFrame(_table_rows)
+
+        def _color_role(v):
+            if v == "强": return "color: #2ECC71; font-weight: bold"
+            if v == "弱": return "color: #E74C3C"
+            return "color: #888"
+
+        def _color_rs(v):
+            try:
+                f = float(v)
+                if f > 0.05:  return "color: #2ECC71; font-weight: bold"
+                if f > 0:     return "color: #aaa"
+                if f < -0.05: return "color: #E74C3C; font-weight: bold"
+                return "color: #888"
+            except Exception:
+                return "color: #aaa"
+
+        st.dataframe(
+            _df_sr_tbl.style.format({"RS 60D": "{:+.4f}"})
+                .map(_color_role, subset=["软着陆", "再通胀", "滞胀", "衰退"])
+                .map(_color_rs,   subset=["RS 60D"]),
+            use_container_width=True, hide_index=True,
+        )
+
+    with st.expander("📖 算法白盒 & 为什么和 horsemen 并联", expanded=False):
+        st.markdown("""
+**为什么要有这套？**
+
+主理人质疑过四象限剧本"切了又切回去没意义"——美股 75%+ 时间软着陆，宏观变量切换得太慢且经常反复，按 horsemen 月频信号操作大概率跑不赢 buy-hold SPY。
+
+**但板块轮动不一样**——大盘涨这件事抹杀宏观差异，**谁在领涨却没法骗人**。Sam Stovall 的 Sector Rotation Model 是华尔街用了 30 年的经典：
+
+| 剧本 | 典型领涨板块 | 典型领跌板块 |
+|---|---|---|
+| 软着陆 / 早周期 | XLK / XLY / XLF / XLC / XLI（进攻） | XLU / XLP / XLV（防御） |
+| 再通胀 / 加息 | XLE / XLB / XLF / XLI（周期+商品） | XLK / XLY / XLC / XLRE（高估值杀） |
+| 滞胀 | XLE / XLP / XLV / XLU（能源+防御） | XLY / XLF / XLK / XLRE |
+| 衰退 | XLP / XLU / XLV（纯防御） | XLY / XLF / XLI / XLB / XLK |
+
+---
+
+**算法（白盒可解释）**
+
+1. **多窗口 RS**：11 板块对 SPY 的 20 日 / 60 日 / 120 日累计超额收益，权重 0.25 / 0.5 / 0.25 加权
+2. **板块排名**：当日 11 板块按加权 RS 从高到低排名（rank=1 最强）
+3. **匹配分**：对每个剧本，强板块应排名靠前（rank 小得分高）、弱板块应排名靠后（rank 大得分高），归一化到 [0, 1]
+4. **Softmax**：温度 T=1.5，4 剧本概率和=100%
+5. **平滑**：输出概率 5 日 EMA，避免单日抖动
+
+---
+
+**与 horsemen 体系的关系**
+
+| | horsemen GBDT | sector_rotation |
+|---|---|---|
+| 数据源 | 14 个 FRED + ETF 比率（基本面） | 11 板块 RS 排名（资金流） |
+| 频率 | 月频 | 日频 |
+| 性质 | 基本面驱动 | 资金流驱动 |
+| 滞后/领先 | 滞后于市场 | 领先于基本面 2-3 个月 |
+
+**两套并联使用——重头戏在分歧处**：
+- horsemen 还判 Soft 但 sector_rotation 已切 Hot → 资金流抢跑，未来 2-3 个月基本面将跟上
+- horsemen 判 Stag 但 sector_rotation 判 Soft → 基本面落后于资金流，可能是 false alarm
+
+---
+
+**历史经典切换点验证**
+
+后端实测：
+- 2022-04 加息开局 → Stag ✓
+- 2024-02 AI 行情起点 → Soft ✓
+- 2025-04 关税暴跌 → Rec ✓
+
+---
+
+**实操价值**
+
+板块轮动信号对应**板块层面的换仓**（XLK→XLE 之类），不是仓位进出（chaos 闸门管那个）。粒度刚好——
+- 当前剧本切换时，调整持仓中板块权重而非清仓
+- 4 剧本概率分布平时较平（25/25/25/25 附近）属正常，winner 偏离 35%+ 才是显著切换信号
+- 与 horsemen 长期分歧时，作为基本面前置预警
+
+**输出位置**：本节是观察工具，不接入下单链——主理人看时序判断当前是不是"该调结构"的时候。
 """)
 
 # ============================================================
