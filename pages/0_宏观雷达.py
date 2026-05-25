@@ -1150,35 +1150,139 @@ else:
 </div>
 """, unsafe_allow_html=True)
 
-    # ── 6 年时序 stack area chart ──
+    # ── 6 年时序：上层 winner 色带（切换瞬间陡峭可见）+ 下层 4 概率独立折线 ──
     if _sr_timeline:
+        from plotly.subplots import make_subplots
+
         _df_sr_tl = pd.DataFrame(_sr_timeline)
         _df_sr_tl["date"] = pd.to_datetime(_df_sr_tl["date"])
-        fig_sr = go.Figure()
-        for k in ["Soft", "Hot", "Stag", "Rec"]:
-            fig_sr.add_trace(go.Scatter(
+
+        # winner 离散编码 → 阶梯式 colorscale，避免 plotly 在过渡像素上插值出脏色
+        _winner_codes = {"Soft": 0, "Hot": 1, "Stag": 2, "Rec": 3}
+        _df_sr_tl["winner_code"] = _df_sr_tl["winner"].map(_winner_codes).astype(float)
+        _band_colorscale = [
+            [0.000, "#2ECC71"], [0.249, "#2ECC71"],
+            [0.250, "#E74C3C"], [0.499, "#E74C3C"],
+            [0.500, "#F1C40F"], [0.749, "#F1C40F"],
+            [0.750, "#3498DB"], [1.000, "#3498DB"],
+        ]
+        _band_customdata = np.array(
+            [[_SR_CN.get(w, w) for w in _df_sr_tl["winner"]]],
+            dtype=object,
+        )
+
+        fig_sr = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            row_heights=[0.16, 0.84],
+            vertical_spacing=0.03,
+        )
+        fig_sr.add_trace(
+            go.Heatmap(
                 x=_df_sr_tl["date"],
-                y=_df_sr_tl[k].astype(float),
-                mode="lines",
-                stackgroup="one",
-                name=_SR_CN.get(k, k),
-                line=dict(width=0.5, color=_SR_COLOR.get(k, "#888")),
-                fillcolor=_SR_COLOR.get(k, "#888"),
-                hovertemplate=f"%{{x|%Y-%m-%d}}<br>{_SR_CN.get(k, k)}: %{{y:.1%}}<extra></extra>",
-            ))
+                y=["winner"],
+                z=[_df_sr_tl["winner_code"].values],
+                colorscale=_band_colorscale,
+                zmin=-0.5, zmax=3.5,
+                showscale=False,
+                customdata=_band_customdata,
+                hovertemplate="%{x|%Y-%m-%d}<br>当日 winner: %{customdata}<extra></extra>",
+            ),
+            row=1, col=1,
+        )
+        for k in ["Soft", "Hot", "Stag", "Rec"]:
+            fig_sr.add_trace(
+                go.Scatter(
+                    x=_df_sr_tl["date"],
+                    y=_df_sr_tl[k].astype(float),
+                    mode="lines",
+                    name=_SR_CN.get(k, k),
+                    line=dict(color=_SR_COLOR.get(k, "#888"), width=1.6),
+                    hovertemplate=f"%{{x|%Y-%m-%d}}<br>{_SR_CN.get(k, k)}: %{{y:.1%}}<extra></extra>",
+                ),
+                row=2, col=1,
+            )
+        fig_sr.add_hline(y=0.25, line_dash="dot", line_color="rgba(255,255,255,0.25)",
+                         annotation_text="均分线 25%", annotation_position="right", row=2, col=1)
+        fig_sr.add_hline(y=0.35, line_dash="dash", line_color="rgba(255,255,255,0.35)",
+                         annotation_text="显著切换 35%", annotation_position="right", row=2, col=1)
+        fig_sr.update_yaxes(showticklabels=False, showgrid=False, row=1, col=1)
+        fig_sr.update_yaxes(
+            title="4 剧本概率", tickformat=".0%", range=[0, 1],
+            showgrid=True, gridcolor="rgba(255,255,255,0.06)", row=2, col=1,
+        )
+        fig_sr.update_xaxes(showgrid=False, row=1, col=1)
+        fig_sr.update_xaxes(showgrid=False, row=2, col=1)
         fig_sr.update_layout(
-            height=320,
-            margin=dict(l=20, r=20, t=40, b=20),
+            height=420,
+            margin=dict(l=20, r=20, t=50, b=20),
             plot_bgcolor="#111111", paper_bgcolor="#111111",
             font=dict(color="#ddd"),
             hovermode="x unified",
-            yaxis=dict(title="4 剧本概率（堆叠 = 100%）", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                       tickformat=".0%", range=[0, 1]),
-            xaxis=dict(showgrid=False),
-            title=dict(text="6 年板块轮动剧本概率演化（堆叠面积）", font=dict(size=14), x=0.01, xanchor="left"),
-            legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
+            legend=dict(orientation="h", y=1.18, x=0.5, xanchor="center", font=dict(size=12)),
+            title=dict(
+                text="6 年 sector_rotation 剧本切换 · 上层 winner 色带（切换瞬间陡峭） · 下层 4 概率独立折线",
+                font=dict(size=14), x=0.01, xanchor="left",
+            ),
         )
         st.plotly_chart(fig_sr, use_container_width=True)
+
+    # ── 11 板块 RS 历史热力图（6 年）──
+    # 前端直接复现后端 _compute_sector_rs_multi 的加权 RS（20D 0.25 + 60D 0.5 + 120D 0.25），
+    # 保证和 §"当前 11 板块 RS 排名表"列出来的 RS 60D 同一口径。
+    _SECTORS_11_HM = ["XLK", "XLF", "XLV", "XLY", "XLP", "XLE",
+                      "XLI", "XLB", "XLU", "XLRE", "XLC"]
+    _sectors_avail_hm = [
+        t for t in _SECTORS_11_HM
+        if df_prices is not None and t in df_prices.columns
+    ]
+    _spy_ok_hm = (
+        df_prices is not None and "SPY" in df_prices.columns
+        and len(df_prices) >= 200
+    )
+    if len(_sectors_avail_hm) >= 8 and _spy_ok_hm:
+        _RS_HM_LOOKBACKS = {20: 0.25, 60: 0.50, 120: 0.25}
+        _spy_pct_hm = {L: df_prices["SPY"].pct_change(L) for L in _RS_HM_LOOKBACKS}
+        _hm_dict = {}
+        for _t in _sectors_avail_hm:
+            _rs_w = None
+            for _L, _w in _RS_HM_LOOKBACKS.items():
+                _r = df_prices[_t].pct_change(_L) - _spy_pct_hm[_L]
+                _rs_w = _r * _w if _rs_w is None else _rs_w + _r * _w
+            _hm_dict[_t] = _rs_w
+        _df_hm_rs = pd.DataFrame(_hm_dict).dropna(how="all")
+        if len(_df_hm_rs) > 1500:
+            _df_hm_rs = _df_hm_rs.iloc[-1500:]
+
+        # y 轴按当前 rank 从强到弱排（rank=1 在顶部）
+        _y_order_hm = sorted(_sectors_avail_hm,
+                             key=lambda t: int(_sr_ranks.get(t, 9999)))
+        _z_hm = _df_hm_rs[_y_order_hm].T.values.astype(float)
+
+        st.markdown("**🌡️ 11 板块 RS 加权历史热力图（6 年；y 轴按当前排名从强到弱）**")
+        fig_hm = go.Figure(data=go.Heatmap(
+            z=_z_hm,
+            x=_df_hm_rs.index,
+            y=_y_order_hm,
+            colorscale="RdYlGn",
+            zmid=0.0, zmin=-0.15, zmax=0.15,
+            colorbar=dict(title="RS", thickness=12, tickformat=".0%"),
+            hovertemplate=("日期: %{x|%Y-%m-%d}<br>板块: %{y}"
+                           "<br>加权 RS: %{z:+.2%}<extra></extra>"),
+        ))
+        fig_hm.update_layout(
+            height=380,
+            margin=dict(l=20, r=20, t=40, b=20),
+            plot_bgcolor="#111111", paper_bgcolor="#111111",
+            font=dict(color="#ddd"),
+            title=dict(
+                text="绿 = 跑赢 SPY，红 = 跑输 SPY · 横看每板块的持续走强/走弱时段",
+                font=dict(size=13), x=0.01, xanchor="left",
+            ),
+            yaxis=dict(autorange="reversed"),
+            xaxis=dict(showgrid=False),
+        )
+        st.plotly_chart(fig_hm, use_container_width=True)
 
     # ── 当前 11 板块 RS 排名表 ──
     if _sr_ranks:
@@ -1221,6 +1325,14 @@ else:
 
     with st.expander("📖 算法白盒 & 为什么和 horsemen 并联", expanded=False):
         st.markdown("""
+**两张时序图怎么读**
+
+- **上层 winner 色带**：每天的颜色 = 当日 sector_rotation 的 winner（绿=软着陆 / 红=再通胀 / 黄=滞胀 / 蓝=衰退）。**色块边界 = 剧本切换日**，肉眼即可数清 6 年里发生过几次切换。
+- **下层 4 概率折线**：4 条独立折线，**winner 通常贴近或高于 35% 虚线**（显著切换阈值）；4 条都在 25% 均分线附近 = 低置信"模糊期"。
+- **11 板块 RS 热力图**：横轴 6 年时间，纵轴 11 板块按当前排名从强到弱排。**横看一行**得到「这个板块从什么时候开始持续走强/走弱」；**竖看一列**得到「这一天 11 板块各自表现」。配合上方 winner 色带切换日 → 验证模板：例如 2022-04 切到 Stag 当天起 XLE 那行应该开始大片绿、XLK 那行开始大片红。
+
+---
+
 **为什么要有这套？**
 
 主理人质疑过四象限剧本"切了又切回去没意义"——美股 75%+ 时间软着陆，宏观变量切换得太慢且经常反复，按 horsemen 月频信号操作大概率跑不赢 buy-hold SPY。
