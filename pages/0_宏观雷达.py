@@ -44,6 +44,60 @@ with st.sidebar:
         st.rerun()
 
 # ============================================================
+# 主升浪识别（ZigZag 思路，事后回看一次扫描，无未来函数）
+# 反向回撤超过 swing 才确认上升段结束。swing 按窗口振幅 × 比例自适应，
+# 过滤"震荡中的小上涨"，只保留大结构主升浪。
+# ============================================================
+def _zigzag_up_mask(values: np.ndarray, swing: float) -> np.ndarray:
+    n = len(values)
+    mask = np.zeros(n, dtype=bool)
+    if n < 2 or swing <= 0:
+        return mask
+    first = 0
+    while first < n and not np.isfinite(values[first]):
+        first += 1
+    if first >= n - 1:
+        return mask
+    hi_idx = lo_idx = first
+    hi_val = lo_val = float(values[first])
+    trend = 0
+    seg_start = first
+    for i in range(first + 1, n):
+        v = values[i]
+        if not np.isfinite(v):
+            continue
+        v = float(v)
+        if trend == 0:
+            if v > hi_val: hi_idx, hi_val = i, v
+            if v < lo_val: lo_idx, lo_val = i, v
+            if hi_val - lo_val >= swing:
+                if lo_idx < hi_idx:
+                    trend = +1
+                    seg_start = lo_idx
+                else:
+                    trend = -1
+                    seg_start = hi_idx
+        elif trend == +1:
+            if v > hi_val:
+                hi_idx, hi_val = i, v
+            elif hi_val - v >= swing:
+                mask[seg_start:hi_idx + 1] = True
+                trend = -1
+                seg_start = hi_idx
+                lo_idx, lo_val = i, v
+        else:
+            if v < lo_val:
+                lo_idx, lo_val = i, v
+            elif v - lo_val >= swing:
+                trend = +1
+                seg_start = lo_idx
+                hi_idx, hi_val = i, v
+    if trend == +1:
+        mask[seg_start:hi_idx + 1] = True
+    return mask
+
+
+# ============================================================
 # 数据层（四个 section 共享）
 # ============================================================
 _PAGE_TICKERS = [
@@ -183,7 +237,7 @@ else:
         "**复合分 = 相对强度 RS + 估值 Z-Score**（越强 + 越贵得分越高，5 日 EMA 平滑）· "
         "**窗口随 tab 缩放**：短 tab 用快窗口看择时（RS_20d/Z_250d）、长 tab 用慢窗口看大周期（RS_252d/Z_750d）· "
         "Y 轴绝对值就是强度，越高越强、越低越弱 · "
-        "**着色**：每个时间点 14 个板块按复合分排名，**Top 5 段彩色高亮**、其余段淡灰，颜色随时间动态切换"
+        "**着色**：每条板块自身的**主升浪段彩色高亮**（ZigZag 识别，反向回撤超过自身振幅 15% 才算段结束），震荡 / 下跌段淡灰显示，事后回看无未来函数"
     )
 
     if not selected_groups:
@@ -246,17 +300,29 @@ else:
                 _curr_score = _comp_smooth_df.iloc[-1].dropna().sort_values(ascending=False)
                 _tickers_sorted = _curr_score.index.tolist()
 
-                # 每个时间点按平滑后复合分排名，Top 5 段彩色高亮、其余段淡灰
-                _TOP_N = 5
+                # 主升浪识别：每条板块独立 ZigZag，swing = max(5, 自身振幅 × 15%)
+                _SWING_FRAC = 0.15
+                _SWING_FLOOR = 5.0
+                _up_mask_df = pd.DataFrame(
+                    False, index=_comp_smooth_df.index, columns=_comp_smooth_df.columns
+                )
+                for _tk in _comp_smooth_df.columns:
+                    _s = _comp_smooth_df[_tk].to_numpy(dtype=float)
+                    _finite = _s[np.isfinite(_s)]
+                    if len(_finite) >= 2:
+                        _amp = float(_finite.max() - _finite.min())
+                        _swing = max(_SWING_FLOOR, _SWING_FRAC * _amp)
+                        _up_mask_df[_tk] = _zigzag_up_mask(_s, _swing)
+
+                # 当日排名仅供 hover 显示（与着色解耦）
                 _rank_smooth_df = _comp_smooth_df.rank(axis=1, ascending=False, method='min')
-                _top_mask_df = _rank_smooth_df <= _TOP_N
 
                 fig_wave = go.Figure()
                 for i, tk in enumerate(_tickers_sorted):
                     _color = _PALETTE[i % len(_PALETTE)]
                     _y_full = _comp_smooth_df[tk].values
-                    _mask = _top_mask_df[tk].values
-                    _y_top  = np.where(_mask,  _y_full, np.nan)
+                    _mask = _up_mask_df[tk].values
+                    _y_up   = np.where(_mask,  _y_full, np.nan)
                     _y_rest = np.where(~_mask, _y_full, np.nan)
                     _cust = np.stack([
                         _comp_df[tk].values,
@@ -264,8 +330,8 @@ else:
                         _z_df[tk].values,
                         _rank_smooth_df[tk].values,
                     ], axis=-1)
-                    _hover = (
-                        f"<b>{_name_map.get(tk, tk)}</b> ({tk})<br>"
+                    _hover_up = (
+                        f"<b>{_name_map.get(tk, tk)}</b> ({tk})  🟢 主升浪<br>"
                         "%{x|%Y-%m-%d}<br>"
                         "复合分(平滑) %{y:+.2f}<br>"
                         f"当日排名 第%{{customdata[3]:.0f}} / {_n_pool}<br>"
@@ -274,7 +340,16 @@ else:
                         f"Z_{_z_w}d "  "%{customdata[2]:+.2f}"
                         "<extra></extra>"
                     )
-                    # 非 Top 段：淡灰打底（不进 legend）
+                    _hover_rest = (
+                        f"<b>{_name_map.get(tk, tk)}</b> ({tk})  ⚪ 震荡/下跌<br>"
+                        "%{x|%Y-%m-%d}<br>"
+                        "复合分(平滑) %{y:+.2f}<br>"
+                        f"当日排名 第%{{customdata[3]:.0f}} / {_n_pool}<br>"
+                        "复合分(原始) %{customdata[0]:+.2f}<br>"
+                        f"RS_{_rs_w}d " "%{customdata[1]:+.2f}%<br>"
+                        f"Z_{_z_w}d "  "%{customdata[2]:+.2f}"
+                        "<extra></extra>"
+                    )
                     fig_wave.add_trace(go.Scatter(
                         x=_comp_smooth_df.index,
                         y=_y_rest,
@@ -284,19 +359,18 @@ else:
                         showlegend=False,
                         line=dict(color='rgba(150,150,150,0.18)', width=0.8),
                         customdata=_cust,
-                        hovertemplate=_hover,
+                        hovertemplate=_hover_rest,
                         connectgaps=False,
                     ))
-                    # Top N 段：原色高亮（带 legend）
                     fig_wave.add_trace(go.Scatter(
                         x=_comp_smooth_df.index,
-                        y=_y_top,
+                        y=_y_up,
                         mode='lines',
                         name=_name_map.get(tk, tk),
                         legendgroup=tk,
                         line=dict(color=_color, width=1.8),
                         customdata=_cust,
-                        hovertemplate=_hover,
+                        hovertemplate=_hover_up,
                         connectgaps=False,
                     ))
 
