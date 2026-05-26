@@ -35,7 +35,7 @@ st.caption("市场结构总览 · 全景雷达 · 趋势状态机 · 传导链 �
 with st.sidebar:
     if st.button("🔄 强制刷新雷达数据"):
         fetch_macro_radar.clear()
-        fetch_macro_radar_timeseries.clear()
+        fetch_macro_radar_timeseries.clear()   # streamlit cache_data 按参数自动分桶，clear 一次即清所有 window
         fetch_current_regime.clear()
         compute_macro_regime_api.clear()
         get_global_data.clear()
@@ -52,10 +52,15 @@ _PAGE_TICKERS = [
     "XLI", "XLB", "XLU", "XLRE", "XLC",
 ]
 
+_WAVE_TAB_WINDOWS = ["1M", "3M", "6M", "1Y", "5Y", "10Y"]
+
 with st.spinner("📊 加载市场结构数据..."):
     df_prices       = get_global_data(_PAGE_TICKERS, years=10)
     _radar          = fetch_macro_radar()
-    _radar_ts       = fetch_macro_radar_timeseries()
+    # 6 个 tab 各 fetch 一次（后端按 window 用不同 RS/Z 窗口计算）
+    _radar_ts_by_window = {
+        w: fetch_macro_radar_timeseries(window=w) for w in _WAVE_TAB_WINDOWS
+    }
     _current_regime = fetch_current_regime()
     _chain_regime   = compute_macro_regime_api(z_window=750)
     _cp             = fetch_changepoint()
@@ -169,34 +174,49 @@ else:
 
     # ── §1.5 板块强度波形 (Sector Strength Waveform) ─────────────────
     # 复合分 = RS + Z-Score（越强 + 越贵得分越高）
-    # Y 轴用复合分本身（连续值），强者集中在图上方、弱者在下方，Y 轴空间分布自带分层
+    # 窗口随 tab 时间尺度缩放：短 tab 用快窗口看择时、长 tab 用慢窗口看大势
+    # Y 轴用复合分本身（连续值），强者集中在图上方、弱者在下方
     # 5 日 EMA 平滑让线条像波浪而不是日内锯齿
-    # 摘要卡片用排名变化（"零售从 #11 升到 #3" 比纯数值变化更有故事性）
     st.markdown("---")
     st.markdown("### 📈 板块强度波形 (Sector Strength Waveform)")
     st.caption(
         "**复合分 = 相对强度 RS + 估值 Z-Score**（越强 + 越贵得分越高，5 日 EMA 平滑）· "
-        "Y 轴绝对值就是强度，越高越强、越低越弱 · 看波浪式轮动"
+        "**窗口随 tab 缩放**：短 tab 用快窗口看择时（RS_20d/Z_250d）、长 tab 用慢窗口看大周期（RS_252d/Z_750d）· "
+        "Y 轴绝对值就是强度，越高越强、越低越弱"
     )
 
-    if not _radar_ts.get("success"):
-        st.warning(f"⚠️ 时序数据暂不可用：{_radar_ts.get('error', '未知错误')}")
-    elif not selected_groups:
+    if not selected_groups:
         st.info("👈 请在侧边栏勾选至少一个组别")
     else:
-        _ts_tickers = _radar_ts.get("tickers", {}) or {}
-        _ts_dates_raw = _radar_ts.get("dates", []) or []
-        if not _ts_tickers or not _ts_dates_raw:
-            st.warning("⚠️ 后端时序数据为空")
-        else:
-            _ts_dates = pd.to_datetime(_ts_dates_raw, errors="coerce")
-            _picked = {
-                tk: payload for tk, payload in _ts_tickers.items()
-                if payload.get("group", "") in selected_groups
-            }
-            if not _picked:
-                st.warning("⚠️ 选中组别在时序数据中无可用 ticker")
-            else:
+        _PALETTE = px.colors.qualitative.Light24
+
+        _tab_1m, _tab_3m, _tab_6m, _tab_1y, _tab_5y, _tab_10y = st.tabs([
+            "📅 近 1 个月 (1M)", "📅 近 3 个月 (3M)",
+            "📅 近 6 个月 (6M)", "📅 近 1 年 (1Y)",
+            "📅 近 5 年 (5Y)",   "📅 近 10 年 (10Y)",
+        ])
+
+        def _render_wave_tab(window_name, tab):
+            with tab:
+                _radar_ts = _radar_ts_by_window.get(window_name, {})
+                if not _radar_ts.get("success"):
+                    st.warning(f"⚠️ {window_name} 时序数据暂不可用：{_radar_ts.get('error', '未知错误')}")
+                    return
+                _ts_tickers = _radar_ts.get("tickers", {}) or {}
+                _ts_dates_raw = _radar_ts.get("dates", []) or []
+                if not _ts_tickers or not _ts_dates_raw:
+                    st.warning(f"⚠️ {window_name} 后端时序数据为空")
+                    return
+
+                _picked = {
+                    tk: payload for tk, payload in _ts_tickers.items()
+                    if payload.get("group", "") in selected_groups
+                }
+                if not _picked:
+                    st.warning(f"⚠️ {window_name}: 选中组别在时序数据中无可用 ticker")
+                    return
+
+                _ts_dates = pd.to_datetime(_ts_dates_raw, errors="coerce")
                 _comp_df = pd.DataFrame(
                     {tk: p.get("composite", []) for tk, p in _picked.items()},
                     index=_ts_dates,
@@ -209,134 +229,116 @@ else:
                     {tk: p.get("z", []) for tk, p in _picked.items()},
                     index=_ts_dates,
                 ).astype(float)
-                # 5 日 EMA 平滑：让线条像波浪而不是日内锯齿
                 _comp_smooth_df = _comp_df.ewm(span=5, adjust=False).mean()
-                # 排名用未平滑的复合分算（摘要卡片用），rank=1 最强
-                _rank_df = _comp_df.rank(axis=1, ascending=False, method='min')
+                _rank_df = _comp_df.rank(axis=1, ascending=False, method='min').dropna(how="all")
 
                 _name_map = {tk: p.get("name", tk) for tk, p in _picked.items()}
                 _n_pool   = len(_picked)
-                _WINDOW_DAYS = {
-                    "1M": 21, "3M": 63, "6M": 126,
-                    "1Y": 252, "5Y": 1260, "10Y": 2520,
-                }
-                _PALETTE = px.colors.qualitative.Light24
+                _rs_w     = _radar_ts.get("rs_window", "?")
+                _z_w      = _radar_ts.get("z_window", "?")
 
-                _tab_1m, _tab_3m, _tab_6m, _tab_1y, _tab_5y, _tab_10y = st.tabs([
-                    "📅 近 1 个月 (1M)", "📅 近 3 个月 (3M)",
-                    "📅 近 6 个月 (6M)", "📅 近 1 年 (1Y)",
-                    "📅 近 5 年 (5Y)",   "📅 近 10 年 (10Y)",
-                ])
+                if _comp_smooth_df.empty or len(_comp_smooth_df) < 2:
+                    st.warning(f"⚠️ {window_name} 窗口数据不足")
+                    return
 
-                def _render_wave_tab(window_name, tab):
-                    with tab:
-                        _n = _WINDOW_DAYS[window_name]
-                        _seg_smooth = _comp_smooth_df.iloc[-_n:]
-                        _seg_comp   = _comp_df.iloc[-_n:]
-                        _seg_rs     = _rs_df.iloc[-_n:]
-                        _seg_z      = _z_df.iloc[-_n:]
-                        _seg_rank   = _rank_df.iloc[-_n:].dropna(how="all")
-                        if _seg_smooth.empty or len(_seg_smooth) < 2:
-                            st.warning(f"⚠️ {window_name} 窗口数据不足")
-                            return
+                # legend 按当前复合分（最后一日，平滑后）降序——强者排在 legend 顶部
+                _curr_score = _comp_smooth_df.iloc[-1].dropna().sort_values(ascending=False)
+                _tickers_sorted = _curr_score.index.tolist()
 
-                        # legend 按当前复合分（最后一日，平滑后）降序——强者排在 legend 顶部
-                        _curr_score = _seg_smooth.iloc[-1].dropna().sort_values(ascending=False)
-                        _tickers_sorted = _curr_score.index.tolist()
+                fig_wave = go.Figure()
+                for i, tk in enumerate(_tickers_sorted):
+                    _color = _PALETTE[i % len(_PALETTE)]
+                    _cust = np.stack([
+                        _comp_df[tk].values,
+                        _rs_df[tk].values,
+                        _z_df[tk].values,
+                    ], axis=-1)
+                    _hover = (
+                        f"<b>{_name_map.get(tk, tk)}</b> ({tk})<br>"
+                        "%{x|%Y-%m-%d}<br>"
+                        "复合分(平滑) %{y:+.2f}<br>"
+                        "复合分(原始) %{customdata[0]:+.2f}<br>"
+                        f"RS_{_rs_w}d " "%{customdata[1]:+.2f}%<br>"
+                        f"Z_{_z_w}d "  "%{customdata[2]:+.2f}"
+                        "<extra></extra>"
+                    )
+                    fig_wave.add_trace(go.Scatter(
+                        x=_comp_smooth_df.index,
+                        y=_comp_smooth_df[tk].values,
+                        mode='lines',
+                        name=_name_map.get(tk, tk),
+                        line=dict(color=_color, width=1.8),
+                        customdata=_cust,
+                        hovertemplate=_hover,
+                    ))
 
-                        fig_wave = go.Figure()
-                        for i, tk in enumerate(_tickers_sorted):
-                            _color = _PALETTE[i % len(_PALETTE)]
-                            _cust = np.stack([
-                                _seg_comp[tk].values,
-                                _seg_rs[tk].values,
-                                _seg_z[tk].values,
-                            ], axis=-1)
-                            _hover = (
-                                f"<b>{_name_map.get(tk, tk)}</b> ({tk})<br>"
-                                "%{x|%Y-%m-%d}<br>"
-                                "复合分(平滑) %{y:+.2f}<br>"
-                                "复合分(原始) %{customdata[0]:+.2f}<br>"
-                                "RS %{customdata[1]:+.2f}%<br>"
-                                "Z %{customdata[2]:+.2f}"
-                                "<extra></extra>"
-                            )
-                            fig_wave.add_trace(go.Scatter(
-                                x=_seg_smooth.index,
-                                y=_seg_smooth[tk].values,
-                                mode='lines',
-                                name=_name_map.get(tk, tk),
-                                line=dict(color=_color, width=1.8),
-                                customdata=_cust,
-                                hovertemplate=_hover,
-                            ))
+                fig_wave.add_hline(
+                    y=0, line_dash="dash", line_color="rgba(255,255,255,0.35)",
+                    annotation_text="基准 (= SPY)", annotation_position="right",
+                )
 
-                        fig_wave.add_hline(
-                            y=0, line_dash="dash", line_color="rgba(255,255,255,0.35)",
-                            annotation_text="基准 (= SPY)", annotation_position="right",
-                        )
+                fig_wave.update_layout(
+                    height=520,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    plot_bgcolor='#111111', paper_bgcolor='#111111',
+                    font=dict(color='#ddd'),
+                    hovermode="closest",
+                    legend=dict(orientation="v", y=1.0, x=1.02, font=dict(size=11)),
+                    xaxis=dict(showgrid=False),
+                    yaxis=dict(
+                        title=f"复合分 = RS_{_rs_w}d + Z_{_z_w}d（越高越强）",
+                        zeroline=False,
+                        showgrid=True, gridcolor='rgba(255,255,255,0.06)',
+                    ),
+                    title=dict(
+                        text=f"{window_name} 强度波形 · RS_{_rs_w}d + Z_{_z_w}d · 共 {_n_pool} 个板块",
+                        font=dict(size=14), x=0.01, xanchor='left',
+                    ),
+                )
+                st.plotly_chart(fig_wave, use_container_width=True)
 
-                        fig_wave.update_layout(
-                            height=520,
-                            margin=dict(l=20, r=20, t=40, b=20),
-                            plot_bgcolor='#111111', paper_bgcolor='#111111',
-                            font=dict(color='#ddd'),
-                            hovermode="closest",
-                            legend=dict(orientation="v", y=1.0, x=1.02, font=dict(size=11)),
-                            xaxis=dict(showgrid=False),
-                            yaxis=dict(
-                                title="复合分 = RS + Z（越高越强）",
-                                zeroline=False,
-                                showgrid=True, gridcolor='rgba(255,255,255,0.06)',
-                            ),
-                            title=dict(
-                                text=f"{window_name} 强度波形 · 共 {_n_pool} 个板块（legend 按当前强度从高到低）",
-                                font=dict(size=14), x=0.01, xanchor='left',
-                            ),
-                        )
-                        st.plotly_chart(fig_wave, use_container_width=True)
+                if len(_rank_df) >= 2:
+                    _start_rank = _rank_df.iloc[0]
+                    _end_rank   = _rank_df.iloc[-1]
+                    _delta = _start_rank - _end_rank   # 正 = 排名上升（数字变小）
+                    _delta_df = pd.DataFrame({
+                        "板块":     [_name_map.get(tk, tk) for tk in _delta.index],
+                        "代码":     _delta.index,
+                        "起点排名": _start_rank.values,
+                        "当前排名": _end_rank.values,
+                        "排名变化": _delta.values,
+                    }).dropna().sort_values("排名变化", ascending=False)
+                    _ups = _delta_df.head(3)
+                    _dns = _delta_df.tail(3).iloc[::-1]
 
-                        _start_rank = _seg_rank.iloc[0]
-                        _end_rank   = _seg_rank.iloc[-1]
-                        _delta = _start_rank - _end_rank   # 正 = 排名上升（数字变小）
-                        _delta_df = pd.DataFrame({
-                            "板块":     [_name_map.get(tk, tk) for tk in _delta.index],
-                            "代码":     _delta.index,
-                            "起点排名": _start_rank.values,
-                            "当前排名": _end_rank.values,
-                            "排名变化": _delta.values,
-                        }).dropna().sort_values("排名变化", ascending=False)
-                        _ups = _delta_df.head(3)
-                        _dns = _delta_df.tail(3).iloc[::-1]
+                    _ups_html = " ".join([
+                        f"<span class='tag-bull'>{r['板块']} #{int(r['起点排名'])}→#{int(r['当前排名'])} (+{int(r['排名变化'])})</span>"
+                        for _, r in _ups.iterrows() if r["排名变化"] > 0
+                    ]) or "—"
+                    _dns_html = " ".join([
+                        f"<span class='tag-bear'>{r['板块']} #{int(r['起点排名'])}→#{int(r['当前排名'])} ({int(r['排名变化'])})</span>"
+                        for _, r in _dns.iterrows() if r["排名变化"] < 0
+                    ]) or "—"
 
-                        _ups_html = " ".join([
-                            f"<span class='tag-bull'>{r['板块']} #{int(r['起点排名'])}→#{int(r['当前排名'])} (+{int(r['排名变化'])})</span>"
-                            for _, r in _ups.iterrows() if r["排名变化"] > 0
-                        ]) or "—"
-                        _dns_html = " ".join([
-                            f"<span class='tag-bear'>{r['板块']} #{int(r['起点排名'])}→#{int(r['当前排名'])} ({int(r['排名变化'])})</span>"
-                            for _, r in _dns.iterrows() if r["排名变化"] < 0
-                        ]) or "—"
-
-                        st.markdown(f"""
+                    st.markdown(f"""
 <div class='insight-box'>
-<div class='insight-title'>🌊 板块轮动摘要 ({window_name} 窗口)</div>
+<div class='insight-title'>🌊 板块轮动摘要 ({window_name} 窗口 · RS_{_rs_w}d + Z_{_z_w}d)</div>
 <div style='display:flex; gap:24px; align-items:center; margin-bottom:6px; flex-wrap:wrap'>
 <div>🚀 排名上升 Top3: {_ups_html}</div>
 <div>🥀 排名下降 Top3: {_dns_html}</div>
 </div>
 <div class='insight-section' style='font-size:13px; color:#888;'>
-读法：<b style='color:#aaa;'>线在 0 上方</b> = 强于基准 SPY；<b style='color:#aaa;'>线在 0 下方</b> = 弱于基准。<b style='color:#aaa;'>波形抬升</b> = 板块强度在增强（资金轮入）；<b style='color:#aaa;'>波形下沉</b> = 强度走弱（资金离开）。复合分 = RS（动量）+ Z（估值），5 日 EMA 平滑。
+读法：<b style='color:#aaa;'>线在 0 上方</b> = 强于基准 SPY；<b style='color:#aaa;'>线在 0 下方</b> = 弱于基准。<b style='color:#aaa;'>波形抬升</b> = 板块强度在增强（资金轮入）；<b style='color:#aaa;'>波形下沉</b> = 强度走弱（资金离开）。<b>本 tab 窗口</b>：RS={_rs_w} 日动量、Z={_z_w} 日估值偏离。
 </div>
 </div>
 """, unsafe_allow_html=True)
 
-                _render_wave_tab("1M",  _tab_1m)
-                _render_wave_tab("3M",  _tab_3m)
-                _render_wave_tab("6M",  _tab_6m)
-                _render_wave_tab("1Y",  _tab_1y)
-                _render_wave_tab("5Y",  _tab_5y)
-                _render_wave_tab("10Y", _tab_10y)
+        _render_wave_tab("1M",  _tab_1m)
+        _render_wave_tab("3M",  _tab_3m)
+        _render_wave_tab("6M",  _tab_6m)
+        _render_wave_tab("1Y",  _tab_1y)
+        _render_wave_tab("5Y",  _tab_5y)
+        _render_wave_tab("10Y", _tab_10y)
 
 # ============================================================
 # Section 2: 大盘趋势状态机 (Market Trend Matrix)

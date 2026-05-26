@@ -2,6 +2,41 @@
 
 ---
 
+## 2026-05-26 | Page 0 §1.5 波形图窗口随 tab 时间尺度缩放
+
+**动因**：5Y / 10Y tab 用固定 RS_20d / Z_250d 窗口画图，20 日 RS 在年级别尺度上变成高频噪声，盖掉了想看的「3-4 年大轮动」。主理人提出「越长的时间线窗口尺度越大」——长尺度看大势、短尺度看择时，这是技术分析通用做法（日 K 看 20日均线、周 K 看 20周均线）。
+
+**底层雷达主表 / z_scanner / gate / arena 保持 RS_20d / Z_250d 不变**——它们的本职是「监控当下、做今日排序」，快窗口正确。本次只改波形图展示层。
+
+**改动**：
+
+1. `api_client.py` `fetch_macro_radar_timeseries(window)` 加参数（默认 1Y），后端 `?window=` 透传。`st.cache_data` 按参数自动分桶。
+2. `pages/0_宏观雷达.py`:
+   - 顶部 spinner 改成 6 次 fetch：`_radar_ts_by_window = {w: fetch_macro_radar_timeseries(window=w) for w in [...]}`
+   - 删除前端 `_WINDOW_DAYS` 切片逻辑——后端已经按 window 切了显示天数
+   - `_render_wave_tab` 改成在函数内取对应 window 的 `_radar_ts`，每个 tab 用自己的 RS/Z 数据
+   - hover / 图标题 / 摘要卡片均显示当前 tab 的 `RS_Nd + Z_Md` 实际窗口，避免和雷达主表概念混淆
+   - caption 改成「窗口随 tab 缩放：短 tab 用快窗口看择时、长 tab 用慢窗口看大周期」
+
+**窗口对应表**（详见后端 `_WAVEFORM_WINDOW_CONFIG`）：
+
+| Tab | RS | Z | 显示天数 | 看什么 |
+|---|---|---|---|---|
+| 1M | 20d | 250d | 21 | 短期择时 |
+| 3M | 60d | 250d | 63 | 季度轮动 |
+| 6M | 60d | 250d | 126 | 季度轮动 |
+| 1Y | 120d | 250d | 252 | 半年-年级别轮动 |
+| 5Y | 252d | 500d | 1260 | 多年大逻辑 |
+| 10Y | 252d | 750d | 2520 | 多年大逻辑 |
+
+**验收**：
+
+- 5Y / 10Y tab 的波形从月级抖动变成年级别平滑曲线
+- 1M tab 行为和改动前一致（窗口未变）
+- Hover tooltip 在不同 tab 显示 `RS_20d` / `RS_120d` / `RS_252d` 等对应窗口
+
+---
+
 ## 2026-05-26 | Page 0 §1.5 波形图加 5Y / 10Y 长周期 tab
 
 后端 `compute_radar_timeseries` 下载窗口拉到 10 年（详见 valuation-radar DEV_LOG 同日条目），前端 §1.5 tab 从 4 个加到 6 个：
