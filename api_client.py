@@ -811,6 +811,20 @@ def fetch_macro_radar() -> dict:
         return {"success": False, "metrics": [], "spy_mom20": 0.0, "insights": {}}
 
 
+@st.cache_data(ttl=3600 * 4)
+def fetch_macro_radar_timeseries() -> dict:
+    """从后端获取雷达指标历史时序（每日 RS / Z / 复合分），供 Page 0 §1 Bump Chart 使用。
+    后端返回 ~270 个交易日（足够 1Y tab），排名由前端按选中组别动态计算。
+    返回 {"success": True, "asof": "YYYY-MM-DD", "dates": [...], "tickers": {ticker: {...}}}。
+    """
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/radar/timeseries", timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "dates": [], "tickers": {}}
+
+
 @st.cache_data(ttl=3600)
 def fetch_changepoint() -> dict:
     """从后端获取变点检测数据包（多变量 CUSUM）。

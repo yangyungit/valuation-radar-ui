@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 
 from api_client import (
     fetch_macro_radar,
+    fetch_macro_radar_timeseries,
     fetch_current_regime,
     get_global_data,
     compute_macro_regime_api,
@@ -34,6 +35,7 @@ st.caption("市场结构总览 · 全景雷达 · 趋势状态机 · 传导链 �
 with st.sidebar:
     if st.button("🔄 强制刷新雷达数据"):
         fetch_macro_radar.clear()
+        fetch_macro_radar_timeseries.clear()
         fetch_current_regime.clear()
         compute_macro_regime_api.clear()
         get_global_data.clear()
@@ -53,6 +55,7 @@ _PAGE_TICKERS = [
 with st.spinner("📊 加载市场结构数据..."):
     df_prices       = get_global_data(_PAGE_TICKERS, years=10)
     _radar          = fetch_macro_radar()
+    _radar_ts       = fetch_macro_radar_timeseries()
     _current_regime = fetch_current_regime()
     _chain_regime   = compute_macro_regime_api(z_window=750)
     _cp             = fetch_changepoint()
@@ -163,6 +166,160 @@ else:
             ).format({"Z-Score": "{:.2f}", "相对强度": "{:.2f}", "L/VL": "{:.2f}"}),
             use_container_width=True, hide_index=True
         )
+
+    # ── §1.5 板块强度时序 Bump Chart ──────────────────────────────────
+    # 复合分 = RS + Z-Score（越强 + 越贵得分越高）
+    # RS 量纲（百分比 ±10）主导排名，Z（±3）在动量接近时起 tie-break
+    # 排名在选中组别内部动态计算；4 tab 切换 1M/3M/6M/1Y
+    st.markdown("---")
+    st.markdown("### 📈 板块强度时序 Bump Chart (Sector Strength Over Time)")
+    st.caption(
+        "**复合分 = 相对强度 RS + 估值 Z-Score**（越强 + 越贵得分越高）· "
+        "每日按上方 sidebar 选中组别内部排名（rank=1 最强）· 看波浪式轮动"
+    )
+
+    if not _radar_ts.get("success"):
+        st.warning(f"⚠️ 时序数据暂不可用：{_radar_ts.get('error', '未知错误')}")
+    elif not selected_groups:
+        st.info("👈 请在侧边栏勾选至少一个组别")
+    else:
+        _ts_tickers = _radar_ts.get("tickers", {}) or {}
+        _ts_dates_raw = _radar_ts.get("dates", []) or []
+        if not _ts_tickers or not _ts_dates_raw:
+            st.warning("⚠️ 后端时序数据为空")
+        else:
+            _ts_dates = pd.to_datetime(_ts_dates_raw, errors="coerce")
+            _picked = {
+                tk: payload for tk, payload in _ts_tickers.items()
+                if payload.get("group", "") in selected_groups
+            }
+            if not _picked:
+                st.warning("⚠️ 选中组别在时序数据中无可用 ticker")
+            else:
+                _comp_df = pd.DataFrame(
+                    {tk: p.get("composite", []) for tk, p in _picked.items()},
+                    index=_ts_dates,
+                ).astype(float)
+                _rs_df = pd.DataFrame(
+                    {tk: p.get("rs", []) for tk, p in _picked.items()},
+                    index=_ts_dates,
+                ).astype(float)
+                _z_df = pd.DataFrame(
+                    {tk: p.get("z", []) for tk, p in _picked.items()},
+                    index=_ts_dates,
+                ).astype(float)
+                # rank=1 最强；method='min' 让并列时跳号（更接近排名榜直觉）
+                _rank_df = _comp_df.rank(axis=1, ascending=False, method='min')
+
+                _name_map = {tk: p.get("name", tk) for tk, p in _picked.items()}
+                _n_pool   = len(_picked)
+                _WINDOW_DAYS = {"1M": 21, "3M": 63, "6M": 126, "1Y": 252}
+                _PALETTE = px.colors.qualitative.Light24
+
+                _tab_1m, _tab_3m, _tab_6m, _tab_1y = st.tabs([
+                    "📅 近 1 个月 (1M)", "📅 近 3 个月 (3M)",
+                    "📅 近 6 个月 (6M)", "📅 近 1 年 (1Y)",
+                ])
+
+                def _render_bump_tab(window_name, tab):
+                    with tab:
+                        _n = _WINDOW_DAYS[window_name]
+                        _seg_rank = _rank_df.iloc[-_n:].dropna(how="all")
+                        _seg_comp = _comp_df.iloc[-_n:]
+                        _seg_rs   = _rs_df.iloc[-_n:]
+                        _seg_z    = _z_df.iloc[-_n:]
+                        if _seg_rank.empty or len(_seg_rank) < 2:
+                            st.warning(f"⚠️ {window_name} 窗口数据不足")
+                            return
+
+                        fig_bump = go.Figure()
+                        for i, tk in enumerate(_seg_rank.columns):
+                            _color = _PALETTE[i % len(_PALETTE)]
+                            _cust = np.stack([
+                                _seg_comp[tk].values,
+                                _seg_rs[tk].values,
+                                _seg_z[tk].values,
+                            ], axis=-1)
+                            _hover = (
+                                f"<b>{_name_map.get(tk, tk)}</b> ({tk})<br>"
+                                "%{x|%Y-%m-%d}<br>"
+                                "排名 #%{y:.0f}<br>"
+                                "复合分 %{customdata[0]:+.2f}<br>"
+                                "RS %{customdata[1]:+.2f}%<br>"
+                                "Z %{customdata[2]:+.2f}"
+                                "<extra></extra>"
+                            )
+                            fig_bump.add_trace(go.Scatter(
+                                x=_seg_rank.index,
+                                y=_seg_rank[tk].values,
+                                mode='lines+markers',
+                                name=_name_map.get(tk, tk),
+                                line=dict(color=_color, width=2),
+                                marker=dict(size=5, color=_color),
+                                customdata=_cust,
+                                hovertemplate=_hover,
+                            ))
+
+                        fig_bump.update_layout(
+                            height=520,
+                            margin=dict(l=20, r=20, t=40, b=20),
+                            plot_bgcolor='#111111', paper_bgcolor='#111111',
+                            font=dict(color='#ddd'),
+                            hovermode="closest",
+                            legend=dict(orientation="v", y=1.0, x=1.02, font=dict(size=11)),
+                            xaxis=dict(showgrid=False),
+                            yaxis=dict(
+                                title=f"排名 (1 = 最强 / {_n_pool} = 最弱)",
+                                autorange='reversed',
+                                tick0=1, dtick=1,
+                                showgrid=True, gridcolor='rgba(255,255,255,0.08)',
+                            ),
+                            title=dict(
+                                text=f"{window_name} 强度排名演化 · 共 {_n_pool} 个板块",
+                                font=dict(size=14), x=0.01, xanchor='left',
+                            ),
+                        )
+                        st.plotly_chart(fig_bump, use_container_width=True)
+
+                        _start_rank = _seg_rank.iloc[0]
+                        _end_rank   = _seg_rank.iloc[-1]
+                        _delta = _start_rank - _end_rank   # 正 = 排名上升（数字变小）
+                        _delta_df = pd.DataFrame({
+                            "板块":     [_name_map.get(tk, tk) for tk in _delta.index],
+                            "代码":     _delta.index,
+                            "起点排名": _start_rank.values,
+                            "当前排名": _end_rank.values,
+                            "排名变化": _delta.values,
+                        }).dropna().sort_values("排名变化", ascending=False)
+                        _ups = _delta_df.head(3)
+                        _dns = _delta_df.tail(3).iloc[::-1]
+
+                        _ups_html = " ".join([
+                            f"<span class='tag-bull'>{r['板块']} {int(r['起点排名'])}→{int(r['当前排名'])} (+{int(r['排名变化'])})</span>"
+                            for _, r in _ups.iterrows() if r["排名变化"] > 0
+                        ]) or "—"
+                        _dns_html = " ".join([
+                            f"<span class='tag-bear'>{r['板块']} {int(r['起点排名'])}→{int(r['当前排名'])} ({int(r['排名变化'])})</span>"
+                            for _, r in _dns.iterrows() if r["排名变化"] < 0
+                        ]) or "—"
+
+                        st.markdown(f"""
+<div class='insight-box'>
+<div class='insight-title'>🌊 板块轮动摘要 ({window_name} 窗口)</div>
+<div style='display:flex; gap:24px; align-items:center; margin-bottom:6px; flex-wrap:wrap'>
+<div>🚀 排名上升 Top3: {_ups_html}</div>
+<div>🥀 排名下降 Top3: {_dns_html}</div>
+</div>
+<div class='insight-section' style='font-size:13px; color:#888;'>
+读法：<b style='color:#aaa;'>线往上爬</b> = 板块在这段时间里强度排名变高（资金轮入）；<b style='color:#aaa;'>线往下掉</b> = 排名变低（资金离开）。复合分 = RS（动量）+ Z（估值）直接相加，RS 主导排名，Z 在动量接近时起 tie-break。
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+                _render_bump_tab("1M", _tab_1m)
+                _render_bump_tab("3M", _tab_3m)
+                _render_bump_tab("6M", _tab_6m)
+                _render_bump_tab("1Y", _tab_1y)
 
 # ============================================================
 # Section 2: 大盘趋势状态机 (Market Trend Matrix)

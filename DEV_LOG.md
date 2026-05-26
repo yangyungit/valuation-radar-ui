@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-05-26 | Page 0 §1.5 板块强度时序 Bump Chart（新子模块）
+
+**动因**：原 §1 宏观全景雷达只展示当日快照（Z × RS 散点图），看不到"谁在爬升 / 谁在下沉"。主理人想要时序视图判断板块轮动，让板块像波浪一样在时间轴上推进。
+
+**改动**：
+
+1. `api_client.py` 新增 `fetch_macro_radar_timeseries()`（`TTL=4h`），调后端新接口 `/api/v1/macro/radar/timeseries`。
+2. `pages/0_宏观雷达.py`:
+   - 顶部 import 加 `fetch_macro_radar_timeseries`
+   - 数据层 spinner 加一次 fetch
+   - 侧边栏强制刷新按钮加 `fetch_macro_radar_timeseries.clear()`
+   - §宏观全景雷达 详细数据表后新增 §1.5「板块强度时序 Bump Chart」子模块
+3. §1.5 内容：4 tab (1M / 3M / 6M / 1Y) × Bump Chart（X=日期 Y=排名，Y 反转让 rank=1 在顶）+ 板块轮动摘要卡片（窗口起点 vs 当前的排名变化 Top3↑↓）
+4. 板块范围跟随 sidebar `selected_groups` 联动（默认 C 核心 + D 细分赛道共 25 个 ticker），切换组别不重新请求后端
+
+**算法白盒**：复合分 = RS + Z 直接相加，RS 主导排名，Z 在动量接近时起 tie-break。Hover 同时显示复合分 / RS / Z 三个分量值，方便判断哪个分量在主导排名。
+
+**架构守约**：排名计算在前端做（基于用户筛选组别动态算），后端只下发原始三元时序——切换组别零延迟、不污染后端缓存。
+
+---
+
 ## 2026-05-22 | Page 0 §2.6 变点检测表格列名同步后端 CUSUM reset 语义
 
 后端 `_compute_cusum_series()` 改 Page-Hinkley 风格（触发即 reset）后，`trigger_days` 字段语义从「连续触发天数」改为「近 30 日触发次数」；`triggered` 从「当下在阈值上方」改为「这一天发生触发事件」。前端表格列名同步：
