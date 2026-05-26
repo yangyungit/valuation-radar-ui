@@ -317,8 +317,41 @@ else:
                 # 当日排名仅供 hover 显示（与着色解耦）
                 _rank_smooth_df = _comp_smooth_df.rank(axis=1, ascending=False, method='min')
 
+                # 默认彩色集 = top 8 强者（当前复合分）+ rising 5 黑马（排名上升）
+                # 其余板块淡灰 + legend 默认隐藏，点击 legend 可临时展开
+                _TOP_N = 8
+                _RISING_N = 5
+                _top_strong = _tickers_sorted[:_TOP_N]
+                if len(_rank_df) >= 2:
+                    _start_rank = _rank_df.iloc[0]
+                    _end_rank   = _rank_df.iloc[-1]
+                    _delta = (_start_rank - _end_rank).dropna()   # 正 = 排名上升
+                    _delta_sorted = _delta.sort_values(ascending=False)
+                    _top_rising = [
+                        tk for tk in _delta_sorted.index
+                        if _delta_sorted[tk] > 0 and tk not in _top_strong
+                    ][:_RISING_N]
+                else:
+                    _delta = None
+                    _delta_sorted = None
+                    _top_rising = []
+                _color_set = set(_top_strong) | set(_top_rising)
+
+                _legend_order = _top_strong + _top_rising + [
+                    tk for tk in _tickers_sorted if tk not in _color_set
+                ]
+
+                _top_names = "、".join(_name_map.get(tk, tk) for tk in _top_strong)
+                _rising_names = "、".join(_name_map.get(tk, tk) for tk in _top_rising) or "—"
+                st.caption(
+                    f"📌 默认彩色：**强者 Top{len(_top_strong)}**（{_top_names}）"
+                    f" + **黑马 Rising{len(_top_rising)}**（{_rising_names}）· "
+                    f"其余 {_n_pool - len(_color_set)} 个板块淡显，点击右侧图例可展开"
+                )
+
                 fig_wave = go.Figure()
-                for i, tk in enumerate(_tickers_sorted):
+                for i, tk in enumerate(_legend_order):
+                    _is_color = tk in _color_set
                     _color = _PALETTE[i % len(_PALETTE)]
                     _y_full = _comp_smooth_df[tk].values
                     _mask = _up_mask_df[tk].values
@@ -330,6 +363,18 @@ else:
                         _z_df[tk].values,
                         _rank_smooth_df[tk].values,
                     ], axis=-1)
+                    if _is_color:
+                        _rest_color = 'rgba(150,150,150,0.18)'
+                        _rest_width = 0.8
+                        _up_color   = _color
+                        _up_width   = 1.8
+                        _visible    = True
+                    else:
+                        _rest_color = 'rgba(150,150,150,0.08)'
+                        _rest_width = 0.6
+                        _up_color   = 'rgba(150,150,150,0.08)'
+                        _up_width   = 0.6
+                        _visible    = 'legendonly'
                     _hover_up = (
                         f"<b>{_name_map.get(tk, tk)}</b> ({tk})  🟢 主升浪<br>"
                         "%{x|%Y-%m-%d}<br>"
@@ -357,7 +402,8 @@ else:
                         name=_name_map.get(tk, tk),
                         legendgroup=tk,
                         showlegend=False,
-                        line=dict(color='rgba(150,150,150,0.18)', width=0.8),
+                        visible=_visible,
+                        line=dict(color=_rest_color, width=_rest_width),
                         customdata=_cust,
                         hovertemplate=_hover_rest,
                         connectgaps=False,
@@ -368,7 +414,8 @@ else:
                         mode='lines',
                         name=_name_map.get(tk, tk),
                         legendgroup=tk,
-                        line=dict(color=_color, width=1.8),
+                        visible=_visible,
+                        line=dict(color=_up_color, width=_up_width),
                         customdata=_cust,
                         hovertemplate=_hover_up,
                         connectgaps=False,
@@ -399,15 +446,12 @@ else:
                 )
                 st.plotly_chart(fig_wave, use_container_width=True)
 
-                if len(_rank_df) >= 2:
-                    _start_rank = _rank_df.iloc[0]
-                    _end_rank   = _rank_df.iloc[-1]
-                    _delta = _start_rank - _end_rank   # 正 = 排名上升（数字变小）
+                if _delta is not None and len(_delta) >= 1:
                     _delta_df = pd.DataFrame({
                         "板块":     [_name_map.get(tk, tk) for tk in _delta.index],
                         "代码":     _delta.index,
-                        "起点排名": _start_rank.values,
-                        "当前排名": _end_rank.values,
+                        "起点排名": _start_rank.reindex(_delta.index).values,
+                        "当前排名": _end_rank.reindex(_delta.index).values,
                         "排名变化": _delta.values,
                     }).dropna().sort_values("排名变化", ascending=False)
                     _ups = _delta_df.head(3)
