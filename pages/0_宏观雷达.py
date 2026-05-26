@@ -447,7 +447,7 @@ else:
 # ============================================================
 st.markdown("---")
 st.header("📊 大盘趋势状态机 (Market Trend Matrix)")
-st.caption("基于 Close / MA60 / MA200 的四象限绝对强弱切割 · 背景色按月度剧本裁决（chaos 月份显示灰色）")
+st.caption("基于 Close / MA60 / MA200 的四象限绝对强弱切割 · 背景色按月度剧本裁决（chaos 月份显示红色）")
 
 if df_prices is None or df_prices.empty or len(df_prices) < 200:
     st.warning("⚠️ 价格数据不足（需至少 200 个交易日），无法计算 MA200")
@@ -474,10 +474,10 @@ else:
 
     _REGIME_BG_C_MTM = {
         "软着陆": "rgba(46,204,113,0.15)",
-        "再通胀": "rgba(231,76,60,0.15)",
+        "再通胀": "rgba(22,160,133,0.15)",
         "滞胀":   "rgba(241,196,15,0.15)",
         "衰退":   "rgba(52,152,219,0.15)",
-        "混沌期": "rgba(128,128,128,0.15)",
+        "混沌期": "rgba(231,76,60,0.15)",
     }
 
     # universe.db 只持久化 horsemen_monthly_probs(10 年月度概率含 chaos_gbdt_trigger),
@@ -864,7 +864,7 @@ with st.expander("📖 流动性详情（FRED WALCL / TGA / RRP）", expanded=Fa
 _g  = float(_us_stars.get("g", 0.0)) if _us_stars else 0.0
 _i  = float(_us_stars.get("i", 0.0)) if _us_stars else 0.0
 _quad = str(_us_stars.get("quad", "—")) if _us_stars else "—"
-_QUAD_COLOR = {"软着陆": "#2ECC71", "再通胀": "#E74C3C", "滞胀": "#F1C40F", "衰退": "#3498DB"}
+_QUAD_COLOR = {"软着陆": "#2ECC71", "再通胀": "#16A085", "滞胀": "#F1C40F", "衰退": "#3498DB"}
 _quad_color = _QUAD_COLOR.get(_quad, "#888")
 _g_color = _upstream_color(_g, hi=0.3, mid=0.1)
 _i_color = _upstream_color(_i, hi=0.3, mid=0.1)
@@ -931,7 +931,7 @@ _chain_dp   = (_chain_regime or {}).get("horsemen_daily_chaos_prob", {}) or {}
 
 # === Row 1: Regime 当前 + 切换日 ===
 _REG_EN_CN = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
-_REG_COLOR = {"Soft": "#2ECC71", "Hot": "#E74C3C", "Stag": "#F1C40F", "Rec": "#3498DB"}
+_REG_COLOR = {"Soft": "#2ECC71", "Hot": "#16A085", "Stag": "#F1C40F", "Rec": "#3498DB"}
 _curr_regime_en = str(_chain_data.get("current_macro_regime", "Soft"))
 _curr_regime_cn = _REG_EN_CN.get(_curr_regime_en, _curr_regime_en)
 _curr_regime_color = _REG_COLOR.get(_curr_regime_en, "#888")
@@ -965,7 +965,7 @@ if _chain_dc:
     _cc_s = pd.Series(list(_chain_dc.values()), index=_cc_idx).dropna().sort_index()
     if not _cc_s.empty:
         _conf_curr = str(_cc_s.iloc[-1])
-_CONF_COLOR = {"high": "#2ECC71", "medium": "#F1C40F", "chaos": "#888"}
+_CONF_COLOR = {"high": "#2ECC71", "medium": "#F1C40F", "chaos": "#E74C3C"}
 _conf_color = _CONF_COLOR.get(_conf_curr, "#888")
 
 # === Row 4: 行业领涨/领跌（复用顶部已 fetch 的 _radar）===
@@ -1350,7 +1350,7 @@ else:
     _sr_asof      = str(_sr.get("asof", "—"))
 
     _SR_CN = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
-    _SR_COLOR = {"Soft": "#2ECC71", "Hot": "#E74C3C", "Stag": "#F1C40F", "Rec": "#3498DB"}
+    _SR_COLOR = {"Soft": "#2ECC71", "Hot": "#16A085", "Stag": "#F1C40F", "Rec": "#3498DB"}
 
     _sr_winner_cn    = _SR_CN.get(_sr_winner, _sr_winner)
     _sr_winner_color = _SR_COLOR.get(_sr_winner, "#888")
@@ -1440,29 +1440,29 @@ else:
         # 用同一段 SPY 价格做底图，肉眼对比两套体系对宏观切换的定义。
         _sr_bg_color = {
             "Soft": "rgba(46,204,113,0.18)",
-            "Hot":  "rgba(231,76,60,0.18)",
+            "Hot":  "rgba(22,160,133,0.18)",
             "Stag": "rgba(241,196,15,0.18)",
             "Rec":  "rgba(52,152,219,0.18)",
         }
         _sr_legend_color = {
             "Soft": "#2ECC71",
-            "Hot":  "#E74C3C",
+            "Hot":  "#16A085",
             "Stag": "#F1C40F",
             "Rec":  "#3498DB",
         }
         _hm_bg_color = {
             "软着陆": "rgba(46,204,113,0.18)",
-            "再通胀": "rgba(231,76,60,0.18)",
+            "再通胀": "rgba(22,160,133,0.18)",
             "滞胀":   "rgba(241,196,15,0.18)",
             "衰退":   "rgba(52,152,219,0.18)",
-            "混沌期": "rgba(128,128,128,0.20)",
+            "混沌期": "rgba(231,76,60,0.20)",
         }
         _hm_legend_color = {
             "软着陆": "#2ECC71",
-            "再通胀": "#E74C3C",
+            "再通胀": "#16A085",
             "滞胀":   "#F1C40F",
             "衰退":   "#3498DB",
-            "混沌期": "#888888",
+            "混沌期": "#E74C3C",
         }
         if (
             df_prices is not None
@@ -1626,7 +1626,7 @@ else:
         _df_sr_tl["winner_code"] = _df_sr_tl["winner"].map(_winner_codes).astype(float)
         _band_colorscale = [
             [0.000, "#2ECC71"], [0.249, "#2ECC71"],
-            [0.250, "#E74C3C"], [0.499, "#E74C3C"],
+            [0.250, "#16A085"], [0.499, "#16A085"],
             [0.500, "#F1C40F"], [0.749, "#F1C40F"],
             [0.750, "#3498DB"], [1.000, "#3498DB"],
         ]
@@ -1791,7 +1791,7 @@ else:
         st.markdown("""
 **两张时序图怎么读**
 
-- **上层 winner 色带**：每天的颜色 = 当日 sector_rotation 的 winner（绿=软着陆 / 红=再通胀 / 黄=滞胀 / 蓝=衰退）。**色块边界 = 剧本切换日**，肉眼即可数清 6 年里发生过几次切换。
+- **上层 winner 色带**：每天的颜色 = 当日 sector_rotation 的 winner（绿=软着陆 / 青绿=再通胀 / 黄=滞胀 / 蓝=衰退）。**色块边界 = 剧本切换日**，肉眼即可数清 6 年里发生过几次切换。
 - **下层 4 概率折线**：4 条独立折线，**winner 通常贴近或高于 35% 虚线**（显著切换阈值）；4 条都在 25% 均分线附近 = 低置信"模糊期"。
 - **11 板块 RS 热力图**：横轴 6 年时间，纵轴 11 板块按当前排名从强到弱排。**横看一行**得到「这个板块从什么时候开始持续走强/走弱」；**竖看一列**得到「这一天 11 板块各自表现」。配合上方 winner 色带切换日 → 验证模板：例如 2022-04 切到 Stag 当天起 XLE 那行应该开始大片绿、XLK 那行开始大片红。
 
