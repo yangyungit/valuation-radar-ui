@@ -234,10 +234,10 @@ else:
     st.markdown("---")
     st.markdown("### 📈 板块强度波形 (Sector Strength Waveform)")
     st.caption(
-        "**复合分 = 相对强度 RS + 估值 Z-Score**（越强 + 越贵得分越高，5 日 EMA 平滑）· "
+        "**复合分 = 横截面标准化(RS) + 横截面标准化(Z)**（每天对所有板块的 RS / Z 各做 Z-Score 再相加，两个维度平权，量级 ±3，5 日 EMA 平滑）· "
         "**窗口随 tab 缩放**：短 tab 用快窗口看择时（RS_20d/Z_250d）、长 tab 用慢窗口看大周期（RS_252d/Z_750d）· "
-        "Y 轴绝对值就是强度，越高越强、越低越弱 · "
-        "**着色**：每条板块自身的**主升浪段彩色高亮**（ZigZag 识别，反向回撤超过自身振幅 15% 才算段结束），震荡 / 下跌段淡灰显示，事后回看无未来函数"
+        "Y 轴正值 = 在当天 universe 里相对强势，负值 = 相对弱势 · "
+        "**着色**：每条板块自身的**主升浪段彩色高亮**（ZigZag 识别，反向回撤超过自身振幅 15% 才算段结束 + 段长门槛过滤短段），震荡 / 下跌段淡灰显示，事后回看无未来函数"
     )
 
     if not selected_groups:
@@ -300,10 +300,11 @@ else:
                 _curr_score = _comp_smooth_df.iloc[-1].dropna().sort_values(ascending=False)
                 _tickers_sorted = _curr_score.index.tolist()
 
-                # 主升浪识别：每条板块独立 ZigZag，swing = max(5, 自身振幅 × 15%)
+                # 主升浪识别：每条板块独立 ZigZag，swing = max(0.5, 自身振幅 × 15%)
                 # 再加最短段长门槛——连续 True 段太短直接刷回 False，消除"小蚯蚓"
+                # composite 改横截面标准化后量级 ±3，所以 swing floor 从 5.0 → 0.5
                 _SWING_FRAC = 0.15
-                _SWING_FLOOR = 5.0
+                _SWING_FLOOR = 0.5
                 _MIN_SEG_DAYS = {
                     "1M": 3, "3M": 5, "6M": 10, "1Y": 15, "5Y": 25, "10Y": 40,
                 }.get(window_name, 10)
@@ -448,7 +449,7 @@ else:
                     legend=dict(orientation="v", y=1.0, x=1.02, font=dict(size=11)),
                     xaxis=dict(showgrid=False),
                     yaxis=dict(
-                        title=f"复合分 = RS_{_rs_w}d + Z_{_z_w}d（越高越强）",
+                        title=f"复合分 = 横截面标准化(RS_{_rs_w}d) + 横截面标准化(Z_{_z_w}d)（越高越强）",
                         zeroline=False,
                         showgrid=True, gridcolor='rgba(255,255,255,0.06)',
                     ),
