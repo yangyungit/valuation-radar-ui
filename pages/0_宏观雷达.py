@@ -301,8 +301,12 @@ else:
                 _tickers_sorted = _curr_score.index.tolist()
 
                 # 主升浪识别：每条板块独立 ZigZag，swing = max(5, 自身振幅 × 15%)
+                # 再加最短段长门槛——连续 True 段太短直接刷回 False，消除"小蚯蚓"
                 _SWING_FRAC = 0.15
                 _SWING_FLOOR = 5.0
+                _MIN_SEG_DAYS = {
+                    "1M": 3, "3M": 5, "6M": 10, "1Y": 15, "5Y": 25, "10Y": 40,
+                }.get(window_name, 10)
                 _up_mask_df = pd.DataFrame(
                     False, index=_comp_smooth_df.index, columns=_comp_smooth_df.columns
                 )
@@ -312,7 +316,16 @@ else:
                     if len(_finite) >= 2:
                         _amp = float(_finite.max() - _finite.min())
                         _swing = max(_SWING_FLOOR, _SWING_FRAC * _amp)
-                        _up_mask_df[_tk] = _zigzag_up_mask(_s, _swing)
+                        _mask = _zigzag_up_mask(_s, _swing)
+                        if _MIN_SEG_DAYS > 1:
+                            _padded = np.concatenate(([False], _mask, [False]))
+                            _runs = np.diff(_padded.astype(int))
+                            _starts = np.where(_runs == 1)[0]
+                            _ends   = np.where(_runs == -1)[0]
+                            for _a, _b in zip(_starts, _ends):
+                                if _b - _a < _MIN_SEG_DAYS:
+                                    _mask[_a:_b] = False
+                        _up_mask_df[_tk] = _mask
 
                 # 当日排名仅供 hover 显示（与着色解耦）
                 _rank_smooth_df = _comp_smooth_df.rank(axis=1, ascending=False, method='min')
