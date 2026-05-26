@@ -182,7 +182,8 @@ else:
     st.caption(
         "**复合分 = 相对强度 RS + 估值 Z-Score**（越强 + 越贵得分越高，5 日 EMA 平滑）· "
         "**窗口随 tab 缩放**：短 tab 用快窗口看择时（RS_20d/Z_250d）、长 tab 用慢窗口看大周期（RS_252d/Z_750d）· "
-        "Y 轴绝对值就是强度，越高越强、越低越弱"
+        "Y 轴绝对值就是强度，越高越强、越低越弱 · "
+        "**着色**：每个时间点 14 个板块按复合分排名，**Top 5 段彩色高亮**、其余段淡灰，颜色随时间动态切换"
     )
 
     if not selected_groups:
@@ -245,31 +246,58 @@ else:
                 _curr_score = _comp_smooth_df.iloc[-1].dropna().sort_values(ascending=False)
                 _tickers_sorted = _curr_score.index.tolist()
 
+                # 每个时间点按平滑后复合分排名，Top 5 段彩色高亮、其余段淡灰
+                _TOP_N = 5
+                _rank_smooth_df = _comp_smooth_df.rank(axis=1, ascending=False, method='min')
+                _top_mask_df = _rank_smooth_df <= _TOP_N
+
                 fig_wave = go.Figure()
                 for i, tk in enumerate(_tickers_sorted):
                     _color = _PALETTE[i % len(_PALETTE)]
+                    _y_full = _comp_smooth_df[tk].values
+                    _mask = _top_mask_df[tk].values
+                    _y_top  = np.where(_mask,  _y_full, np.nan)
+                    _y_rest = np.where(~_mask, _y_full, np.nan)
                     _cust = np.stack([
                         _comp_df[tk].values,
                         _rs_df[tk].values,
                         _z_df[tk].values,
+                        _rank_smooth_df[tk].values,
                     ], axis=-1)
                     _hover = (
                         f"<b>{_name_map.get(tk, tk)}</b> ({tk})<br>"
                         "%{x|%Y-%m-%d}<br>"
                         "复合分(平滑) %{y:+.2f}<br>"
+                        f"当日排名 第%{{customdata[3]:.0f}} / {_n_pool}<br>"
                         "复合分(原始) %{customdata[0]:+.2f}<br>"
                         f"RS_{_rs_w}d " "%{customdata[1]:+.2f}%<br>"
                         f"Z_{_z_w}d "  "%{customdata[2]:+.2f}"
                         "<extra></extra>"
                     )
+                    # 非 Top 段：淡灰打底（不进 legend）
                     fig_wave.add_trace(go.Scatter(
                         x=_comp_smooth_df.index,
-                        y=_comp_smooth_df[tk].values,
+                        y=_y_rest,
                         mode='lines',
                         name=_name_map.get(tk, tk),
+                        legendgroup=tk,
+                        showlegend=False,
+                        line=dict(color='rgba(150,150,150,0.18)', width=0.8),
+                        customdata=_cust,
+                        hovertemplate=_hover,
+                        connectgaps=False,
+                    ))
+                    # Top N 段：原色高亮（带 legend）
+                    fig_wave.add_trace(go.Scatter(
+                        x=_comp_smooth_df.index,
+                        y=_y_top,
+                        mode='lines',
+                        name=_name_map.get(tk, tk),
+                        legendgroup=tk,
                         line=dict(color=_color, width=1.8),
                         customdata=_cust,
                         hovertemplate=_hover,
+                        connectgaps=False,
                     ))
 
                 fig_wave.add_hline(
