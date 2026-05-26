@@ -2,6 +2,18 @@
 
 ---
 
+## 2026-05-26 | Page 0 §1.5 波形图加 5Y / 10Y 长周期 tab
+
+后端 `compute_radar_timeseries` 下载窗口拉到 10 年（详见 valuation-radar DEV_LOG 同日条目），前端 §1.5 tab 从 4 个加到 6 个：
+
+- `_WINDOW_DAYS` 加 `"5Y": 1260, "10Y": 2520`
+- `st.tabs` 加「近 5 年 (5Y)」「近 10 年 (10Y)」两个新 tab
+- 新增对应的 `_render_wave_tab("5Y", ...)` / `_render_wave_tab("10Y", ...)` 调用
+
+5 日 EMA 平滑、Y 轴复合分、排名变化摘要卡片这些都不变，长周期场景一致复用。
+
+---
+
 ## 2026-05-26 | Page 0 §1.5 Bump Chart 改成波形图：连续 Y 轴 + EMA 平滑
 
 **动因**：上版 Bump Chart 把 Y 轴设成离散排名（rank 1-25），25 个板块画下来 60+ 次交叉跳变看不出强弱，主理人反馈"太乱"。

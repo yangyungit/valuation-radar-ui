@@ -216,12 +216,16 @@ else:
 
                 _name_map = {tk: p.get("name", tk) for tk, p in _picked.items()}
                 _n_pool   = len(_picked)
-                _WINDOW_DAYS = {"1M": 21, "3M": 63, "6M": 126, "1Y": 252}
+                _WINDOW_DAYS = {
+                    "1M": 21, "3M": 63, "6M": 126,
+                    "1Y": 252, "5Y": 1260, "10Y": 2520,
+                }
                 _PALETTE = px.colors.qualitative.Light24
 
-                _tab_1m, _tab_3m, _tab_6m, _tab_1y = st.tabs([
+                _tab_1m, _tab_3m, _tab_6m, _tab_1y, _tab_5y, _tab_10y = st.tabs([
                     "📅 近 1 个月 (1M)", "📅 近 3 个月 (3M)",
                     "📅 近 6 个月 (6M)", "📅 近 1 年 (1Y)",
+                    "📅 近 5 年 (5Y)",   "📅 近 10 年 (10Y)",
                 ])
 
                 def _render_wave_tab(window_name, tab):
@@ -327,10 +331,12 @@ else:
 </div>
 """, unsafe_allow_html=True)
 
-                _render_wave_tab("1M", _tab_1m)
-                _render_wave_tab("3M", _tab_3m)
-                _render_wave_tab("6M", _tab_6m)
-                _render_wave_tab("1Y", _tab_1y)
+                _render_wave_tab("1M",  _tab_1m)
+                _render_wave_tab("3M",  _tab_3m)
+                _render_wave_tab("6M",  _tab_6m)
+                _render_wave_tab("1Y",  _tab_1y)
+                _render_wave_tab("5Y",  _tab_5y)
+                _render_wave_tab("10Y", _tab_10y)
 
 # ============================================================
 # Section 2: 大盘趋势状态机 (Market Trend Matrix)
