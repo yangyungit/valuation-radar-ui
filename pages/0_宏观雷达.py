@@ -235,6 +235,7 @@ else:
         "**强势分 = 横截面标准化(RS) + 横截面标准化(Z)**（每天对所有板块的 RS / Z 各做 Z-Score 再相加，两个维度平权，量级 ±3，5 日 EMA 平滑）· "
         "**用途**：看「主升浪在哪」——跟随强势，但接近顶部要警惕，配合摘要里的「💎 黄金板块」/「⚠️ 高估警告」做交叉验证 · "
         "**窗口随 tab 缩放**：短 tab 用快窗口看择时（RS_20d/Z_250d）、长 tab 用慢窗口看大周期（RS_252d/Z_750d）· "
+        "**采样粒度自动联动**：1M/3M/6M=日线、1Y=周末、5Y/10Y=月末（先 EMA + ZigZag 在日线算完，再降采样取末日值，主升浪识别精度不损失）· "
         "Y 轴正值 = 在当天 universe 里相对强势，负值 = 相对弱势 · "
         "**着色**：每条板块自身的**主升浪段彩色高亮**（ZigZag 识别，反向回撤超过自身振幅 15% 才算段结束 + 段长门槛过滤短段），震荡 / 下跌段淡灰显示，事后回看无未来函数"
     )
@@ -338,13 +339,24 @@ else:
                                     _mask[_a:_b] = False
                         _up_mask_df[_tk] = _mask
 
+                # 采样粒度联动 tab：1Y=周末快照、5Y/10Y=月末快照，短窗口保持日线
+                # 日线 EMA 与 ZigZag 算完后再降采样，保留主升浪识别精度
+                _RESAMPLE_RULE = {"1Y": "W-FRI", "5Y": "ME", "10Y": "ME"}.get(window_name)
+                if _RESAMPLE_RULE is not None:
+                    _comp_smooth_df = _comp_smooth_df.resample(_RESAMPLE_RULE).last()
+                    _pot_smooth_df  = _pot_smooth_df.resample(_RESAMPLE_RULE).last()
+                    _comp_df        = _comp_df.resample(_RESAMPLE_RULE).last()
+                    _rs_df          = _rs_df.resample(_RESAMPLE_RULE).last()
+                    _z_df           = _z_df.resample(_RESAMPLE_RULE).last()
+                    _up_mask_df     = _up_mask_df.resample(_RESAMPLE_RULE).max().fillna(False).astype(bool)
+
                 # 当日排名仅供 hover 显示（与着色解耦）
                 _rank_smooth_df = _comp_smooth_df.rank(axis=1, ascending=False, method='min')
 
-                # 默认彩色集 = top 8 强者（当前复合分）+ rising 5 黑马（排名上升）
+                # 默认彩色集 = top 5 强者（当前复合分）+ rising 2 黑马（排名上升）
                 # 其余板块淡灰 + legend 默认隐藏，点击 legend 可临时展开
-                _TOP_N = 8
-                _RISING_N = 5
+                _TOP_N = 5
+                _RISING_N = 2
                 _top_strong = _tickers_sorted[:_TOP_N]
                 if len(_rank_df) >= 2:
                     _start_rank = _rank_df.iloc[0]
@@ -526,6 +538,211 @@ else:
                 formula_op="+",
                 hover_label="强势分",
             )
+
+    # ── §1.6 板块王朝接力图 (Dynasty Relay) — 月末 Top1/Top3 染色 ─────
+    # 同一份 RS+Z 强势分,换种画法:把"时间×排名"展开成色块矩阵,
+    # 让"连续戴金 = 王朝期"和"金→银→灰 = 退位换班"在视觉上一目了然
+    st.markdown("---")
+    st.markdown("### 👑 板块王朝接力图 (Dynasty Relay) — 月末 Top1/Top3 染色")
+    st.caption(
+        "**规则**:每月末对 25 个板块做强势分 (RS+Z) 横截面排名,**Top1 = 🥇 金 / Top2-3 = 🥈 银 / 其他 = ⚪ 灰** · "
+        "**加冕门槛**:必须 RS_252d > 0(年化跑赢 SPY)才能戴金牌,否则降为灰——**熊市无王** · "
+        "**用途**:找「时代之王」——连续戴金的板块就是真王朝;主升浪中途回调时也能区分「王朝内回调(仍戴金/银)」vs「退位(掉到灰)」 · "
+        "**数据**:跟上方波形图共用 5Y/10Y 时序,只是用月末快照展开 60/120 个色块 · Y 轴按累计戴金月数降序排列"
+    )
+
+    _dynasty_window = st.radio(
+        "时间跨度",
+        options=["5Y", "10Y"],
+        horizontal=True,
+        key="dynasty_window",
+        help="5Y = 60 个月格子 / 10Y = 120 个月格子",
+    )
+
+    if not selected_groups:
+        st.info("👈 请在侧边栏勾选至少一个组别以渲染王朝图")
+    else:
+        _dyn_ts = _radar_ts_by_window.get(_dynasty_window, {}) or {}
+        if not _dyn_ts.get("success"):
+            st.warning(f"⚠️ {_dynasty_window} 时序数据暂不可用:{_dyn_ts.get('error', '未知错误')}")
+        else:
+            _dyn_tickers = _dyn_ts.get("tickers", {}) or {}
+            _dyn_dates_raw = _dyn_ts.get("dates", []) or []
+            _picked_d = {
+                tk: p for tk, p in _dyn_tickers.items()
+                if p.get("group", "") in selected_groups
+            }
+            if not _picked_d or not _dyn_dates_raw:
+                st.warning(f"⚠️ {_dynasty_window}:选中组别在时序数据中无可用 ticker")
+            else:
+                _dyn_idx = pd.to_datetime(_dyn_dates_raw, errors="coerce")
+                _d_comp = pd.DataFrame(
+                    {tk: p.get("composite", []) for tk, p in _picked_d.items()},
+                    index=_dyn_idx,
+                ).astype(float)
+                _d_rs = pd.DataFrame(
+                    {tk: p.get("rs", []) for tk, p in _picked_d.items()},
+                    index=_dyn_idx,
+                ).astype(float)
+
+                _d_comp_m = _d_comp.resample("ME").last()
+                _d_rs_m   = _d_rs.resample("ME").last()
+                if _d_comp_m.empty or len(_d_comp_m) < 2:
+                    st.warning(f"⚠️ {_dynasty_window}:月末快照数据不足")
+                else:
+                    # 每月末横截面排名(1=最强),tier 矩阵:0=灰 / 1=银 / 2=金
+                    # 加冕门槛:Top1 必须 RS_252d > 0 才戴金,否则降为灰(熊市无王)
+                    _rank_m = _d_comp_m.rank(axis=1, ascending=False, method="min")
+                    _tier = pd.DataFrame(
+                        0, index=_rank_m.index, columns=_rank_m.columns, dtype=int
+                    )
+                    _tier[_rank_m <= 3] = 1
+                    _gold_mask = (_rank_m == 1) & (_d_rs_m > 0)
+                    _tier = _tier.mask(_gold_mask, 2)
+                    _demoted_mask = (_rank_m == 1) & (_d_rs_m <= 0)
+                    _tier = _tier.mask(_demoted_mask, 0)
+
+                    _d_name_map = {tk: p.get("name", tk) for tk, p in _picked_d.items()}
+
+                    # Y 轴排序:累计金多→少,金平局看累计银
+                    _gold_cnt = (_tier == 2).sum(axis=0)
+                    _silver_cnt = (_tier == 1).sum(axis=0)
+                    _sort_key = _gold_cnt * 10000 + _silver_cnt
+                    _ordered_tk = _sort_key.sort_values(ascending=False).index.tolist()
+
+                    _tier_yx = _tier[_ordered_tk].T
+                    _rank_yx = _rank_m[_ordered_tk].T
+                    _rs_yx   = _d_rs_m[_ordered_tk].T
+                    _comp_yx = _d_comp_m[_ordered_tk].T
+
+                    _ylabels = [f"{_d_name_map.get(tk, tk)} ({tk})" for tk in _ordered_tk]
+                    _xlabels = _tier_yx.columns.strftime("%Y-%m").tolist()
+
+                    _BADGE = {0: "⚪ 灰", 1: "🥈 银", 2: "🥇 金"}
+                    _hover_text = []
+                    for tk in _ordered_tk:
+                        _row_txt = []
+                        for _d in _tier_yx.columns:
+                            _t_val = int(_tier_yx.loc[tk, _d])
+                            _r_val = _rank_yx.loc[tk, _d]
+                            _rs_val = _rs_yx.loc[tk, _d]
+                            _c_val = _comp_yx.loc[tk, _d]
+                            _rank_str = f"第 {int(_r_val)}" if pd.notna(_r_val) else "—"
+                            _rs_str   = f"{_rs_val:+.2f}%" if pd.notna(_rs_val) else "—"
+                            _c_str    = f"{_c_val:+.2f}" if pd.notna(_c_val) else "—"
+                            _row_txt.append(
+                                f"<b>{_d_name_map.get(tk, tk)} ({tk})</b><br>"
+                                f"{_d.strftime('%Y-%m')}<br>"
+                                f"{_BADGE[_t_val]}<br>"
+                                f"排名 {_rank_str}<br>"
+                                f"RS_252d {_rs_str}<br>"
+                                f"强势分 {_c_str}"
+                            )
+                        _hover_text.append(_row_txt)
+
+                    fig_dyn = go.Figure(data=go.Heatmap(
+                        z=_tier_yx.values,
+                        x=_xlabels,
+                        y=_ylabels,
+                        colorscale=[
+                            [0.00, "#2a2a2a"],
+                            [0.33, "#2a2a2a"],
+                            [0.34, "#9aa0a6"],
+                            [0.66, "#9aa0a6"],
+                            [0.67, "#FFD700"],
+                            [1.00, "#FFD700"],
+                        ],
+                        zmin=0, zmax=2,
+                        text=_hover_text,
+                        hovertemplate="%{text}<extra></extra>",
+                        showscale=False,
+                        xgap=1, ygap=1,
+                    ))
+                    fig_dyn.update_layout(
+                        height=max(400, 24 * len(_ordered_tk)),
+                        margin=dict(l=20, r=20, t=40, b=20),
+                        plot_bgcolor="#111111", paper_bgcolor="#111111",
+                        font=dict(color="#ddd"),
+                        xaxis=dict(showgrid=False, side="bottom", tickangle=-45),
+                        yaxis=dict(showgrid=False, autorange="reversed"),
+                        title=dict(
+                            text=f"{_dynasty_window} 月末王朝接力 · {len(_ordered_tk)} 个板块 · {len(_xlabels)} 个月",
+                            font=dict(size=14), x=0.01, xanchor="left",
+                        ),
+                    )
+                    st.plotly_chart(fig_dyn, use_container_width=True)
+
+                    # 王朝统计:累计戴金 / 戴银 / 最长连续戴金 / 最近戴金月份
+                    _stat_rows = []
+                    for tk in _ordered_tk:
+                        _t_row = _tier_yx.loc[tk].values
+                        _gold = int((_t_row == 2).sum())
+                        _silver = int((_t_row == 1).sum())
+                        _max_streak = 0
+                        _cur = 0
+                        for v in _t_row:
+                            if v == 2:
+                                _cur += 1
+                                _max_streak = max(_max_streak, _cur)
+                            else:
+                                _cur = 0
+                        _gold_dates = _tier_yx.loc[tk].index[_tier_yx.loc[tk].values == 2]
+                        _last_gold = _gold_dates.max() if len(_gold_dates) > 0 else None
+                        _stat_rows.append({
+                            "板块": _d_name_map.get(tk, tk),
+                            "代码": tk,
+                            "累计戴金月数": _gold,
+                            "累计戴银月数": _silver,
+                            "最长连续戴金": _max_streak,
+                            "最近戴金月份": _last_gold.strftime("%Y-%m") if _last_gold is not None else "—",
+                        })
+                    _stat_df = pd.DataFrame(_stat_rows)
+
+                    _kings_top3 = _stat_df[_stat_df["累计戴金月数"] > 0].head(3)
+                    _kings_html = " ".join([
+                        f"<span class='tag-bull'>{r['板块']} 金{int(r['累计戴金月数'])}月/最长连续{int(r['最长连续戴金'])}月</span>"
+                        for _, r in _kings_top3.iterrows()
+                    ]) or "—"
+
+                    _last_month = _tier_yx.columns[-1]
+                    _last_col = _tier_yx[_last_month]
+                    _current_king_tk = None
+                    _gold_now = _last_col[_last_col == 2]
+                    if len(_gold_now) > 0:
+                        _current_king_tk = _gold_now.index[0]
+                    _current_silver_tks = _last_col[_last_col == 1].index.tolist()
+                    if _current_king_tk:
+                        _current_html = (
+                            f"<span class='tag-bull'>🥇 {_d_name_map.get(_current_king_tk, _current_king_tk)} "
+                            f"({_current_king_tk})</span>"
+                        )
+                    else:
+                        _current_html = "<span style='color:#888'>当前无王(无板块同时满足 Top1 + RS_252d &gt; 0)</span>"
+                    _silver_html = " ".join([
+                        f"<span class='tag-bear'>🥈 {_d_name_map.get(tk, tk)} ({tk})</span>"
+                        for tk in _current_silver_tks
+                    ]) or "—"
+
+                    st.markdown(f"""
+<div class='insight-box'>
+<div class='insight-title'>👑 王朝接力摘要 ({_dynasty_window} · {len(_xlabels)} 个月)</div>
+<div style='margin-bottom:6px'>📍 当前在位之王({_last_month.strftime('%Y-%m')}): {_current_html} &nbsp; {_silver_html}</div>
+<div style='margin-bottom:6px'>👑 累计王朝长度 Top3: {_kings_html}</div>
+<div class='insight-section' style='font-size:13px; color:#888;'>
+读法:🥇 金块 = 当月 Top1 且 RS_252d &gt; 0(跑赢 SPY);🥈 银块 = Top2-3;⚪ 灰块 = 其他,或 Top1 但未跑赢 SPY(熊市无王降级)。<b style='color:#aaa;'>连续金块</b> = 王朝期,主升浪期间的回调也保持戴金;<b style='color:#aaa;'>金→银→灰</b> 渐变 = 王朝退位换班。<b style='color:#aaa;'>累计金多 + 最长连续金长</b> = 真时代之王,短命强势板块累计金少。
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+                    with st.expander(f"📊 {_dynasty_window} 王朝统计明细表(所有板块)", expanded=False):
+                        st.dataframe(
+                            _stat_df.style.background_gradient(
+                                subset=["累计戴金月数", "累计戴银月数", "最长连续戴金"],
+                                cmap="YlOrBr",
+                            ),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
 
 # ============================================================
 # Section 2: 大盘趋势状态机 (Market Trend Matrix)
