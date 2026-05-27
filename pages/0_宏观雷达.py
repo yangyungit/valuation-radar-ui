@@ -576,7 +576,7 @@ else:
         "软着陆": "rgba(46,204,113,0.15)",
         "再通胀": "rgba(22,160,133,0.15)",
         "滞胀":   "rgba(241,196,15,0.15)",
-        "衰退":   "rgba(184,134,11,0.15)",
+        "衰退":   "rgba(197,216,109,0.15)",
         "混沌期": "rgba(231,76,60,0.15)",
     }
 
@@ -964,7 +964,7 @@ with st.expander("📖 流动性详情（FRED WALCL / TGA / RRP）", expanded=Fa
 _g  = float(_us_stars.get("g", 0.0)) if _us_stars else 0.0
 _i  = float(_us_stars.get("i", 0.0)) if _us_stars else 0.0
 _quad = str(_us_stars.get("quad", "—")) if _us_stars else "—"
-_QUAD_COLOR = {"软着陆": "#2ECC71", "再通胀": "#16A085", "滞胀": "#F1C40F", "衰退": "#B8860B"}
+_QUAD_COLOR = {"软着陆": "#2ECC71", "再通胀": "#16A085", "滞胀": "#F1C40F", "衰退": "#C5D86D"}
 _quad_color = _QUAD_COLOR.get(_quad, "#888")
 _g_color = _upstream_color(_g, hi=0.3, mid=0.1)
 _i_color = _upstream_color(_i, hi=0.3, mid=0.1)
@@ -1031,7 +1031,7 @@ _chain_dp   = (_chain_regime or {}).get("horsemen_daily_chaos_prob", {}) or {}
 
 # === Row 1: Regime 当前 + 切换日 ===
 _REG_EN_CN = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
-_REG_COLOR = {"Soft": "#2ECC71", "Hot": "#16A085", "Stag": "#F1C40F", "Rec": "#B8860B"}
+_REG_COLOR = {"Soft": "#2ECC71", "Hot": "#16A085", "Stag": "#F1C40F", "Rec": "#C5D86D"}
 _curr_regime_en = str(_chain_data.get("current_macro_regime", "Soft"))
 _curr_regime_cn = _REG_EN_CN.get(_curr_regime_en, _curr_regime_en)
 _curr_regime_color = _REG_COLOR.get(_curr_regime_en, "#888")
@@ -1450,7 +1450,7 @@ else:
     _sr_asof      = str(_sr.get("asof", "—"))
 
     _SR_CN = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
-    _SR_COLOR = {"Soft": "#2ECC71", "Hot": "#16A085", "Stag": "#F1C40F", "Rec": "#B8860B"}
+    _SR_COLOR = {"Soft": "#2ECC71", "Hot": "#16A085", "Stag": "#F1C40F", "Rec": "#C5D86D"}
 
     _sr_winner_cn    = _SR_CN.get(_sr_winner, _sr_winner)
     _sr_winner_color = _SR_COLOR.get(_sr_winner, "#888")
@@ -1542,26 +1542,26 @@ else:
             "Soft": "rgba(46,204,113,0.18)",
             "Hot":  "rgba(22,160,133,0.18)",
             "Stag": "rgba(241,196,15,0.18)",
-            "Rec":  "rgba(184,134,11,0.18)",
+            "Rec":  "rgba(197,216,109,0.18)",
         }
         _sr_legend_color = {
             "Soft": "#2ECC71",
             "Hot":  "#16A085",
             "Stag": "#F1C40F",
-            "Rec":  "#B8860B",
+            "Rec":  "#C5D86D",
         }
         _hm_bg_color = {
             "软着陆": "rgba(46,204,113,0.18)",
             "再通胀": "rgba(22,160,133,0.18)",
             "滞胀":   "rgba(241,196,15,0.18)",
-            "衰退":   "rgba(184,134,11,0.18)",
+            "衰退":   "rgba(197,216,109,0.18)",
             "混沌期": "rgba(231,76,60,0.20)",
         }
         _hm_legend_color = {
             "软着陆": "#2ECC71",
             "再通胀": "#16A085",
             "滞胀":   "#F1C40F",
-            "衰退":   "#B8860B",
+            "衰退":   "#C5D86D",
             "混沌期": "#E74C3C",
         }
         if (
@@ -1728,7 +1728,7 @@ else:
             [0.000, "#2ECC71"], [0.249, "#2ECC71"],
             [0.250, "#16A085"], [0.499, "#16A085"],
             [0.500, "#F1C40F"], [0.749, "#F1C40F"],
-            [0.750, "#B8860B"], [1.000, "#B8860B"],
+            [0.750, "#C5D86D"], [1.000, "#C5D86D"],
         ]
         _band_customdata = np.array(
             [[_SR_CN.get(w, w) for w in _df_sr_tl["winner"]]],
@@ -1891,7 +1891,7 @@ else:
         st.markdown("""
 **两张时序图怎么读**
 
-- **上层 winner 色带**：每天的颜色 = 当日 sector_rotation 的 winner（绿=软着陆 / 青绿=再通胀 / 黄=滞胀 / 金黄=衰退）。**色块边界 = 剧本切换日**，肉眼即可数清 6 年里发生过几次切换。
+- **上层 winner 色带**：每天的颜色 = 当日 sector_rotation 的 winner（绿=软着陆 / 青绿=再通胀 / 黄=滞胀 / 橄榄绿=衰退）。**色块边界 = 剧本切换日**，肉眼即可数清 6 年里发生过几次切换。
 - **下层 4 概率折线**：4 条独立折线，**winner 通常贴近或高于 35% 虚线**（显著切换阈值）；4 条都在 25% 均分线附近 = 低置信"模糊期"。
 - **11 板块 RS 热力图**：横轴 6 年时间，纵轴 11 板块按当前排名从强到弱排。**横看一行**得到「这个板块从什么时候开始持续走强/走弱」；**竖看一列**得到「这一天 11 板块各自表现」。配合上方 winner 色带切换日 → 验证模板：例如 2022-04 切到 Stag 当天起 XLE 那行应该开始大片绿、XLK 那行开始大片红。
 
