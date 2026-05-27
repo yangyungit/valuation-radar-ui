@@ -102,8 +102,7 @@ git config user.email && git branch --show-current
 - **中文**，动词开头（修复 / 新增 / 重构 / 优化 / 删除 / 补充 / 文档 等）；
 - 首行 ≤ 60 个汉字，概括"改了什么 + 为什么"，不堆砌形容词；
 - 正文（可选）补证据链，如"根因：…；方案：…"；
-- 使用 heredoc 格式：`git commit -m "$(cat <<'EOF' ... EOF)"`；
-- **不签名，不加任何 AI/Cursor 标识/co-author**（保持 git log 整洁）。
+- 使用 heredoc 格式：`git commit -m "$(cat <<'EOF' ... EOF)"`。
 
 ### 红线（以下情况必须先停下来问主理人，绝不自作主张）
 
