@@ -226,15 +226,15 @@ else:
             use_container_width=True, hide_index=True
         )
 
-    # ── §1.5 板块强度波形 (Sector Strength Waveform) ─────────────────
-    # 复合分 = RS + Z-Score（越强 + 越贵得分越高）
-    # 窗口随 tab 时间尺度缩放：短 tab 用快窗口看择时、长 tab 用慢窗口看大势
-    # Y 轴用复合分本身（连续值），强者集中在图上方、弱者在下方
-    # 5 日 EMA 平滑让线条像波浪而不是日内锯齿
+    # ── §1.5 板块强势波形 (Sector Strength Waveform) — RS + Z ────────
+    # 强势 = 横截面标准化(RS) + 横截面标准化(Z)，看「主升浪在哪」(跟随，接近顶部要警惕)
+    # 配套的潜力波形见 §1.6 (RS − Z)，看「便宜的强者」
+    # 两者并联做四象限判读：黄金 / 热门高估 / 价值陷阱 / 避开
     st.markdown("---")
-    st.markdown("### 📈 板块强度波形 (Sector Strength Waveform)")
+    st.markdown("### 📈 板块强势波形 (Sector Strength Waveform) — RS + Z")
     st.caption(
-        "**复合分 = 横截面标准化(RS) + 横截面标准化(Z)**（每天对所有板块的 RS / Z 各做 Z-Score 再相加，两个维度平权，量级 ±3，5 日 EMA 平滑）· "
+        "**强势分 = 横截面标准化(RS) + 横截面标准化(Z)**（每天对所有板块的 RS / Z 各做 Z-Score 再相加，两个维度平权，量级 ±3，5 日 EMA 平滑）· "
+        "**用途**：看「主升浪在哪」——跟随强势，但接近顶部要警惕（配套 §1.6 潜力波形做交叉验证）· "
         "**窗口随 tab 缩放**：短 tab 用快窗口看择时（RS_20d/Z_250d）、长 tab 用慢窗口看大周期（RS_252d/Z_750d）· "
         "Y 轴正值 = 在当天 universe 里相对强势，负值 = 相对弱势 · "
         "**着色**：每条板块自身的**主升浪段彩色高亮**（ZigZag 识别，反向回撤超过自身振幅 15% 才算段结束 + 段长门槛过滤短段），震荡 / 下跌段淡灰显示，事后回看无未来函数"
@@ -251,7 +251,13 @@ else:
             "📅 近 5 年 (5Y)",   "📅 近 10 年 (10Y)",
         ])
 
-        def _render_wave_tab(window_name, tab):
+        def _render_wave_tab(
+            window_name, tab, *,
+            composite_field: str = "composite",
+            mode_label: str = "强势",      # 标题前缀（"强势" / "潜力"）
+            formula_op: str = "+",         # "+" / "−"（U+2212 真减号）
+            hover_label: str = "强势分",   # hover / Y 轴 / 摘要里的字段名
+        ):
             with tab:
                 _radar_ts = _radar_ts_by_window.get(window_name, {})
                 if not _radar_ts.get("success"):
@@ -273,7 +279,7 @@ else:
 
                 _ts_dates = pd.to_datetime(_ts_dates_raw, errors="coerce")
                 _comp_df = pd.DataFrame(
-                    {tk: p.get("composite", []) for tk, p in _picked.items()},
+                    {tk: p.get(composite_field, []) for tk, p in _picked.items()},
                     index=_ts_dates,
                 ).astype(float)
                 _rs_df = pd.DataFrame(
@@ -392,9 +398,9 @@ else:
                     _hover_up = (
                         f"<b>{_name_map.get(tk, tk)}</b> ({tk})  🟢 主升浪<br>"
                         "%{x|%Y-%m-%d}<br>"
-                        "复合分(平滑) %{y:+.2f}<br>"
+                        f"{hover_label}(平滑) " "%{y:+.2f}<br>"
                         f"当日排名 第%{{customdata[3]:.0f}} / {_n_pool}<br>"
-                        "复合分(原始) %{customdata[0]:+.2f}<br>"
+                        f"{hover_label}(原始) " "%{customdata[0]:+.2f}<br>"
                         f"RS_{_rs_w}d " "%{customdata[1]:+.2f}%<br>"
                         f"Z_{_z_w}d "  "%{customdata[2]:+.2f}"
                         "<extra></extra>"
@@ -402,9 +408,9 @@ else:
                     _hover_rest = (
                         f"<b>{_name_map.get(tk, tk)}</b> ({tk})  ⚪ 震荡/下跌<br>"
                         "%{x|%Y-%m-%d}<br>"
-                        "复合分(平滑) %{y:+.2f}<br>"
+                        f"{hover_label}(平滑) " "%{y:+.2f}<br>"
                         f"当日排名 第%{{customdata[3]:.0f}} / {_n_pool}<br>"
-                        "复合分(原始) %{customdata[0]:+.2f}<br>"
+                        f"{hover_label}(原始) " "%{customdata[0]:+.2f}<br>"
                         f"RS_{_rs_w}d " "%{customdata[1]:+.2f}%<br>"
                         f"Z_{_z_w}d "  "%{customdata[2]:+.2f}"
                         "<extra></extra>"
@@ -449,12 +455,12 @@ else:
                     legend=dict(orientation="v", y=1.0, x=1.02, font=dict(size=11)),
                     xaxis=dict(showgrid=False),
                     yaxis=dict(
-                        title=f"复合分 = 横截面标准化(RS_{_rs_w}d) + 横截面标准化(Z_{_z_w}d)（越高越强）",
+                        title=f"{hover_label} = 横截面标准化(RS_{_rs_w}d) {formula_op} 横截面标准化(Z_{_z_w}d)（越高越强）",
                         zeroline=False,
                         showgrid=True, gridcolor='rgba(255,255,255,0.06)',
                     ),
                     title=dict(
-                        text=f"{window_name} 强度波形 · RS_{_rs_w}d + Z_{_z_w}d · 共 {_n_pool} 个板块",
+                        text=f"{window_name} {mode_label}波形 · RS_{_rs_w}d {formula_op} Z_{_z_w}d · 共 {_n_pool} 个板块",
                         font=dict(size=14), x=0.01, xanchor='left',
                     ),
                 )
@@ -482,23 +488,59 @@ else:
 
                     st.markdown(f"""
 <div class='insight-box'>
-<div class='insight-title'>🌊 板块轮动摘要 ({window_name} 窗口 · RS_{_rs_w}d + Z_{_z_w}d)</div>
+<div class='insight-title'>🌊 {mode_label}波形轮动摘要 ({window_name} 窗口 · RS_{_rs_w}d {formula_op} Z_{_z_w}d)</div>
 <div style='display:flex; gap:24px; align-items:center; margin-bottom:6px; flex-wrap:wrap'>
 <div>🚀 排名上升 Top3: {_ups_html}</div>
 <div>🥀 排名下降 Top3: {_dns_html}</div>
 </div>
 <div class='insight-section' style='font-size:13px; color:#888;'>
-读法：<b style='color:#aaa;'>线在 0 上方</b> = 强于基准 SPY；<b style='color:#aaa;'>线在 0 下方</b> = 弱于基准。<b style='color:#aaa;'>波形抬升</b> = 板块强度在增强（资金轮入）；<b style='color:#aaa;'>波形下沉</b> = 强度走弱（资金离开）。<b>本 tab 窗口</b>：RS={_rs_w} 日动量、Z={_z_w} 日估值偏离。
+读法：<b style='color:#aaa;'>线在 0 上方</b> = 强于基准 SPY；<b style='color:#aaa;'>线在 0 下方</b> = 弱于基准。<b style='color:#aaa;'>波形抬升</b> = {mode_label}在增强（资金轮入）；<b style='color:#aaa;'>波形下沉</b> = {mode_label}走弱（资金离开）。<b>本 tab 窗口</b>：RS={_rs_w} 日动量、Z={_z_w} 日估值偏离。
 </div>
 </div>
 """, unsafe_allow_html=True)
 
-        _render_wave_tab("1M",  _tab_1m)
-        _render_wave_tab("3M",  _tab_3m)
-        _render_wave_tab("6M",  _tab_6m)
-        _render_wave_tab("1Y",  _tab_1y)
-        _render_wave_tab("5Y",  _tab_5y)
-        _render_wave_tab("10Y", _tab_10y)
+        for _w, _t in zip(_WAVE_TAB_WINDOWS, (_tab_1m, _tab_3m, _tab_6m, _tab_1y, _tab_5y, _tab_10y)):
+            _render_wave_tab(
+                _w, _t,
+                composite_field="composite",
+                mode_label="强势",
+                formula_op="+",
+                hover_label="强势分",
+            )
+
+    # ── §1.6 板块潜力波形 (Sector Potential Waveform) — RS − Z ────────
+    # 潜力 = 横截面标准化(RS) − 横截面标准化(Z)，看「便宜的强者」（V+M 经典因子）
+    # 与 §1.5 并列同屏做四象限判读：
+    #   §1.5 靠前 + §1.6 靠前 → 黄金板块
+    #   §1.5 靠前 + §1.6 靠后 → 热门高估（追高警告）
+    #   §1.5 靠后 + §1.6 靠前 → 价值陷阱苗头（便宜但没人买）
+    #   两者都靠后            → 明确避开
+    st.markdown("---")
+    st.markdown("### 💎 板块潜力波形 (Sector Potential Waveform) — RS − Z")
+    st.caption(
+        "**潜力分 = 横截面标准化(RS) − 横截面标准化(Z)**（强者 + 便宜得分高，经典 V+M 因子暴露，量级 ±3，5 日 EMA 平滑）· "
+        "**用途**：看「便宜的强者」——真正的买入候选池（避开\"涨太多\"的拥挤位置）· "
+        "**与 §1.5 对照**：同时排前 = 黄金板块；强势前/潜力后 = 热门高估；强势后/潜力前 = 价值陷阱苗头 · "
+        "Y 轴正值 = 既强又便宜，负值 = 既弱又贵 · "
+        "**着色**：主升浪段彩色高亮（与 §1.5 一致）"
+    )
+
+    if not selected_groups:
+        st.info("👈 请在侧边栏勾选至少一个组别")
+    else:
+        _tab_v1m, _tab_v3m, _tab_v6m, _tab_v1y, _tab_v5y, _tab_v10y = st.tabs([
+            "📅 近 1 个月 (1M)", "📅 近 3 个月 (3M)",
+            "📅 近 6 个月 (6M)", "📅 近 1 年 (1Y)",
+            "📅 近 5 年 (5Y)",   "📅 近 10 年 (10Y)",
+        ])
+        for _w, _t in zip(_WAVE_TAB_WINDOWS, (_tab_v1m, _tab_v3m, _tab_v6m, _tab_v1y, _tab_v5y, _tab_v10y)):
+            _render_wave_tab(
+                _w, _t,
+                composite_field="composite_value",
+                mode_label="潜力",
+                formula_op="−",  # U+2212 真减号
+                hover_label="潜力分",
+            )
 
 # ============================================================
 # Section 2: 大盘趋势状态机 (Market Trend Matrix)
