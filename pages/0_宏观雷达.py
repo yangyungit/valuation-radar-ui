@@ -534,10 +534,11 @@ else:
     st.markdown("### 👑 板块王朝接力图 (Dynasty Relay) — 月末 Top1/Top3 染色")
     st.caption(
         "**规则**:每月末对 25 个板块做横截面排名,**Top1 = 🥇 金 / Top2-3 = 🥈 银 / 其他 = ⚪ 灰** · "
-        "**加冕门槛**:必须 RS_252d > 0(年化跑赢 SPY)才能戴金牌,否则降为灰——**熊市无王** · "
-        "**用途**:找「时代之王」——连续戴金的板块就是真王朝;主升浪中途回调时也能区分「王朝内回调(仍戴金/银)」vs「退位(掉到灰)」 · "
+        "**加冕门槛(双 RS)**:必须 RS_252d > 0(年化跑赢 SPY)**且** RS_63d > 0(最近 3 月仍跑赢)才能戴金,否则即使 Top1 也降为灰 · "
+        "**为什么双 RS**:RS_252d 是 1 年回望窗口,登顶横盘的板块(如 URA 2024-2025)仍会保持 RS_252d 高位戴金。加上 RS_63d 短期过滤,横盘 3 月后 RS_63d 趋零,自动降级 · "
+        "**用途**:找「时代之王」——连续戴金的板块就是真王朝;hover 灰色 Top1 会标注降级原因(RS_252d ≤ 0 / RS_63d ≤ 0) · "
         "**两个对照版本(下方上下排列)**:🅰️ 按 RS+Z 合成排名(默认,与 §1.5 一致) / 🅱️ 按纯 RS_252d 排名(对照,看 Z-Score 在哪些时点替你抢跑或刹车) · "
-        "**数据**:跟上方波形图共用 5Y/10Y 时序,月末快照展开 60/120 个色块 · Y 轴按累计戴金月数降序"
+        "**数据**:跟上方波形图共用 5Y/10Y 时序,RS_63d 用 df_prices 前端自算"
     )
 
     _dynasty_window = st.radio(
@@ -577,11 +578,36 @@ else:
                     ).astype(float)
                     _d_name_map = {tk: p.get("name", tk) for tk, p in _picked_d.items()}
 
-                    # 同一套规则渲染王朝接力图:任意 metric_df 做横截面排名 + RS_252d > 0 加冕门槛
+                    # 前端自算 RS_63d(后端 5Y/10Y window 只提供 RS_252d)
+                    # 公式与 macro_engine 一致: RS_63d = ETF 63d 动量 − SPY 63d 动量
+                    # 用途: 加冕门槛的「最近 3 月仍跑赢 SPY」过滤,防止 URA 这类登顶横盘仍戴金
+                    _RS63_WIN = 63
+                    _d_rs63 = None
+                    if (
+                        df_prices is not None
+                        and not df_prices.empty
+                        and "SPY" in df_prices.columns
+                        and len(df_prices) > _RS63_WIN + 5
+                    ):
+                        _spy_p = df_prices["SPY"].astype(float)
+                        _spy_mom63 = (_spy_p / _spy_p.shift(_RS63_WIN + 1) - 1.0) * 100.0
+                        _rs63_cols = {}
+                        for tk in _picked_d:
+                            if tk in df_prices.columns:
+                                _etf_p = df_prices[tk].astype(float)
+                                _etf_mom63 = (_etf_p / _etf_p.shift(_RS63_WIN + 1) - 1.0) * 100.0
+                                _rs63_cols[tk] = (_etf_mom63 - _spy_mom63).reindex(_dyn_idx)
+                            else:
+                                _rs63_cols[tk] = pd.Series(np.nan, index=_dyn_idx)
+                        _d_rs63 = pd.DataFrame(_rs63_cols, index=_dyn_idx).astype(float)
+
+                    # 同一套规则渲染王朝接力图:任意 metric_df 做横截面排名 + 加冕门槛
+                    # 加冕门槛: RS_252d > 0 AND RS_63d > 0(年化跑赢 SPY 且最近 3 月仍跑赢)
                     # 通过 key_suffix 避免 streamlit 在同一页面 render 两次时 widget key 冲突
                     def _render_relay(metric_df, metric_label, hover_metric_label, key_suffix):
                         _metric_m = metric_df.resample("ME").last()
                         _rs_m = _d_rs.resample("ME").last()
+                        _rs63_m = _d_rs63.resample("ME").last() if _d_rs63 is not None else None
                         if _metric_m.empty or len(_metric_m) < 2:
                             st.warning(f"⚠️ {_dynasty_window}:月末快照数据不足")
                             return
@@ -591,9 +617,14 @@ else:
                             0, index=_rank_m.index, columns=_rank_m.columns, dtype=int
                         )
                         _tier[_rank_m <= 3] = 1
+                        # 加冕门槛: Top1 必须 RS_252d > 0 AND RS_63d > 0 才戴金
                         _gold_mask = (_rank_m == 1) & (_rs_m > 0)
+                        if _rs63_m is not None:
+                            _gold_63 = (_rs63_m > 0).reindex_like(_rank_m).fillna(False)
+                            _gold_mask = _gold_mask & _gold_63
                         _tier = _tier.mask(_gold_mask, 2)
-                        _demoted_mask = (_rank_m == 1) & (_rs_m <= 0)
+                        # Top1 但未过门槛 → 降为灰(包括 RS_252d ≤ 0 或 RS_63d ≤ 0)
+                        _demoted_mask = (_rank_m == 1) & (~_gold_mask)
                         _tier = _tier.mask(_demoted_mask, 0)
 
                         _gold_cnt = (_tier == 2).sum(axis=0)
@@ -605,6 +636,7 @@ else:
                         _rank_yx   = _rank_m[_ordered_tk].T
                         _rs_yx     = _rs_m[_ordered_tk].T
                         _metric_yx = _metric_m[_ordered_tk].T
+                        _rs63_yx   = _rs63_m[_ordered_tk].T if _rs63_m is not None else None
 
                         _ylabels = [f"{_d_name_map.get(tk, tk)} ({tk})" for tk in _ordered_tk]
                         _xlabels = _tier_yx.columns.strftime("%Y-%m").tolist()
@@ -618,16 +650,33 @@ else:
                                 _r_val = _rank_yx.loc[tk, _d]
                                 _rs_val = _rs_yx.loc[tk, _d]
                                 _m_val = _metric_yx.loc[tk, _d]
+                                _rs63_val = _rs63_yx.loc[tk, _d] if _rs63_yx is not None else None
                                 _rank_str = f"第 {int(_r_val)}" if pd.notna(_r_val) else "—"
                                 _rs_str   = f"{_rs_val:+.2f}%" if pd.notna(_rs_val) else "—"
                                 _m_str    = f"{_m_val:+.2f}" if pd.notna(_m_val) else "—"
+                                _rs63_str = (
+                                    f"{_rs63_val:+.2f}%" if (_rs63_val is not None and pd.notna(_rs63_val))
+                                    else "—"
+                                )
+                                # Top1 但降为灰时标注原因(让主理人看到为什么没戴金)
+                                _demote_note = ""
+                                if _t_val == 0 and pd.notna(_r_val) and int(_r_val) == 1:
+                                    _reasons = []
+                                    if pd.notna(_rs_val) and _rs_val <= 0:
+                                        _reasons.append("RS_252d ≤ 0")
+                                    if _rs63_val is not None and pd.notna(_rs63_val) and _rs63_val <= 0:
+                                        _reasons.append("RS_63d ≤ 0")
+                                    if _reasons:
+                                        _demote_note = f"<br><i>Top1 但降级:{' / '.join(_reasons)}</i>"
                                 _row_txt.append(
                                     f"<b>{_d_name_map.get(tk, tk)} ({tk})</b><br>"
                                     f"{_d.strftime('%Y-%m')}<br>"
                                     f"{_BADGE[_t_val]}<br>"
                                     f"排名 {_rank_str}<br>"
                                     f"{hover_metric_label} {_m_str}<br>"
-                                    f"RS_252d {_rs_str}"
+                                    f"RS_252d {_rs_str}<br>"
+                                    f"RS_63d {_rs63_str}"
+                                    f"{_demote_note}"
                                 )
                             _hover_text.append(_row_txt)
 
@@ -707,7 +756,7 @@ else:
                                 f"({_current_king_tk})</span>"
                             )
                         else:
-                            _current_html = "<span style='color:#888'>当前无王(无板块同时满足 Top1 + RS_252d &gt; 0)</span>"
+                            _current_html = "<span style='color:#888'>当前无王(无板块同时满足 Top1 + RS_252d &gt; 0 + RS_63d &gt; 0)</span>"
                         _silver_html = " ".join([
                             f"<span class='tag-bear'>🥈 {_d_name_map.get(tk, tk)} ({tk})</span>"
                             for tk in _current_silver_tks
@@ -719,7 +768,7 @@ else:
 <div style='margin-bottom:6px'>📍 当前在位之王({_last_month.strftime('%Y-%m')}): {_current_html} &nbsp; {_silver_html}</div>
 <div style='margin-bottom:6px'>👑 累计王朝长度 Top3: {_kings_html}</div>
 <div class='insight-section' style='font-size:13px; color:#888;'>
-读法:🥇 金块 = 当月 Top1 且 RS_252d &gt; 0(跑赢 SPY);🥈 银块 = Top2-3;⚪ 灰块 = 其他,或 Top1 但未跑赢 SPY(熊市无王降级)。<b style='color:#aaa;'>连续金块</b> = 王朝期,主升浪期间的回调也保持戴金;<b style='color:#aaa;'>金→银→灰</b> 渐变 = 王朝退位换班。<b style='color:#aaa;'>累计金多 + 最长连续金长</b> = 真时代之王,短命强势板块累计金少。
+读法:🥇 金块 = 当月 Top1 且 RS_252d &gt; 0 且 RS_63d &gt; 0(双 RS 都跑赢 SPY);🥈 银块 = Top2-3;⚪ 灰块 = 其他,或 Top1 但其中一个 RS ≤ 0(熊市/登顶横盘降级)。<b style='color:#aaa;'>连续金块</b> = 王朝期,主升浪期间的回调也保持戴金;<b style='color:#aaa;'>金→银→灰</b> 渐变 = 王朝退位或登顶横盘换班。<b style='color:#aaa;'>累计金多 + 最长连续金长</b> = 真时代之王,短命强势板块累计金少。
 </div>
 </div>
 """, unsafe_allow_html=True)
