@@ -49,7 +49,6 @@ from conviction_engine import (
 _ARENA_SAVE_N = 10
 
 _core_data = fetch_core_data()
-_MACRO_TAGS_MAP     = _core_data.get("MACRO_TAGS_MAP", {})
 _NARRATIVE_HEAT_MAP = _core_data.get("NARRATIVE_THEMES_HEAT", {})
 _STOCK_NARRATIVE    = _core_data.get("STOCK_NARRATIVE_MAP", {})
 _SECTOR_MAP         = _core_data.get("SECTOR_MAP", {})
@@ -155,7 +154,7 @@ def _lazy_subtab_nav(
 
 
 # ─────────────────────────────────────────────────────────────────
-#  ABCD 宏观剧本元信息（与 Page 3 保持一致）
+#  ABCD 赛道元信息（与 Page 3 保持一致）
 # ─────────────────────────────────────────────────────────────────
 CLASS_META: dict = {
     "A": {
@@ -221,7 +220,7 @@ ARENA_CONFIG: dict = {
     },
     "B": {
         "score_name": "核心底仓质量指数",
-        "weights": {"real_quality": 0.25, "resilience": 0.20, "sharpe_1y": 0.20, "rs_120d": 0.15, "mcap_premium": 0.10, "revenue_growth": 0.10},
+        "weights": {"real_quality": 0.30, "resilience": 0.20, "sharpe_1y": 0.20, "rs_120d": 0.10, "mcap_premium": 0.10, "revenue_growth": 0.10},
         "invert_z": False,
         "factor_labels": {
             "real_quality":   "真·护城河质量 (股息率+盈利稳定性)",
@@ -233,10 +232,10 @@ ARENA_CONFIG: dict = {
         },
         "logic": (
             "核心底仓质量指数：兼顾防御、效率与趋势，追求极低换手率与极强抗跌性。<br>"
-            "① 真·护城河质量（股息率 + 盈利稳定性双因子代理，权重 25%）<br>"
+            "① 真·护城河质量（股息率 + 盈利稳定性双因子代理，权重 30%）<br>"
             "② 抗跌韧性（近 1 年最大回撤越小得分越高，权重 20%）<br>"
             "③ 长效性价比（近 1 年夏普比率，长期风险调整收益，权重 20%）<br>"
-            "④ 中期相对强度 RS₁₂₀（过去 120 日相对 SPY 超额收益，捕捉趋势切换，权重 15%）<br>"
+            "④ 中期相对强度 RS₁₂₀（过去 120 日相对 SPY 超额收益，捕捉趋势切换，权重 10%）<br>"
             "⑤ 绝对体量（log10 市值壁垒，大象起舞加分，权重 10%）<br>"
             "⑥ 成长弹性（Revenue 增速，避免纯防御型占位，权重 10%）<br>"
             "高分者兼具护城河深度、成长宽度与趋势顺风。"
@@ -250,16 +249,14 @@ ARENA_CONFIG: dict = {
             "eps_growth":      "Forward EPS Z-Score (基本面核动力)",
             "log_mcap":        "log₁₀(市值) (流动性保障)",
             "rs_120d":         "RS₁₂₀ 中长线相对强度 (半年超额收益)",
-            "macro_alignment": "宏观剧本顺风匹配 (Macro Fit)",
             "rs_250d":         "RS₂₅₀ 年度超额收益 (年线级慢动量)",
         },
         "logic": (
             "时代之王 ScorecardC — 慢变量霸权测试（满分 100 分）<br>"
-            "① Forward EPS 增速（华尔街一致预期 12 个月 EPS 增速截面 Z-Score，权重 25%）— 盈利是王道。<br>"
+            "① Forward EPS 增速（华尔街一致预期 12 个月 EPS 增速截面 Z-Score，权重 35%）— 盈利是王道。<br>"
             "② log₁₀(市值)（市值越大流动性越好，机构可大仓位介入，权重 15%）<br>"
-            "③ RS₁₂₀ 中长线相对强度（过去 120 日相对 SPY 超额收益率，权重 20%）<br>"
-            "④ 宏观顺风（标的宏观标签与当前胜率最高剧本完全匹配得满分，错配得 0，权重 20%）<br>"
-            "⑤ RS₂₅₀ 年度超额收益（过去 250 日相对 SPY 超额收益率，年线级慢动量，权重 20%）<br>"
+            "③ RS₁₂₀ 中长线相对强度（过去 120 日相对 SPY 超额收益率，权重 25%）<br>"
+            "④ RS₂₅₀ 年度超额收益（过去 250 日相对 SPY 超额收益率，年线级慢动量，权重 25%）<br>"
             "所有因子均经锚点归一化至 [0, 100] 后加权求和。拒绝短期噪音（5日量能、叙事热度已迁入 D 组）。"
         ),
     },
@@ -301,22 +298,6 @@ ARENA_CONFIG: dict = {
         ),
     },
 }
-
-
-# ─────────────────────────────────────────────────────────────────
-#  宏观剧本派生（Macro Regime Derivation）
-# ─────────────────────────────────────────────────────────────────
-def _derive_monthly_regimes(probs: dict) -> tuple:
-    """从月度四大剧本概率派生 B/C 和 D 组使用的宏观剧本。
-    B/C: 概率最高剧本；D: 第二高剧本若 >60% 则用之，否则同 B/C。
-    probs 格式: {"Soft": float, "Hot": float, "Stag": float, "Rec": float}
-    """
-    if not probs:
-        return "Soft", "Soft"
-    sorted_r = sorted(probs.items(), key=lambda x: x[1], reverse=True)
-    bc = sorted_r[0][0]
-    d  = sorted_r[1][0] if (len(sorted_r) >= 2 and sorted_r[1][1] > 0.60) else bc
-    return bc, d
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -548,7 +529,7 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
 
     本函数负责：
       1. 下载历史价格（含 SPY）
-      2. 构建 month_specs 列表（含 date_idx + macro_regime + is_warmup）
+      2. 构建 month_specs 列表（含 date_idx + macro_scores + is_warmup）
       3. 一次性调用后端端点
       4. 遍历 response 写入 arena_history + 持久化 conviction_state
 
@@ -605,11 +586,9 @@ def _backfill_arena_history(all_assets: dict, months_back: int = 24,
         if loc < 120:
             continue
         _m_probs = (monthly_probs or {}).get(month_key, {})
-        bc_regime, _ = _derive_monthly_regimes(_m_probs)
         month_specs.append({
             "month_key":    month_key,
             "date_idx":     int(loc),
-            "macro_regime": bc_regime,
             "macro_scores": _m_probs,
             "is_warmup":    month_key in warmup_keys,
         })
@@ -742,12 +721,12 @@ def compute_arena_scores(df: pd.DataFrame, cls: str) -> pd.DataFrame:
 
 
 
-def compute_scorecard_c(df: pd.DataFrame, macro_regime: str) -> pd.DataFrame:
+def compute_scorecard_c(df: pd.DataFrame) -> pd.DataFrame:
     """
     ScorecardC — C 组「慢变量霸权」评分体系 (满分 100 分)
 
-    Score_C = (25 × Z_ForwardEPS) + (15 × log10(MCap))
-            + (20 × RS_120d) + (20 × Fit_Macro) + (20 × RS_250d)
+    Score_C = (35 × Z_ForwardEPS) + (15 × log10(MCap))
+            + (25 × RS_120d) + (25 × RS_250d)
 
     各项均经锚点归一化至 [0, 100] 后加权求和。
     """
@@ -756,35 +735,26 @@ def compute_scorecard_c(df: pd.DataFrame, macro_regime: str) -> pd.DataFrame:
 
     result = df.copy()
 
-    # ── 因子 1: Forward EPS Growth Z-Score (25%, was 50%)
     eps_raw = result.get("EPS增速", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
     f1_norm = _anchor_norm(eps_raw, *FACTOR_ANCHORS["eps_growth"])
 
-    # ── 因子 2: log10(MarketCap) (15%)
     mcap_log = result.get("市值对数", pd.Series(9.0, index=result.index)).astype(float).fillna(9.0)
     f2_norm = _anchor_norm(mcap_log, *FACTOR_ANCHORS["log_mcap"])
 
-    # ── 因子 3: RS_120d 中长线相对强度 vs SPY (20%, was 15%)
     rs120_raw = result.get("RS120d", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
     f3_norm = _anchor_norm(rs120_raw, *FACTOR_ANCHORS["rs_120d"])
 
-    # ── 因子 4: Macro Alignment — 标的宏观标签与当前胜率剧本匹配 (20%)
-    aligned_tickers = set(_MACRO_TAGS_MAP.get(macro_regime, []))
-    f4_norm = result["Ticker"].apply(lambda t: 100.0 if t in aligned_tickers else 0.0)
-
-    # ── 因子 5: RS_250d 年度超额收益 vs SPY (20%, new)
     rs250_raw = result.get("RS250d", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
-    f5_norm = _anchor_norm(rs250_raw, *FACTOR_ANCHORS["rs_250d"])
+    f4_norm = _anchor_norm(rs250_raw, *FACTOR_ANCHORS["rs_250d"])
 
-    result["因子1_分"] = (0.25 * f1_norm).round(1)
+    result["因子1_分"] = (0.35 * f1_norm).round(1)
     result["因子2_分"] = (0.15 * f2_norm).round(1)
-    result["因子3_分"] = (0.20 * f3_norm).round(1)
-    result["因子4_分"] = (0.20 * f4_norm).round(1)
-    result["因子5_分"] = (0.20 * f5_norm).round(1)
+    result["因子3_分"] = (0.25 * f3_norm).round(1)
+    result["因子4_分"] = (0.25 * f4_norm).round(1)
 
     result["竞技得分"] = (
         result["因子1_分"] + result["因子2_分"] + result["因子3_分"]
-        + result["因子4_分"] + result["因子5_分"]
+        + result["因子4_分"]
     ).round(1)
 
     result = result.sort_values("竞技得分", ascending=False).reset_index(drop=True)
@@ -850,33 +820,17 @@ def compute_scorecard_d(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-# ── B 组宏观适配权重表 ──
-# 四档权重: (Quality, Resilience, Sharpe, RS120d, MCap, Revenue, MacroAlign)
-# 进攻期(Soft/Hot) → RS120d 10%；防御期(Stag/Rec) → RS120d 归零，Quality/Resilience 加码
-B_REGIME_WEIGHTS: dict = {
-    "Soft": (0.20, 0.20, 0.20, 0.10, 0.10, 0.10, 0.10),
-    "Hot":  (0.20, 0.15, 0.20, 0.10, 0.10, 0.15, 0.10),
-    "Stag": (0.25, 0.25, 0.20, 0.00, 0.10, 0.10, 0.10),
-    "Rec":  (0.30, 0.25, 0.20, 0.00, 0.10, 0.05, 0.10),
-}
-
-
-def compute_scorecard_b(df: pd.DataFrame, macro_regime: str = "Soft") -> pd.DataFrame:
+def compute_scorecard_b(df: pd.DataFrame) -> pd.DataFrame:
     """
-    ScorecardB -- B 组「核心底仓质量指数」宏观适配评分体系 (满分 100 分)
+    ScorecardB -- B 组「核心底仓质量指数」评分体系 (满分 100 分)
 
-    权重随宏观剧本动态调整（B_REGIME_WEIGHTS）：
-      进攻期 (Soft/Hot): 保留 RS120d 10% — 动量辅助选优
-      防御期 (Stag/Rec): RS120d 归零 — 纯质量/韧性筛选
-
-    7 因子:
-      F1 RealQuality    = (DivYield_norm + EPS_Stability_norm) / 2
-      F2 Resilience     = inverse MaxDrawdown
-      F3 Sharpe1Y       = annualized Sharpe ratio
-      F4 RS120d         = 120-day relative strength vs SPY
-      F5 MCapPremium    = log10(MCap) normalized
-      F6 RevenueGrowth  = TTM Revenue growth rate %
-      F7 MacroAlignment = 标的是否匹配当前宏观剧本 (binary, 同 C 组同源)
+    6 因子固定权重:
+      F1 RealQuality   = (DivYield_norm + EPS_Stability_norm) / 2   (30%)
+      F2 Resilience    = inverse MaxDrawdown                        (20%)
+      F3 Sharpe1Y      = annualized Sharpe ratio                    (20%)
+      F4 RS120d        = 120-day relative strength vs SPY           (10%)
+      F5 MCapPremium   = log10(MCap) normalized                     (10%)
+      F6 RevenueGrowth = TTM Revenue growth rate %                  (10%)
     """
     if df.empty:
         return df
@@ -904,24 +858,16 @@ def compute_scorecard_b(df: pd.DataFrame, macro_regime: str = "Soft") -> pd.Data
     rev_raw = result.get("Revenue增速", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
     f6_norm = _anchor_norm(rev_raw, *FACTOR_ANCHORS["revenue_growth"])
 
-    aligned_tickers = set(_MACRO_TAGS_MAP.get(macro_regime, []))
-    f7_norm = result["Ticker"].apply(lambda t: 100.0 if t in aligned_tickers else 0.0)
-
-    w = B_REGIME_WEIGHTS.get(macro_regime, B_REGIME_WEIGHTS["Soft"])
-    w_q, w_r, w_s, w_rs, w_m, w_rev, w_macro = w
-
-    result["因子1_分"] = (w_q * f1_norm).round(1)
-    result["因子2_分"] = (w_r * f2_norm).round(1)
-    result["因子3_分"] = (w_s * f3_norm).round(1)
-    result["因子4_分"] = (w_rs * f4_norm).round(1)
-    result["因子5_分"] = (w_m * f5_norm).round(1)
-    result["因子6_分"] = (w_rev * f6_norm).round(1)
-    result["因子7_分"] = (w_macro * f7_norm).round(1)
+    result["因子1_分"] = (0.30 * f1_norm).round(1)
+    result["因子2_分"] = (0.20 * f2_norm).round(1)
+    result["因子3_分"] = (0.20 * f3_norm).round(1)
+    result["因子4_分"] = (0.10 * f4_norm).round(1)
+    result["因子5_分"] = (0.10 * f5_norm).round(1)
+    result["因子6_分"] = (0.10 * f6_norm).round(1)
 
     result["竞技得分"] = (
         result["因子1_分"] + result["因子2_分"] + result["因子3_分"]
         + result["因子4_分"] + result["因子5_分"] + result["因子6_分"]
-        + result["因子7_分"]
     ).round(1)
 
     result = result.sort_values("竞技得分", ascending=False).reset_index(drop=True)
@@ -3716,54 +3662,7 @@ def _render_arena_tab(df_cls: pd.DataFrame, cls: str) -> None:
 with st.sidebar:
     st.header("🏆 竞技场控制台")
     st.markdown("---")
-    st.subheader("🧭 宏观剧本设定 (3Y 中期战略视角)")
-    st.caption("平滑剧本供 B/C 组使用；原始剧本供 D 组宏观匹配")
-    _regime_options = ["Soft", "Hot", "Stag", "Rec"]
-    _regime_labels  = {"Soft": "软着陆/复苏", "Hot": "过热/再通胀", "Stag": "滞胀", "Rec": "衰退"}
-    # 优先读后端缓存，回退到 session_state（write-through 过渡兼容）
-    _regime_cache   = fetch_current_regime()
-    _ss_regime     = (
-        _regime_cache.get("current_macro_regime")
-        or st.session_state.get("current_macro_regime")
-    )
-    _ss_regime_raw = (
-        _regime_cache.get("current_macro_regime_raw")
-        or st.session_state.get("current_macro_regime_raw")
-    )
-    _default_regime_idx = (
-        _regime_options.index(_ss_regime)
-        if _ss_regime in _regime_options
-        else 0
-    )
-    if _ss_regime:
-        st.success(
-            f"🔗 现任剧本 (B/C)：**{_ss_regime} — {_regime_labels.get(_ss_regime, '')}**",
-            icon="✅"
-        )
-    else:
-        st.info("后端缓存暂无宏观剧本（首次启动或后端未运行），已默认「Soft」，可手动调整。", icon="ℹ️")
-    if _ss_regime_raw:
-        _raw_label = _regime_labels.get(_ss_regime_raw, _ss_regime_raw)
-        st.info(f"🔭 原始信号 (D 组)：**{_ss_regime_raw} — {_raw_label}**", icon="📡")
-    macro_regime = st.selectbox(
-        "当前胜率最高剧本 (B/C 组用)",
-        options=_regime_options,
-        format_func=lambda x: f"{x} — {_regime_labels[x]}",
-        index=_default_regime_idx,
-    )
-    _default_raw_idx = (
-        _regime_options.index(_ss_regime_raw)
-        if _ss_regime_raw in _regime_options
-        else _default_regime_idx
-    )
-    macro_regime_raw = st.selectbox(
-        "原始剧本 (D 组宏观匹配用)",
-        options=_regime_options,
-        format_func=lambda x: f"{x} — {_regime_labels[x]}",
-        index=_default_raw_idx,
-    )
     st.session_state["narrative_resonance_v2_mode"] = "v2_on"
-    st.markdown("---")
     st.header("🛠️ 系统维护")
     if st.button("🔄 仅清除当前页缓存"):
         fetch_core_data.clear()
@@ -4296,10 +4195,10 @@ elif _sel4 == "B":
         <div style='font-size:13px; color:#bbb; line-height:1.8;'>{cfg_b["logic"]}</div>
         <div style='margin-top:10px; font-size:13px; color:#666;'>
             评分权重 →
-            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[0]}22; color:{_B_FACTOR_COLORS[0]}; border:1px solid {_B_FACTOR_COLORS[0]}55;'>真·护城河质量  25%</span>
+            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[0]}22; color:{_B_FACTOR_COLORS[0]}; border:1px solid {_B_FACTOR_COLORS[0]}55;'>真·护城河质量  30%</span>
             <span class='factor-pill' style='background:{_B_FACTOR_COLORS[1]}22; color:{_B_FACTOR_COLORS[1]}; border:1px solid {_B_FACTOR_COLORS[1]}55;'>抗跌韧性  20%</span>
             <span class='factor-pill' style='background:{_B_FACTOR_COLORS[2]}22; color:{_B_FACTOR_COLORS[2]}; border:1px solid {_B_FACTOR_COLORS[2]}55;'>夏普比率  20%</span>
-            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[3]}22; color:{_B_FACTOR_COLORS[3]}; border:1px solid {_B_FACTOR_COLORS[3]}55;'>中期相对强度 RS₁₂₀  15%</span>
+            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[3]}22; color:{_B_FACTOR_COLORS[3]}; border:1px solid {_B_FACTOR_COLORS[3]}55;'>中期相对强度 RS₁₂₀  10%</span>
             <span class='factor-pill' style='background:{_B_FACTOR_COLORS[4]}22; color:{_B_FACTOR_COLORS[4]}; border:1px solid {_B_FACTOR_COLORS[4]}55;'>绝对体量  10%</span>
             <span class='factor-pill' style='background:{_B_FACTOR_COLORS[5]}22; color:{_B_FACTOR_COLORS[5]}; border:1px solid {_B_FACTOR_COLORS[5]}55;'>Revenue增速  10%</span>
         </div>
@@ -4312,10 +4211,10 @@ elif _sel4 == "B":
         st.markdown("""
         <div style='font-size:14px; color:#ccc; line-height:1.8;'>
         <span style='color:#F39C12; font-weight:bold;'>Score<sub>B</sub></span> =
-        <span style='color:#F39C12;'>(25 × RealQuality<sub>norm</sub>)</span> +
+        <span style='color:#F39C12;'>(30 × RealQuality<sub>norm</sub>)</span> +
         <span style='color:#3498DB;'>(20 × Resilience<sub>InvMaxDD</sub>)</span> +
         <span style='color:#2ECC71;'>(20 × Sharpe<sub>1Y</sub>)</span> +
-        <span style='color:#E67E22;'>(15 × RS₁₂₀<sub>vs SPY</sub>)</span> +
+        <span style='color:#E67E22;'>(10 × RS₁₂₀<sub>vs SPY</sub>)</span> +
         <span style='color:#9B59B6;'>(10 × MCap<sub>log10</sub>)</span> +
         <span style='color:#E74C3C;'>(10 × RevenueGrowth<sub>TTM</sub>)</span><br>
         <span style='color:#888; font-size:13px;'>
@@ -4340,7 +4239,7 @@ elif _sel4 == "B":
         df_b["EPS稳定性"]  = df_b["Ticker"].map(lambda t: float(_factors_b.get(t, {}).get("eps_stability",   0.0)))
         df_b["Revenue增速"] = df_b["Ticker"].map(lambda t: float(_factors_b.get(t, {}).get("revenue_growth", 0.0)))
 
-        df_scored_b = compute_scorecard_b(df_b, macro_regime)
+        df_scored_b = compute_scorecard_b(df_b)
 
         n_b = len(df_scored_b)
         _rt_selected = []
@@ -4444,11 +4343,10 @@ elif _sel4 == "C":
         <div style='font-size:12px; color:#bbb; line-height:1.8;'>{cfg_c["logic"]}</div>
         <div style='margin-top:10px; font-size:11px; color:#666;'>
             评分权重 →
-            <span class='factor-pill' style='background:{meta["color"]}22; color:{meta["color"]}; border:1px solid {meta["color"]}55;'>Forward EPS Z-Score  25%</span>
+            <span class='factor-pill' style='background:{meta["color"]}22; color:{meta["color"]}; border:1px solid {meta["color"]}55;'>Forward EPS Z-Score  35%</span>
             <span class='factor-pill' style='background:#3498DB22; color:#3498DB; border:1px solid #3498DB55;'>log₁₀(MCap)  15%</span>
-            <span class='factor-pill' style='background:#9B59B622; color:#9B59B6; border:1px solid #9B59B655;'>RS₁₂₀ 中长线强度  20%</span>
-            <span class='factor-pill' style='background:#F39C1222; color:#F39C12; border:1px solid #F39C1255;'>宏观顺风  20%</span>
-            <span class='factor-pill' style='background:#2ECC7122; color:#2ECC71; border:1px solid #2ECC7155;'>RS₂₅₀ 年度超额  20%</span>
+            <span class='factor-pill' style='background:#9B59B622; color:#9B59B6; border:1px solid #9B59B655;'>RS₁₂₀ 中长线强度  25%</span>
+            <span class='factor-pill' style='background:#2ECC7122; color:#2ECC71; border:1px solid #2ECC7155;'>RS₂₅₀ 年度超额  25%</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -4458,18 +4356,16 @@ elif _sel4 == "C":
     <div class='formula-box' style='background:#1a1a1a; border-left:3px solid #E74C3C; padding:14px; margin-bottom:16px; font-size:13px; color:#ccc; border-radius:4px;'>
     <b>⚙️ ScorecardC 白盒公式（满分 100 分）— 慢变量霸权，拒绝短期噪音：</b><br><br>
     <span style='color:#E74C3C; font-weight:bold;'>Score<sub>C</sub></span> =
-    <span style='color:#E74C3C;'>(25 × Z<sub>ForwardEPS</sub>)</span> +
+    <span style='color:#E74C3C;'>(35 × Z<sub>ForwardEPS</sub>)</span> +
     <span style='color:#3498DB;'>(15 × log₁₀(MCap)<sub>norm</sub>)</span> +
-    <span style='color:#9B59B6;'>(20 × RS<sub>120d vs SPY</sub>)</span> +
-    <span style='color:#F39C12;'>(20 × Fit<sub>Macro</sub>)</span> +
-    <span style='color:#2ECC71;'>(20 × RS<sub>250d vs SPY</sub>)</span><br><br>
+    <span style='color:#9B59B6;'>(25 × RS<sub>120d vs SPY</sub>)</span> +
+    <span style='color:#2ECC71;'>(25 × RS<sub>250d vs SPY</sub>)</span><br><br>
     <span style='color:#888; font-size:13px;'>
     各因子均经锚点归一化至 [0, 100] 后加权求和。RS₂₅₀ = 标的过去 250 日涨跌幅 − SPY 同期涨跌幅（年度超额收益，半年才显著变化）。<br>
-    5日量能 Z-Score 与叙事热度已迁入 D 组短周期体系，不再参与 C 组定价。<br>
-    当前宏观剧本（Macro Fit 判定基准）：<b style='color:#F39C12;'>{regime}</b>
+    5日量能 Z-Score 与叙事热度已迁入 D 组短周期体系，不再参与 C 组定价。
     </span>
     </div>
-    """.format(regime=macro_regime), unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
     if df_c.empty:
         st.info(f"当前 C 级赛道暂无参赛资产。请检查数据或清除缓存后重试。")
@@ -4491,7 +4387,7 @@ elif _sel4 == "C":
             lambda t: float(_factors_c.get(t, {}).get("rs_250d", 0.0))
         )
 
-        df_scored_c = compute_scorecard_c(df_c, macro_regime)
+        df_scored_c = compute_scorecard_c(df_c)
 
         # 保存至 session_state 供下游使用
         n_c = len(df_scored_c)
@@ -4856,16 +4752,11 @@ def _render_monthly_top10(cls: str) -> None:
     st.markdown(
         f"### 📅 {_hm['icon']} {_hm['label']} — 历史月度 Top 10",
     )
-    _hist_macro_note = (
-        "本赛道评分不受宏观剧本变化影响，四剧本裁决列仅供市场环境参考。"
-        if cls in ("A", "D", "Z")
-        else "B 组权重随剧本动态调整；C 组宏观顺风标的随剧本切换，切换月份将自动插入白盒注释行。"
-    )
     st.caption(
         f"当前赛道：{_hm['label']}。纵向追踪每月末排名，"
         "方便确认哪些标的被持续输送至 Page 5 / Page 6。"
-        "「四剧本裁决」列来自 Page 1 月度表（与 C 组宏观匹配同源）。"
-        f"切换顶部 ABCD 色块即可查看其他赛道历史。{_hist_macro_note}"
+        "「四剧本裁决」列来自 Page 1 月度表，仅供市场环境参考，不参与评分。"
+        "切换顶部 ABCD 色块即可查看其他赛道历史。"
     )
 
     _BF_MONTHS = 60
@@ -5029,11 +4920,6 @@ def _render_monthly_top10(cls: str) -> None:
         _row += "</div>"
         _data_rows += _row
 
-        if _regime_shifted:
-            _anno = _regime_shift_annotation(_next_v_cn, _v_cn, cls)
-            if _anno:
-                _data_rows += _anno
-
     st.markdown(
         f"<div style='border:1px solid {_hm['color']}44; border-radius:8px; "
         f"overflow:hidden;'>{_header_row}{_data_rows}</div>",
@@ -5049,9 +4935,7 @@ _REGIME_BADGE_CN: dict = {
     "衰退":   ("<span style='color:#3498DB; font-size:13px; font-weight:bold;'>❄️ 衰退</span>",   "#3498DB"),
 }
 _REGIME_BADGE_EMPTY = ("<span style='color:#444; font-size:13px;'>—</span>", "#444")
-_REGIME_CN_TO_CODE: dict = {"软着陆": "Soft", "再通胀": "Hot", "滞胀": "Stag", "衰退": "Rec"}
 _REGIME_EMOJI: dict = {"软着陆": "🚗", "再通胀": "🔥", "滞胀": "🚨", "衰退": "❄️"}
-_B_FACTOR_LABELS = ("Quality", "Resilience", "Sharpe", "RS120d", "MCap", "Revenue", "MacroAlign")
 
 _HIST_CONV_ICONS: dict = {
     "defending":  ("🛡️", "#2ECC71"),
@@ -5122,64 +5006,6 @@ def _hist_cell(rec: dict, medal_color: str, streak: int = 0) -> str:
 
 def _hist_empty() -> str:
     return "<div style='flex:1; font-size:13px; color:#333; padding-left:4px;'>—</div>"
-
-
-def _regime_shift_annotation(prev_cn: str, curr_cn: str, cls: str) -> str:
-    if cls not in ("B", "C"):
-        return ""
-    prev_code = _REGIME_CN_TO_CODE.get(prev_cn, "")
-    curr_code = _REGIME_CN_TO_CODE.get(curr_cn, "")
-    if not prev_code or not curr_code:
-        return ""
-
-    lines: list = []
-    if cls == "B":
-        pw = B_REGIME_WEIGHTS.get(prev_code, B_REGIME_WEIGHTS["Soft"])
-        cw = B_REGIME_WEIGHTS.get(curr_code, B_REGIME_WEIGHTS["Soft"])
-        changes = []
-        for i, label in enumerate(_B_FACTOR_LABELS):
-            if pw[i] != cw[i]:
-                direction = "↑" if cw[i] > pw[i] else "↓"
-                color = "#2ECC71" if cw[i] > pw[i] else "#E74C3C"
-                changes.append(
-                    f"<span style='color:{color}; font-weight:bold;'>"
-                    f"{label} {int(pw[i]*100)}%→{int(cw[i]*100)}% {direction}"
-                    f"</span>"
-                )
-        if changes:
-            lines.append("B组权重调整：" + "　".join(changes))
-    else:  # C
-        prev_t = set(_MACRO_TAGS_MAP.get(prev_code, []))
-        curr_t = set(_MACRO_TAGS_MAP.get(curr_code, []))
-        added   = sorted(curr_t - prev_t)
-        removed = sorted(prev_t - curr_t)
-        if added:
-            tickers_html = " ".join(
-                f"<span style='color:#2ECC71; font-weight:bold;'>{t}</span>"
-                for t in added
-            )
-            lines.append(f"宏观顺风新增：{tickers_html}")
-        if removed:
-            tickers_html = " ".join(
-                f"<span style='color:#E74C3C; font-weight:bold; "
-                f"text-decoration:line-through;'>{t}</span>"
-                for t in removed
-            )
-            lines.append(f"宏观顺风移出：{tickers_html}")
-
-    if not lines:
-        return ""
-
-    content = "　｜　".join(lines)
-    return (
-        f"<div style='display:flex; align-items:flex-start; padding:5px 8px 5px 11px; "
-        f"background:#1a1200; border-left:3px solid #F39C12; "
-        f"border-bottom:1px solid #1a1a1a; font-size:13px; color:#ccc;'>"
-        f"<span style='color:#F39C12; font-weight:bold; "
-        f"flex-shrink:0; margin-right:8px; white-space:nowrap;'>🔀 剧本切换影响</span>"
-        f"<span style='flex:1; line-height:1.5;'>{content}</span>"
-        f"</div>"
-    )
 
 
 # ── D 赛道：月度 Top 10 渲染到"动量基准榜"子入口的预留 container 中 ──
