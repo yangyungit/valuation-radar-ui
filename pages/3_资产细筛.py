@@ -1059,7 +1059,8 @@ def _render_leaderboard(df_scored: pd.DataFrame, cls: str,
     meta = CLASS_META[cls]
     cfg = ARENA_CONFIG[cls]
 
-    st.markdown(f"#### 完整排行榜（{meta['icon']} {len(df_scored)} 位参赛选手）")
+    df_scored = df_scored.head(30)
+    st.markdown(f"#### 完整排行榜（{meta['icon']} Top {len(df_scored)}）")
 
     if df_scored.empty:
         return
@@ -1349,8 +1350,9 @@ def _render_podium_d(top3: pd.DataFrame) -> None:
 def _render_leaderboard_d(df_scored: pd.DataFrame) -> None:
     """D 组爆点扫描仪专属排行榜（Vol_Z / RS / MA60 三维列）。"""
     meta = CLASS_META["D"]
+    df_scored = df_scored.head(30)
     n    = len(df_scored)
-    st.markdown(f"#### 完整排行榜（{meta['icon']} {n} 位参赛选手）")
+    st.markdown(f"#### 完整排行榜（{meta['icon']} Top {n}）")
     if df_scored.empty:
         return
 
@@ -2974,8 +2976,9 @@ def _render_leaderboard_b(df_scored: pd.DataFrame,
                           conviction_map: dict | None = None) -> None:
     """B 组核心底仓质量指数专属排行榜（DivYield / MaxDD / Sharpe 三维列）。"""
     meta = CLASS_META["B"]
+    df_scored = df_scored.head(30)
     n    = len(df_scored)
-    st.markdown(f"#### 完整排行榜（{meta['icon']} {n} 位参赛选手）")
+    st.markdown(f"#### 完整排行榜（{meta['icon']} Top {n}）")
     if df_scored.empty:
         return
 
