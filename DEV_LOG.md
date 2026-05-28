@@ -2,6 +2,56 @@
 
 ---
 
+## 2026-05-28 | §1.6 王朝接力图主图改用 king_score 排名,容量项进合成分
+
+**动因**:5-28 早晨主理人指出上一版只把 ADV 在 Y 轴和 hover 标注「不够」,URA(铀)依然戴金。「时代之王 = 又有动量、又有成交量、市值还大」,容量必须**进排序**,不能只挂着看。
+
+**方案选型**(详见对话):
+
+- A: 硬门槛过滤 URA 等小盘 → 直接踢出 25 候选 → 卡线问题
+- **B: 合成分加权** ← 选 ✅
+- C: 分层榜机构盘/主题盘分开染色 → 改动太大
+
+**算法**:`king_score = w_rs × Z(rs_252d) + w_z × Z(price_z) + w_cap × Z(log10(adv_63d))`,三项各做横截面 Z-Score。权重 `1.0 / 0.5 / 0.8` 用 25 候选 ETF 实际 ADV 分布反推:URA log10(ADV)=2.31,Z≈-1.18σ;XLK log10(ADV)=3.33,Z≈+1.38σ。要让 XLK(假设 RS 第 5 Z≈+0.5σ)反超 URA(假设 RS 第 1 Z≈+2.5σ),解出 `w_cap > 0.78`,取 0.8。
+
+**改动**:
+
+1. **后端 valuation-radar**:
+   - `compute_radar_timeseries` 新增 ADV_63d 时序(过去 63 日 Close × Volume 均值)
+   - 新增 `_yf_download_volume_batched` 下 Volume 历史,不做 ffill(休市日不该补前一天)
+   - 新增 `_radar_ts_volume_cache` 独立 10 年 Volume 缓存
+   - 每个 ticker 输出新字段 `king_score[]` 和 `adv_63d[]`
+   - 响应顶层加 `king_score_weights: {rs, z, cap}` 供前端展示权重
+   - Volume 全军覆没时降级为 RS+Z(行为同 composite),不阻塞
+
+2. **前端 valuation-radar-ui**:
+   - §1.6 主图 🅰️ 排序字段从 `composite` 换成 `king_score`
+   - 主 caption 改写:讲清楚 king_score 公式 + 容量项怎么压小众盘
+   - hover 加 `ADV_63d(当月) $XM` 字段,显示**逐月历史 ADV**,不是当前快照
+   - hover 把 `AUM` 标注为「当前快照」(yfinance 拿不到 AUM 历史,只能展示)
+   - 对照图 🅑 caption 改写:讲清楚对比 🅐 🅑 金块位置能看出容量项把谁抢了金牌
+   - 王朝龙头股 tab(§1.6 第 2 tab)同步换用 `king_score` 识别连续金块期,保持两个 tab 加冕规则一致
+
+**AUM 为什么不进算法**:ETF 没有股票那种「市值」概念,AUM = 基金规模 ≈ 股票市值。yfinance `.info` 只给 `totalAssets` 当前快照,**历史 AUM 拿不到**(SEC EDGAR 半年报粒度太粗,FactSet/Bloomberg 收费)。所以容量维度全权交给 ADV 承担,反正机构盘 ADV 和 AUM 强正相关。
+
+**怎么用**:
+
+- 🅐 戴金 ≠ 🅑 戴金 = 容量项起作用了,可以对比看哪个月哪个板块的金牌被谁抢/抢谁的
+- URA 在 🅑(纯 RS_252d)可能依然金/银,但在 🅐(king_score)被压到第 4-5 名灰块——这就是设计目的
+- 找时代之王:看 🅐 主图,连续金块且 hover 里 ADV_63d 当月都 ≥ $500M 的板块就是真王朝
+
+**不动**:tier 染色规则(🥇🥈⚪)、加冕门槛(rank=1 && rs_252d > 0)、universe 范围(25 个 ETF)、§1.5 强势波形图(仍用 composite)。
+
+**验收**:
+
+- 主图 🅐 标题包含 `w_rs=1.0 / w_z=0.5 / w_cap=0.8`
+- URA 不再持续戴金(2024-2025 段被 XLK/SMH/IGV 等抢回)
+- 🅐 🅑 两图金块位置在多数月份有差异
+- hover 任意格子显示完整:king_score / RS_252d / RS_63d / ADV_63d(当月) / AUM(当前快照)
+- 王朝龙头股 tab 识别的连续金块期与主图 🅐 完全一致
+
+---
+
 ## 2026-05-28 | §1.6 王朝接力图加 ETF AUM + ADV 标注,区分真王朝 vs 小众短命王
 
 **动因**:主理人发现纯 RS 排名里 URA(铀)长期压过 SMH(半导体),不符合「时代之王 = 大主题」的直觉。根因:RS 不区分波动率,小众高 beta ETF 主升浪期间 1 年涨幅(80-150%)经常超过大主题 ETF(30-60%)。需要「机构容量」维度区分:大资金能买的是真王朝,小众短命王虽然涨幅大但容量小不可投。

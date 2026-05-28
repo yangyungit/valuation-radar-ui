@@ -531,19 +531,18 @@ else:
             )
 
     # ── §1.6 板块王朝接力图 (Dynasty Relay) — 月末 Top1/Top3 染色 ─────
-    # 同一份 RS+Z 强势分,换种画法:把"时间×排名"展开成色块矩阵,
-    # 让"连续戴金 = 王朝期"和"金→银→灰 = 退位换班"在视觉上一目了然
+    # 主图按 king_score 排名 = w_rs×Z(rs) + w_z×Z(z) + w_cap×Z(log10(adv_63d))
+    # 容量项把 URA/TAN 这类小众主题盘从「时代之王」候选里压下去——它们 RS 可能
+    # 称霸,但 ADV 显著低于 XL*/SMH/IGV 机构盘
     st.markdown("---")
     st.markdown("### 👑 板块王朝接力图 (Dynasty Relay) — 月末 Top1/Top3 染色")
     st.caption(
         "**规则**:每月末对 25 个板块做横截面排名,**Top1 = 🥇 金 / Top2-3 = 🥈 银 / 其他 = ⚪ 灰** · "
         "**加冕门槛**:Top1 + RS_252d > 0(年化跑赢 SPY)才戴金,否则降为灰——熊市无王 · "
-        "**已知局限**:RS_252d 是 1 年回望窗口,登顶横盘的板块(如 URA 2024-2025)仍会保持累计涨幅领先而持续戴金。"
-        "hover 里 RS_63d 字段仅作参考,**不进门槛**(实测进门槛过严,正常回调全被误杀) · "
-        "**用途**:找「时代之王」——连续戴金的板块就是真王朝 · "
-        "**两个对照版本(下方上下排列)**:🅰️ 按 RS+Z 合成排名(默认,与 §1.5 一致;Z = 价格相对历史均线偏离,**与 RS 同向加分**) / 🅱️ 按纯 RS_252d 排名(对照,看 Z 在哪些时点替你抢跑) · "
-        "**机构容量标注**:Y 轴每个板块后面是 ADV(日均成交额),ADV 大 = 大资金能进出 = 机构盘真王朝;ADV 小 = 小众短命王(URA/JETS 这类)。hover 里还有 AUM(基金规模)。"
-        "**数据**:跟上方波形图共用 5Y/10Y 时序"
+        "**主图排序指标 king_score = 1.0×Z(RS) + 0.5×Z(Z价格) + 0.8×Z(log10 ADV_63d)** —— 三项都做横截面 Z-Score 再加权,**容量项(ADV)显著负 = 把 URA/TAN 这类小众主题盘压下去**,机构盘(XL*/SMH/IGV)容量项加分 · "
+        "**ADV 逐月动态**:每月用当月过去 63 日 (Close × Volume) 均值,**不是用当前快照穿越历史** · "
+        "**两个对照版本(上下排列)**:🅰️ 按 king_score 排名(主图,RS+Z+容量) / 🅱️ 按纯 RS_252d 排名(对照,只看动量,可见容量项把哪几个月的金牌从谁手里抢走) · "
+        "**用途**:找「时代之王」——连续戴金且容量充足 = 真王朝。hover 里有 king_score 三项分解 + AUM 当前快照(AUM 历史 yfinance 拿不到,只展示不进算法)"
     )
 
     _dynasty_window = st.radio(
@@ -573,15 +572,20 @@ else:
                     st.warning(f"⚠️ {_dynasty_window}:选中组别在时序数据中无可用 ticker")
                 else:
                     _dyn_idx = pd.to_datetime(_dyn_dates_raw, errors="coerce")
-                    _d_comp = pd.DataFrame(
-                        {tk: p.get("composite", []) for tk, p in _picked_d.items()},
-                        index=_dyn_idx,
-                    ).astype(float)
                     _d_rs = pd.DataFrame(
                         {tk: p.get("rs", []) for tk, p in _picked_d.items()},
                         index=_dyn_idx,
                     ).astype(float)
+                    _d_king = pd.DataFrame(
+                        {tk: p.get("king_score", []) for tk, p in _picked_d.items()},
+                        index=_dyn_idx,
+                    ).astype(float)
+                    _d_adv_hist = pd.DataFrame(
+                        {tk: p.get("adv_63d", []) for tk, p in _picked_d.items()},
+                        index=_dyn_idx,
+                    ).astype(float)
                     _d_name_map = {tk: p.get("name", tk) for tk, p in _picked_d.items()}
+                    _king_w = _dyn_ts.get("king_score_weights", {"rs": 1.0, "z": 0.5, "cap": 0.8})
 
                     # ETF AUM + ADV 标注(机构容量维度,辨别真王朝 vs 小众短命王)
                     _etf_info = _etf_meta.get("tickers", {}) if _etf_meta.get("success") else {}
@@ -623,6 +627,7 @@ else:
                     # 加冕门槛: Top1 + RS_252d > 0(年化跑赢 SPY),熊市无王降级
                     # RS_63d 仅作 hover 参考信息显示,不进门槛——双 RS 实测过严,正常回调被误杀
                     # 通过 key_suffix 避免 streamlit 在同一页面 render 两次时 widget key 冲突
+                    _adv_m_global = _d_adv_hist.resample("ME").last()
                     def _render_relay(metric_df, metric_label, hover_metric_label, key_suffix):
                         _metric_m = metric_df.resample("ME").last()
                         _rs_m = _d_rs.resample("ME").last()
@@ -651,6 +656,7 @@ else:
                         _rs_yx     = _rs_m[_ordered_tk].T
                         _metric_yx = _metric_m[_ordered_tk].T
                         _rs63_yx   = _rs63_m[_ordered_tk].T if _rs63_m is not None else None
+                        _adv_yx    = _adv_m_global.reindex(columns=_ordered_tk).T
 
                         _ylabels = []
                         for tk in _ordered_tk:
@@ -670,11 +676,17 @@ else:
                                 _rs_val = _rs_yx.loc[tk, _d]
                                 _m_val = _metric_yx.loc[tk, _d]
                                 _rs63_val = _rs63_yx.loc[tk, _d] if _rs63_yx is not None else None
+                                _adv_hist_val = _adv_yx.loc[tk, _d] if _d in _adv_yx.columns else None
                                 _rank_str = f"第 {int(_r_val)}" if pd.notna(_r_val) else "—"
                                 _rs_str   = f"{_rs_val:+.2f}%" if pd.notna(_rs_val) else "—"
                                 _m_str    = f"{_m_val:+.2f}" if pd.notna(_m_val) else "—"
                                 _rs63_str = (
                                     f"{_rs63_val:+.2f}%" if (_rs63_val is not None and pd.notna(_rs63_val))
+                                    else "—"
+                                )
+                                _adv_hist_str = (
+                                    _fmt_usd(float(_adv_hist_val))
+                                    if (_adv_hist_val is not None and pd.notna(_adv_hist_val))
                                     else "—"
                                 )
                                 # Top1 但降为灰 = RS_252d ≤ 0(熊市无王)
@@ -686,7 +698,6 @@ else:
                                     _demote_note = "<br><i>Top1 但 RS_252d ≤ 0 → 降级(熊市无王)</i>"
                                 _meta = _etf_info.get(tk, {})
                                 _aum_str = _fmt_usd(_meta.get("aum"))
-                                _adv_str_h = _fmt_usd(_meta.get("adv_usd"))
                                 _row_txt.append(
                                     f"<b>{_d_name_map.get(tk, tk)} ({tk})</b><br>"
                                     f"{_d.strftime('%Y-%m')}<br>"
@@ -695,8 +706,8 @@ else:
                                     f"{hover_metric_label} {_m_str}<br>"
                                     f"RS_252d {_rs_str}<br>"
                                     f"RS_63d {_rs63_str} <i>(仅参考,不进门槛)</i><br>"
-                                    f"AUM {_aum_str}<br>"
-                                    f"ADV {_adv_str_h}"
+                                    f"ADV_63d(当月) {_adv_hist_str}<br>"
+                                    f"AUM(当前快照) {_aum_str}"
                                     f"{_demote_note}"
                                 )
                             _hover_text.append(_row_txt)
@@ -789,7 +800,7 @@ else:
 <div style='margin-bottom:6px'>📍 当前在位之王({_last_month.strftime('%Y-%m')}): {_current_html} &nbsp; {_silver_html}</div>
 <div style='margin-bottom:6px'>👑 累计王朝长度 Top3: {_kings_html}</div>
 <div class='insight-section' style='font-size:13px; color:#888;'>
-读法:🥇 金块 = 当月 Top1 且 RS_252d &gt; 0(跑赢 SPY);🥈 银块 = Top2-3;⚪ 灰块 = 其他,或 Top1 但 RS_252d ≤ 0(熊市无王降级)。<b style='color:#aaa;'>连续金块</b> = 王朝期,主升浪期间的回调也保持戴金;<b style='color:#aaa;'>金→银→灰</b> 渐变 = 王朝退位换班。<b style='color:#aaa;'>累计金多 + 最长连续金长</b> = 真时代之王。<b style='color:#aaa;'>注意</b>:RS_252d 是 1 年回望,登顶横盘的板块(如 URA 2024-2025)仍会持续戴金,这是动量指标的固有特性,后续可能用 ETF 价格 vs MA60 等趋势信号补刹车。
+读法:🥇 金块 = 当月 Top1 且 RS_252d &gt; 0(跑赢 SPY);🥈 银块 = Top2-3;⚪ 灰块 = 其他,或 Top1 但 RS_252d ≤ 0(熊市无王降级)。<b style='color:#aaa;'>连续金块</b> = 王朝期;<b style='color:#aaa;'>累计金多 + 最长连续金长</b> = 真时代之王。<b style='color:#aaa;'>对比 🅰️ 与 🅱️</b>:king_score 把 URA/TAN 这类小众主题盘从「时代之王」候选里压下去——它们 RS 可能称霸,但 ADV 显著低于 XL*/SMH/IGV 机构盘,容量项是负贡献。
 </div>
 </div>
 """, unsafe_allow_html=True)
@@ -807,19 +818,21 @@ else:
                                 hide_index=True,
                             )
 
-                    st.markdown("##### 🅰️ 按 RS+Z 合成排名(主图,与 §1.5 强势波形一致)")
-                    _render_relay(_d_comp, "RS+Z 合成", "强势分", "comp")
+                    st.markdown(
+                        f"##### 🅰️ 按 king_score 排名(主图 · RS+Z+容量 合成 · "
+                        f"w_rs={_king_w['rs']:.1f} / w_z={_king_w['z']:.1f} / w_cap={_king_w['cap']:.1f})"
+                    )
+                    _render_relay(_d_king, "king_score", "king_score", "king")
 
                     st.markdown("---")
-                    st.markdown("##### 🅱️ 按纯 RS_252d 排名(对照,无价格 Z-Score)")
+                    st.markdown("##### 🅱️ 按纯 RS_252d 排名(对照,只看动量不看容量)")
                     st.caption(
-                        "**对照用**:仅按 RS_252d(年化超额收益 vs SPY)单维度排名,不加 Z-Score · "
-                        "**Z 是什么**:Z = (价格 − 历史均线) / 历史标准差,价格远高于均线 → Z 大,即趋势加速突破。**Z 跟 RS 在 composite 里同向加分,不刹车** · "
-                        "**怎么读**:对比两图金块位置——"
-                        "金块位置一致 = Z 不影响排序,RS 单维度足够;"
-                        "🅰️ 抢先戴金 = 该板块 RS 虽非 Top1,但价格远突破均线(Z 极大)把它推上 Top1;"
-                        "🅱️ 抢先戴金 = 该板块 RS 是 Top1,但价格还没远离均线(Z 没那么极致),所以 RS+Z 加分不够多被别人挤掉 · "
-                        "**找时代之王推荐用 🅱️**:语义最直观(就是「过去 1 年涨得最多」)"
+                        "**对照用**:仅按 RS_252d(年化超额收益 vs SPY)单维度排名,不加 Z 价格、不加 ADV 容量 · "
+                        "**怎么读**:对比 🅰️ 与 🅱️ 的金块位置——"
+                        "🅰️ 戴金但 🅱️ 没戴 = 这个月该板块 RS 不是 Top1,但价格 Z + ADV 容量加分把它推上 Top1(机构盘抢到金牌);"
+                        "🅱️ 戴金但 🅰️ 没戴 = 该板块 RS 是 Top1,但容量不够大,被 king_score 压下去(小众主题盘失冠);"
+                        "🅰️ 🅱️ 同戴 = 又有动量又有容量,真王朝 · "
+                        "**用途**:看容量项把哪几个月的金牌从谁手里抢走"
                     )
                     _render_relay(_d_rs, "纯 RS_252d", "RS_252d", "rs")
     with _dyn_tab2:
@@ -845,21 +858,23 @@ else:
                 st.info(f"⚠️ {_dynasty_window}:选中组别无可用 ticker")
             else:
                 _dyn_idx2 = pd.to_datetime(_dyn_dates_raw2, errors="coerce")
-                _d_comp2  = pd.DataFrame(
-                    {tk: p.get("composite", []) for tk, p in _picked_d2.items()},
+                # 龙头股 tab 与主图 🅰️ 保持同一套加冕规则:都按 king_score 排名,
+                # 否则两个 tab 识别的「连续金块期」会不一致
+                _d_king2 = pd.DataFrame(
+                    {tk: p.get("king_score", []) for tk, p in _picked_d2.items()},
                     index=_dyn_idx2,
                 ).astype(float)
                 _d_rs2 = pd.DataFrame(
                     {tk: p.get("rs", []) for tk, p in _picked_d2.items()},
                     index=_dyn_idx2,
                 ).astype(float)
-                _d_comp_m2 = _d_comp2.resample("ME").last()
+                _d_king_m2 = _d_king2.resample("ME").last()
                 _d_rs_m2   = _d_rs2.resample("ME").last()
 
-                if _d_comp_m2.empty or len(_d_comp_m2) < 2:
+                if _d_king_m2.empty or len(_d_king_m2) < 2:
                     st.warning(f"⚠️ {_dynasty_window}:月末快照数据不足")
                 else:
-                    _rank_m2 = _d_comp_m2.rank(axis=1, ascending=False, method="min")
+                    _rank_m2 = _d_king_m2.rank(axis=1, ascending=False, method="min")
                     _tier2 = pd.DataFrame(0, index=_rank_m2.index, columns=_rank_m2.columns, dtype=int)
                     _tier2[_rank_m2 <= 3] = 1
                     _gold_mask2 = (_rank_m2 == 1) & (_d_rs_m2 > 0)
