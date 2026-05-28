@@ -27,7 +27,8 @@ from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
                         fetch_d_history_dates, fetch_d_history_momentum,
                         fetch_d_history_resonance, save_d_snapshot_today,
                         fetch_d_today_snap_date, ensure_d_snapshot_latest,
-                        trigger_d_history_backfill, fetch_d_history_backfill_status,
+                        fetch_d_long_history_preflight, trigger_d_long_history_run,
+                        fetch_d_long_history_status,
                         API_BASE_URL, IS_PROD_REMOTE)
 from screener_engine import (
     compute_metrics as _engine_compute_metrics,
@@ -2315,6 +2316,7 @@ def _render_d_conviction_whitebox(
                     "<span style='width:65px; text-align:right;'>E值</span>"
                     "<span style='width:65px; text-align:right;'>燃料</span>"
                     "<span style='width:75px; text-align:right;'>episode</span>"
+                    "<span style='width:65px; text-align:right;'>韧性</span>"
                     "<span style='width:65px; text-align:right;'>衰减</span>"
                     "<span style='width:65px; text-align:center;'>角色</span>"
                     "<span style='width:65px; text-align:right;'>持仓天</span>"
@@ -2365,6 +2367,16 @@ def _render_d_conviction_whitebox(
                                 f"<span title='{ep_title}' style='color:{ef_color}; font-size:13px;'>"
                                 f"{ef_num:+.1f}({str(fam)[:3]})</span>"
                             )
+                        v_fuel = fb.get("veteran_fuel")
+                        v_meta = fb.get("veteran_meta", {}) or {}
+                        if v_fuel and v_meta.get("is_veteran"):
+                            veteran_html = (
+                                f"<span title='扛住接力撤回 +{float(v_fuel):.1f}' "
+                                f"style='color:#2ECC71; font-size:13px;'>"
+                                f"🛡️ +{float(v_fuel):.1f}</span>"
+                            )
+                        else:
+                            veteran_html = "<span style='color:#555;'>—</span>"
                     else:
                         E_val = 0
                         row_bg = "#111"
@@ -2394,6 +2406,7 @@ def _render_d_conviction_whitebox(
                             )
                         else:
                             episode_html = "<span style='color:#555;'>—</span>"
+                        veteran_html = "<span style='color:#555;'>—</span>"
 
                         if res_score >= 60:
                             badge = "达入池线"
@@ -2442,6 +2455,7 @@ def _render_d_conviction_whitebox(
                         f"{e_text}</span>"
                         f"<span style='width:65px; text-align:right;'>{delta_html}</span>"
                         f"<span style='width:75px; text-align:right;'>{episode_html}</span>"
+                        f"<span style='width:65px; text-align:right;'>{veteran_html}</span>"
                         f"<span style='width:65px; text-align:right; color:#888;'>{decay_text}</span>"
                         f"<span style='width:65px; text-align:center; color:{'#F39C12' if in_pool else '#3498DB'};'>"
                         f"{'在池' if in_pool else '候选'}</span>"
@@ -2476,11 +2490,21 @@ def _render_d_conviction_whitebox(
                     "LANDED":           ("#E74C3C", "📉 降落"),
                     "E_UPDATE":         ("#888",    "🔄 E 更新"),
                     "HANDOFF_RELAY":    ("#F39C12", "🔀 接力转场"),
+                    "HANDOFF_RELAY_V2": ("#2ECC71", "🔀 接力转场 v2"),
+                    "HANDOFF_SKIPPED_COOLDOWN": ("#F39C12", "🚫 频次保护"),
                     "VETERAN_RENEWED":  ("#2ECC71", "🏅 老兵续期"),
+                    "CASH_GATE_V2":     ("#E74C3C", "🚨 清仓 v2"),
                     "CASH_GATE_CLEAR":  ("#E74C3C", "🚨 清仓"),
                     "CASH_GATE_WARNING": ("#F39C12", "⚠️ 预警"),
+                    "SKIP_EPISODE_BLOCK": ("#F39C12", "🚧 拒补给"),
+                    "SKIP_VACUUM_ENTRY": ("#9B59B6", "🚧 真空不补"),
                     "FREEZE":           ("#9B59B6", "❄️ 冻结"),
                     "DRIFT_WARNING":    ("#F39C12", "⚠️ 漂移"),
+                }
+                _HANDOFF_SRC_META = {
+                    "HANDOFF_RELAY_V2": ("#2ECC71", "narrative_handoffs"),
+                    "HANDOFF_RELAY":    ("#888",    "rotation_summary"),
+                    "HANDOFF_SKIPPED_COOLDOWN": ("#F39C12", "ticker cooldown"),
                 }
                 panel_b_html = ""
                 for d in decisions:
@@ -2491,6 +2515,14 @@ def _render_d_conviction_whitebox(
                     detail = d.get("detail", "")
                     e_now = float(pool_by_ticker.get(tk, {}).get("E_value", 0))
                     e_disp = f"E: {e_now:.0f}" if tk in pool_set else ""
+                    src_html = ""
+                    src_meta = _HANDOFF_SRC_META.get(action)
+                    if src_meta:
+                        src_clr, src_lbl = src_meta
+                        src_html = (
+                            f"<span style='color:{src_clr}; font-size:13px;"
+                            f" margin-right:8px;'>[{src_lbl}]</span>"
+                        )
                     panel_b_html += (
                         f"<div style='display:flex; align-items:center; gap:8px;"
                         f" padding:6px 8px; border-bottom:1px solid #222;"
@@ -2499,6 +2531,7 @@ def _render_d_conviction_whitebox(
                         f"<span style='width:60px; font-weight:bold; color:{clr};'>{tk}</span>"
                         f"<span style='width:100px; color:#aaa;'>{nm[:8]}</span>"
                         f"<span style='width:100px; font-weight:bold; color:{clr};'>{lbl}</span>"
+                        f"{src_html}"
                         f"<span style='color:#888;'>{detail}</span>"
                         f"<span style='margin-left:auto; color:#666; font-size:13px;'>{e_disp}</span>"
                         f"</div>"
@@ -2749,38 +2782,127 @@ def _render_d_history_tab() -> None:
 
     # ── 批量回放补齐区 ──
     with st.expander("批量补齐历史快照", expanded=False):
-        bf_c1, bf_c2, bf_c3 = st.columns([1, 1, 2])
-        with bf_c1:
-            bf_days = st.radio("回填天数", [7, 14, 30], horizontal=True, key="d_bf_days")
-        with bf_c2:
-            bf_force = st.checkbox("重算回放数据", key="d_bf_force")
-        with bf_c3:
-            if st.button("开始补齐", key="d_bf_trigger"):
-                resp = trigger_d_history_backfill(bf_days, bf_force)
+        st.markdown("#### 长历史数据补齐")
+        st.caption("用于保存更多历史快照，让未来的守擂回看、长期验证和新功能有更完整的数据基础。")
+
+        allowed_windows = [60, 90, 120, 150, 180, 210, 240]
+        selected_windows = st.multiselect(
+            "目标窗口",
+            allowed_windows,
+            default=[60, 90, 120],
+            key="d_long_history_windows",
+        )
+        selected_windows = sorted(set(int(w) for w in selected_windows)) or [60, 90, 120]
+
+        pf = fetch_d_long_history_preflight(selected_windows)
+        status_resp = fetch_d_long_history_status()
+        long_state = status_resp.get("state", {}) if status_resp.get("success") else {}
+        is_running = bool(long_state.get("running"))
+        official_allowed = bool(long_state.get("official_allowed"))
+
+        st.markdown("##### 检查还缺哪些历史数据")
+        if pf.get("success"):
+            p_cols = st.columns(3)
+            p_cols[0].metric("正式库最长完整覆盖", f"{pf.get('current_max_true_cover_window', 0)} 天")
+            p_cols[1].metric("目标最长窗口", f"{max(selected_windows)} 天")
+            target_info = pf.get("windows", {}).get(str(max(selected_windows)), {})
+            d_cov = (target_info.get("tables") or {}).get("d_snapshot_header", {})
+            p_cols[2].metric("目标窗口快照覆盖", f"{d_cov.get('covered_count', 0)} / {max(selected_windows)}")
+            with st.expander("查看缺口摘要", expanded=False):
+                for w in selected_windows:
+                    info = pf.get("windows", {}).get(str(w), {})
+                    tables = info.get("tables") or {}
+                    missing_tables = [
+                        f"{name}: {cov.get('missing_count', 0)}"
+                        for name, cov in tables.items()
+                        if name in {
+                            "daily_cluster_stats", "l2_radar_snapshots", "keyword_weight_daily",
+                            "ticker_factor_daily", "narrative_momentum_daily",
+                            "l2_lifecycle_state", "rotation_summary_daily",
+                            "narrative_rotation_v3_daily", "d_snapshot_header",
+                        }
+                        and int(cov.get("missing_count", 0) or 0) > 0
+                    ]
+                    st.write(
+                        f"{w} 天："
+                        + ("已完整" if not missing_tables else "；".join(missing_tables[:6]))
+                    )
+        else:
+            st.warning(f"检查失败：{pf.get('error', '?')}")
+
+        st.markdown("##### 先在副本里试补")
+        c1, c2, c3 = st.columns([1.2, 1.2, 2.6])
+        with c1:
+            if st.button("先在副本里试补", key="d_long_trial_btn", disabled=is_running):
+                resp = trigger_d_long_history_run("safe_trial", selected_windows, run_compare=True)
                 if resp.get("accepted") or resp.get("success"):
-                    st.success(f"已提交 {bf_days} 天回填任务")
+                    st.success("已开始在副本里试补")
                 else:
-                    st.warning(f"提交失败：{resp.get('error', '?')}")
-            if st.button("刷新进度", key="d_bf_refresh"):
+                    st.warning(f"启动失败：{resp.get('error', '?')}")
+        with c2:
+            if st.button("刷新状态", key="d_long_refresh_btn"):
+                fetch_d_long_history_preflight.clear()
                 st.cache_data.clear()
-        bfs = fetch_d_history_backfill_status()
-        state = bfs.get("state", {})
-        if state.get("started_at"):
-            running = state.get("running", False)
-            saved = len(state.get("saved_dates", []))
-            skipped = len(state.get("skipped_dates", []))
-            failed = len(state.get("failed_dates", []))
-            total = len(state.get("processed_dates", []))
-            status_icon = "🔄" if running else "✅"
-            st.markdown(
-                f"{status_icon} **{'运行中' if running else '已完成'}** "
-                f"| 已处理 {total} | 写入 {saved} | 跳过 {skipped} | 失败 {failed}"
-            )
-            reasons = state.get("per_date_reason", {})
-            if reasons:
-                with st.expander("逐日详情", expanded=False):
-                    for d, r in sorted(reasons.items(), reverse=True):
-                        st.text(f"{d}: {r}")
+        with c3:
+            if long_state.get("started_at"):
+                icon = "运行中" if is_running else "已完成"
+                st.markdown(
+                    f"**{icon}** ｜ {long_state.get('stage', '准备中')} ｜ "
+                    f"{long_state.get('message', '')}"
+                )
+
+        trial = long_state.get("safe_trial") or {}
+        trial_run = trial.get("run") or {}
+        if trial_run:
+            post = trial_run.get("postflight") or {}
+            t_cols = st.columns(len(selected_windows))
+            for idx, w in enumerate(selected_windows):
+                info = post.get("windows", {}).get(str(w), {})
+                d_cov = (info.get("tables") or {}).get("d_snapshot_header", {})
+                full = bool(info.get("complete_daily_required"))
+                t_cols[idx].metric(
+                    f"{w} 天",
+                    f"{d_cov.get('covered_count', 0)} / {w}",
+                    "完整" if full else "仍有缺口",
+                )
+
+        compare = long_state.get("compare") or {}
+        if compare:
+            if compare.get("success"):
+                if compare.get("readiness"):
+                    st.success("副本试补和安全检查已通过，可以写入正式历史库。")
+                else:
+                    st.warning("副本试补已通过，可以写入正式历史库；较长窗口有观察提醒，后续进入阶段3时再处理。")
+            else:
+                st.warning("副本试补完成，但安全检查未通过，暂不建议写入正式历史库。")
+                with st.expander("查看需要处理的原因", expanded=False):
+                    excerpt = compare.get("report_excerpt") or compare.get("stdout") or compare.get("stderr") or ""
+                    st.text(excerpt or "暂无详情")
+
+        st.markdown("##### 写入正式历史库")
+        if st.button(
+            "写入正式历史库",
+            key="d_long_official_btn",
+            disabled=is_running or not official_allowed,
+        ):
+            resp = trigger_d_long_history_run("write_official", selected_windows, run_compare=True)
+            if resp.get("accepted") or resp.get("success"):
+                st.success("已开始写入正式历史库")
+            else:
+                st.warning(f"启动失败：{resp.get('error', '?')}")
+        if not official_allowed:
+            st.caption("需要先完成副本试补，并通过安全检查后，才能写入正式历史库。")
+
+        official = long_state.get("official") or {}
+        if official:
+            official_run = official.get("run") or {}
+            backup = official_run.get("live_backup")
+            if long_state.get("official_written"):
+                st.success("正式历史库已补齐。")
+                if backup:
+                    st.caption(f"已自动备份：{backup}")
+            elif official_run:
+                st.warning("正式历史库写入后复核未通过，请查看详情。")
 
     # ── 补齐最近收盘日 ──
     ctl_cols = st.columns([1.2, 3])

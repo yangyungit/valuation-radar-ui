@@ -1843,6 +1843,61 @@ def fetch_d_history_backfill_status() -> dict:
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_d_long_history_preflight(windows: list[int] | tuple[int, ...] = (60, 90, 120)) -> dict:
+    """GET /api/v1/d_history/long_backfill/preflight。"""
+    try:
+        raw = ",".join(str(int(w)) for w in windows)
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/d_history/long_backfill/preflight",
+            params={"windows": raw},
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def trigger_d_long_history_run(
+    mode: str,
+    windows: list[int] | tuple[int, ...] = (60, 90, 120),
+    run_compare: bool = True,
+) -> dict:
+    """POST /api/v1/d_history/long_backfill/run。"""
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/d_history/long_backfill/run",
+            json={
+                "mode": mode,
+                "windows": [int(w) for w in windows],
+                "run_compare": bool(run_compare),
+            },
+            headers=_internal_headers(),
+            timeout=30,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if data.get("success"):
+            fetch_d_long_history_preflight.clear()
+            fetch_d_history_dates.clear()
+            fetch_d_history_momentum.clear()
+            fetch_d_history_resonance.clear()
+        return data
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def fetch_d_long_history_status() -> dict:
+    """GET /api/v1/d_history/long_backfill/status (no cache)。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/d_history/long_backfill/status", timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # ---------------------------------------------------------------------------
 # D 组共振守擂
 # ---------------------------------------------------------------------------
@@ -2053,6 +2108,144 @@ def trigger_narrative_v3_backfill(days: int = 90, force: bool = False) -> dict:
             fetch_narrative_v3_rotation.clear()
             fetch_narrative_v3_events.clear()
             fetch_narrative_v3_l2_detail.clear()
+        return data
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=600)
+def fetch_narrative_episodes(
+    as_of_date: str | None = None,
+    days: int = 90,
+    family_filter: list[str] | tuple[str, ...] | str | None = None,
+    min_duration: int | None = None,
+) -> dict:
+    """GET /api/v1/narrative_v3/episodes。"""
+    params: dict = {"days": days}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    if family_filter:
+        if isinstance(family_filter, (list, tuple)):
+            params["family_filter"] = ",".join(str(x) for x in family_filter)
+        else:
+            params["family_filter"] = str(family_filter)
+    if min_duration is not None:
+        params["min_duration"] = int(min_duration)
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/narrative_v3/episodes",
+            params=params,
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "episodes": []}
+
+
+@st.cache_data(ttl=600)
+def fetch_narrative_handoffs(
+    as_of_date: str | None = None,
+    days: int = 90,
+    min_score: float = 0.5,
+    outcome_filter: list[str] | tuple[str, ...] | str | None = None,
+) -> dict:
+    """GET /api/v1/narrative_v3/handoffs。"""
+    params: dict = {"days": days, "min_score": min_score}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    if outcome_filter:
+        if isinstance(outcome_filter, (list, tuple)):
+            params["outcome_filter"] = ",".join(str(x) for x in outcome_filter)
+        else:
+            params["outcome_filter"] = str(outcome_filter)
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/narrative_v3/handoffs",
+            params=params,
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "handoffs": []}
+
+
+@st.cache_data(ttl=600)
+def fetch_market_regime(as_of_date: str | None = None) -> dict:
+    """GET /api/v1/narrative_v3/market_regime。"""
+    params: dict = {}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/narrative_v3/market_regime",
+            params=params,
+            timeout=20,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=600)
+def fetch_sequence_strip(as_of_date: str | None = None, days: int = 90) -> dict:
+    """GET /api/v1/narrative_v3/sequence_strip。"""
+    params: dict = {"days": days}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/narrative_v3/sequence_strip",
+            params=params,
+            timeout=20,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "segments": []}
+
+
+@st.cache_data(ttl=600)
+def fetch_l2_episode_detail(
+    l2_sector: str,
+    as_of_date: str | None = None,
+    days: int = 90,
+) -> dict:
+    """GET /api/v1/narrative_v3/l2_episode_detail。"""
+    params: dict = {"l2_sector": l2_sector, "days": days}
+    if as_of_date:
+        params["as_of_date"] = as_of_date
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/narrative_v3/l2_episode_detail",
+            params=params,
+            timeout=20,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "recent_episodes": []}
+
+
+def trigger_episodes_backfill(days: int = 90, force: bool = False) -> dict:
+    """POST /api/v1/narrative_v3/episodes_backfill（带 X-Internal-Token）。"""
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/narrative_v3/episodes_backfill",
+            json={"days": int(days), "force": bool(force)},
+            headers=_internal_headers(),
+            timeout=300,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if data.get("success"):
+            fetch_narrative_episodes.clear()
+            fetch_narrative_handoffs.clear()
+            fetch_market_regime.clear()
+            fetch_sequence_strip.clear()
+            fetch_l2_episode_detail.clear()
         return data
     except Exception as e:
         return {"success": False, "error": str(e)}
