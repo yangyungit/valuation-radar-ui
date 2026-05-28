@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import requests
 import streamlit as st
 import pandas as pd
@@ -807,6 +809,110 @@ def fetch_macro_radar() -> dict:
         return r.json()
     except Exception:
         return {"success": False, "metrics": [], "spy_mom20": 0.0, "insights": {}}
+
+
+@st.cache_data(ttl=3600 * 4)
+def fetch_macro_radar_timeseries(window: str = "1Y") -> dict:
+    """从后端获取雷达指标历史时序（每日 RS / Z / 复合分），供 Page 0 §1.5 波形图使用。
+    `window` ∈ {1M, 3M, 6M, 1Y, 5Y, 10Y}——每个窗口用不同 RS/Z 计算尺度
+    （1M=RS_20d/Z_250d, 10Y=RS_252d/Z_750d），后端按 window 分桶缓存。
+    排名由前端按选中组别动态计算。
+    返回 {"success": True, "window": ..., "rs_window": N, "z_window": N,
+         "asof": "YYYY-MM-DD", "dates": [...], "tickers": {ticker: {...}}}。
+    """
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/radar/timeseries",
+            params={"window": window},
+            timeout=120,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "dates": [], "tickers": {}}
+
+
+@st.cache_data(ttl=3600)
+def fetch_changepoint() -> dict:
+    """从后端获取变点检测数据包（多变量 CUSUM）。
+    Render 冷启动 502/504 时自动重试一次。失败返回 {"success": False, "error": ...}。
+    """
+    import time as _time
+    last_exc = None
+    for attempt in range(2):
+        try:
+            if attempt > 0:
+                _time.sleep(15)
+            r = requests.get(f"{API_BASE_URL}/api/v1/macro/changepoint", timeout=60)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_exc = e
+            err = str(e)
+            if attempt == 0 and any(c in err for c in ("502", "504", "Connection")):
+                continue
+            break
+    return {"success": False, "error": str(last_exc)}
+
+
+@st.cache_data(ttl=3600)
+def fetch_sector_rotation() -> dict:
+    """从后端获取板块轮动剧本数据包（11 板块 RS 匹配 4 剧本模板）。
+    Render 冷启动 502/504 时自动重试一次。失败返回 {"success": False, "error": ...}。
+    """
+    import time as _time
+    last_exc = None
+    for attempt in range(2):
+        try:
+            if attempt > 0:
+                _time.sleep(15)
+            r = requests.get(f"{API_BASE_URL}/api/v1/macro/sector_rotation", timeout=60)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_exc = e
+            err = str(e)
+            if attempt == 0 and any(c in err for c in ("502", "504", "Connection")):
+                continue
+            break
+    return {"success": False, "error": str(last_exc)}
+
+
+@st.cache_data(ttl=3600)
+def fetch_dynasty_leaders(sector_etf: str, start: str, end: str, top_n: int = 3) -> dict:
+    """给定一段板块连续金块期 (sector_etf, start, end),返回该 GICS sector 成分股
+    按超额收益 (个股累计涨幅 − 板块 ETF 累计涨幅) 排序的 Top N 龙头。
+    供 Page 0 §1.6 王朝接力图「🏆 王朝龙头股」TAB 调用。失败返回 {"success": False, "error": ...}。
+    """
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/dynasty_leaders",
+            params={"sector_etf": sector_etf, "start": start, "end": end, "top_n": top_n},
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=24 * 3600)
+def fetch_etf_meta() -> dict:
+    """从后端获取所有 sector ETF 的 AUM + ADV, 供 Page 0 §1.6 王朝接力图 Y 轴标注 + hover 用。
+    返回 {"success": bool, "asof": "YYYY-MM-DD",
+          "tickers": {tk: {"aum": float|None, "adv_usd": float|None, "name": str}}}.
+    缓存 24h(数据变化慢)。
+    """
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/etf_meta",
+            timeout=120,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "tickers": {}}
+
 
 @st.cache_data(ttl=300)
 def fetch_current_regime() -> dict:

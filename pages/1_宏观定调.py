@@ -451,13 +451,13 @@ if not df.empty and len(df) > 750:
         _quadrant_color = "#27AE60"
     elif _quad_a == "再通胀":
         _quadrant_name = "🔥 再通胀 (Reflation)"
-        _quadrant_color = "#E74C3C"
+        _quadrant_color = "#16A085"
     elif _quad_a == "滞胀":
         _quadrant_name = "🚨 滞胀 (Stagflation)"
         _quadrant_color = "#F1C40F"
     else:
         _quadrant_name = "❄️ 衰退 (Recession)"
-        _quadrant_color = "#3498DB"
+        _quadrant_color = "#C5D86D"
 
     # 宏观底色四维 Z-Score（3Y 滚动基准，与宏观时钟同一度量衡）
     tlt_shy_diff = _ratio_z_curr('TLT', 'SHY')   # 长债/短债 Z-Score (>0=长端历史性强)
@@ -641,9 +641,9 @@ if not df.empty and len(df) > 750:
 
     fig_clock = go.Figure()
     limit = 3.0
-    fig_clock.add_shape(type="rect",x0=0,y0=0,x1=limit,y1=limit,fillcolor="rgba(231,76,60,0.1)",line_width=0) 
+    fig_clock.add_shape(type="rect",x0=0,y0=0,x1=limit,y1=limit,fillcolor="rgba(22,160,133,0.1)",line_width=0) 
     fig_clock.add_shape(type="rect",x0=0,y0=-limit,x1=limit,y1=0,fillcolor="rgba(46,204,113,0.1)",line_width=0) 
-    fig_clock.add_shape(type="rect",x0=-limit,y0=-limit,x1=0,y1=0,fillcolor="rgba(52,152,219,0.1)",line_width=0) 
+    fig_clock.add_shape(type="rect",x0=-limit,y0=-limit,x1=0,y1=0,fillcolor="rgba(197,216,109,0.1)",line_width=0) 
     fig_clock.add_shape(type="rect",x0=-limit,y0=0,x1=0,y1=limit,fillcolor="rgba(241,196,15,0.1)",line_width=0) 
     
     df_track = df_z.iloc[-60:]
@@ -666,9 +666,9 @@ if not df.empty and len(df) > 750:
 
     fig_clock.update_layout(height=480, margin=dict(l=20,r=20,t=20,b=60), xaxis=dict(title="<-- 衰退 (Recession) | 软着陆 (Soft Landing) -->", range=[-limit, limit], zeroline=True, zerolinewidth=2), yaxis=dict(title="<-- 通缩 (Inflation -) | 通胀 (Inflation +) -->", range=[-limit, limit], zeroline=True, zerolinewidth=2), showlegend=True, legend=dict(orientation="h", y=-0.14, x=0.5, xanchor="center", font=dict(size=11)), plot_bgcolor='#222', paper_bgcolor='#222', font=dict(color='#ddd'))
     
-    fig_clock.add_annotation(x=1.5, y=1.5, text="🔥 再通胀 (Reflation)", showarrow=False, font=dict(color="#E74C3C", size=14))
+    fig_clock.add_annotation(x=1.5, y=1.5, text="🔥 再通胀 (Reflation)", showarrow=False, font=dict(color="#16A085", size=14))
     fig_clock.add_annotation(x=1.5, y=-1.5, text="🚗 软着陆 (Soft Landing)", showarrow=False, font=dict(color="#2ECC71", size=14))
-    fig_clock.add_annotation(x=-1.5, y=-1.5, text="❄️ 衰退 (Recession)", showarrow=False, font=dict(color="#3498DB", size=14))
+    fig_clock.add_annotation(x=-1.5, y=-1.5, text="❄️ 衰退 (Recession)", showarrow=False, font=dict(color="#C5D86D", size=14))
     fig_clock.add_annotation(x=-1.5, y=1.5, text="🚨 滞胀 (Stagflation)", showarrow=False, font=dict(color="#F1C40F", size=14))
     _col_clock, _col_commentary = st.columns([3, 2])
     with _col_clock:
@@ -821,9 +821,9 @@ if not df.empty and len(df) > 750:
         def apply_color(val):
             color = ''
             if val == '软着陆': color = '#2ECC71'
-            elif val == '再通胀': color = '#E74C3C'
+            elif val == '再通胀': color = '#16A085'
             elif val == '滞胀': color = '#F1C40F'
-            elif val == '衰退': color = '#3498DB'
+            elif val == '衰退': color = '#C5D86D'
             return f'color: {color}; font-weight: bold;'
         return styler.map(apply_color, subset=['原始最强剧本', '现任剧本(状态机)'])
 
@@ -831,8 +831,8 @@ if not df.empty and len(df) > 750:
         df_traj_3y = get_z_a_trajectory(df, df_fred_clock, 750)
 
     # ── 📈 宏观时钟验证图 · 相对强弱宏观剧本染色图 ──────────────────────────────────────────
-    _REGIME_LINE_C = {"软着陆": "#2ECC71", "再通胀": "#E74C3C", "滞胀": "#F1C40F", "衰退": "#3498DB", "混沌期": "#888888"}
-    _REGIME_BG_C   = {"软着陆": "rgba(46,204,113,0.15)", "再通胀": "rgba(231,76,60,0.15)", "滞胀": "rgba(241,196,15,0.15)", "衰退": "rgba(52,152,219,0.15)", "混沌期": "rgba(128,128,128,0.15)"}
+    _REGIME_LINE_C = {"软着陆": "#2ECC71", "再通胀": "#16A085", "滞胀": "#F1C40F", "衰退": "#C5D86D", "混沌期": "#E74C3C"}
+    _REGIME_BG_C   = {"软着陆": "rgba(46,204,113,0.15)", "再通胀": "rgba(22,160,133,0.15)", "滞胀": "rgba(241,196,15,0.15)", "衰退": "rgba(197,216,109,0.15)", "混沌期": "rgba(231,76,60,0.15)"}
     _REGIME_EMO    = {"软着陆": "🚗", "再通胀": "🔥", "滞胀": "🚨", "衰退": "❄️", "混沌期": "🌫️"}
 
     # 四大剧本历史裁决：优先从后端 API 获取（后端已自拉 yfinance + FRED，本页无需重算）
@@ -954,10 +954,10 @@ if not df.empty and len(df) > 750:
 
     def _style_horsemen_df(styler):
         def _color(val):
-            cmap = {'软着陆': '#2ECC71', '再通胀': '#E74C3C', '滞胀': '#F1C40F', '衰退': '#3498DB'}
+            cmap = {'软着陆': '#2ECC71', '再通胀': '#16A085', '滞胀': '#F1C40F', '衰退': '#C5D86D'}
             return f'color: {cmap.get(val, "#888")}; font-weight: bold;' if val in cmap else ''
         def _conf_color(val):
-            cmap = {'high': '#2ECC71', 'medium': '#F1C40F', 'chaos': '#888888'}
+            cmap = {'high': '#2ECC71', 'medium': '#F1C40F', 'chaos': '#E74C3C'}
             return f'color: {cmap.get(val, "#aaa")}; font-weight: bold;' if val in cmap else ''
         def _chaos_color(val):
             try:
@@ -965,9 +965,9 @@ if not df.empty and len(df) > 750:
             except Exception:
                 return ''
             if v > 40:
-                return 'color: #555; font-weight: bold;'
+                return 'color: #E74C3C; font-weight: bold;'
             if v >= 20:
-                return 'color: #888;'
+                return 'color: #F39C12;'
             return ''
         styler = styler.map(_color, subset=['剧本裁决'])
         if '置信度' in styler.data.columns:
@@ -1345,7 +1345,7 @@ if not df.empty and len(df) > 750:
                        "border-radius:4px; padding:2px 8px; font-size:13px; font-weight:bold;'>● 高置信</span>"),
             "medium": ("<span style='background:#3a3000; color:#F1C40F; border:1px solid #F1C40F; "
                        "border-radius:4px; padding:2px 8px; font-size:13px; font-weight:bold;'>● 中置信</span>"),
-            "chaos":  ("<span style='background:#2a2a2a; color:#888; border:1px solid #666; "
+            "chaos":  ("<span style='background:#2a2a2a; color:#E74C3C; border:1px solid #E74C3C; "
                        "border-radius:4px; padding:2px 8px; font-size:13px; font-weight:bold;'>● 混沌期</span>"),
         }
         _conf_badge_html = _conf_badge_map.get(_horsemen_conf_latest, "")
