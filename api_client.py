@@ -878,6 +878,24 @@ def fetch_sector_rotation() -> dict:
     return {"success": False, "error": str(last_exc)}
 
 
+@st.cache_data(ttl=3600)
+def fetch_dynasty_leaders(sector_etf: str, start: str, end: str, top_n: int = 3) -> dict:
+    """给定一段板块连续金块期 (sector_etf, start, end),返回该 GICS sector 成分股
+    按超额收益 (个股累计涨幅 − 板块 ETF 累计涨幅) 排序的 Top N 龙头。
+    供 Page 0 §1.6 王朝接力图「🏆 王朝龙头股」TAB 调用。失败返回 {"success": False, "error": ...}。
+    """
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/dynasty_leaders",
+            params={"sector_etf": sector_etf, "start": start, "end": end, "top_n": top_n},
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @st.cache_data(ttl=24 * 3600)
 def fetch_etf_meta() -> dict:
     """从后端获取所有 sector ETF 的 AUM + ADV, 供 Page 0 §1.6 王朝接力图 Y 轴标注 + hover 用。

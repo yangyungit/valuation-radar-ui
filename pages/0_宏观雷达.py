@@ -13,6 +13,7 @@ from api_client import (
     fetch_changepoint,
     fetch_sector_rotation,
     fetch_etf_meta,
+    fetch_dynasty_leaders,
 )
 
 st.set_page_config(page_title="宏观雷达", layout="wide")
@@ -43,6 +44,7 @@ with st.sidebar:
         fetch_changepoint.clear()
         fetch_sector_rotation.clear()
         fetch_etf_meta.clear()
+        fetch_dynasty_leaders.clear()
         st.rerun()
 
 # ============================================================
@@ -922,27 +924,10 @@ else:
                             f"(每段调一次后端 API,首次加载会慢 5-10 秒)"
                         )
 
-                        from urllib.parse import urlencode
-
-                        @st.cache_data(ttl=3600, show_spinner=False)
-                        def _fetch_dynasty_leaders(sector_etf, start, end, top_n=3):
-                            _q = urlencode({
-                                "sector_etf": sector_etf, "start": start,
-                                "end": end, "top_n": top_n,
-                            })
-                            try:
-                                r = requests.get(
-                                    f"{API_BASE}/api/v1/macro/dynasty_leaders?{_q}",
-                                    timeout=30,
-                                )
-                                return r.json() if r.status_code == 200 else None
-                            except Exception:
-                                return None
-
                         _rows = []
                         with st.spinner(f"拉 {len(_dynasties)} 段王朝期的成分股龙头..."):
                             for d in _dynasties:
-                                _res = _fetch_dynasty_leaders(
+                                _res = fetch_dynasty_leaders(
                                     d["ticker"], d["start_date"], d["end_date"], 3
                                 )
                                 if not _res or not _res.get("success"):
