@@ -531,18 +531,17 @@ else:
             )
 
     # ── §1.6 板块王朝接力图 (Dynasty Relay) — 月末 Top1/Top3 染色 ─────
-    # 主图按 king_score 排名 = w_rs×Z(rs) + w_z×Z(z) + w_cap×Z(log10(adv_63d))
-    # 容量项把 URA/TAN 这类小众主题盘从「时代之王」候选里压下去——它们 RS 可能
-    # 称霸,但 ADV 显著低于 XL*/SMH/IGV 机构盘
+    # 主图按 king_score 排名 = w_rs×Z(rs) + w_cap×Z(log10(adv_63d))
+    # 动量 + 容量两维,对应「时代之王 = 涨得多 + 大资金能进出」
     st.markdown("---")
     st.markdown("### 👑 板块王朝接力图 (Dynasty Relay) — 月末 Top1/Top3 染色")
     st.caption(
         "**规则**:每月末对 25 个板块做横截面排名,**Top1 = 🥇 金 / Top2-3 = 🥈 银 / 其他 = ⚪ 灰** · "
         "**加冕门槛**:Top1 + RS_252d > 0(年化跑赢 SPY)才戴金,否则降为灰——熊市无王 · "
-        "**主图排序指标 king_score = 1.0×Z(RS) + 0.5×Z(Z价格) + 0.8×Z(log10 ADV_63d)** —— 三项都做横截面 Z-Score 再加权,**容量项(ADV)显著负 = 把 URA/TAN 这类小众主题盘压下去**,机构盘(XL*/SMH/IGV)容量项加分 · "
+        "**主图排序指标 king_score = 1.0×Z(RS_252d) + 0.8×Z(log10 ADV_63d)** —— 两项都做横截面 Z-Score 再加权,对应「动量 + 容量」。**容量项把 URA/TAN 这类小众主题盘压下去**,机构盘(XL*/SMH/IGV)容量项加分 · "
         "**ADV 逐月动态**:每月用当月过去 63 日 (Close × Volume) 均值,**不是用当前快照穿越历史** · "
-        "**两个对照版本(上下排列)**:🅰️ 按 king_score 排名(主图,RS+Z+容量) / 🅱️ 按纯 RS_252d 排名(对照,只看动量,可见容量项把哪几个月的金牌从谁手里抢走) · "
-        "**用途**:找「时代之王」——连续戴金且容量充足 = 真王朝。hover 里有 king_score 三项分解 + AUM 当前快照(AUM 历史 yfinance 拿不到,只展示不进算法)"
+        "**两个对照版本(上下排列)**:🅰️ 按 king_score 排名(主图,动量+容量) / 🅱️ 按纯 RS_252d 排名(对照,只看动量,可见容量项把哪几个月的金牌从谁手里抢走) · "
+        "**用途**:找「时代之王」——连续戴金且容量充足 = 真王朝。hover 里有当月 ADV_63d + 当前 AUM 快照(AUM 历史 yfinance 拿不到,只展示不进算法)"
     )
 
     _dynasty_window = st.radio(
@@ -585,7 +584,7 @@ else:
                         index=_dyn_idx,
                     ).astype(float)
                     _d_name_map = {tk: p.get("name", tk) for tk, p in _picked_d.items()}
-                    _king_w = _dyn_ts.get("king_score_weights", {"rs": 1.0, "z": 0.5, "cap": 0.8})
+                    _king_w = _dyn_ts.get("king_score_weights", {"rs": 1.0, "cap": 0.8})
 
                     # ETF AUM + ADV 标注(机构容量维度,辨别真王朝 vs 小众短命王)
                     _etf_info = _etf_meta.get("tickers", {}) if _etf_meta.get("success") else {}
@@ -819,8 +818,8 @@ else:
                             )
 
                     st.markdown(
-                        f"##### 🅰️ 按 king_score 排名(主图 · RS+Z+容量 合成 · "
-                        f"w_rs={_king_w['rs']:.1f} / w_z={_king_w['z']:.1f} / w_cap={_king_w['cap']:.1f})"
+                        f"##### 🅰️ 按 king_score 排名(主图 · 动量+容量 · "
+                        f"w_rs={_king_w['rs']:.1f} / w_cap={_king_w['cap']:.1f})"
                     )
                     _render_relay(_d_king, "king_score", "king_score", "king")
 
