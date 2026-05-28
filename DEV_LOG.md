@@ -1,3 +1,13 @@
+## 2026-05-28 | Page0 王朝龙头股候选池口径升级（Yahoo/issuer/seed 三级标记）
+
+**动因**：候选池以前只显示「本地seed」，无数据源透明度。升级后显示真实口径（Yahoo/VanEck/iShares/…/seed fallback），stale 有提示。
+
+**改动**：
+- `api_client.py`：新增 `fetch_theme_holdings_status()`，调 `/api/v1/macro/theme_holdings_status`，缓存 6h
+- `pages/0_宏观雷达.py`：`_source_hint()` 函数利用 status 数据显示 source/provider/as_of_date，预拉 holdings status（不阻塞主流程）；caption 更新口径说明
+
+---
+
 ## 2026-05-28 | §1.6 王朝接力图主图改用 king_score 排名,容量项进合成分
 
 **动因**:5-28 早晨主理人指出上一版只把 ADV 在 Y 轴和 hover 标注「不够」,URA(铀)依然戴金。「时代之王 = 又有动量、又有成交量、市值还大」,容量必须**进排序**,不能只挂着看。

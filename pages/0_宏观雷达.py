@@ -14,6 +14,7 @@ from api_client import (
     fetch_sector_rotation,
     fetch_etf_meta,
     fetch_dynasty_leaders,
+    fetch_theme_holdings_status,
 )
 
 st.set_page_config(page_title="宏观雷达", layout="wide")
@@ -603,7 +604,7 @@ else:
 
                     # 前端自算 RS_63d(后端 5Y/10Y window 只提供 RS_252d)
                     # 公式与 macro_engine 一致: RS_63d = ETF 63d 动量 − SPY 63d 动量
-                    # 用途: 加冕门槛的「最近 3 月仍跑赢 SPY」过滤,防止 URA 这类登顶横盘仍戴金
+                    # 用途: hover 参考「最近 3 月是否仍跑赢 SPY」；不参与加冕门槛
                     _RS63_WIN = 63
                     _d_rs63 = None
                     if (
@@ -830,18 +831,22 @@ else:
                     st.caption(
                         "**对照用**:仅按 RS_252d(年化超额收益 vs SPY)单维度排名,不加 Z 价格、不加 ADV 容量 · "
                         "**怎么读**:对比 🅰️ 与 🅱️ 的金块位置——"
-                        "🅰️ 戴金但 🅱️ 没戴 = 这个月该板块 RS 不是 Top1,但价格 Z + ADV 容量加分把它推上 Top1(机构盘抢到金牌);"
+                        "🅰️ 戴金但 🅱️ 没戴 = 这个月该板块 RS 不是 Top1,但 ADV 容量加分把它推上 Top1(机构盘抢到金牌);"
                         "🅱️ 戴金但 🅰️ 没戴 = 该板块 RS 是 Top1,但容量不够大,被 king_score 压下去(小众主题盘失冠);"
                         "🅰️ 🅱️ 同戴 = 又有动量又有容量,真王朝 · "
                         "**用途**:看容量项把哪几个月的金牌从谁手里抢走"
                     )
                     _render_relay(_d_rs, "纯 RS_252d", "RS_252d", "rs")
+    # 预拉 holdings status（供 _source_hint 查询，6h 缓存，不阻塞主流程）
+    _holdings_status = fetch_theme_holdings_status()
+    _holdings_items  = (_holdings_status.get("items") or {}) if _holdings_status.get("success") else {}
+
     with _dyn_tab2:
         st.caption(
-            "**钻取**:对每个板块识别所有「连续金块期」,调后端 GICS 静态映射拿成分股,"
-            "按 **超额 = 个股累计涨幅 − 板块 ETF 累计涨幅** 排出 Top 3 龙头。"
-            "**偏差诚实说明**:用当前 S&P 500 + GICS,早期被剔除 / 当时未上市的股票会漏(标 ⚠️)。"
-            "GICS Sector 变更(如 FB 从 Tech 划到 Communication Services)按当前归类。"
+            "**钻取口径**:先识别连续金块期,再按「上一个月末 → 末段月末」计算"
+            "**在位期超额 = 个股累计涨幅 − 板块 ETF 累计涨幅**,排出 Top 3 龙头。"
+            "一级行业用 S&P500+GICS；主题 ETF 优先用 Yahoo/发行商 holdings 快照，失败才回退本地 seed（候选池列标记）。"
+            "⚠️ = 该股计算区间开始时未上市，数字可能虚高。"
         )
 
         if not selected_groups:
@@ -889,9 +894,48 @@ else:
                     _sort_key2 = _gold_cnt2 * 10000 + _silver_cnt2
                     _ordered_tk2 = _sort_key2.sort_values(ascending=False).index.tolist()
                     _tier_yx2 = _tier2[_ordered_tk2].T
+                    _group_map2 = {tk: p.get("group", "") for tk, p in _picked_d2.items()}
+
+                    def _segment_type(n_months: int) -> str:
+                        if n_months >= 3:
+                            return "王朝"
+                        if n_months == 2:
+                            return "接力段"
+                        return "脉冲"
+
+                    def _source_hint(tk: str) -> str:
+                        _g = _group_map2.get(tk, "")
+                        if _g.startswith("C:"):
+                            return "S&P500+GICS"
+                        if not _g.startswith("D:"):
+                            return "不支持/观察"
+                        # D 组：从 holdings status 取实际数据源
+                        _m = _holdings_items.get(tk, {})
+                        _src  = _m.get("source")
+                        _prv  = _m.get("provider")
+                        _aod  = _m.get("as_of_date")
+                        _fb   = _m.get("is_fallback", True)
+                        _stale = _m.get("is_stale", True)
+                        if not _src:
+                            return "seed fallback"
+                        if _src == "local_seed" or _fb:
+                            return "seed fallback"
+                        if _src == "yahoo":
+                            _date_str = f" ({_aod})" if _aod else ""
+                            _warn = " ⚠️stale" if _stale else ""
+                            return f"Yahoo{_date_str}{_warn}"
+                        # issuer
+                        _prv_label = {
+                            "spdr": "SPDR", "ishares": "iShares",
+                            "globalx": "Global X", "vaneck": "VanEck",
+                            "invesco": "Invesco", "firsttrust": "First Trust",
+                        }.get(_prv or "", _prv or "issuer")
+                        _date_str = f" ({_aod})" if _aod else ""
+                        _warn = " ⚠️stale" if _stale else ""
+                        return f"{_prv_label}{_date_str}{_warn}"
 
                     _dynasties = []
-                    for tk in _ordered_tk2:
+                    for _sector_order, tk in enumerate(_ordered_tk2):
                         _row = _tier_yx2.loc[tk].values
                         _months = _tier_yx2.columns
                         _i = 0
@@ -900,14 +944,24 @@ else:
                                 _j = _i
                                 while _j + 1 < len(_row) and _row[_j + 1] == 2:
                                     _j += 1
+                                _api_start_idx = _i - 1 if _i > 0 else _i
+                                _n_months = _j - _i + 1
                                 _dynasties.append({
-                                    "ticker":      tk,
-                                    "name":        _d_name_map2.get(tk, tk),
-                                    "start_date":  _months[_i].strftime("%Y-%m-%d"),
-                                    "end_date":    _months[_j].strftime("%Y-%m-%d"),
-                                    "start_label": _months[_i].strftime("%Y-%m"),
-                                    "end_label":   _months[_j].strftime("%Y-%m"),
-                                    "n_months":    _j - _i + 1,
+                                    "ticker":              tk,
+                                    "name":                _d_name_map2.get(tk, tk),
+                                    "display_start_date":  _months[_i],
+                                    "display_end_date":    _months[_j],
+                                    "api_start_date":      _months[_api_start_idx].strftime("%Y-%m-%d"),
+                                    "api_end_date":        _months[_j].strftime("%Y-%m-%d"),
+                                    "display_start_label": _months[_i].strftime("%Y-%m"),
+                                    "display_end_label":   _months[_j].strftime("%Y-%m"),
+                                    "api_start_label":     _months[_api_start_idx].strftime("%Y-%m"),
+                                    "api_end_label":       _months[_j].strftime("%Y-%m"),
+                                    "n_months":            _n_months,
+                                    "segment_type":        _segment_type(_n_months),
+                                    "sector_gold_total":   int(_gold_cnt2.get(tk, 0)),
+                                    "sector_order":        _sector_order,
+                                    "source_hint":         _source_hint(tk),
                                 })
                                 _i = _j + 1
                             else:
@@ -917,23 +971,29 @@ else:
                         st.info(f"{_dynasty_window} 内未识别到任何连续金块期 (无王朝期)")
                     else:
                         _dynasties.sort(
-                            key=lambda d: (d["ticker"], -d["n_months"], d["start_date"])
+                            key=lambda d: (
+                                -d["sector_gold_total"],
+                                d["sector_order"],
+                                -d["n_months"],
+                                -d["display_start_date"].value,
+                            )
                         )
                         st.markdown(
                             f"**{_dynasty_window} 共识别到 {len(_dynasties)} 段王朝期** "
-                            f"(每段调一次后端 API,首次加载会慢 5-10 秒)"
+                            f"(按板块累计戴金月数排序;每段调一次后端 API,首次加载会慢 5-10 秒)"
                         )
 
                         _rows = []
                         with st.spinner(f"拉 {len(_dynasties)} 段王朝期的成分股龙头..."):
                             for d in _dynasties:
                                 _res = fetch_dynasty_leaders(
-                                    d["ticker"], d["start_date"], d["end_date"], 3
+                                    d["ticker"], d["api_start_date"], d["api_end_date"], 3
                                 )
                                 if not _res or not _res.get("success"):
                                     _leaders_cells = ["—", "—", "—"]
                                     _excess_cells  = ["—", "—", "—"]
                                     _etf_ret_str   = "—"
+                                    _status = (_res or {}).get("error", "API失败")
                                 else:
                                     _etf_ret_str = f"{_res['etf_return_pct']:+.1f}%"
                                     _leaders = _res.get("leaders", [])
@@ -950,10 +1010,15 @@ else:
                                         else:
                                             _leaders_cells.append("—")
                                             _excess_cells.append("—")
+                                    _status = "OK" if _leaders else "无候选"
                                 _rows.append({
                                     "板块": f"{d['name']} ({d['ticker']})",
-                                    "王朝期": f"{d['start_label']} → {d['end_label']}",
+                                    "类型": d["segment_type"],
+                                    "王朝期": f"{d['display_start_label']} → {d['display_end_label']}",
+                                    "计算区间": f"{d['api_start_label']} → {d['api_end_label']}",
                                     "持续(月)": d["n_months"],
+                                    "累计戴金(月)": d["sector_gold_total"],
+                                    "候选池": d["source_hint"],
                                     "板块ETF涨幅": _etf_ret_str,
                                     "🥇 Top1": _leaders_cells[0],
                                     "Top1 超额": _excess_cells[0],
@@ -961,6 +1026,7 @@ else:
                                     "Top2 超额": _excess_cells[1],
                                     "🥉 Top3": _leaders_cells[2],
                                     "Top3 超额": _excess_cells[2],
+                                    "状态": str(_status)[:60],
                                 })
 
                         _df_leaders = pd.DataFrame(_rows)
@@ -971,8 +1037,11 @@ else:
                             height=min(800, 40 + 35 * len(_rows)),
                         )
                         st.caption(
-                            "⚠️ 标记 = 该股在王朝期开始时未上市,按其实际上市后区间算超额(样本不完整,数字可能虚高)。"
-                            "板块按累计戴金月数倒序、同板块按王朝期长度倒序排列。"
+                            "类型: 王朝=连续戴金≥3个月 / 接力段=2个月 / 脉冲=1个月。"
+                            "计算区间使用「上一个月末→末段月末」，单月脉冲也能算在位超额。"
+                            "⚠️ = 计算区间开始时未上市，数字可能虚高。"
+                            "候选池: S&P500+GICS=一级行业当前成分；Yahoo/发行商=主题 ETF 官方持仓快照；"
+                            "seed fallback=本地维护持仓，非实时官方数据。"
                         )
 
 

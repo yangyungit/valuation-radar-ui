@@ -896,6 +896,22 @@ def fetch_dynasty_leaders(sector_etf: str, start: str, end: str, top_n: int = 3)
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=6 * 3600)
+def fetch_theme_holdings_status() -> dict:
+    """从后端获取 14 个主题 ETF 的 holdings 数据源状态（source/provider/as_of_date/is_fallback/is_stale）。
+    缓存 6h。失败返回 {"success": False, "error": ...}。
+    """
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/theme_holdings_status",
+            timeout=15,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @st.cache_data(ttl=24 * 3600)
 def fetch_etf_meta() -> dict:
     """从后端获取所有 sector ETF 的 AUM + ADV, 供 Page 0 §1.6 王朝接力图 Y 轴标注 + hover 用。
