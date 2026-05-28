@@ -231,14 +231,11 @@ ARENA_CONFIG: dict = {
             "revenue_growth": "成长弹性 (Revenue 增速)",
         },
         "logic": (
-            "核心底仓质量指数：兼顾防御、效率与趋势，追求极低换手率与极强抗跌性。<br>"
-            "① 真·护城河质量（股息率 + 盈利稳定性双因子代理，权重 30%）<br>"
-            "② 抗跌韧性（近 1 年最大回撤越小得分越高，权重 20%）<br>"
-            "③ 长效性价比（近 1 年夏普比率，长期风险调整收益，权重 20%）<br>"
-            "④ 中期相对强度 RS₁₂₀（过去 120 日相对 SPY 超额收益，捕捉趋势切换，权重 10%）<br>"
-            "⑤ 绝对体量（log10 市值壁垒，大象起舞加分，权重 10%）<br>"
-            "⑥ 成长弹性（Revenue 增速，避免纯防御型占位，权重 10%）<br>"
-            "高分者兼具护城河深度、成长宽度与趋势顺风。"
+            "核心底仓质量指数（2026-05-28 简化版）：grid search + 扰动验证后只留两个因子。<br>"
+            "① 成长弹性（Revenue 增速 TTM，权重 80%）—— 营收持续扩张是核心信号<br>"
+            "② 抗跌韧性（近 1 年最大回撤越小得分越高，权重 20%）—— 防止纯成长股暴跌<br>"
+            "其余 4 个因子（Quality / Sharpe / RS₁₂₀ / 市值）权重置 0，"
+            "回测显示加进去反而拉低样本内/样本外表现。"
         ),
     },
     "C": {
@@ -858,12 +855,14 @@ def compute_scorecard_b(df: pd.DataFrame) -> pd.DataFrame:
     rev_raw = result.get("Revenue增速", pd.Series(0.0, index=result.index)).astype(float).fillna(0.0)
     f6_norm = _anchor_norm(rev_raw, *FACTOR_ANCHORS["revenue_growth"])
 
-    result["因子1_分"] = (0.30 * f1_norm).round(1)
-    result["因子2_分"] = (0.20 * f2_norm).round(1)
-    result["因子3_分"] = (0.20 * f3_norm).round(1)
-    result["因子4_分"] = (0.10 * f4_norm).round(1)
-    result["因子5_分"] = (0.10 * f5_norm).round(1)
-    result["因子6_分"] = (0.10 * f6_norm).round(1)
+    # 2026-05-28 权重切换：harness grid + robustness 验证选出 Revenue 80% + Resilience 20%
+    # 历史权重 (0.30, 0.20, 0.20, 0.10, 0.10, 0.10) 留底备查
+    result["因子1_分"] = (0.0 * f1_norm).round(1)
+    result["因子2_分"] = (0.2 * f2_norm).round(1)
+    result["因子3_分"] = (0.0 * f3_norm).round(1)
+    result["因子4_分"] = (0.0 * f4_norm).round(1)
+    result["因子5_分"] = (0.0 * f5_norm).round(1)
+    result["因子6_分"] = (0.8 * f6_norm).round(1)
 
     result["竞技得分"] = (
         result["因子1_分"] + result["因子2_分"] + result["因子3_分"]
@@ -4195,12 +4194,12 @@ elif _sel4 == "B":
         <div style='font-size:13px; color:#bbb; line-height:1.8;'>{cfg_b["logic"]}</div>
         <div style='margin-top:10px; font-size:13px; color:#666;'>
             评分权重 →
-            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[0]}22; color:{_B_FACTOR_COLORS[0]}; border:1px solid {_B_FACTOR_COLORS[0]}55;'>真·护城河质量  30%</span>
+            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[0]}22; color:{_B_FACTOR_COLORS[0]}; border:1px solid {_B_FACTOR_COLORS[0]}55;'>真·护城河质量  0%</span>
             <span class='factor-pill' style='background:{_B_FACTOR_COLORS[1]}22; color:{_B_FACTOR_COLORS[1]}; border:1px solid {_B_FACTOR_COLORS[1]}55;'>抗跌韧性  20%</span>
-            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[2]}22; color:{_B_FACTOR_COLORS[2]}; border:1px solid {_B_FACTOR_COLORS[2]}55;'>夏普比率  20%</span>
-            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[3]}22; color:{_B_FACTOR_COLORS[3]}; border:1px solid {_B_FACTOR_COLORS[3]}55;'>中期相对强度 RS₁₂₀  10%</span>
-            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[4]}22; color:{_B_FACTOR_COLORS[4]}; border:1px solid {_B_FACTOR_COLORS[4]}55;'>绝对体量  10%</span>
-            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[5]}22; color:{_B_FACTOR_COLORS[5]}; border:1px solid {_B_FACTOR_COLORS[5]}55;'>Revenue增速  10%</span>
+            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[2]}22; color:{_B_FACTOR_COLORS[2]}; border:1px solid {_B_FACTOR_COLORS[2]}55;'>夏普比率  0%</span>
+            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[3]}22; color:{_B_FACTOR_COLORS[3]}; border:1px solid {_B_FACTOR_COLORS[3]}55;'>中期相对强度 RS₁₂₀  0%</span>
+            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[4]}22; color:{_B_FACTOR_COLORS[4]}; border:1px solid {_B_FACTOR_COLORS[4]}55;'>绝对体量  0%</span>
+            <span class='factor-pill' style='background:{_B_FACTOR_COLORS[5]}22; color:{_B_FACTOR_COLORS[5]}; border:1px solid {_B_FACTOR_COLORS[5]}55;'>Revenue增速  80%</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -4211,16 +4210,13 @@ elif _sel4 == "B":
         st.markdown("""
         <div style='font-size:14px; color:#ccc; line-height:1.8;'>
         <span style='color:#F39C12; font-weight:bold;'>Score<sub>B</sub></span> =
-        <span style='color:#F39C12;'>(30 × RealQuality<sub>norm</sub>)</span> +
         <span style='color:#3498DB;'>(20 × Resilience<sub>InvMaxDD</sub>)</span> +
-        <span style='color:#2ECC71;'>(20 × Sharpe<sub>1Y</sub>)</span> +
-        <span style='color:#E67E22;'>(10 × RS₁₂₀<sub>vs SPY</sub>)</span> +
-        <span style='color:#9B59B6;'>(10 × MCap<sub>log10</sub>)</span> +
-        <span style='color:#E74C3C;'>(10 × RevenueGrowth<sub>TTM</sub>)</span><br>
+        <span style='color:#E74C3C;'>(80 × RevenueGrowth<sub>TTM</sub>)</span><br>
         <span style='color:#888; font-size:13px;'>
+        2026-05-28 起：harness grid search + 扰动验证后剪枝为两因子。
+        Quality / Sharpe / RS₁₂₀ / MCap 四项回测显示加进去反而拖累表现，权重置 0。
         此因子分数作为「信念积分的输入信号」，不再直接决定排名。
         连续多月高分 → 信念积累 → 达标入选 → 守擂留任。
-        RS₁₂₀ 捕捉中期趋势切换，避免走弱标的长期霸占席位。
         </span>
         </div>
         """, unsafe_allow_html=True)
