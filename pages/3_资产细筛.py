@@ -9,7 +9,8 @@ import calendar
 import yfinance as yf
 from _yf_session import YF_SESSION  # curl_cffi 浏览器指纹，绕 Yahoo 401
 from datetime import datetime, timedelta
-from api_client import (fetch_core_data, get_global_data, get_stock_metadata,
+from api_client import (fetch_core_data, fetch_active_universe,
+                        get_global_data, get_stock_metadata,
                         get_arena_a_factors, get_arena_b_factors,
                         get_arena_c_factors, get_arena_d_factors,
                         get_arena_a_scores as _api_get_arena_a_scores,
@@ -3771,9 +3772,24 @@ st.caption(
 #  数据来源决策 + 自主分类
 # ─────────────────────────────────────────────────────────────────
 _core_live = fetch_core_data()
-_TIC_MAP = _core_live.get("TIC_MAP", {})
-_USER_TICKERS = list(_TIC_MAP.keys())
-_SCREEN_TICKERS = sorted(set(_USER_TICKERS))
+_MY_POOL_TIC_MAP = _core_live.get("TIC_MAP", {})  # MY_POOL 中文名映射(主理人精选,优先级最高)
+
+# Phase 1.6: 从后端 active universe(SP500 + NDX100 + ETF)拉 ABCD 评分对象
+_active_universe = fetch_active_universe()
+if _active_universe:
+    _SCREEN_TICKERS = sorted(_active_universe.keys())
+    # 中文名优先 MY_POOL,缺则用 active_universe 自带(SP500/NDX100 是英文公司名,ETF 是中文)
+    _TIC_MAP = {
+        tk: (_MY_POOL_TIC_MAP.get(tk)
+             or _active_universe[tk].get("name")
+             or tk)
+        for tk in _SCREEN_TICKERS
+    }
+else:
+    # fallback: 后端 universe/active 失败时退回 MY_POOL 142 只
+    _TIC_MAP = _MY_POOL_TIC_MAP
+    _SCREEN_TICKERS = sorted(set(_TIC_MAP.keys()))
+
 _DOWNLOAD_TICKERS = sorted(set(_SCREEN_TICKERS + ["SPY"]))
 
 with st.spinner("⏳ 正在加载资产价格矩阵..."):

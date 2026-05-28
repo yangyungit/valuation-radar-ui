@@ -55,6 +55,23 @@ def fetch_core_data():
         st.error(f"🚨 发生未知错误: {e}")
         st.stop()
 
+@st.cache_data(ttl=3600*4)
+def fetch_active_universe() -> dict:
+    """ABCD 评分用 active universe(SP500 + NDX100 + ETF 锚池)。
+    返回 {ticker: {"name": str, "source": str}};失败返回空 dict 让上层兜底走 MY_POOL。
+    """
+    try:
+        response = requests.get(f"{API_BASE_URL}/api/v1/universe/active", timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        if data.get("success"):
+            return data.get("universe", {}) or {}
+        st.warning(f"⚠️ active universe API 返回失败: {data.get('error','')}", icon="⚠️")
+    except Exception as exc:
+        st.warning(f"⚠️ active universe 拉取失败,fallback MY_POOL: {exc}", icon="⚠️")
+    return {}
+
+
 # ==========================================
 # 2. 公共市场数据获取 (前端负责拉取公开行情)
 # ==========================================
