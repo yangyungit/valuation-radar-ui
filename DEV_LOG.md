@@ -2,6 +2,40 @@
 
 ---
 
+## 2026-05-28 | §1.6 王朝接力图加 ETF AUM + ADV 标注,区分真王朝 vs 小众短命王
+
+**动因**:主理人发现纯 RS 排名里 URA(铀)长期压过 SMH(半导体),不符合「时代之王 = 大主题」的直觉。根因:RS 不区分波动率,小众高 beta ETF 主升浪期间 1 年涨幅(80-150%)经常超过大主题 ETF(30-60%)。需要「机构容量」维度区分:大资金能买的是真王朝,小众短命王虽然涨幅大但容量小不可投。
+
+**改动**:
+
+1. **后端 valuation-radar**:
+   - 新增 `/api/v1/macro/etf_meta` endpoint,返回所有 sector ETF 的 AUM + ADV
+   - `macro_engine.compute_etf_meta_batch` 走 yfinance `Ticker.info` 拉 `totalAssets`(AUM) + `averageDailyVolume3Month * regularMarketPrice`(ADV in USD)
+   - 进程内 dict 缓存 TTL 24h,数据缺失字段返回 null 不阻塞
+
+2. **前端 valuation-radar-ui**:
+   - `api_client.py` 新增 `fetch_etf_meta()`(`@st.cache_data(ttl=24h)`),sidebar 强制刷新清缓存
+   - `pages/0_宏观雷达.py` §1.6 顶部 spinner 加 `_etf_meta = fetch_etf_meta()`
+   - `_render_relay` 函数:
+     - Y 轴标签后面加 ` · ADV $X.XB`(直观容量提示)
+     - hover 末尾加两行 `AUM $X.XB` + `ADV $X.XB`
+   - 主 caption 加「机构容量标注」说明段
+   - 显示阈值: ≥ $1B → `$X.XB` / ≥ $1M → `$XXM` / 否则 `$XXXk` / 缺数 → `—`
+
+**怎么用**:看接力图金块时,瞄一眼 ADV——`ADV $1B+` 的板块戴金 = 机构盘真王朝(SMH/XLK 等);`ADV $50M` 的板块戴金 = 小众短命王(URA/JETS),仅当散户/对冲基金机会,机构无法重仓。
+
+**不动**:tier 染色、加冕门槛、universe 范围全部不动。这次只加视觉信息让主理人自己判断。
+
+**验收**:
+
+- §1.6 两张接力图(🅰️🅱️)Y 轴标签变为 `半导体 (SMH) · ADV $1.5B` 这类格式
+- hover 任意金块显示完整字段:排名 / 强势分 / RS_252d / RS_63d / AUM / ADV
+- ADV 数值合理:SMH/XLK/QQQ/SPY 等大盘 ETF $500M-$3B 量级,URA/JETS 等小众 ~$30-100M
+- 后端 24h 缓存生效,前端 `@st.cache_data` 24h
+- 数据缺失时 Y 轴显示 `— —` 不报错
+
+---
+
 ## 2026-05-28 | §1.6 回滚双 RS 过滤 + 订正 Z 方向描述错误
 
 **动因**:

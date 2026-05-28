@@ -12,6 +12,7 @@ from api_client import (
     compute_macro_regime_api,
     fetch_changepoint,
     fetch_sector_rotation,
+    fetch_etf_meta,
 )
 
 st.set_page_config(page_title="宏观雷达", layout="wide")
@@ -41,6 +42,7 @@ with st.sidebar:
         get_global_data.clear()
         fetch_changepoint.clear()
         fetch_sector_rotation.clear()
+        fetch_etf_meta.clear()
         st.rerun()
 
 # ============================================================
@@ -119,6 +121,7 @@ with st.spinner("📊 加载市场结构数据..."):
     _chain_regime   = compute_macro_regime_api(z_window=750)
     _cp             = fetch_changepoint()
     _sr             = fetch_sector_rotation()
+    _etf_meta       = fetch_etf_meta()
 
 # 变点检测「确认信号」日期集（单日 n_t≥K），用于 §2 MTM 主图底部紫色竖杠。
 # 严格按后端 timeline.level 字段筛，不在前端重算 streak，避免与 §2.6 数值漂移。
@@ -539,6 +542,7 @@ else:
         "hover 里 RS_63d 字段仅作参考,**不进门槛**(实测进门槛过严,正常回调全被误杀) · "
         "**用途**:找「时代之王」——连续戴金的板块就是真王朝 · "
         "**两个对照版本(下方上下排列)**:🅰️ 按 RS+Z 合成排名(默认,与 §1.5 一致;Z = 价格相对历史均线偏离,**与 RS 同向加分**) / 🅱️ 按纯 RS_252d 排名(对照,看 Z 在哪些时点替你抢跑) · "
+        "**机构容量标注**:Y 轴每个板块后面是 ADV(日均成交额),ADV 大 = 大资金能进出 = 机构盘真王朝;ADV 小 = 小众短命王(URA/JETS 这类)。hover 里还有 AUM(基金规模)。"
         "**数据**:跟上方波形图共用 5Y/10Y 时序"
     )
 
@@ -578,6 +582,19 @@ else:
                         index=_dyn_idx,
                     ).astype(float)
                     _d_name_map = {tk: p.get("name", tk) for tk, p in _picked_d.items()}
+
+                    # ETF AUM + ADV 标注(机构容量维度,辨别真王朝 vs 小众短命王)
+                    _etf_info = _etf_meta.get("tickers", {}) if _etf_meta.get("success") else {}
+
+                    def _fmt_usd(x):
+                        if x is None or not isinstance(x, (int, float)) or x <= 0:
+                            return "—"
+                        if x >= 1e9:
+                            return f"${x/1e9:.1f}B"
+                        elif x >= 1e6:
+                            return f"${x/1e6:.0f}M"
+                        else:
+                            return f"${x/1e3:.0f}k"
 
                     # 前端自算 RS_63d(后端 5Y/10Y window 只提供 RS_252d)
                     # 公式与 macro_engine 一致: RS_63d = ETF 63d 动量 − SPY 63d 动量
@@ -635,7 +652,12 @@ else:
                         _metric_yx = _metric_m[_ordered_tk].T
                         _rs63_yx   = _rs63_m[_ordered_tk].T if _rs63_m is not None else None
 
-                        _ylabels = [f"{_d_name_map.get(tk, tk)} ({tk})" for tk in _ordered_tk]
+                        _ylabels = []
+                        for tk in _ordered_tk:
+                            _name = _d_name_map.get(tk, tk)
+                            _meta = _etf_info.get(tk, {})
+                            _adv_str = _fmt_usd(_meta.get("adv_usd"))
+                            _ylabels.append(f"{_name} ({tk}) · ADV {_adv_str}")
                         _xlabels = _tier_yx.columns.strftime("%Y-%m").tolist()
 
                         _BADGE = {0: "⚪ 灰", 1: "🥈 银", 2: "🥇 金"}
@@ -662,6 +684,9 @@ else:
                                     and pd.notna(_rs_val) and _rs_val <= 0
                                 ):
                                     _demote_note = "<br><i>Top1 但 RS_252d ≤ 0 → 降级(熊市无王)</i>"
+                                _meta = _etf_info.get(tk, {})
+                                _aum_str = _fmt_usd(_meta.get("aum"))
+                                _adv_str_h = _fmt_usd(_meta.get("adv_usd"))
                                 _row_txt.append(
                                     f"<b>{_d_name_map.get(tk, tk)} ({tk})</b><br>"
                                     f"{_d.strftime('%Y-%m')}<br>"
@@ -669,7 +694,9 @@ else:
                                     f"排名 {_rank_str}<br>"
                                     f"{hover_metric_label} {_m_str}<br>"
                                     f"RS_252d {_rs_str}<br>"
-                                    f"RS_63d {_rs63_str} <i>(仅参考,不进门槛)</i>"
+                                    f"RS_63d {_rs63_str} <i>(仅参考,不进门槛)</i><br>"
+                                    f"AUM {_aum_str}<br>"
+                                    f"ADV {_adv_str_h}"
                                     f"{_demote_note}"
                                 )
                             _hover_text.append(_row_txt)

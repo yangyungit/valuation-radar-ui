@@ -878,6 +878,24 @@ def fetch_sector_rotation() -> dict:
     return {"success": False, "error": str(last_exc)}
 
 
+@st.cache_data(ttl=24 * 3600)
+def fetch_etf_meta() -> dict:
+    """从后端获取所有 sector ETF 的 AUM + ADV, 供 Page 0 §1.6 王朝接力图 Y 轴标注 + hover 用。
+    返回 {"success": bool, "asof": "YYYY-MM-DD",
+          "tickers": {tk: {"aum": float|None, "adv_usd": float|None, "name": str}}}.
+    缓存 24h(数据变化慢)。
+    """
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/etf_meta",
+            timeout=120,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "tickers": {}}
+
+
 @st.cache_data(ttl=300)
 def fetch_current_regime() -> dict:
     """从后端 universe.db 读取最新 macro regime 数据包。失败时返回 {}。
