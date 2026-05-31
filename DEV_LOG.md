@@ -2,6 +2,21 @@
 
 ---
 
+## 2026-05-31 | GBDT 并联选股页上线（Phase 5 前端）
+
+**动因**：后端 Phase 0–4 已全推 main（HEAD=9555277），前端并联镜像。
+
+**改动**：
+
+1. `api_client.py` 新增 GBDT 客户端函数（`gbdt_score` / `gbdt_retrain` / `fetch_gbdt_history` / `get_gbdt_state` / `save_gbdt_state`），打到 `/api/v1/gbdt/*` 接口，复用 `_sanitize_floats` 和 `_normalize_arena_record`，不改旧 arena 函数。
+2. 新增 `pages/3_资产细筛_GBDT.py`：镜像 `3_资产细筛.py` 结构（`_lazy_subtab_nav` / podium / 历史 tab）；因子展示从锚点打分换成 SHAP 组级贡献条形图；侧栏靠 `3_` 前缀自动排在原 arena 页下面。
+
+**红线**：
+- 不改任何旧 arena 函数；GBDT 历史独立存 `gbdt_history` 表，删页 = 删一个 `.py` + 删 `api_client` 里 `gbdt_*`，原页无感。
+- 无本地算法：打分 / SHAP 全走后端 `/api/v1/gbdt/score`。
+
+---
+
 ## 2026-05-31 | 宏观雷达加信用利差状态条（读后端 credit.level）
 
 **动因**:后端 `compute_macro_regime` 新增第三个同步闸门——信用利差闸门（`ade1a41`），输出 `upstream_summary.credit = {z, level}`，前端需展示。

@@ -2073,3 +2073,206 @@ def trigger_narrative_v3_backfill(days: int = 90, force: bool = False) -> dict:
         return data
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ==========================================
+# 7. GBDT 选股 API 客户端
+# ==========================================
+
+def gbdt_score(
+    price_df,
+    vol_df=None,
+    meta_data: dict = None,
+    pit_meta_records: dict = None,
+    month_specs: list = None,
+    z_seed_tickers: list = None,
+    conv_config_a: dict = None,
+    conv_config_b: dict = None,
+    arena_save_n: int = 10,
+) -> dict:
+    """调用后端 /api/v1/gbdt/score（GBDT 月度打分，镜像 arena_backfill_score 分片逻辑）。
+
+    与 arena_backfill_score 的主要差异：
+    - 打分换成 gbdt_scorer.predict + SHAP 组级贡献
+    - 后端 score 接口已内部 upsert_gbdt_batch，客户端无需额外落盘
+
+    Returns:
+        成功：{success, gbdt_records:{月:{档:wrap_record}}, conv_state_a/b, conv_holders_a/b,
+               bootstrapped, train_end}
+        失败：{success:False, error:..., gbdt_records:{}, partial:bool}
+    """
+    _CHUNK = 12
+    specs  = month_specs or []
+
+    try:
+        price_records = {str(k): v for k, v in price_df.to_dict(orient="index").items()}
+        vol_records: dict = {}
+        if vol_df is not None and not vol_df.empty:
+            vol_records = {str(k): v for k, v in vol_df.to_dict(orient="index").items()}
+
+        price_payload    = _sanitize_floats(price_records)
+        vol_payload      = _sanitize_floats(vol_records)
+        meta_payload     = _sanitize_floats(meta_data or {})
+        pit_meta_payload = _sanitize_floats(pit_meta_records or {})
+        cfg_a_payload    = _sanitize_floats(conv_config_a or {})
+        cfg_b_payload    = _sanitize_floats(conv_config_b or {})
+
+        all_gbdt_records: dict = {}
+        carry: dict = {}
+
+        chunks = [specs[i:i + _CHUNK] for i in range(0, len(specs), _CHUNK)]
+        total_chunks = len(chunks)
+
+        for chunk_idx, chunk in enumerate(chunks, 1):
+            payload = {
+                "price_records":     price_payload,
+                "vol_records":       vol_payload,
+                "meta_data":         meta_payload,
+                "pit_meta_records":  pit_meta_payload,
+                "month_specs":       chunk,
+                "z_seed_tickers":    list(z_seed_tickers or []),
+                "conv_config_a":     cfg_a_payload,
+                "conv_config_b":     cfg_b_payload,
+                "arena_save_n":      arena_save_n,
+                "init_conv_state_a":   carry.get("conv_state_a", {}),
+                "init_conv_holders_a": carry.get("conv_holders_a", []),
+                "init_conv_state_b":   carry.get("conv_state_b", {}),
+                "init_conv_holders_b": carry.get("conv_holders_b", []),
+            }
+            try:
+                r = requests.post(
+                    f"{API_BASE_URL}/api/v1/gbdt/score",
+                    json=payload,
+                    timeout=300,
+                )
+                r.raise_for_status()
+                data = r.json()
+            except Exception as chunk_err:
+                return {
+                    "success":       False,
+                    "error":         f"第 {chunk_idx}/{total_chunks} 批失败（{chunk_err}）",
+                    "gbdt_records":  all_gbdt_records,
+                    "partial":       True,
+                    "completed_chunks": chunk_idx - 1,
+                    "total_chunks":  total_chunks,
+                    "conv_state_a":  carry.get("conv_state_a", {}),
+                    "conv_holders_a": carry.get("conv_holders_a", []),
+                    "conv_state_b":  carry.get("conv_state_b", {}),
+                    "conv_holders_b": carry.get("conv_holders_b", []),
+                }
+            if not data.get("success"):
+                return {**data, "gbdt_records": all_gbdt_records, "partial": True,
+                        "completed_chunks": chunk_idx - 1, "total_chunks": total_chunks}
+
+            all_gbdt_records.update(data.get("gbdt_records", {}))
+            carry = {
+                "conv_state_a":   data.get("conv_state_a", {}),
+                "conv_holders_a": data.get("conv_holders_a", []),
+                "conv_state_b":   data.get("conv_state_b", {}),
+                "conv_holders_b": data.get("conv_holders_b", []),
+            }
+
+        return {
+            "success":        True,
+            "gbdt_records":   all_gbdt_records,
+            "completed_chunks": total_chunks,
+            "total_chunks":   total_chunks,
+            "conv_state_a":   carry.get("conv_state_a", {}),
+            "conv_holders_a": carry.get("conv_holders_a", []),
+            "conv_state_b":   carry.get("conv_state_b", {}),
+            "conv_holders_b": carry.get("conv_holders_b", []),
+        }
+    except Exception as exc:
+        return {"success": False, "error": str(exc), "gbdt_records": {}}
+
+
+def gbdt_retrain(
+    grades: list = None,
+    price_df=None,
+    vol_df=None,
+    pit_meta_records: dict = None,
+    month_specs: list = None,
+    z_seed_tickers: list = None,
+) -> dict:
+    """调用后端 /api/v1/gbdt/retrain（触发重训 + 晋级闸）。
+
+    Returns:
+        成功：{success, train_end, results:{档:{promoted, challenger_version}}}
+        现役 IC 死：{success:False, champion_ic_dead:True, grade, champion_ic}
+    """
+    try:
+        price_records: dict = {}
+        vol_records: dict = {}
+        if price_df is not None and not price_df.empty:
+            price_records = {str(k): v for k, v in price_df.to_dict(orient="index").items()}
+        if vol_df is not None and not vol_df.empty:
+            vol_records = {str(k): v for k, v in vol_df.to_dict(orient="index").items()}
+
+        payload = {
+            "grades":            list(grades or []),
+            "price_records":     _sanitize_floats(price_records),
+            "vol_records":       _sanitize_floats(vol_records),
+            "pit_meta_records":  _sanitize_floats(pit_meta_records or {}),
+            "month_specs":       list(month_specs or []),
+            "z_seed_tickers":    list(z_seed_tickers or []),
+        }
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/gbdt/retrain",
+            json=payload,
+            timeout=600,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_gbdt_history() -> dict:
+    """从后端读取全量 GBDT 月度档案（镜像 fetch_arena_history）。
+
+    返回格式（已规范化）：
+      {"YYYY-MM": {"A": {"tickers": [...records...], "gate_status": "open"/"closed",
+                         "gate_reason": ""}, ...}, ...}
+    每条 record：{ticker, name, score, shap:{因子组:贡献}}。
+    """
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/gbdt/history", timeout=15)
+        r.raise_for_status()
+        raw = r.json().get("history", {})
+        normalized: dict = {}
+        for _month, _cls_map in raw.items():
+            if not isinstance(_cls_map, dict):
+                continue
+            _norm_cls: dict = {}
+            for _cls, _rec in _cls_map.items():
+                _norm_cls[_cls] = _normalize_arena_record(_rec)
+            normalized[_month] = _norm_cls
+        return normalized
+    except Exception:
+        return {}
+
+
+def get_gbdt_state(grade: str) -> tuple[dict, list]:
+    """读 GBDT 守擂信念状态（镜像 fetch_conviction_state，读 gbdt_conviction_state 表）。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/gbdt/state/{grade}", timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return data.get("state", {}), data.get("holders", [])
+    except Exception:
+        return {}, []
+
+
+def save_gbdt_state(grade: str, state: dict, holders: list) -> bool:
+    """将 GBDT 守擂信念状态推送到后端持久化（镜像 push_conviction_state）。"""
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/gbdt/state/{grade}",
+            json={"state": state, "holders": holders},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json().get("success", False)
+    except Exception:
+        return False
