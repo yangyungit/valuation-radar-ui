@@ -185,8 +185,18 @@ def build_stitched_fig(
                     ))
                     if x_offset > 0:
                         boundary_xs.append(x_offset - 0.5)
+                    if spy_close is not None:
+                        spy_seg = spy_close.reindex(cash_idx, method="ffill").bfill().dropna()
+                        if len(spy_seg) >= 2:
+                            spy_pct = (spy_seg / float(spy_seg.iloc[0]) - 1) * 100
+                            spy_cum = spy_running_return + spy_pct
+                            for si, sdt in enumerate(cash_idx):
+                                if sdt in spy_seg.index:
+                                    spy_x_all.append(x_offset + si)
+                                    spy_y_all.append(float(spy_cum.loc[sdt]))
+                            spy_running_return = float(spy_cum.iloc[-1])
                     x_offset += n
-            continue
+        continue
 
         wkd = pc.get(tk)
         if wkd is None or wkd.empty:
