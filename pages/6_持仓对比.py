@@ -164,7 +164,7 @@ def _render_slot(
 
 def _render_basket(
     gbdt: dict, grade: str,
-    _price_cache: dict, _spy_wk: pd.DataFrame, _cash_rate: float,
+    _price_cache: dict, _spy_wk: pd.DataFrame, _name_map: dict, _cash_rate: float,
 ) -> None:
     st.markdown("**GBDT · 等权 top-2 篮子**")
     months = sorted(k for k in gbdt if not k.startswith("_"))
@@ -195,6 +195,21 @@ def _render_basket(
     else:
         st.info("暂无足够数据生成图表。")
 
+    st.markdown("**持仓过程（每月 top-2 拆成左右两列，月度再平衡）**")
+    slots = hv.build_basket_slot_assignments(r["monthly_holdings"], months)
+    seg_l = hv.build_slot_segments(slots, 0, months)
+    seg_r = hv.build_slot_segments(slots, 1, months)
+    fig_l = hv.build_stitched_fig(
+        seg_l, f"GBDT {grade} 左列（每月 top-1）",
+        _spy_wk, _price_cache, _name_map,
+    )
+    fig_r = hv.build_stitched_fig(
+        seg_r, f"GBDT {grade} 右列（每月 top-2）",
+        _spy_wk, _price_cache, _name_map,
+    )
+    st.plotly_chart(fig_l, use_container_width=True, key=f"{grade}_basket_slot0")
+    st.plotly_chart(fig_r, use_container_width=True, key=f"{grade}_basket_slot1")
+
 
 tab_a, tab_b, tab_c = st.tabs(["🛡️ A 档", "🏦 B 档", "🚀 C 档"])
 with tab_a:
@@ -202,4 +217,4 @@ with tab_a:
 with tab_b:
     _render_slot(_gbdt, "B", buffer_n, price_cache, spy_wk, name_map, _CASH_RATE)
 with tab_c:
-    _render_basket(_gbdt, "C", price_cache, spy_wk, _CASH_RATE)
+    _render_basket(_gbdt, "C", price_cache, spy_wk, name_map, _CASH_RATE)

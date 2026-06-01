@@ -134,6 +134,38 @@ def build_slot_assignments(
     return slot_assignments, hold_map, gate_closed
 
 
+def build_basket_slot_assignments(monthly_holdings: dict, months: list) -> dict:
+    """把篮子月度持仓 {month: [top1, top2]} 拆成两槽分配，供拼接图用。
+    无守擂缓冲，但保持槽位连续：上月在该槽的标的若本月仍持有就留原槽，
+    避免同两只股票顺序变化时左右列来回跳。空仓月填 CASH。
+    """
+    slot_assignments: dict = {}
+    prev_slots: list = [None, None]
+    for m in months:
+        basket = [t for t in monthly_holdings.get(m, []) if t]
+        if not basket:
+            slot_assignments[m] = ["CASH", "CASH"]
+            prev_slots = [None, None]
+            continue
+        new_slots: list = [None, None]
+        assigned: set = set()
+        for si in range(2):
+            if prev_slots[si] and prev_slots[si] in basket:
+                new_slots[si] = prev_slots[si]
+                assigned.add(prev_slots[si])
+        for t in basket:
+            if t in assigned:
+                continue
+            for si in range(2):
+                if new_slots[si] is None:
+                    new_slots[si] = t
+                    assigned.add(t)
+                    break
+        slot_assignments[m] = new_slots
+        prev_slots = new_slots
+    return slot_assignments
+
+
 def build_stitched_fig(
     segs: list, slot_name: str,
     spy_wk: pd.DataFrame = None,
