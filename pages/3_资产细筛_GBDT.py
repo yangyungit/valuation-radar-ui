@@ -272,7 +272,9 @@ def _render_shap_beeswarm(detail: dict) -> None:
     shap_mat = {c: np.array([r["shap"].get(c, 0.0) for r in rows]) for c in cols}
     feat_mat = {c: np.array([r["feat"].get(c, 0.0) for r in rows]) for c in cols}
     tickers  = [r["ticker"] for r in rows]
-    order = sorted(cols, key=lambda c: np.abs(shap_mat[c]).mean())
+    # 同档内常数列（如类别 one-hot cls_*）SHAP 恒为 0，是死行，过滤掉
+    live  = [c for c in cols if float(np.ptp(feat_mat[c])) > 1e-12]
+    order = sorted(live or cols, key=lambda c: np.abs(shap_mat[c]).mean())
 
     rng = np.random.default_rng(42)
     fig = go.Figure()
@@ -325,10 +327,13 @@ def _render_shap_waterfall(detail: dict, ticker: str) -> None:
         labels.append("其他"); values.append(rest); measures.append("relative")
     labels.append("最终分"); values.append(0.0); measures.append("total")
 
+    # total bar 高度 plotly 自算（=base+各贡献=pred），但文字标签用 pred 真值，别显示占位 0
+    texts = [f"{rec['pred']:.3f}" if m == "total"
+             else (f"{v:+.3f}" if m == "relative" else f"{v:.3f}")
+             for v, m in zip(values, measures)]
     fig = go.Figure(go.Waterfall(
         orientation="v", measure=measures, x=labels, y=values,
-        text=[f"{v:+.3f}" if m == "relative" else f"{v:.3f}"
-              for v, m in zip(values, measures)],
+        text=texts,
         textposition="outside", connector=dict(line=dict(color="#555")),
         increasing=dict(marker=dict(color=_WF_UP_COLOR)),
         decreasing=dict(marker=dict(color=_WF_DOWN_COLOR)),
