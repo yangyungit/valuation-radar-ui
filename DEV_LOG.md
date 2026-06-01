@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-06-01 | GBDT 页新增 SHAP 蜂群图 + 瀑布图
+
+**动因**：让用户看到因子级 SHAP 解释（组级条形图已有，本次加到因子粒度）。
+
+**改动**：
+- `api_client.py`：新增 `gbdt_shap_detail()`，调后端 `/api/v1/gbdt/shap_detail` 按需现算因子级 SHAP 矩阵。
+- `pages/3_资产细筛_GBDT.py`：新增渲染函数 `_render_shap_beeswarm` / `_render_shap_waterfall`、辅助函数 `_month_spec_for`；页面底部加「SHAP 因子全景」UI 区（蜂群图全候选池 + TOP3 瀑布图三列并排，plotly 渲染）。
+
+---
+
 ## 2026-05-31 | GBDT 并联选股页上线（Phase 5 前端）
 
 **动因**：后端 Phase 0–4 已全推 main（HEAD=9555277），前端并联镜像。

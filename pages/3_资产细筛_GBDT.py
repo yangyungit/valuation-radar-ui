@@ -15,6 +15,7 @@ from api_client import (
     gbdt_score as _api_gbdt_score,
     fetch_gbdt_history as _api_fetch_gbdt_history,
     save_gbdt_state as _api_save_gbdt_state,
+    gbdt_shap_detail as _api_gbdt_shap_detail,
     IS_PROD_REMOTE,
 )
 
@@ -78,6 +79,15 @@ _SHAP_GROUP_META: dict = {
     "category":     {"cn": "类别特征","color": "#95A5A6"},
     "other":        {"cn": "其他",   "color": "#7F8C8D"},
 }
+
+_BEESWARM_JITTER     = 0.18
+_BEESWARM_COLORSCALE = "RdBu_r"
+_BEESWARM_ROW_PX     = 34
+_WATERFALL_TOPN      = 6
+_WF_UP_COLOR         = "#2ECC71"
+_WF_DOWN_COLOR       = "#E74C3C"
+_WF_TOTAL_COLOR      = "#00BCD4"
+_SHAP_DETAIL_TIMEOUT = 120
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -245,6 +255,94 @@ def _render_gbdt_leaderboard(recs: list, cls: str) -> None:
                         + _shap_bars_html(shap, None),
                         unsafe_allow_html=True,
                     )
+
+
+def _render_shap_beeswarm(detail: dict) -> None:
+    """因子级 SHAP 蜂群图（plotly）。每行一因子，每点一票，颜色=因子值百分位红高蓝低。"""
+    import numpy as np
+    import plotly.graph_objects as go
+
+    rows = detail.get("rows") or []
+    cols = detail.get("features") or []
+    cn   = detail.get("feature_cn") or {}
+    if not rows or not cols:
+        st.info("无 SHAP 数据。")
+        return
+
+    shap_mat = {c: np.array([r["shap"].get(c, 0.0) for r in rows]) for c in cols}
+    feat_mat = {c: np.array([r["feat"].get(c, 0.0) for r in rows]) for c in cols}
+    tickers  = [r["ticker"] for r in rows]
+    order = sorted(cols, key=lambda c: np.abs(shap_mat[c]).mean())
+
+    rng = np.random.default_rng(42)
+    fig = go.Figure()
+    for yi, c in enumerate(order):
+        sv = shap_mat[c]
+        fv = feat_mat[c]
+        rank = pd.Series(fv).rank(pct=True).to_numpy() if len(fv) > 1 else np.array([0.5] * len(fv))
+        jitter = rng.uniform(-_BEESWARM_JITTER, _BEESWARM_JITTER, size=len(sv))
+        fig.add_trace(go.Scatter(
+            x=sv, y=np.full(len(sv), yi) + jitter, mode="markers",
+            marker=dict(size=7, color=rank, colorscale=_BEESWARM_COLORSCALE,
+                        cmin=0, cmax=1, showscale=(yi == len(order) - 1),
+                        colorbar=dict(title="因子值", tickvals=[0, 1],
+                                      ticktext=["低", "高"], len=0.5)),
+            text=[f"{t}<br>{cn.get(c, c)}<br>SHAP {s:+.3f}" for t, s in zip(tickers, sv)],
+            hoverinfo="text", showlegend=False,
+        ))
+    fig.add_vline(x=0, line_color="#555", line_width=1)
+    fig.update_layout(
+        template="plotly_dark", height=max(280, len(order) * _BEESWARM_ROW_PX + 80),
+        margin=dict(l=10, r=10, t=10, b=30),
+        xaxis_title="SHAP 值（正=推高分）", yaxis=dict(
+            tickmode="array", tickvals=list(range(len(order))),
+            ticktext=[cn.get(c, c) for c in order]),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig, use_container_width=True, key="shap_beeswarm")
+
+
+def _render_shap_waterfall(detail: dict, ticker: str) -> None:
+    """单票因子级 SHAP 瀑布图（plotly）。基准值起步，前 N 大贡献 + 其他桶 → 最终分。"""
+    import plotly.graph_objects as go
+
+    rows = {r["ticker"]: r for r in (detail.get("rows") or [])}
+    rec = rows.get(ticker)
+    cn  = detail.get("feature_cn") or {}
+    base = float(detail.get("base_value", 0.0))
+    if not rec:
+        st.info("该票无 SHAP 数据。")
+        return
+
+    contribs = sorted(rec["shap"].items(), key=lambda x: abs(x[1]), reverse=True)
+    top = contribs[:_WATERFALL_TOPN]
+    rest = sum(v for _, v in contribs[_WATERFALL_TOPN:])
+
+    labels = ["基准"] + [cn.get(c, c) for c, _ in top]
+    values = [base] + [v for _, v in top]
+    measures = ["absolute"] + ["relative"] * len(top)
+    if abs(rest) > 1e-9:
+        labels.append("其他"); values.append(rest); measures.append("relative")
+    labels.append("最终分"); values.append(0.0); measures.append("total")
+
+    fig = go.Figure(go.Waterfall(
+        orientation="v", measure=measures, x=labels, y=values,
+        text=[f"{v:+.3f}" if m == "relative" else f"{v:.3f}"
+              for v, m in zip(values, measures)],
+        textposition="outside", connector=dict(line=dict(color="#555")),
+        increasing=dict(marker=dict(color=_WF_UP_COLOR)),
+        decreasing=dict(marker=dict(color=_WF_DOWN_COLOR)),
+        totals=dict(marker=dict(color=_WF_TOTAL_COLOR)),
+    ))
+    fig.update_layout(
+        template="plotly_dark", height=380, showlegend=False,
+        margin=dict(l=6, r=6, t=24, b=90),
+        title=dict(text=f"预测分 {rec['pred']:.3f}", font=dict(size=12), x=0.5),
+        yaxis_title="预测分（回归值）",
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+    )
+    fig.update_xaxes(tickangle=-40, tickfont=dict(size=10))
+    st.plotly_chart(fig, use_container_width=True, key=f"shap_wf_{ticker}")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -473,6 +571,24 @@ def _backfill_gbdt_history(all_tickers: list, months_back: int = 60,
     return saved, ""
 
 
+def _month_spec_for(price_df, month_key: str, monthly_probs: dict) -> dict | None:
+    """给某月算 {month_key, date_idx, macro_scores}（shap_detail 端点用）。"""
+    try:
+        y, m = int(month_key[:4]), int(month_key[5:7])
+    except Exception:
+        return None
+    last_day = calendar.monthrange(y, m)[1]
+    me_ts = pd.Timestamp(datetime(y, m, last_day))
+    if me_ts > price_df.index[-1]:
+        me_ts = price_df.index[-1]
+    loc = int(price_df.index.searchsorted(me_ts))
+    loc = min(loc, len(price_df) - 1)
+    if loc < 120:
+        return None
+    return {"month_key": month_key, "date_idx": loc,
+            "macro_scores": (monthly_probs or {}).get(month_key, {})}
+
+
 # ─────────────────────────────────────────────────────────────────
 #  侧边栏
 # ─────────────────────────────────────────────────────────────────
@@ -635,3 +751,74 @@ else:
     # ── 历史月度列表 ─────────────────────────────────────────────
     st.markdown(f"#### 📋 全部历史月（{len(_cls_months)} 个月）")
     _render_history_tab(_gbdt_history, _CLS)
+
+# ─────────────────────────────────────────────────────────────────
+#  SHAP 因子全景（蜂群 + 瀑布，按需现算）
+# ─────────────────────────────────────────────────────────────────
+st.markdown("---")
+st.markdown(f"### 🐝 {hm['icon']} {hm['label']} — SHAP 因子全景")
+st.caption(
+    "蜂群图：每行一个因子、每点一只候选票，颜色=因子值（红高蓝低），横轴=该因子把这票"
+    "预测分推高/压低多少。瀑布图：单票从基准分起，因子级贡献逐格搭到最终分。"
+    "数据按需现算（载现役模型 + 该月特征），需先完成上方回填。"
+)
+
+if not _gbdt_history or not _cls_months:
+    st.info("暂无历史，先点上方「回填 GBDT 历史」。", icon="📋")
+else:
+    _sd_col1, _sd_col2 = st.columns([1, 2])
+    with _sd_col1:
+        _sd_month = st.selectbox("选择月份", _cls_months, index=0, key="shap_detail_month")
+    with _sd_col2:
+        _do_shap = st.button("🐝 生成 / 刷新 SHAP 全景图", use_container_width=True)
+
+    _sd_key = f"shap_detail_{_CLS}_{_sd_month}"
+    if _do_shap:
+        with st.spinner(f"载入 {_CLS} 档现役模型 + 现算 {_sd_month} 因子级 SHAP…"):
+            _price_df, _vol_df = _fetch_backfill_prices_gbdt(tuple(sorted(_SCREEN_TICKERS)))
+            if _price_df.empty:
+                st.error("历史价格下载失败，无法现算 SHAP。")
+            else:
+                _regime_resp = fetch_current_regime()
+                _mprobs = _regime_resp.get("horsemen_monthly_probs") or {}
+                _spec = _month_spec_for(_price_df, _sd_month, _mprobs)
+                if _spec is None:
+                    st.error(f"{_sd_month} 无法定位价格索引（数据量不足？）。")
+                else:
+                    _meta = get_stock_metadata(tuple(_SCREEN_TICKERS))
+                    _detail = _api_gbdt_shap_detail(
+                        price_df=_price_df,
+                        vol_df=_vol_df if not _vol_df.empty else None,
+                        meta_data=_meta,
+                        month_spec=_spec,
+                        grade=_CLS,
+                        z_seed_tickers=list(_Z_SEED_TICKERS),
+                    )
+                    if _detail.get("success"):
+                        st.session_state[_sd_key] = _detail
+                    else:
+                        st.error(f"SHAP 现算失败：{_detail.get('error', '未知错误')}")
+
+    _detail = st.session_state.get(_sd_key)
+    if _detail and _detail.get("success"):
+        _n_cand = len(_detail.get("rows", []))
+        st.markdown(f"#### 蜂群图 · {_sd_month} · {_CLS} 档全候选（{_n_cand} 票）")
+        _render_shap_beeswarm(_detail)
+
+        _ranked_rows = sorted(_detail["rows"], key=lambda r: r["pred"], reverse=True)[:3]
+        st.markdown("#### 瀑布图 · 颁奖台 TOP3 凭啥上榜")
+        if _ranked_rows:
+            _wf_cols = st.columns(len(_ranked_rows))
+            for _i, _r in enumerate(_ranked_rows):
+                with _wf_cols[_i]:
+                    _medal = ["🥇", "🥈", "🥉"][_i]
+                    st.markdown(
+                        f"<div style='text-align:center;font-size:13px;color:#aaa;'>"
+                        f"{_medal} {_r['ticker']} · {_r.get('name','')}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    _render_shap_waterfall(_detail, _r["ticker"])
+        else:
+            st.info("该月该档无候选票。")
+    elif not _do_shap:
+        st.info("点上方按钮生成本月该档的 SHAP 蜂群图 + 瀑布图。", icon="🐝")
