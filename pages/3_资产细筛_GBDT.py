@@ -22,7 +22,7 @@ from api_client import (
 )
 
 _GBDT_SAVE_N = 10
-_BF_MONTHS   = 60
+_BF_MONTHS   = 144  # 12 年（含 12 个月热身），让 OOS 回放曲线从约 2017-2018 起
 
 _core_data       = fetch_core_data()
 _Z_SEED_TICKERS  = set(_core_data.get("Z_SEED_TICKERS", []))
@@ -482,7 +482,7 @@ def _render_history_tab(history: dict, cls: str) -> None:
 def _fetch_backfill_prices_gbdt(tickers: tuple) -> tuple:
     all_dl = list(tickers) + ["SPY"]
     end   = datetime.now()
-    start = end - timedelta(days=365 * 6)
+    start = end - timedelta(days=365 * 12)
     try:
         raw      = yf.download(all_dl, start=start, end=end, progress=False, session=YF_SESSION)
         price_df = raw["Close"].ffill().dropna(how="all")
@@ -782,13 +782,13 @@ with bf_col1:
     _do_backfill = st.button(
         "🔄 回填 GBDT 历史",
         use_container_width=True,
-        help="用 yfinance 历史价格 → GBDT 月度打分，回填过去 60 个月并落盘 gbdt_history。",
+        help="用 yfinance 历史价格 → GBDT 月度打分，回填过去 12 年并落盘 gbdt_history。",
     )
 with bf_col2:
     st.markdown(
         "<div style='font-size:13px;color:#666;padding-top:8px;'>"
-        "固定回填过去 60 个月（含 12 个月热身期）。"
-        "首次约 120-300 秒（模型训练 + 5 年价格下载）。"
+        "固定回填过去 12 年（含 12 个月热身期）。"
+        "首次约 3-6 分钟（模型训练 + 12 年价格下载）。"
         "后端已内部去重，重复点击不覆盖已有月份（等价 upsert）。</div>",
         unsafe_allow_html=True,
     )
@@ -804,8 +804,8 @@ with oos_col2:
     st.markdown(
         "<div style='font-size:13px;color:#666;padding-top:8px;'>"
         "真实样本外回放：每月只用之前的数据重训，无未来函数。"
-        "曲线从约 2024 起（头两年训练数据不足被切掉），数值远低于回填曲线属正常。"
-        "整包计算、不分片，约 1-3 分钟。</div>",
+        "曲线从约 2017-2018 起（早期训练数据不足被切掉），数值远低于回填曲线属正常。"
+        "整包计算、不分片，约 4-6 分钟。</div>",
         unsafe_allow_html=True,
     )
 
@@ -838,7 +838,7 @@ if _do_backfill:
 if _do_oos:
     with st.spinner(
         f"正在下载 {len(_SCREEN_TICKERS)} 只标的约 6 年历史价格 → walk-forward 重训回放…"
-        "（每月重训，约 1-3 分钟）"
+        "（每月重训，约 4-6 分钟）"
     ):
         _regime_resp = fetch_current_regime()
         _monthly_probs = (
