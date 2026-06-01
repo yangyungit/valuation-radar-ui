@@ -454,6 +454,76 @@ def build_basket_nav(
     }
 
 
+def build_combined_fig(
+    nav_l: pd.Series,
+    nav_r: pd.Series,
+    nav_combined: pd.Series,
+    spy_wk: pd.DataFrame,
+    title: str,
+) -> go.Figure:
+    """合成 A 曲线 + 左列 + 右列 + SPY 四线叠加。
+    各序列相对自身起点归一为累计收益率；add 顺序决定 z 层，
+    SPY 最底、合成 A 曲线最上。
+    """
+    fig = go.Figure()
+    if nav_combined.empty:
+        return fig
+
+    def _pct(s: pd.Series) -> pd.Series:
+        s = s.astype(float).dropna()
+        return (s / float(s.iloc[0]) - 1) * 100 if not s.empty else s
+
+    # SPY 对齐到合成曲线的时间区间（最底层）
+    if spy_wk is not None and not spy_wk.empty:
+        sd, ed = nav_combined.index[0], nav_combined.index[-1]
+        spy_seg = spy_wk[(spy_wk.index >= sd) & (spy_wk.index <= ed)]["Close"]
+        spy_seg = spy_seg.astype(float).dropna()
+        if len(spy_seg) >= 2:
+            spy_pct = (spy_seg / float(spy_seg.iloc[0]) - 1) * 100
+            fig.add_trace(go.Scatter(
+                x=spy_pct.index, y=spy_pct.values, mode="lines",
+                name=f"SPY {float(spy_pct.iloc[-1]):+.1f}%",
+                line=dict(color="rgba(170,170,170,0.45)", width=1.5, dash="dot"),
+            ))
+
+    if not nav_l.empty:
+        l_pct = _pct(nav_l)
+        fig.add_trace(go.Scatter(
+            x=l_pct.index, y=l_pct.values, mode="lines",
+            name=f"左列 Slot 0 {float(l_pct.iloc[-1]):+.1f}%",
+            line=dict(color="rgba(46,204,113,0.7)", width=1.5),
+        ))
+    if not nav_r.empty:
+        r_pct = _pct(nav_r)
+        fig.add_trace(go.Scatter(
+            x=r_pct.index, y=r_pct.values, mode="lines",
+            name=f"右列 Slot 1 {float(r_pct.iloc[-1]):+.1f}%",
+            line=dict(color="rgba(52,152,219,0.7)", width=1.5),
+        ))
+
+    a_pct = _pct(nav_combined)
+    fig.add_trace(go.Scatter(
+        x=a_pct.index, y=a_pct.values, mode="lines",
+        name=f"A 曲线（50/50 合成） {float(a_pct.iloc[-1]):+.1f}%",
+        line=dict(color="#F1C40F", width=3),
+    ))
+
+    fig.update_layout(
+        title=title,
+        xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
+        yaxis=dict(
+            title="累计收益率 (%)", ticksuffix="%",
+            gridcolor="rgba(100,100,100,0.3)",
+        ),
+        height=480, margin=dict(l=10, r=10, t=44, b=60),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(30,30,30,0.6)",
+        font=dict(color="#ccc", size=13),
+        showlegend=True,
+    )
+    return fig
+
+
 def build_basket_fig(nav: pd.Series, spy_wk: pd.DataFrame, title: str) -> go.Figure:
     fig = go.Figure()
     if nav.empty:

@@ -144,6 +144,12 @@ def _render_slot(
             for gm, gr in gate_closed:
                 st.markdown(f"- **{gm}**：{gr or '不满足持仓条件'}")
 
+    fig_combined = hv.build_combined_fig(
+        nav_l, nav_r, nav_combined, _spy_wk,
+        f"GBDT {grade} — A 曲线（左+右 50/50 合成）vs SPY",
+    )
+    st.plotly_chart(fig_combined, use_container_width=True, key=f"{grade}_gbdt_combined")
+
     fig_l = hv.build_stitched_fig(
         seg_l, f"GBDT {grade} 左列 (Slot 0)",
         _spy_wk, _price_cache, _name_map,
