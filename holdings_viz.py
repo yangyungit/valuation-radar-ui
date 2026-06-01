@@ -196,7 +196,7 @@ def build_stitched_fig(
                                     spy_y_all.append(float(spy_cum.loc[sdt]))
                             spy_running_return = float(spy_cum.iloc[-1])
                     x_offset += n
-        continue
+            continue
 
         wkd = pc.get(tk)
         if wkd is None or wkd.empty:
