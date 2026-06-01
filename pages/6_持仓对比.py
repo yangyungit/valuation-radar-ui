@@ -1,30 +1,22 @@
 import streamlit as st
 import pandas as pd
-from api_client import fetch_core_data, fetch_arena_history, fetch_gbdt_history
+from api_client import fetch_core_data, fetch_gbdt_history
 import holdings_viz as hv
 
-st.set_page_config(page_title="持仓对比 arena vs GBDT", layout="wide", page_icon="⚖️")
-st.title("⚖️ Layer 6: 持仓对比（传统打分 vs GBDT）")
-st.caption("左栏 arena_history｜右栏 gbdt_history｜同 universe、同时点、同一套累计收益算法")
+st.set_page_config(page_title="GBDT 持仓回放", layout="wide", page_icon="⚖️")
+st.title("⚖️ Layer 6: GBDT 持仓回放")
+st.caption("gbdt_history｜同一套累计收益算法｜传统打分对比请回 Page 5 查看")
 
 core = fetch_core_data()
 TIC_MAP = core.get("TIC_MAP", {})
 
-_arena = fetch_arena_history()
 _gbdt = fetch_gbdt_history()
 
-if not _arena:
-    st.error(
-        "🚨 **数据告警**：arena_history 为空，左栏无法渲染。"
-        "请访问 Page 3 重新跑分类并回填，或登录 Render 排查 `universe.db.arena_history` 表。"
-    )
 if not _gbdt:
     st.error(
-        "🚨 **数据告警**：gbdt_history 为空，右栏无法渲染。"
+        "🚨 **数据告警**：gbdt_history 为空，无法渲染。"
         "请访问 Page 3 先运行 GBDT 打分。"
     )
-
-if not _arena and not _gbdt:
     st.stop()
 
 
@@ -41,15 +33,13 @@ def _get_max_depth(hist: dict) -> int:
     return min(depths) if depths else 3
 
 
-_max_depth_arena = _get_max_depth(_arena) if _arena else 3
-_max_depth_gbdt = _get_max_depth(_gbdt) if _gbdt else 3
-_max_buffer_n = max(2, min(_max_depth_arena, _max_depth_gbdt))
+_max_buffer_n = max(2, _get_max_depth(_gbdt))
 
 buffer_n = int(st.number_input(
     "守擂缓冲区 Top-N",
     min_value=2, max_value=_max_buffer_n,
     value=min(3, _max_buffer_n), step=1,
-    help=f"夹到两表数据深度的较小值（{_max_buffer_n}）",
+    help=f"数据深度上限 {_max_buffer_n}",
 ))
 
 _CASH_RATE = 0.04
@@ -70,10 +60,8 @@ def _collect_tickers(hist: dict, grade: str, top_n: int) -> set:
 
 all_tickers: set = set()
 for _g in ["A", "B"]:
-    all_tickers |= _collect_tickers(_arena, _g, buffer_n)
     all_tickers |= _collect_tickers(_gbdt, _g, buffer_n)
 # C 档只需 top-2
-all_tickers |= _collect_tickers(_arena, "C", 2)
 all_tickers |= _collect_tickers(_gbdt, "C", 2)
 
 price_cache: dict = {}
@@ -93,12 +81,11 @@ with st.spinner("正在获取价格数据..."):
             pass
 
 name_map: dict = dict(TIC_MAP)
-for _hist in [_arena, _gbdt]:
-    for _m_data in (_hist or {}).values():
-        for _g_nm in ["A", "B", "C", "D"]:
-            for _r in _m_data.get(_g_nm, {}).get("tickers", []):
-                if _r.get("ticker") and _r.get("name"):
-                    name_map[_r["ticker"]] = _r["name"]
+for _m_data in _gbdt.values():
+    for _g_nm in ["A", "B", "C", "D"]:
+        for _r in _m_data.get(_g_nm, {}).get("tickers", []):
+            if _r.get("ticker") and _r.get("name"):
+                name_map[_r["ticker"]] = _r["name"]
 
 
 def _fmt_kpi(v, fmt: str = ".2f") -> str:
@@ -110,120 +97,103 @@ def _fmt_kpi(v, fmt: str = ".2f") -> str:
         return "—"
 
 
-def _render_slot_compare(
-    arena: dict, gbdt: dict, grade: str,
+def _render_slot(
+    gbdt: dict, grade: str,
     _buffer_n: int, _price_cache: dict,
     _spy_wk: pd.DataFrame, _name_map: dict, _cash_rate: float,
 ) -> None:
-    col_l, col_r = st.columns(2)
-    for col, hist, tag in [(col_l, arena, "传统打分"), (col_r, gbdt, "GBDT")]:
-        with col:
-            st.markdown(f"**{tag}**")
-            if not hist:
-                st.info("数据不足")
-                continue
-            months = sorted(k for k in hist if not k.startswith("_"))
-            if len(months) < 2:
-                st.info("数据不足（月份 < 2）")
-                continue
+    months = sorted(k for k in gbdt if not k.startswith("_"))
+    if len(months) < 2:
+        st.info("数据不足（月份 < 2）")
+        return
 
-            slots, _, gate_closed = hv.build_slot_assignments(hist, grade, _buffer_n)
-            seg_l = hv.build_slot_segments(slots, 0, months)
-            seg_r = hv.build_slot_segments(slots, 1, months)
-            ret_l, dd_l, nav_l = hv.calc_slot_stats(seg_l, _price_cache, _spy_wk, _cash_rate)
-            ret_r, dd_r, nav_r = hv.calc_slot_stats(seg_r, _price_cache, _spy_wk, _cash_rate)
+    slots, _, gate_closed = hv.build_slot_assignments(gbdt, grade, _buffer_n)
+    seg_l = hv.build_slot_segments(slots, 0, months)
+    seg_r = hv.build_slot_segments(slots, 1, months)
+    ret_l, dd_l, nav_l = hv.calc_slot_stats(seg_l, _price_cache, _spy_wk, _cash_rate)
+    ret_r, dd_r, nav_r = hv.calc_slot_stats(seg_r, _price_cache, _spy_wk, _cash_rate)
 
-            # 等权 50/50 合成
-            nav_combined = pd.Series(dtype=float)
-            ret_combined, dd_combined = 0.0, 0.0
-            if not nav_l.empty and not nav_r.empty:
-                idx_union = nav_l.index.union(nav_r.index)
-                nl = nav_l.reindex(idx_union).ffill().bfill()
-                nr = nav_r.reindex(idx_union).ffill().bfill()
-                nav_combined = 0.5 * nl + 0.5 * nr
-                ret_combined = (float(nav_combined.iloc[-1]) / float(nav_combined.iloc[0]) - 1) * 100
-                peak_c = nav_combined.cummax()
-                dd_combined = float(
-                    ((peak_c - nav_combined) / peak_c.replace(0, float("nan"))).max()
-                ) * 100
-            elif not nav_l.empty:
-                nav_combined, ret_combined, dd_combined = nav_l.copy(), ret_l, dd_l
-            elif not nav_r.empty:
-                nav_combined, ret_combined, dd_combined = nav_r.copy(), ret_r, dd_r
+    # 等权 50/50 合成
+    nav_combined = pd.Series(dtype=float)
+    ret_combined, dd_combined = 0.0, 0.0
+    if not nav_l.empty and not nav_r.empty:
+        idx_union = nav_l.index.union(nav_r.index)
+        nl = nav_l.reindex(idx_union).ffill().bfill()
+        nr = nav_r.reindex(idx_union).ffill().bfill()
+        nav_combined = 0.5 * nl + 0.5 * nr
+        ret_combined = (float(nav_combined.iloc[-1]) / float(nav_combined.iloc[0]) - 1) * 100
+        peak_c = nav_combined.cummax()
+        dd_combined = float(
+            ((peak_c - nav_combined) / peak_c.replace(0, float("nan"))).max()
+        ) * 100
+    elif not nav_l.empty:
+        nav_combined, ret_combined, dd_combined = nav_l.copy(), ret_l, dd_l
+    elif not nav_r.empty:
+        nav_combined, ret_combined, dd_combined = nav_r.copy(), ret_r, dd_r
 
-            kpi = hv.compute_nav_kpi(nav_combined) if not nav_combined.empty else {}
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("总收益", f"{ret_combined:+.1f}%")
-            c2.metric("最大回撤", f"-{dd_combined:.1f}%")
-            c3.metric("Calmar", _fmt_kpi(kpi.get("calmar", float("nan"))))
-            c4.metric("Sortino", _fmt_kpi(kpi.get("sortino", float("nan"))))
-            c5.metric("logR²", _fmt_kpi(kpi.get("r2", float("nan"))))
+    kpi = hv.compute_nav_kpi(nav_combined) if not nav_combined.empty else {}
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("总收益", f"{ret_combined:+.1f}%")
+    c2.metric("最大回撤", f"-{dd_combined:.1f}%")
+    c3.metric("Calmar", _fmt_kpi(kpi.get("calmar", float("nan"))))
+    c4.metric("Sortino", _fmt_kpi(kpi.get("sortino", float("nan"))))
+    c5.metric("logR²", _fmt_kpi(kpi.get("r2", float("nan"))))
 
-            if gate_closed:
-                with st.expander(f"⚠️ {grade} 组历史闸门关（{len(gate_closed)} 个月）", expanded=False):
-                    for gm, gr in gate_closed:
-                        st.markdown(f"- **{gm}**：{gr or '不满足持仓条件'}")
+    if gate_closed:
+        with st.expander(f"⚠️ {grade} 组历史闸门关（{len(gate_closed)} 个月）", expanded=False):
+            for gm, gr in gate_closed:
+                st.markdown(f"- **{gm}**：{gr or '不满足持仓条件'}")
 
-            fig_l = hv.build_stitched_fig(
-                seg_l, f"{tag} {grade} 左列 (Slot 0)",
-                _spy_wk, _price_cache, _name_map,
-            )
-            fig_r = hv.build_stitched_fig(
-                seg_r, f"{tag} {grade} 右列 (Slot 1)",
-                _spy_wk, _price_cache, _name_map,
-            )
-            st.plotly_chart(fig_l, use_container_width=True, key=f"{grade}_{tag}_slot0")
-            st.plotly_chart(fig_r, use_container_width=True, key=f"{grade}_{tag}_slot1")
+    fig_l = hv.build_stitched_fig(
+        seg_l, f"GBDT {grade} 左列 (Slot 0)",
+        _spy_wk, _price_cache, _name_map,
+    )
+    fig_r = hv.build_stitched_fig(
+        seg_r, f"GBDT {grade} 右列 (Slot 1)",
+        _spy_wk, _price_cache, _name_map,
+    )
+    st.plotly_chart(fig_l, use_container_width=True, key=f"{grade}_gbdt_slot0")
+    st.plotly_chart(fig_r, use_container_width=True, key=f"{grade}_gbdt_slot1")
 
 
-def _render_basket_compare(
-    arena: dict, gbdt: dict, grade: str,
+def _render_basket(
+    gbdt: dict, grade: str,
     _price_cache: dict, _spy_wk: pd.DataFrame, _cash_rate: float,
 ) -> None:
-    col_l, col_r = st.columns(2)
-    for col, hist, tag in [(col_l, arena, "传统打分"), (col_r, gbdt, "GBDT")]:
-        with col:
-            st.markdown(f"**{tag} · 等权 top-2 篮子**")
-            if not hist:
-                st.info("数据不足")
-                continue
-            months = sorted(k for k in hist if not k.startswith("_"))
-            if len(months) < 2:
-                st.info("数据不足（月份 < 2）")
-                continue
+    st.markdown("**GBDT · 等权 top-2 篮子**")
+    months = sorted(k for k in gbdt if not k.startswith("_"))
+    if len(months) < 2:
+        st.info("数据不足（月份 < 2）")
+        return
 
-            r = hv.build_basket_nav(
-                hist, grade, _price_cache, _spy_wk, top_n=2, cash_rate=_cash_rate,
-            )
-            c1, c2, c3 = st.columns(3)
-            c1.metric("总收益", f"{r['total_ret']:+.1f}%")
-            c2.metric("最大回撤", f"-{r['max_dd']:.1f}%")
-            c3.metric("月均换手", f"{r['turnover_pct']:.0f}%")
+    r = hv.build_basket_nav(
+        gbdt, grade, _price_cache, _spy_wk, top_n=2, cash_rate=_cash_rate,
+    )
+    c1, c2, c3 = st.columns(3)
+    c1.metric("总收益", f"{r['total_ret']:+.1f}%")
+    c2.metric("最大回撤", f"-{r['max_dd']:.1f}%")
+    c3.metric("月均换手", f"{r['turnover_pct']:.0f}%")
 
-            kpi = hv.compute_nav_kpi(r["nav"]) if not r["nav"].empty else {}
-            ck1, ck2, ck3 = st.columns(3)
-            ck1.metric("Calmar", _fmt_kpi(kpi.get("calmar", float("nan"))))
-            ck2.metric("Sortino", _fmt_kpi(kpi.get("sortino", float("nan"))))
-            ck3.metric("logR²", _fmt_kpi(kpi.get("r2", float("nan"))))
+    kpi = hv.compute_nav_kpi(r["nav"]) if not r["nav"].empty else {}
+    ck1, ck2, ck3 = st.columns(3)
+    ck1.metric("Calmar", _fmt_kpi(kpi.get("calmar", float("nan"))))
+    ck2.metric("Sortino", _fmt_kpi(kpi.get("sortino", float("nan"))))
+    ck3.metric("logR²", _fmt_kpi(kpi.get("r2", float("nan"))))
 
-            if not r["nav"].empty:
-                st.plotly_chart(
-                    hv.build_basket_fig(r["nav"], _spy_wk, f"{tag} C 篮子"),
-                    use_container_width=True,
-                    key=f"C_{tag}_basket",
-                )
-            else:
-                st.info("暂无足够数据生成图表。")
+    if not r["nav"].empty:
+        st.plotly_chart(
+            hv.build_basket_fig(r["nav"], _spy_wk, "GBDT C 篮子"),
+            use_container_width=True,
+            key="C_gbdt_basket",
+        )
+    else:
+        st.info("暂无足够数据生成图表。")
 
 
 tab_a, tab_b, tab_c = st.tabs(["🛡️ A 档", "🏦 B 档", "🚀 C 档"])
 with tab_a:
-    _render_slot_compare(
-        _arena, _gbdt, "A", buffer_n, price_cache, spy_wk, name_map, _CASH_RATE,
-    )
+    _render_slot(_gbdt, "A", buffer_n, price_cache, spy_wk, name_map, _CASH_RATE)
 with tab_b:
-    _render_slot_compare(
-        _arena, _gbdt, "B", buffer_n, price_cache, spy_wk, name_map, _CASH_RATE,
-    )
+    _render_slot(_gbdt, "B", buffer_n, price_cache, spy_wk, name_map, _CASH_RATE)
 with tab_c:
-    _render_basket_compare(_arena, _gbdt, "C", price_cache, spy_wk, _CASH_RATE)
+    _render_basket(_gbdt, "C", price_cache, spy_wk, _CASH_RATE)
