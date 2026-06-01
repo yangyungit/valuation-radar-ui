@@ -661,101 +661,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ─────────────────────────────────────────────────────────────────
-#  回填控制区
-# ─────────────────────────────────────────────────────────────────
-st.markdown("---")
-bf_col1, bf_col2 = st.columns([1, 3])
-with bf_col1:
-    _do_backfill = st.button(
-        "🔄 回填 GBDT 历史",
-        use_container_width=True,
-        help="用 yfinance 历史价格 → GBDT 月度打分，回填过去 60 个月并落盘 gbdt_history。",
-    )
-with bf_col2:
-    st.markdown(
-        "<div style='font-size:13px;color:#666;padding-top:8px;'>"
-        "固定回填过去 60 个月（含 12 个月热身期）。"
-        "首次约 120-300 秒（模型训练 + 5 年价格下载）。"
-        "后端已内部去重，重复点击不覆盖已有月份（等价 upsert）。</div>",
-        unsafe_allow_html=True,
-    )
-
-if _do_backfill:
-    with st.spinner(
-        f"正在下载 {len(_SCREEN_TICKERS)} 只标的约 6 年历史价格 → GBDT 月度打分…"
-        f"（{_BF_MONTHS + 12} 个月含热身）"
-    ):
-        _regime_resp = fetch_current_regime()
-        _monthly_probs = (
-            _regime_resp.get("horsemen_monthly_probs") or {}
-        )
-        _bf_meta = get_stock_metadata(tuple(_SCREEN_TICKERS))
-        _saved, _err = _backfill_gbdt_history(
-            all_tickers=_SCREEN_TICKERS,
-            months_back=_BF_MONTHS,
-            monthly_probs=_monthly_probs,
-            meta_data=_bf_meta,
-            warmup_months=12,
-        )
-    if _err and "部分成功" in _err:
-        st.warning(f"⚠️ 回填{_err}。前面批次已持久化，可稍后再点补剩余。", icon="⚠️")
-    elif _err:
-        st.error(f"回填失败：{_err}")
-    else:
-        st.success(f"回填完成！已写入 {_saved} 个月的 GBDT 历史档案。")
-        _api_fetch_gbdt_history.clear()
-        st.rerun()
-
-# ─────────────────────────────────────────────────────────────────
-#  历史月度 Top 10
-# ─────────────────────────────────────────────────────────────────
-st.markdown("---")
-st.markdown(f"### 📅 {hm['icon']} {hm['label']} — GBDT 历史月度 Top 10")
-st.caption(
-    "纵向追踪每月末 GBDT 打分排名（百分位 0-100）。"
-    "「SHAP 贡献」列展示当月最强因子组方向。"
-    "点击颁奖台展开 SHAP 详细拆解。"
-)
-
-_gbdt_history = _api_fetch_gbdt_history()
-
-if not _gbdt_history:
-    st.info("暂无 GBDT 历史记录。点击上方「回填 GBDT 历史」生成。", icon="📋")
-else:
-    # ── 最近月颁奖台 ────────────────────────────────────────────
-    _sorted_months = sorted(_gbdt_history.keys(), reverse=True)
-    _cls_months    = [mo for mo in _sorted_months if _CLS in _gbdt_history[mo]]
-
-    if _cls_months:
-        _latest_mo  = _cls_months[0]
-        _latest_rec = _gbdt_history[_latest_mo].get(_CLS, {})
-        _latest_tickers = (
-            _latest_rec.get("tickers", []) if isinstance(_latest_rec, dict)
-            else _latest_rec or []
-        )
-        if _latest_tickers:
-            _gate_closed = (
-                isinstance(_latest_rec, dict)
-                and _latest_rec.get("gate_status") == "closed"
-            )
-            st.markdown(f"#### 🏆 最新月（{_latest_mo}）赛道翘楚 — Top 3")
-            if _gate_closed:
-                st.warning(
-                    f"🔒 闸门关闭：{_latest_rec.get('gate_reason','')}"
-                    " — 本月 GBDT 打分完成但守擂未选股。",
-                    icon="🔒",
-                )
-            _render_gbdt_podium(_latest_tickers[:3], _CLS)
-            st.markdown("---")
-
-            # Top 10 展开
-            with st.expander(f"展开 {_latest_mo} 完整 Top 10", expanded=False):
-                _render_gbdt_leaderboard(_latest_tickers[:10], _CLS)
-
-    # ── 历史月度列表 ─────────────────────────────────────────────
-    st.markdown(f"#### 📋 全部历史月（{len(_cls_months)} 个月）")
-    _render_history_tab(_gbdt_history, _CLS)
+_gbdt_history  = _api_fetch_gbdt_history()
+_sorted_months = sorted(_gbdt_history.keys(), reverse=True)
+_cls_months    = [mo for mo in _sorted_months if _CLS in _gbdt_history[mo]]
 
 # ─────────────────────────────────────────────────────────────────
 #  SHAP 因子全景（蜂群 + 瀑布，按需现算）
@@ -765,11 +673,11 @@ st.markdown(f"### 🐝 {hm['icon']} {hm['label']} — SHAP 因子全景")
 st.caption(
     "蜂群图：每行一个因子、每点一只候选票，颜色=因子值（红高蓝低），横轴=该因子把这票"
     "预测分推高/压低多少。瀑布图：单票从基准分起，因子级贡献逐格搭到最终分。"
-    "数据按需现算（载现役模型 + 该月特征），需先完成上方回填。"
+    "数据按需现算（载现役模型 + 该月特征），需先完成下方回填。"
 )
 
 if not _gbdt_history or not _cls_months:
-    st.info("暂无历史，先点上方「回填 GBDT 历史」。", icon="📋")
+    st.info("暂无历史，先点下方「回填 GBDT 历史」。", icon="📋")
 else:
     _sd_col1, _sd_col2 = st.columns([1, 2])
     with _sd_col1:
@@ -827,3 +735,94 @@ else:
             st.info("该月该档无候选票。")
     elif not _do_shap:
         st.info("点上方按钮生成本月该档的 SHAP 蜂群图 + 瀑布图。", icon="🐝")
+
+# ─────────────────────────────────────────────────────────────────
+#  回填控制区
+# ─────────────────────────────────────────────────────────────────
+st.markdown("---")
+bf_col1, bf_col2 = st.columns([1, 3])
+with bf_col1:
+    _do_backfill = st.button(
+        "🔄 回填 GBDT 历史",
+        use_container_width=True,
+        help="用 yfinance 历史价格 → GBDT 月度打分，回填过去 60 个月并落盘 gbdt_history。",
+    )
+with bf_col2:
+    st.markdown(
+        "<div style='font-size:13px;color:#666;padding-top:8px;'>"
+        "固定回填过去 60 个月（含 12 个月热身期）。"
+        "首次约 120-300 秒（模型训练 + 5 年价格下载）。"
+        "后端已内部去重，重复点击不覆盖已有月份（等价 upsert）。</div>",
+        unsafe_allow_html=True,
+    )
+
+if _do_backfill:
+    with st.spinner(
+        f"正在下载 {len(_SCREEN_TICKERS)} 只标的约 6 年历史价格 → GBDT 月度打分…"
+        f"（{_BF_MONTHS + 12} 个月含热身）"
+    ):
+        _regime_resp = fetch_current_regime()
+        _monthly_probs = (
+            _regime_resp.get("horsemen_monthly_probs") or {}
+        )
+        _bf_meta = get_stock_metadata(tuple(_SCREEN_TICKERS))
+        _saved, _err = _backfill_gbdt_history(
+            all_tickers=_SCREEN_TICKERS,
+            months_back=_BF_MONTHS,
+            monthly_probs=_monthly_probs,
+            meta_data=_bf_meta,
+            warmup_months=12,
+        )
+    if _err and "部分成功" in _err:
+        st.warning(f"⚠️ 回填{_err}。前面批次已持久化，可稍后再点补剩余。", icon="⚠️")
+    elif _err:
+        st.error(f"回填失败：{_err}")
+    else:
+        st.success(f"回填完成！已写入 {_saved} 个月的 GBDT 历史档案。")
+        _api_fetch_gbdt_history.clear()
+        st.rerun()
+
+# ─────────────────────────────────────────────────────────────────
+#  历史月度 Top 10
+# ─────────────────────────────────────────────────────────────────
+st.markdown("---")
+st.markdown(f"### 📅 {hm['icon']} {hm['label']} — GBDT 历史月度 Top 10")
+st.caption(
+    "纵向追踪每月末 GBDT 打分排名（百分位 0-100）。"
+    "「SHAP 贡献」列展示当月最强因子组方向。"
+    "点击颁奖台展开 SHAP 详细拆解。"
+)
+
+if not _gbdt_history:
+    st.info("暂无 GBDT 历史记录。点击下方「回填 GBDT 历史」生成。", icon="📋")
+else:
+    # ── 最近月颁奖台 ────────────────────────────────────────────
+    if _cls_months:
+        _latest_mo  = _cls_months[0]
+        _latest_rec = _gbdt_history[_latest_mo].get(_CLS, {})
+        _latest_tickers = (
+            _latest_rec.get("tickers", []) if isinstance(_latest_rec, dict)
+            else _latest_rec or []
+        )
+        if _latest_tickers:
+            _gate_closed = (
+                isinstance(_latest_rec, dict)
+                and _latest_rec.get("gate_status") == "closed"
+            )
+            st.markdown(f"#### 🏆 最新月（{_latest_mo}）赛道翘楚 — Top 3")
+            if _gate_closed:
+                st.warning(
+                    f"🔒 闸门关闭：{_latest_rec.get('gate_reason','')}"
+                    " — 本月 GBDT 打分完成但守擂未选股。",
+                    icon="🔒",
+                )
+            _render_gbdt_podium(_latest_tickers[:3], _CLS)
+            st.markdown("---")
+
+            # Top 10 展开
+            with st.expander(f"展开 {_latest_mo} 完整 Top 10", expanded=False):
+                _render_gbdt_leaderboard(_latest_tickers[:10], _CLS)
+
+    # ── 历史月度列表 ─────────────────────────────────────────────
+    st.markdown(f"#### 📋 全部历史月（{len(_cls_months)} 个月）")
+    _render_history_tab(_gbdt_history, _CLS)
