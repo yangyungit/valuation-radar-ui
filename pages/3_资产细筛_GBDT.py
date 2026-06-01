@@ -389,6 +389,7 @@ def _fetch_backfill_prices_gbdt(tickers: tuple) -> tuple:
 
 def _backfill_gbdt_history(all_tickers: list, months_back: int = 60,
                             monthly_probs: dict = None,
+                            meta_data: dict = None,
                             warmup_months: int = 12) -> tuple[int, str]:
     """下载历史价格 → 组月度 specs → 调后端 gbdt/score 批量打分。
 
@@ -443,6 +444,7 @@ def _backfill_gbdt_history(all_tickers: list, months_back: int = 60,
     resp = _api_gbdt_score(
         price_df=price_df,
         vol_df=vol_df if not vol_df.empty else None,
+        meta_data=meta_data or {},
         month_specs=month_specs,
         z_seed_tickers=list(_Z_SEED_TICKERS),
         arena_save_n=_GBDT_SAVE_N,
@@ -567,10 +569,12 @@ if _do_backfill:
         _monthly_probs = (
             _regime_resp.get("horsemen_monthly_probs") or {}
         )
+        _bf_meta = get_stock_metadata(tuple(_SCREEN_TICKERS))
         _saved, _err = _backfill_gbdt_history(
             all_tickers=_SCREEN_TICKERS,
             months_back=_BF_MONTHS,
             monthly_probs=_monthly_probs,
+            meta_data=_bf_meta,
             warmup_months=12,
         )
     if _err and "部分成功" in _err:
