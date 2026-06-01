@@ -2186,6 +2186,44 @@ def gbdt_score(
         return {"success": False, "error": str(exc), "gbdt_records": {}}
 
 
+def gbdt_oos_replay(
+    price_df,
+    vol_df=None,
+    meta_data: dict = None,
+    pit_meta_records: dict = None,
+    month_specs: list = None,
+    z_seed_tickers: list = None,
+    arena_save_n: int = 10,
+) -> dict:
+    """调后端 /api/v1/gbdt/oos_replay（真实样本外 walk-forward 回放，写 gbdt_history_oos）。
+
+    与 gbdt_score 不同：walk-forward 须一次看全部月份建训练窗口，**不分片**，整包发。
+    返回：{success, gbdt_records, n_months, oos_start, min_train_months} 或 {success:False, error}
+    """
+    try:
+        price_records = {str(k): v for k, v in price_df.to_dict(orient="index").items()}
+        vol_records: dict = {}
+        if vol_df is not None and not vol_df.empty:
+            vol_records = {str(k): v for k, v in vol_df.to_dict(orient="index").items()}
+        payload = {
+            "price_records":    _sanitize_floats(price_records),
+            "vol_records":      _sanitize_floats(vol_records),
+            "meta_data":        _sanitize_floats(meta_data or {}),
+            "pit_meta_records": _sanitize_floats(pit_meta_records or {}),
+            "month_specs":      list(month_specs or []),
+            "z_seed_tickers":   list(z_seed_tickers or []),
+            "arena_save_n":     arena_save_n,
+        }
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/gbdt/oos_replay",
+            json=payload, timeout=600,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
 def gbdt_retrain(
     grades: list = None,
     price_df=None,
@@ -2277,6 +2315,26 @@ def fetch_gbdt_history() -> dict:
     """
     try:
         r = requests.get(f"{API_BASE_URL}/api/v1/gbdt/history", timeout=15)
+        r.raise_for_status()
+        raw = r.json().get("history", {})
+        normalized: dict = {}
+        for _month, _cls_map in raw.items():
+            if not isinstance(_cls_map, dict):
+                continue
+            _norm_cls: dict = {}
+            for _cls, _rec in _cls_map.items():
+                _norm_cls[_cls] = _normalize_arena_record(_rec)
+            normalized[_month] = _norm_cls
+        return normalized
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_gbdt_oos_history() -> dict:
+    """从后端读取 OOS（walk-forward）回放档案，格式同 fetch_gbdt_history。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/gbdt/oos_history", timeout=15)
         r.raise_for_status()
         raw = r.json().get("history", {})
         normalized: dict = {}

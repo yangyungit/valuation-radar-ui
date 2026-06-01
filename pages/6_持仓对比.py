@@ -1,23 +1,30 @@
 import streamlit as st
 import pandas as pd
-from api_client import fetch_core_data, fetch_gbdt_history
+from api_client import fetch_core_data, fetch_gbdt_oos_history
 import holdings_viz as hv
 
 st.set_page_config(page_title="GBDT 持仓回放", layout="wide", page_icon="⚖️")
-st.title("⚖️ Layer 6: GBDT 持仓回放")
-st.caption("gbdt_history｜同一套累计收益算法｜传统打分对比请回 Page 5 查看")
+st.title("⚖️ Layer 6: GBDT 持仓回放（真实样本外）")
+st.caption("gbdt_history_oos｜walk-forward 回放：每月只用历史数据重训，无未来函数")
 
 core = fetch_core_data()
 TIC_MAP = core.get("TIC_MAP", {})
 
-_gbdt = fetch_gbdt_history()
+_gbdt = fetch_gbdt_oos_history()
 
 if not _gbdt:
     st.error(
-        "🚨 **数据告警**：gbdt_history 为空，无法渲染。"
-        "请访问 Page 3 先运行 GBDT 打分。"
+        "🚨 **数据告警**：gbdt_history_oos 为空，无法渲染。"
+        "请到 Page 3 点『🔬 生成 OOS 回放（真实样本外）』。"
     )
     st.stop()
+
+st.info(
+    "本页是**真实样本外**回放：每个月只用该月之前的数据重训模型再选股，"
+    "代表当时实际能做到的业绩。曲线起点晚于回填页（头两年训练数据不足被切掉），"
+    "数值远低于 Page 3 回填曲线属正常——后者用全样本模型回填，含未来函数。",
+    icon="📊",
+)
 
 
 def _get_max_depth(hist: dict) -> int:

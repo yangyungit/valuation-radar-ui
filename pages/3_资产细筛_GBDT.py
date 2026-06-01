@@ -13,7 +13,9 @@ from api_client import (
     fetch_core_data, fetch_active_universe, get_global_data,
     get_stock_metadata, fetch_current_regime,
     gbdt_score as _api_gbdt_score,
+    gbdt_oos_replay as _api_gbdt_oos_replay,
     fetch_gbdt_history as _api_fetch_gbdt_history,
+    fetch_gbdt_oos_history as _api_fetch_gbdt_oos_history,
     save_gbdt_state as _api_save_gbdt_state,
     gbdt_shap_detail as _api_gbdt_shap_detail,
     IS_PROD_REMOTE,
@@ -490,17 +492,13 @@ def _fetch_backfill_prices_gbdt(tickers: tuple) -> tuple:
         return pd.DataFrame(), pd.DataFrame()
 
 
-def _backfill_gbdt_history(all_tickers: list, months_back: int = 60,
-                            monthly_probs: dict = None,
-                            meta_data: dict = None,
-                            warmup_months: int = 12) -> tuple[int, str]:
-    """下载历史价格 → 组月度 specs → 调后端 gbdt/score 批量打分。
-
-    镜像 _backfill_arena_history 逻辑，但打分换成 GBDT（后端内部落 gbdt_history）。
-    """
+def _prep_gbdt_inputs(all_tickers: list, months_back: int,
+                      monthly_probs: dict, warmup_months: int):
+    """下载历史价格 + 组月度 specs（回填 / OOS 回放共用）。
+    返回 (price_df, vol_df, month_specs, err)；err 非空表示失败。"""
     price_df, vol_df = _fetch_backfill_prices_gbdt(tuple(sorted(all_tickers)))
     if price_df.empty or len(price_df) < 120:
-        return 0, "历史价格下载失败或数据量不足"
+        return None, None, None, "历史价格下载失败或数据量不足"
 
     total_months = months_back + warmup_months
     today        = datetime.now().date()
@@ -542,7 +540,22 @@ def _backfill_gbdt_history(all_tickers: list, months_back: int = 60,
         })
 
     if not month_specs:
-        return 0, "无有效月份可回填"
+        return None, None, None, "无有效月份可回填"
+    return price_df, vol_df, month_specs, ""
+
+
+def _backfill_gbdt_history(all_tickers: list, months_back: int = 60,
+                            monthly_probs: dict = None,
+                            meta_data: dict = None,
+                            warmup_months: int = 12) -> tuple[int, str]:
+    """下载历史价格 → 组月度 specs → 调后端 gbdt/score 批量打分。
+
+    镜像 _backfill_arena_history 逻辑，但打分换成 GBDT（后端内部落 gbdt_history）。
+    """
+    price_df, vol_df, month_specs, err = _prep_gbdt_inputs(
+        all_tickers, months_back, monthly_probs, warmup_months)
+    if err:
+        return 0, err
 
     resp = _api_gbdt_score(
         price_df=price_df,
@@ -574,6 +587,30 @@ def _backfill_gbdt_history(all_tickers: list, months_back: int = 60,
             _api_save_gbdt_state(grade, st_v, hold_v)
 
     return saved, ""
+
+
+def _oos_replay_gbdt_history(all_tickers: list, months_back: int = 60,
+                             monthly_probs: dict = None,
+                             meta_data: dict = None,
+                             warmup_months: int = 12) -> tuple[int, str]:
+    """复用 _prep_gbdt_inputs 的价格 + month_specs → 调后端 oos_replay（整包不分片）。
+    每月 embargo 重训 walk-forward，结果落 gbdt_history_oos。"""
+    price_df, vol_df, month_specs, err = _prep_gbdt_inputs(
+        all_tickers, months_back, monthly_probs, warmup_months)
+    if err:
+        return 0, err
+
+    resp = _api_gbdt_oos_replay(
+        price_df=price_df,
+        vol_df=vol_df if not vol_df.empty else None,
+        meta_data=meta_data or {},
+        month_specs=month_specs,
+        z_seed_tickers=list(_Z_SEED_TICKERS),
+        arena_save_n=_GBDT_SAVE_N,
+    )
+    if not resp.get("success"):
+        return 0, f"后端 OOS 回放失败：{resp.get('error', '未知错误')}"
+    return int(resp.get("n_months", 0)), ""
 
 
 def _month_spec_for(price_df, month_key: str, monthly_probs: dict) -> dict | None:
@@ -756,6 +793,22 @@ with bf_col2:
         unsafe_allow_html=True,
     )
 
+oos_col1, oos_col2 = st.columns([1, 3])
+with oos_col1:
+    _do_oos = st.button(
+        "🔬 生成 OOS 回放（真实样本外）",
+        use_container_width=True,
+        help="每月只用历史数据重训模型再选股（walk-forward），落盘 gbdt_history_oos，供 page 6 渲染。",
+    )
+with oos_col2:
+    st.markdown(
+        "<div style='font-size:13px;color:#666;padding-top:8px;'>"
+        "真实样本外回放：每月只用之前的数据重训，无未来函数。"
+        "曲线从约 2024 起（头两年训练数据不足被切掉），数值远低于回填曲线属正常。"
+        "整包计算、不分片，约 1-3 分钟。</div>",
+        unsafe_allow_html=True,
+    )
+
 if _do_backfill:
     with st.spinner(
         f"正在下载 {len(_SCREEN_TICKERS)} 只标的约 6 年历史价格 → GBDT 月度打分…"
@@ -780,6 +833,30 @@ if _do_backfill:
     else:
         st.success(f"回填完成！已写入 {_saved} 个月的 GBDT 历史档案。")
         _api_fetch_gbdt_history.clear()
+        st.rerun()
+
+if _do_oos:
+    with st.spinner(
+        f"正在下载 {len(_SCREEN_TICKERS)} 只标的约 6 年历史价格 → walk-forward 重训回放…"
+        "（每月重训，约 1-3 分钟）"
+    ):
+        _regime_resp = fetch_current_regime()
+        _monthly_probs = (
+            _regime_resp.get("horsemen_monthly_probs") or {}
+        )
+        _oos_meta = get_stock_metadata(tuple(_SCREEN_TICKERS))
+        _oos_saved, _oos_err = _oos_replay_gbdt_history(
+            all_tickers=_SCREEN_TICKERS,
+            months_back=_BF_MONTHS,
+            monthly_probs=_monthly_probs,
+            meta_data=_oos_meta,
+            warmup_months=12,
+        )
+    if _oos_err:
+        st.error(f"OOS 回放失败：{_oos_err}")
+    else:
+        st.success(f"OOS 回放完成！已写入 {_oos_saved} 个样本外月份（page 6 可看真实曲线）。")
+        _api_fetch_gbdt_oos_history.clear()
         st.rerun()
 
 # ─────────────────────────────────────────────────────────────────
