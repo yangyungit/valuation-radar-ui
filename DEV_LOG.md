@@ -1,3 +1,24 @@
+## 2026-06-03 | Page0 王朝龙头股持仓回测图（无前视）+ 抽 nav_utils
+
+**动因**：把 Page0「🏆 王朝龙头股」tab 从事后回看统计表升级成像 Page5 那样的持仓回测图——每月末用当下信息选各强势板块龙头股、下月持有，拼累计收益曲线对比 SPY。
+
+**改动**：
+
+- 新建 `nav_utils.py`：把 Page5 的三个 NAV/KPI 纯函数 `build_slot_segments` / `calc_slot_stats` / `compute_nav_kpi` 外提（逐行一致，无闭包依赖），Page0、Page5 共用。Page5 改为 `from nav_utils import ... as _build_slot_segments` 等别名，调用点不变、行为不变。
+- `api_client.fetch_sector_leader_history(...)`：对接后端新端点 `/api/v1/macro/sector_leader_history`，照抄 `fetch_dynasty_leaders` 的 `@st.cache_data(4h)` + 502/504 重试 + 失败兜底范式。
+- `pages/0_宏观雷达.py` `_dyn_tab2`：新增持仓回测图。流程 = C 组内/D 组内分别按 king_score 排名取前 2 板块 → 板块层守擂缓冲（港 Page5 `_tm_hold`）→ 稳定 slot 分配（港 `_a_slot_assignments`）→ 对涉及板块调 `fetch_sector_leader_history` 取无前视龙头、套龙头层守擂缓冲 → 闸门（龙头跌破 MA60w 或 板块 RS_252d≤0 → 当月该 slot CASH）→ `calc_slot_stats` 拼 NAV → C 组 2 slot 等权、D 组 2 slot 等权、C+D 4 slot 总合成。顶层三 tab（C组/D组/合成），每 tab 分段彩色累计收益曲线 + SPY 同期虚线 + 6 张人话 KPI 卡（总共赚了/中途最惨亏/年均赚/赚得值不值/赚得稳不稳/抗跌分，hover 显术语+公式，均带 ↑SPY 对比）+ 换手/摩擦摘要。
+- 原事后回看龙头表降为默认收起的 `📋 历史复盘` expander。
+- king_score 月末序列复用最长历史（10Y）radar timeseries 切片，避免再拉 3Y 窗口。
+
+**契约**：依赖后端新端点（后端先部署）。
+
+**已知妥协**：
+
+1. 成分股快照偏差不可消除（用当前 S&P500/ETF 持仓回看历史）→ 默认回测近 3 年，5Y/10Y 打警告。
+2. 龙头层换手天生高于板块层，靠守擂缓冲 + 闸门压，稳定性不及 Page5 个股择时。
+
+---
+
 ## 2026-05-28 | Page0 王朝龙头股候选池口径升级（Yahoo/issuer/seed 三级标记）
 
 **动因**：候选池以前只显示「本地seed」，无数据源透明度。升级后显示真实口径（Yahoo/VanEck/iShares/…/seed fallback），stale 有提示。

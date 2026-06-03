@@ -896,6 +896,44 @@ def fetch_dynasty_leaders(sector_etf: str, start: str, end: str, top_n: int = 3)
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=3600 * 4)
+def fetch_sector_leader_history(
+    sector_etf: str, window: str = "3Y",
+    lookback_months: int = 6, top_n: int = 3,
+) -> dict:
+    """从后端获取某板块 ETF 的**无前视**月度龙头序列，供 Page 0 §1.6 持仓回测图用。
+
+    逐月末只用 ≤ 当月价格回看 lookback_months 选龙头，无上帝视角，可直接拼累计收益曲线。
+    Render 冷启动 502/504 时自动重试一次。失败返回 {"success": False, "error": ...}。
+    返回 {"success": True, "sector_etf", "window", "lookback_months",
+         "months": ["2021-01", ...],
+         "leaders_by_month": {"2021-01": [{"ticker","name","excess_pct","listed_full"}, ...]}}。
+    """
+    import time as _time
+    last_exc = None
+    for attempt in range(2):
+        try:
+            if attempt > 0:
+                _time.sleep(15)
+            r = requests.get(
+                f"{API_BASE_URL}/api/v1/macro/sector_leader_history",
+                params={
+                    "sector_etf": sector_etf, "window": window,
+                    "lookback_months": lookback_months, "top_n": top_n,
+                },
+                timeout=120,
+            )
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_exc = e
+            err = str(e)
+            if attempt == 0 and any(c in err for c in ("502", "504", "Connection")):
+                continue
+            break
+    return {"success": False, "error": str(last_exc)}
+
+
 @st.cache_data(ttl=6 * 3600)
 def fetch_theme_holdings_status() -> dict:
     """从后端获取 14 个主题 ETF 的 holdings 数据源状态（source/provider/as_of_date/is_fallback/is_stale）。

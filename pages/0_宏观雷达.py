@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+import yfinance as yf
+from _yf_session import YF_SESSION  # curl_cffi 浏览器指纹，绕 Yahoo 401
 
 from api_client import (
     fetch_macro_radar,
@@ -14,8 +16,457 @@ from api_client import (
     fetch_sector_rotation,
     fetch_etf_meta,
     fetch_dynasty_leaders,
+    fetch_sector_leader_history,
     fetch_theme_holdings_status,
 )
+# 持仓段→NAV→KPI 纯函数（与 page5 共用），用于王朝龙头股持仓回测图
+from nav_utils import build_slot_segments, calc_slot_stats, compute_nav_kpi
+
+
+@st.cache_data(ttl=3600 * 4, show_spinner=False)
+def _fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
+    """拉个股/ETF 5 年周线 OHLCV（W-FRI 重采样），供龙头回测 NAV + MA60w 闸门用。"""
+    h = yf.Ticker(ticker, session=YF_SESSION).history(period="5y")
+    if h.empty:
+        return pd.DataFrame()
+    w = h.resample("W-FRI").agg({
+        "Open": "first", "High": "max", "Low": "min",
+        "Close": "last", "Volume": "sum",
+    }).dropna()
+    if w.index.tz is not None:
+        try:
+            w.index = w.index.tz_localize(None)
+        except TypeError:
+            w.index = w.index.tz_convert(None)
+    return w
+
+
+# ── 王朝龙头股持仓回测图（无前视）的纯逻辑 + 渲染 ───────────────────────────
+_DYN_BT_COLORS = [
+    "#2ECC71", "#3498DB", "#E67E22", "#9B59B6",
+    "#1ABC9C", "#E74C3C", "#F1C40F", "#8E44AD",
+]
+_DYN_BT_WIN_YEARS = {"3Y": 3, "5Y": 5, "10Y": 10}
+
+
+def _dyn_month_df(tk_data: dict, tks: list, idx, field: str) -> pd.DataFrame:
+    """从 radar 时序取某组 ticker 的 field 月末序列（resample ME）。"""
+    if not tks:
+        return pd.DataFrame()
+    df = pd.DataFrame(
+        {tk: tk_data[tk].get(field, []) for tk in tks}, index=idx,
+    ).astype(float)
+    return df.resample("ME").last()
+
+
+def _dyn_sector_hold(king_df: pd.DataFrame, months_ts: list, buffer_n: int, top_k: int = 2) -> dict:
+    """板块层守擂缓冲：老板块还在 king_score 前 buffer_n 就留任（港 page5 _tm_hold）。"""
+    hold: dict = {}
+    prev_h: set = set()
+    for m in months_ts:
+        if m not in king_df.index:
+            hold[m] = set()
+            continue
+        row = king_df.loc[m].dropna().sort_values(ascending=False)
+        ranked = list(row.index)
+        t_top = set(ranked[:top_k])
+        t_buf = set(ranked[:buffer_n])
+        if prev_h:
+            survivors = prev_h & t_buf
+            if len(survivors) >= top_k:
+                sh = survivors
+            elif len(survivors) == 1:
+                fill = next((t for t in ranked[:buffer_n] if t not in survivors), None)
+                sh = survivors | {fill} if fill else t_top
+            else:
+                sh = t_top
+        else:
+            sh = t_top
+        hold[m] = sh
+        prev_h = sh
+    return hold
+
+
+def _dyn_sector_slots(hold: dict, months_ts: list) -> dict:
+    """把每月 ≤2 个持仓板块稳定分配到 slot0/slot1（港 page5 _a_slot_assignments）。"""
+    slots: dict = {}
+    prev = [None, None]
+    for m in months_ts:
+        h = hold.get(m, set())
+        new = [None, None]
+        assigned: set = set()
+        for si in range(2):
+            if prev[si] and prev[si] in h:
+                new[si] = prev[si]
+                assigned.add(prev[si])
+        for t in sorted(t for t in h if t not in assigned):
+            for si in range(2):
+                if new[si] is None:
+                    new[si] = t
+                    break
+        slots[m] = new
+        prev = new
+    return slots
+
+
+def _dyn_below_ma60(wk_df: pd.DataFrame) -> pd.Series:
+    """周线收盘跌破 MA60w 的布尔序列（True = 破线）。"""
+    if wk_df is None or wk_df.empty:
+        return pd.Series(dtype=bool)
+    close = wk_df["Close"].astype(float)
+    ma60 = close.rolling(60, min_periods=30).mean()
+    return (close < ma60).fillna(False)
+
+
+def _render_dynasty_backtest(
+    radar_ts: dict, backtest_window: str, buffer_n: int,
+    per_switch_friction: float, cash_rate: float, lookback_months: int = 6,
+):
+    """无前视龙头股持仓回测图：C 组内 / D 组内分别排名取前 2 板块 → 板块守擂 →
+    龙头守擂 → 闸门(MA60w / 板块 RS≤0) → NAV 合成 → C组/D组/合成 三 tab。"""
+    if not radar_ts or not radar_ts.get("success"):
+        st.warning("⚠️ 板块时序数据不可用，无法回测")
+        return
+    _tk_data = radar_ts.get("tickers", {}) or {}
+    _dates_raw = radar_ts.get("dates", []) or []
+    if not _tk_data or not _dates_raw:
+        st.warning("⚠️ 板块时序数据为空")
+        return
+    _idx = pd.to_datetime(_dates_raw, errors="coerce")
+
+    _c_tks = [tk for tk, p in _tk_data.items() if p.get("group", "").startswith("C:")]
+    _d_tks = [tk for tk, p in _tk_data.items() if p.get("group", "").startswith("D:")]
+    _name_map = {tk: p.get("name", tk) for tk, p in _tk_data.items()}
+    if not _c_tks and not _d_tks:
+        st.warning("⚠️ 时序数据缺少 C / D 组板块")
+        return
+
+    _king_c = _dyn_month_df(_tk_data, _c_tks, _idx, "king_score")
+    _king_d = _dyn_month_df(_tk_data, _d_tks, _idx, "king_score")
+    _rs_c = _dyn_month_df(_tk_data, _c_tks, _idx, "rs")
+    _rs_d = _dyn_month_df(_tk_data, _d_tks, _idx, "rs")
+
+    _years = _DYN_BT_WIN_YEARS.get(backtest_window, 3)
+    _win_start = pd.Timestamp.today().normalize() - pd.Timedelta(days=int(_years * 365.25))
+
+    def _slice(df):
+        return df[df.index >= _win_start] if not df.empty else df
+
+    _king_c, _king_d = _slice(_king_c), _slice(_king_d)
+    _rs_c, _rs_d = _slice(_rs_c), _slice(_rs_d)
+    if _king_c.empty and _king_d.empty:
+        st.warning(f"⚠️ {backtest_window} 月末快照数据不足")
+        return
+
+    # 板块层：组内分别排名 + 守擂 + 稳定 slot 分配
+    _months_c = list(_king_c.index)
+    _months_d = list(_king_d.index)
+    _sec_slots_c = _dyn_sector_slots(_dyn_sector_hold(_king_c, _months_c, buffer_n), _months_c)
+    _sec_slots_d = _dyn_sector_slots(_dyn_sector_hold(_king_d, _months_d, buffer_n), _months_d)
+
+    # 涉及板块 → 拉无前视龙头序列
+    _sectors_c = sorted({s for v in _sec_slots_c.values() for s in v if s})
+    _sectors_d = sorted({s for v in _sec_slots_d.values() for s in v if s})
+    _leader_hist: dict = {}
+    _fetch_top_n = max(buffer_n, 3)
+    _involved = _sectors_c + _sectors_d
+    if not _involved:
+        st.info(f"{backtest_window} 内无满足条件的强势板块")
+        return
+    with st.spinner(f"拉 {len(_involved)} 个板块的无前视龙头序列…"):
+        for _sec in _involved:
+            _r = fetch_sector_leader_history(_sec, backtest_window, lookback_months, _fetch_top_n)
+            if _r and _r.get("success"):
+                _lbm = _r.get("leaders_by_month", {}) or {}
+                _leader_hist[_sec] = {
+                    _mlabel: [d["ticker"] for d in _dl]
+                    for _mlabel, _dl in _lbm.items()
+                }
+                for _mlabel, _dl in _lbm.items():
+                    for _d in _dl:
+                        _name_map.setdefault(_d["ticker"], _d.get("name", _d["ticker"]))
+            else:
+                _leader_hist[_sec] = {}
+
+    # 龙头层：守擂选龙头（先不上闸门）
+    def _select_leaders(sec_slots, months_ts):
+        raw: dict = {}        # {label: [leader_or_None, ...]}
+        sec_of: dict = {}     # {label: [sector_or_None, ...]}
+        prev_leader = [None, None]
+        for m in months_ts:
+            label = m.strftime("%Y-%m")
+            r_lead = [None, None]
+            r_sec = [None, None]
+            for si in range(2):
+                sec = sec_slots.get(m, [None, None])[si]
+                r_sec[si] = sec
+                if not sec:
+                    prev_leader[si] = None
+                    continue
+                ranked = _leader_hist.get(sec, {}).get(label, [])
+                pl = prev_leader[si]
+                if pl and pl in ranked[:buffer_n]:
+                    leader = pl
+                elif ranked:
+                    leader = ranked[0]
+                else:
+                    leader = None
+                prev_leader[si] = leader  # 守擂记忆（闸门关也保留）
+                r_lead[si] = leader
+            raw[label] = r_lead
+            sec_of[label] = r_sec
+        return raw, sec_of
+
+    _raw_c, _secof_c = _select_leaders(_sec_slots_c, _months_c)
+    _raw_d, _secof_d = _select_leaders(_sec_slots_d, _months_d)
+
+    # 拉龙头周线（NAV + MA60w 闸门共用）
+    _all_leaders = sorted({
+        tk for raw in (_raw_c, _raw_d) for row in raw.values()
+        for tk in row if tk
+    })
+    _price_cache: dict = {}
+    _ma60_break: dict = {}
+    if _all_leaders:
+        with st.spinner(f"拉 {len(_all_leaders)} 只龙头周线…"):
+            for tk in _all_leaders:
+                try:
+                    _wk = _fetch_weekly_ohlcv(tk)
+                except Exception:
+                    _wk = pd.DataFrame()
+                if not _wk.empty:
+                    _price_cache[tk] = _wk
+                    _ma60_break[tk] = _dyn_below_ma60(_wk)
+    _spy_wk = _fetch_weekly_ohlcv("SPY")
+
+    _rs_lookup = {"C": _rs_c, "D": _rs_d}
+
+    def _apply_gate(raw, sec_of, rs_df, months_ts):
+        """龙头跌破 MA60w 或 所在板块 RS_252d≤0 → 当月该 slot CASH。"""
+        out: dict = {}
+        for m in months_ts:
+            label = m.strftime("%Y-%m")
+            row = ["CASH", "CASH"]
+            for si in range(2):
+                leader = raw.get(label, [None, None])[si]
+                sec = sec_of.get(label, [None, None])[si]
+                if not leader or not sec:
+                    row[si] = "CASH"
+                    continue
+                gated = False
+                if sec in rs_df.columns and m in rs_df.index:
+                    _rsv = rs_df.loc[m, sec]
+                    if pd.notna(_rsv) and _rsv <= 0:
+                        gated = True
+                if not gated:
+                    _bk = _ma60_break.get(leader)
+                    if _bk is not None and not _bk.empty:
+                        _upto = _bk[_bk.index <= (m + pd.offsets.MonthEnd(0))]
+                        if len(_upto) > 0 and bool(_upto.iloc[-1]):
+                            gated = True
+                row[si] = "CASH" if gated else leader
+            out[label] = row
+        return out
+
+    _slots_c = _apply_gate(_raw_c, _secof_c, _rs_c, _months_c)
+    _slots_d = _apply_gate(_raw_d, _secof_d, _rs_d, _months_d)
+
+    _labels_c = [m.strftime("%Y-%m") for m in _months_c]
+    _labels_d = [m.strftime("%Y-%m") for m in _months_d]
+
+    # 每 slot 的持仓段 → NAV
+    def _slot_nav(slot_assign, slot_idx, labels):
+        segs = build_slot_segments(slot_assign, slot_idx, labels)
+        ret, dd, nav = calc_slot_stats(segs, _price_cache, _spy_wk, cash_rate=cash_rate)
+        return segs, nav
+
+    _segs_c0, _nav_c0 = _slot_nav(_slots_c, 0, _labels_c)
+    _segs_c1, _nav_c1 = _slot_nav(_slots_c, 1, _labels_c)
+    _segs_d0, _nav_d0 = _slot_nav(_slots_d, 0, _labels_d)
+    _segs_d1, _nav_d1 = _slot_nav(_slots_d, 1, _labels_d)
+
+    def _combine(navs):
+        navs = [n for n in navs if n is not None and not n.empty]
+        if not navs:
+            return pd.Series(dtype=float)
+        idx = navs[0].index
+        for n in navs[1:]:
+            idx = idx.union(n.index)
+        aligned = [n.reindex(idx).ffill().bfill() for n in navs]
+        w = 1.0 / len(aligned)
+        out = aligned[0] * 0.0
+        for a in aligned:
+            out = out + w * a
+        return out.astype(float)
+
+    _nav_C = _combine([_nav_c0, _nav_c1])
+    _nav_D = _combine([_nav_d0, _nav_d1])
+    _nav_ALL = _combine([_nav_c0, _nav_c1, _nav_d0, _nav_d1])
+
+    # 每月持仓标签（用于分段着色 + 段顶注名）
+    def _holdings_label(slots_list, label):
+        names = []
+        for slots in slots_list:
+            tk = slots.get(label, ["CASH", "CASH"])
+            for t in tk:
+                if t and t != "CASH":
+                    names.append(_name_map.get(t, t))
+        return "＋".join(names) if names else "💰 空仓"
+
+    def _turnover(slots_list, labels):
+        cnt = 0
+        for slots in slots_list:
+            for si in range(2):
+                segs = build_slot_segments(slots, si, labels)
+                cnt += sum(1 for s in segs if s[0] not in (None, "CASH"))
+        return cnt
+
+    # ── 三 tab 渲染 ──
+    _tabs = st.tabs(["🅒 C组（核心板块龙头）", "🅓 D组（细分赛道龙头）", "📊 合成（C+D）"])
+    _tab_specs = [
+        ("C", _nav_C, [_slots_c], _labels_c, "C 组 2 只龙头等权合成"),
+        ("D", _nav_D, [_slots_d], _labels_d, "D 组 2 只龙头等权合成"),
+        ("ALL", _nav_ALL, [_slots_c, _slots_d],
+         sorted(set(_labels_c) | set(_labels_d)), "C+D 共 4 只龙头总合成"),
+    ]
+
+    for _ti, (_gname, _nav, _slots_list, _labels, _subtitle) in enumerate(_tab_specs):
+        with _tabs[_ti]:
+            if _nav is None or _nav.empty or len(_nav) < 2:
+                st.info("该组在当前回测窗口无有效持仓（数据不足或全程闸门关）")
+                continue
+            _total_ret = (float(_nav.iloc[-1]) / float(_nav.iloc[0]) - 1) * 100
+            _peak = _nav.cummax()
+            _dd = float(((_peak - _nav) / _peak.replace(0, float("nan"))).max()) * 100
+            _turn = _turnover(_slots_list, _labels)
+            _fric_pct = _turn * per_switch_friction * 100
+            _net_ret = _total_ret - _fric_pct
+            _kpi = compute_nav_kpi(_nav)
+
+            # SPY 同期 KPI
+            _spy_kpi: dict = {}
+            _spy_ret = float("nan")
+            if not _spy_wk.empty:
+                _m = (_spy_wk.index >= _nav.index[0]) & (_spy_wk.index <= _nav.index[-1])
+                _spy_c = _spy_wk[_m]["Close"].astype(float).dropna()
+                if len(_spy_c) >= 8:
+                    _spy_nav = _spy_c / float(_spy_c.iloc[0])
+                    _spy_kpi = compute_nav_kpi(_spy_nav)
+                    _spy_ret = (float(_spy_nav.iloc[-1]) - 1) * 100
+
+            st.caption(
+                f"{_subtitle} ｜ 守擂 Top-{buffer_n} ｜ "
+                f"换手 **{_turn}** 次 ｜ 摩擦 **-{_fric_pct:.1f}%**"
+            )
+
+            def _fk(v, fmt=".2f"):
+                import math as _m2
+                try:
+                    return "—" if _m2.isnan(v) else f"{v:{fmt}}"
+                except (TypeError, ValueError):
+                    return "—"
+
+            import math as _math
+            _cagr = _kpi.get("cagr", float("nan"))
+            _spy_cagr = _spy_kpi.get("cagr", float("nan")) if _spy_kpi else float("nan")
+            _k1, _k2, _k3, _k4, _k5, _k6 = st.columns(6)
+            _k1.metric(
+                "总共赚了", f"{_net_ret:+.1f}%",
+                delta=(f"↑SPY {_spy_ret:+.1f}%" if not _math.isnan(_spy_ret) else None),
+                delta_color="off",
+                help="净收益 = 毛收益 − 摩擦成本。毛收益 "
+                     f"{_total_ret:+.1f}%（区间累计收益率）",
+            )
+            _k2.metric(
+                "中途最惨亏", f"-{_dd:.1f}%",
+                help="最大回撤 Max Drawdown：净值从峰值到谷底的最大跌幅",
+            )
+            _k3.metric(
+                "年均赚",
+                (f"{_cagr*100:+.1f}%" if not _math.isnan(_cagr) else "—"),
+                delta=(f"↑SPY {_spy_cagr*100:+.1f}%" if (_spy_kpi and not _math.isnan(_spy_cagr)) else None),
+                delta_color="off",
+                help="CAGR 年化复合增长率",
+            )
+            _k4.metric(
+                "赚得值不值", _fk(_kpi.get("calmar", float("nan"))),
+                delta=(f"↑SPY {_fk(_spy_kpi.get('calmar', float('nan')))}" if _spy_kpi else None),
+                delta_color="off",
+                help="Calmar = CAGR ÷ 最大回撤，越高越好（收益相对回撤的性价比）",
+            )
+            _k5.metric(
+                "赚得稳不稳", _fk(_kpi.get("r2", float("nan"))),
+                delta=(f"↑SPY {_fk(_spy_kpi.get('r2', float('nan')))}" if _spy_kpi else None),
+                delta_color="off",
+                help="logNAV R²：净值对数曲线的线性拟合度，越接近 1 越稳健（少暴涨暴跌）",
+            )
+            _k6.metric(
+                "抗跌分", _fk(_kpi.get("sortino", float("nan"))),
+                delta=(f"↑SPY {_fk(_spy_kpi.get('sortino', float('nan')))}" if _spy_kpi else None),
+                delta_color="off",
+                help="Sortino = CAGR ÷ 下行波动，只罚下跌不罚上涨",
+            )
+
+            # 分段彩色累计收益曲线 + SPY
+            _fig = go.Figure()
+            _ret_series = (_nav / float(_nav.iloc[0]) - 1.0) * 100.0
+            _lbl_of_date = _ret_series.index.strftime("%Y-%m")
+            _hold_seq = [_holdings_label(_slots_list, l) for l in _lbl_of_date]
+            _seg_start = 0
+            _ci = 0
+            _annos = []
+            for _i in range(1, len(_hold_seq) + 1):
+                if _i == len(_hold_seq) or _hold_seq[_i] != _hold_seq[_seg_start]:
+                    _seg_dates = _ret_series.index[_seg_start:_i]
+                    _seg_vals = _ret_series.iloc[_seg_start:_i]
+                    _is_cash = _hold_seq[_seg_start] == "💰 空仓"
+                    _color = "#9aa0a6" if _is_cash else _DYN_BT_COLORS[_ci % len(_DYN_BT_COLORS)]
+                    _fig.add_trace(go.Scatter(
+                        x=_seg_dates, y=_seg_vals.values, mode="lines",
+                        line=dict(color=_color, width=2, dash="dot" if _is_cash else "solid"),
+                        name=_hold_seq[_seg_start], showlegend=False,
+                        hovertemplate="%{x|%Y-%m-%d}<br>累计 %{y:.1f}%<br>"
+                                      + _hold_seq[_seg_start] + "<extra></extra>",
+                    ))
+                    _mid = _seg_dates[len(_seg_dates) // 2] if len(_seg_dates) else None
+                    if _mid is not None and not _is_cash:
+                        _annos.append(dict(
+                            x=_mid, y=1.0, xref="x", yref="paper",
+                            text=_hold_seq[_seg_start], showarrow=False,
+                            font=dict(size=13, color=_color),
+                            xanchor="center", yanchor="bottom",
+                        ))
+                    if _seg_start > 0:
+                        _fig.add_vline(x=_ret_series.index[_seg_start], line_dash="dash",
+                                       line_color="rgba(200,200,200,0.3)", line_width=1)
+                    if not _is_cash:
+                        _ci += 1
+                    _seg_start = _i
+
+            if not _spy_wk.empty:
+                _m = (_spy_wk.index >= _nav.index[0]) & (_spy_wk.index <= _nav.index[-1])
+                _spy_c = _spy_wk[_m]["Close"].astype(float).dropna()
+                if len(_spy_c) >= 2:
+                    _spy_pct = (_spy_c / float(_spy_c.iloc[0]) - 1.0) * 100.0
+                    _fig.add_trace(go.Scatter(
+                        x=_spy_pct.index, y=_spy_pct.values, mode="lines",
+                        line=dict(color="rgba(180,180,180,0.5)", width=2, dash="dot"),
+                        name=f"SPY 同期 {_spy_ret:+.1f}%", showlegend=True,
+                    ))
+
+            _fig.update_layout(
+                title=dict(text=f"{backtest_window} 持仓回测 · {_subtitle}",
+                           font=dict(size=15), x=0.01, xanchor="left"),
+                height=520, margin=dict(l=10, r=10, t=46, b=40),
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(30,30,30,0.6)",
+                font=dict(color="#ccc", size=13),
+                yaxis=dict(title="累计收益率 (%)", ticksuffix="%",
+                           gridcolor="rgba(100,100,100,0.3)"),
+                xaxis=dict(gridcolor="rgba(100,100,100,0.3)"),
+                annotations=_annos,
+                showlegend=not _spy_wk.empty,
+            )
+            st.plotly_chart(_fig, use_container_width=True, key=f"dyn_bt_{_gname}")
 
 st.set_page_config(page_title="宏观雷达", layout="wide")
 
@@ -843,206 +1294,248 @@ else:
 
     with _dyn_tab2:
         st.caption(
-            "**钻取口径**:先识别连续金块期,再按「上一个月末 → 末段月末」计算"
-            "**在位期超额 = 个股累计涨幅 − 板块 ETF 累计涨幅**,排出 Top 3 龙头。"
-            "一级行业用 S&P500+GICS；主题 ETF 优先用 Yahoo/发行商 holdings 快照，失败才回退本地 seed（候选池列标记）。"
-            "⚠️ = 该股计算区间开始时未上市，数字可能虚高。"
+            "**持仓回测图（无前视）**：每月末用当下信息选各强势板块龙头股、下月持有，拼累计收益对比 SPY。"
+            "C 组内 / D 组内分别按 king_score 取前 2 板块 → 板块/龙头双层守擂 → 闸门(跌破 MA60w 或板块 RS≤0 清仓) → NAV 合成。"
         )
 
-        if not selected_groups:
-            st.info("👈 请在侧边栏勾选至少一个组别以识别王朝期")
-        elif not (_dyn_ts := _radar_ts_by_window.get(_dynasty_window, {})) or not _dyn_ts.get("success"):
-            st.warning(f"⚠️ {_dynasty_window} 时序数据暂不可用")
-        else:
-            _dyn_tickers2 = _dyn_ts.get("tickers", {}) or {}
-            _dyn_dates_raw2 = _dyn_ts.get("dates", []) or []
-            _picked_d2 = {
-                tk: p for tk, p in _dyn_tickers2.items()
-                if p.get("group", "") in selected_groups
-            }
-            if not _picked_d2 or not _dyn_dates_raw2:
-                st.info(f"⚠️ {_dynasty_window}:选中组别无可用 ticker")
+        # ── 控制行 ──
+        _bt_c1, _bt_c2, _bt_c3 = st.columns([1, 1, 1.4])
+        with _bt_c1:
+            _bt_window = st.radio(
+                "回测年限", ["3Y", "5Y", "10Y"], index=0, horizontal=True,
+                key="dyn_bt_window",
+                help="默认近 3 年（成分股快照偏差最小）；5Y/10Y 早期含成分偏差",
+            )
+        with _bt_c2:
+            _bt_buffer = st.number_input(
+                "守擂缓冲 N", min_value=2, max_value=5, value=3, step=1,
+                key="dyn_bt_buffer",
+                help="老板块/老龙头还在前 N 名就留任，减少换手",
+            )
+        with _bt_c3:
+            _bt_cost = st.slider(
+                "单边成本 %", min_value=0.00, max_value=0.50, value=0.13,
+                step=0.01, format="%.2f", key="dyn_bt_cost",
+                help="佣金+滑点单边成本，换一次仓按 2× 成本计摩擦",
+            )
+        _bt_friction = 2.0 * _bt_cost / 100.0
+
+        if _bt_window in ("5Y", "10Y"):
+            st.warning(
+                "⚠️ 5Y/10Y 早期含成分股快照偏差：用当前 S&P500/ETF 持仓回看历史，"
+                "有幸存者偏差，结论仅供参考",
+                icon="⚠️",
+            )
+
+        # king_score 月末序列用最长历史（10Y）切片，避免另拉 3Y 窗口
+        _bt_radar = _radar_ts_by_window.get("10Y", {}) or _radar_ts_by_window.get(_dynasty_window, {})
+        _render_dynasty_backtest(
+            _bt_radar, _bt_window, int(_bt_buffer), _bt_friction, 0.04,
+        )
+
+        st.markdown("---")
+        with st.expander("📋 历史复盘（事后回看龙头表，含未来函数，仅复盘用）", expanded=False):
+            st.caption(
+                "**钻取口径**:先识别连续金块期,再按「上一个月末 → 末段月末」计算"
+                "**在位期超额 = 个股累计涨幅 − 板块 ETF 累计涨幅**,排出 Top 3 龙头。"
+                "一级行业用 S&P500+GICS；主题 ETF 优先用 Yahoo/发行商 holdings 快照，失败才回退本地 seed（候选池列标记）。"
+                "⚠️ = 该股计算区间开始时未上市，数字可能虚高。"
+            )
+
+            if not selected_groups:
+                st.info("👈 请在侧边栏勾选至少一个组别以识别王朝期")
+            elif not (_dyn_ts := _radar_ts_by_window.get(_dynasty_window, {})) or not _dyn_ts.get("success"):
+                st.warning(f"⚠️ {_dynasty_window} 时序数据暂不可用")
             else:
-                _dyn_idx2 = pd.to_datetime(_dyn_dates_raw2, errors="coerce")
-                # 龙头股 tab 与主图 🅰️ 保持同一套加冕规则:都按 king_score 排名,
-                # 否则两个 tab 识别的「连续金块期」会不一致
-                _d_king2 = pd.DataFrame(
-                    {tk: p.get("king_score", []) for tk, p in _picked_d2.items()},
-                    index=_dyn_idx2,
-                ).astype(float)
-                _d_rs2 = pd.DataFrame(
-                    {tk: p.get("rs", []) for tk, p in _picked_d2.items()},
-                    index=_dyn_idx2,
-                ).astype(float)
-                _d_king_m2 = _d_king2.resample("ME").last()
-                _d_rs_m2   = _d_rs2.resample("ME").last()
-
-                if _d_king_m2.empty or len(_d_king_m2) < 2:
-                    st.warning(f"⚠️ {_dynasty_window}:月末快照数据不足")
+                _dyn_tickers2 = _dyn_ts.get("tickers", {}) or {}
+                _dyn_dates_raw2 = _dyn_ts.get("dates", []) or []
+                _picked_d2 = {
+                    tk: p for tk, p in _dyn_tickers2.items()
+                    if p.get("group", "") in selected_groups
+                }
+                if not _picked_d2 or not _dyn_dates_raw2:
+                    st.info(f"⚠️ {_dynasty_window}:选中组别无可用 ticker")
                 else:
-                    _rank_m2 = _d_king_m2.rank(axis=1, ascending=False, method="min")
-                    _tier2 = pd.DataFrame(0, index=_rank_m2.index, columns=_rank_m2.columns, dtype=int)
-                    _tier2[_rank_m2 <= 3] = 1
-                    _gold_mask2 = (_rank_m2 == 1) & (_d_rs_m2 > 0)
-                    _tier2 = _tier2.mask(_gold_mask2, 2)
-                    _demoted_mask2 = (_rank_m2 == 1) & (_d_rs_m2 <= 0)
-                    _tier2 = _tier2.mask(_demoted_mask2, 0)
+                    _dyn_idx2 = pd.to_datetime(_dyn_dates_raw2, errors="coerce")
+                    # 龙头股 tab 与主图 🅰️ 保持同一套加冕规则:都按 king_score 排名,
+                    # 否则两个 tab 识别的「连续金块期」会不一致
+                    _d_king2 = pd.DataFrame(
+                        {tk: p.get("king_score", []) for tk, p in _picked_d2.items()},
+                        index=_dyn_idx2,
+                    ).astype(float)
+                    _d_rs2 = pd.DataFrame(
+                        {tk: p.get("rs", []) for tk, p in _picked_d2.items()},
+                        index=_dyn_idx2,
+                    ).astype(float)
+                    _d_king_m2 = _d_king2.resample("ME").last()
+                    _d_rs_m2   = _d_rs2.resample("ME").last()
 
-                    _d_name_map2 = {tk: p.get("name", tk) for tk, p in _picked_d2.items()}
-                    _gold_cnt2 = (_tier2 == 2).sum(axis=0)
-                    _silver_cnt2 = (_tier2 == 1).sum(axis=0)
-                    _sort_key2 = _gold_cnt2 * 10000 + _silver_cnt2
-                    _ordered_tk2 = _sort_key2.sort_values(ascending=False).index.tolist()
-                    _tier_yx2 = _tier2[_ordered_tk2].T
-                    _group_map2 = {tk: p.get("group", "") for tk, p in _picked_d2.items()}
+                    if _d_king_m2.empty or len(_d_king_m2) < 2:
+                        st.warning(f"⚠️ {_dynasty_window}:月末快照数据不足")
+                    else:
+                        _rank_m2 = _d_king_m2.rank(axis=1, ascending=False, method="min")
+                        _tier2 = pd.DataFrame(0, index=_rank_m2.index, columns=_rank_m2.columns, dtype=int)
+                        _tier2[_rank_m2 <= 3] = 1
+                        _gold_mask2 = (_rank_m2 == 1) & (_d_rs_m2 > 0)
+                        _tier2 = _tier2.mask(_gold_mask2, 2)
+                        _demoted_mask2 = (_rank_m2 == 1) & (_d_rs_m2 <= 0)
+                        _tier2 = _tier2.mask(_demoted_mask2, 0)
 
-                    def _segment_type(n_months: int) -> str:
-                        if n_months >= 3:
-                            return "王朝"
-                        if n_months == 2:
-                            return "接力段"
-                        return "脉冲"
+                        _d_name_map2 = {tk: p.get("name", tk) for tk, p in _picked_d2.items()}
+                        _gold_cnt2 = (_tier2 == 2).sum(axis=0)
+                        _silver_cnt2 = (_tier2 == 1).sum(axis=0)
+                        _sort_key2 = _gold_cnt2 * 10000 + _silver_cnt2
+                        _ordered_tk2 = _sort_key2.sort_values(ascending=False).index.tolist()
+                        _tier_yx2 = _tier2[_ordered_tk2].T
+                        _group_map2 = {tk: p.get("group", "") for tk, p in _picked_d2.items()}
 
-                    def _source_hint(tk: str) -> str:
-                        _g = _group_map2.get(tk, "")
-                        if _g.startswith("C:"):
-                            return "S&P500+GICS"
-                        if not _g.startswith("D:"):
-                            return "不支持/观察"
-                        # D 组：从 holdings status 取实际数据源
-                        _m = _holdings_items.get(tk, {})
-                        _src  = _m.get("source")
-                        _prv  = _m.get("provider")
-                        _aod  = _m.get("as_of_date")
-                        _fb   = _m.get("is_fallback", True)
-                        _stale = _m.get("is_stale", True)
-                        if not _src:
-                            return "seed fallback"
-                        if _src == "local_seed" or _fb:
-                            return "seed fallback"
-                        if _src == "yahoo":
+                        def _segment_type(n_months: int) -> str:
+                            if n_months >= 3:
+                                return "王朝"
+                            if n_months == 2:
+                                return "接力段"
+                            return "脉冲"
+
+                        def _source_hint(tk: str) -> str:
+                            _g = _group_map2.get(tk, "")
+                            if _g.startswith("C:"):
+                                return "S&P500+GICS"
+                            if not _g.startswith("D:"):
+                                return "不支持/观察"
+                            # D 组：从 holdings status 取实际数据源
+                            _m = _holdings_items.get(tk, {})
+                            _src  = _m.get("source")
+                            _prv  = _m.get("provider")
+                            _aod  = _m.get("as_of_date")
+                            _fb   = _m.get("is_fallback", True)
+                            _stale = _m.get("is_stale", True)
+                            if not _src:
+                                return "seed fallback"
+                            if _src == "local_seed" or _fb:
+                                return "seed fallback"
+                            if _src == "yahoo":
+                                _date_str = f" ({_aod})" if _aod else ""
+                                _warn = " ⚠️stale" if _stale else ""
+                                return f"Yahoo{_date_str}{_warn}"
+                            # issuer
+                            _prv_label = {
+                                "spdr": "SPDR", "ishares": "iShares",
+                                "globalx": "Global X", "vaneck": "VanEck",
+                                "invesco": "Invesco", "firsttrust": "First Trust",
+                            }.get(_prv or "", _prv or "issuer")
                             _date_str = f" ({_aod})" if _aod else ""
                             _warn = " ⚠️stale" if _stale else ""
-                            return f"Yahoo{_date_str}{_warn}"
-                        # issuer
-                        _prv_label = {
-                            "spdr": "SPDR", "ishares": "iShares",
-                            "globalx": "Global X", "vaneck": "VanEck",
-                            "invesco": "Invesco", "firsttrust": "First Trust",
-                        }.get(_prv or "", _prv or "issuer")
-                        _date_str = f" ({_aod})" if _aod else ""
-                        _warn = " ⚠️stale" if _stale else ""
-                        return f"{_prv_label}{_date_str}{_warn}"
+                            return f"{_prv_label}{_date_str}{_warn}"
 
-                    _dynasties = []
-                    for _sector_order, tk in enumerate(_ordered_tk2):
-                        _row = _tier_yx2.loc[tk].values
-                        _months = _tier_yx2.columns
-                        _i = 0
-                        while _i < len(_row):
-                            if _row[_i] == 2:
-                                _j = _i
-                                while _j + 1 < len(_row) and _row[_j + 1] == 2:
-                                    _j += 1
-                                _api_start_idx = _i - 1 if _i > 0 else _i
-                                _n_months = _j - _i + 1
-                                _dynasties.append({
-                                    "ticker":              tk,
-                                    "name":                _d_name_map2.get(tk, tk),
-                                    "display_start_date":  _months[_i],
-                                    "display_end_date":    _months[_j],
-                                    "api_start_date":      _months[_api_start_idx].strftime("%Y-%m-%d"),
-                                    "api_end_date":        _months[_j].strftime("%Y-%m-%d"),
-                                    "display_start_label": _months[_i].strftime("%Y-%m"),
-                                    "display_end_label":   _months[_j].strftime("%Y-%m"),
-                                    "api_start_label":     _months[_api_start_idx].strftime("%Y-%m"),
-                                    "api_end_label":       _months[_j].strftime("%Y-%m"),
-                                    "n_months":            _n_months,
-                                    "segment_type":        _segment_type(_n_months),
-                                    "sector_gold_total":   int(_gold_cnt2.get(tk, 0)),
-                                    "sector_order":        _sector_order,
-                                    "source_hint":         _source_hint(tk),
-                                })
-                                _i = _j + 1
-                            else:
-                                _i += 1
-
-                    if not _dynasties:
-                        st.info(f"{_dynasty_window} 内未识别到任何连续金块期 (无王朝期)")
-                    else:
-                        _dynasties.sort(
-                            key=lambda d: (
-                                -d["sector_gold_total"],
-                                d["sector_order"],
-                                -d["n_months"],
-                                -d["display_start_date"].value,
-                            )
-                        )
-                        st.markdown(
-                            f"**{_dynasty_window} 共识别到 {len(_dynasties)} 段王朝期** "
-                            f"(按板块累计戴金月数排序;每段调一次后端 API,首次加载会慢 5-10 秒)"
-                        )
-
-                        _rows = []
-                        with st.spinner(f"拉 {len(_dynasties)} 段王朝期的成分股龙头..."):
-                            for d in _dynasties:
-                                _res = fetch_dynasty_leaders(
-                                    d["ticker"], d["api_start_date"], d["api_end_date"], 3
-                                )
-                                if not _res or not _res.get("success"):
-                                    _leaders_cells = ["—", "—", "—"]
-                                    _excess_cells  = ["—", "—", "—"]
-                                    _etf_ret_str   = "—"
-                                    _status = (_res or {}).get("error", "API失败")
+                        _dynasties = []
+                        for _sector_order, tk in enumerate(_ordered_tk2):
+                            _row = _tier_yx2.loc[tk].values
+                            _months = _tier_yx2.columns
+                            _i = 0
+                            while _i < len(_row):
+                                if _row[_i] == 2:
+                                    _j = _i
+                                    while _j + 1 < len(_row) and _row[_j + 1] == 2:
+                                        _j += 1
+                                    _api_start_idx = _i - 1 if _i > 0 else _i
+                                    _n_months = _j - _i + 1
+                                    _dynasties.append({
+                                        "ticker":              tk,
+                                        "name":                _d_name_map2.get(tk, tk),
+                                        "display_start_date":  _months[_i],
+                                        "display_end_date":    _months[_j],
+                                        "api_start_date":      _months[_api_start_idx].strftime("%Y-%m-%d"),
+                                        "api_end_date":        _months[_j].strftime("%Y-%m-%d"),
+                                        "display_start_label": _months[_i].strftime("%Y-%m"),
+                                        "display_end_label":   _months[_j].strftime("%Y-%m"),
+                                        "api_start_label":     _months[_api_start_idx].strftime("%Y-%m"),
+                                        "api_end_label":       _months[_j].strftime("%Y-%m"),
+                                        "n_months":            _n_months,
+                                        "segment_type":        _segment_type(_n_months),
+                                        "sector_gold_total":   int(_gold_cnt2.get(tk, 0)),
+                                        "sector_order":        _sector_order,
+                                        "source_hint":         _source_hint(tk),
+                                    })
+                                    _i = _j + 1
                                 else:
-                                    _etf_ret_str = f"{_res['etf_return_pct']:+.1f}%"
-                                    _leaders = _res.get("leaders", [])
-                                    _leaders_cells = []
-                                    _excess_cells  = []
-                                    for i in range(3):
-                                        if i < len(_leaders):
-                                            _l = _leaders[i]
-                                            _flag = "" if _l.get("listed_full_period") else " ⚠️"
-                                            _leaders_cells.append(
-                                                f"{_l['ticker']}{_flag} ({_l['name'][:20]})"
-                                            )
-                                            _excess_cells.append(f"{_l['excess_pct']:+.1f}%")
-                                        else:
-                                            _leaders_cells.append("—")
-                                            _excess_cells.append("—")
-                                    _status = "OK" if _leaders else "无候选"
-                                _rows.append({
-                                    "板块": f"{d['name']} ({d['ticker']})",
-                                    "类型": d["segment_type"],
-                                    "王朝期": f"{d['display_start_label']} → {d['display_end_label']}",
-                                    "计算区间": f"{d['api_start_label']} → {d['api_end_label']}",
-                                    "持续(月)": d["n_months"],
-                                    "累计戴金(月)": d["sector_gold_total"],
-                                    "候选池": d["source_hint"],
-                                    "板块ETF涨幅": _etf_ret_str,
-                                    "🥇 Top1": _leaders_cells[0],
-                                    "Top1 超额": _excess_cells[0],
-                                    "🥈 Top2": _leaders_cells[1],
-                                    "Top2 超额": _excess_cells[1],
-                                    "🥉 Top3": _leaders_cells[2],
-                                    "Top3 超额": _excess_cells[2],
-                                    "状态": str(_status)[:60],
-                                })
+                                    _i += 1
 
-                        _df_leaders = pd.DataFrame(_rows)
-                        st.dataframe(
-                            _df_leaders,
-                            use_container_width=True,
-                            hide_index=True,
-                            height=min(800, 40 + 35 * len(_rows)),
-                        )
-                        st.caption(
-                            "类型: 王朝=连续戴金≥3个月 / 接力段=2个月 / 脉冲=1个月。"
-                            "计算区间使用「上一个月末→末段月末」，单月脉冲也能算在位超额。"
-                            "⚠️ = 计算区间开始时未上市，数字可能虚高。"
-                            "候选池: S&P500+GICS=一级行业当前成分；Yahoo/发行商=主题 ETF 官方持仓快照；"
-                            "seed fallback=本地维护持仓，非实时官方数据。"
-                        )
+                        if not _dynasties:
+                            st.info(f"{_dynasty_window} 内未识别到任何连续金块期 (无王朝期)")
+                        else:
+                            _dynasties.sort(
+                                key=lambda d: (
+                                    -d["sector_gold_total"],
+                                    d["sector_order"],
+                                    -d["n_months"],
+                                    -d["display_start_date"].value,
+                                )
+                            )
+                            st.markdown(
+                                f"**{_dynasty_window} 共识别到 {len(_dynasties)} 段王朝期** "
+                                f"(按板块累计戴金月数排序;每段调一次后端 API,首次加载会慢 5-10 秒)"
+                            )
+
+                            _rows = []
+                            with st.spinner(f"拉 {len(_dynasties)} 段王朝期的成分股龙头..."):
+                                for d in _dynasties:
+                                    _res = fetch_dynasty_leaders(
+                                        d["ticker"], d["api_start_date"], d["api_end_date"], 3
+                                    )
+                                    if not _res or not _res.get("success"):
+                                        _leaders_cells = ["—", "—", "—"]
+                                        _excess_cells  = ["—", "—", "—"]
+                                        _etf_ret_str   = "—"
+                                        _status = (_res or {}).get("error", "API失败")
+                                    else:
+                                        _etf_ret_str = f"{_res['etf_return_pct']:+.1f}%"
+                                        _leaders = _res.get("leaders", [])
+                                        _leaders_cells = []
+                                        _excess_cells  = []
+                                        for i in range(3):
+                                            if i < len(_leaders):
+                                                _l = _leaders[i]
+                                                _flag = "" if _l.get("listed_full_period") else " ⚠️"
+                                                _leaders_cells.append(
+                                                    f"{_l['ticker']}{_flag} ({_l['name'][:20]})"
+                                                )
+                                                _excess_cells.append(f"{_l['excess_pct']:+.1f}%")
+                                            else:
+                                                _leaders_cells.append("—")
+                                                _excess_cells.append("—")
+                                        _status = "OK" if _leaders else "无候选"
+                                    _rows.append({
+                                        "板块": f"{d['name']} ({d['ticker']})",
+                                        "类型": d["segment_type"],
+                                        "王朝期": f"{d['display_start_label']} → {d['display_end_label']}",
+                                        "计算区间": f"{d['api_start_label']} → {d['api_end_label']}",
+                                        "持续(月)": d["n_months"],
+                                        "累计戴金(月)": d["sector_gold_total"],
+                                        "候选池": d["source_hint"],
+                                        "板块ETF涨幅": _etf_ret_str,
+                                        "🥇 Top1": _leaders_cells[0],
+                                        "Top1 超额": _excess_cells[0],
+                                        "🥈 Top2": _leaders_cells[1],
+                                        "Top2 超额": _excess_cells[1],
+                                        "🥉 Top3": _leaders_cells[2],
+                                        "Top3 超额": _excess_cells[2],
+                                        "状态": str(_status)[:60],
+                                    })
+
+                            _df_leaders = pd.DataFrame(_rows)
+                            st.dataframe(
+                                _df_leaders,
+                                use_container_width=True,
+                                hide_index=True,
+                                height=min(800, 40 + 35 * len(_rows)),
+                            )
+                            st.caption(
+                                "类型: 王朝=连续戴金≥3个月 / 接力段=2个月 / 脉冲=1个月。"
+                                "计算区间使用「上一个月末→末段月末」，单月脉冲也能算在位超额。"
+                                "⚠️ = 计算区间开始时未上市，数字可能虚高。"
+                                "候选池: S&P500+GICS=一级行业当前成分；Yahoo/发行商=主题 ETF 官方持仓快照；"
+                                "seed fallback=本地维护持仓，非实时官方数据。"
+                            )
 
 
 # ============================================================
