@@ -19,6 +19,78 @@
 
 ---
 
+## 2026-06-01 | GBDT 页新增 SHAP 蜂群图 + 瀑布图
+
+**动因**：让用户看到因子级 SHAP 解释（组级条形图已有，本次加到因子粒度）。
+
+**改动**：
+- `api_client.py`：新增 `gbdt_shap_detail()`，调后端 `/api/v1/gbdt/shap_detail` 按需现算因子级 SHAP 矩阵。
+- `pages/3_资产细筛_GBDT.py`：新增渲染函数 `_render_shap_beeswarm` / `_render_shap_waterfall`、辅助函数 `_month_spec_for`；页面底部加「SHAP 因子全景」UI 区（蜂群图全候选池 + TOP3 瀑布图三列并排，plotly 渲染）。
+
+---
+
+## 2026-05-31 | GBDT 并联选股页上线（Phase 5 前端）
+
+**动因**：后端 Phase 0–4 已全推 main（HEAD=9555277），前端并联镜像。
+
+**改动**：
+
+1. `api_client.py` 新增 GBDT 客户端函数（`gbdt_score` / `gbdt_retrain` / `fetch_gbdt_history` / `get_gbdt_state` / `save_gbdt_state`），打到 `/api/v1/gbdt/*` 接口，复用 `_sanitize_floats` 和 `_normalize_arena_record`，不改旧 arena 函数。
+2. 新增 `pages/3_资产细筛_GBDT.py`：镜像 `3_资产细筛.py` 结构（`_lazy_subtab_nav` / podium / 历史 tab）；因子展示从锚点打分换成 SHAP 组级贡献条形图；侧栏靠 `3_` 前缀自动排在原 arena 页下面。
+
+**红线**：
+- 不改任何旧 arena 函数；GBDT 历史独立存 `gbdt_history` 表，删页 = 删一个 `.py` + 删 `api_client` 里 `gbdt_*`，原页无感。
+- 无本地算法：打分 / SHAP 全走后端 `/api/v1/gbdt/score`。
+
+---
+
+## 2026-05-31 | 宏观雷达加信用利差状态条（读后端 credit.level）
+
+**动因**:后端 `compute_macro_regime` 新增第三个同步闸门——信用利差闸门（`ade1a41`），输出 `upstream_summary.credit = {z, level}`，前端需展示。
+
+**改动**:`pages/0_宏观雷达.py` 债市阶梯卡片正下方加「上游 2.5 · 信用利差闸门」卡片（信用利差同源于 HYG/IEF）。复用现有 `_upstream_card_html` 卡片风格 + expander 详情。
+
+- 三档颜色:🟢平静 / 🟡走阔 / 🔴爆开，level **完全读后端字段**，前端只做 level→颜色映射，不算任何阈值
+- level=="爆开" 时弹 `st.warning`:真信用伤害→调阵型降敞口（**非清仓**）。文案点明「美联储救=V 型别清仓，加息不救=阴跌减仓」
+- 后端 persist 降到单日触发后去掉了 `confirmed_blowout` 字段，前端不消费它
+
+**红线**:信用闸门绝不挂清仓/卖出动作，只渲染状态 + 文案建议。它是同步指标，清仓=卖底。
+
+---
+
+## 2026-05-28 | §1.6 king_score 砍 Z 项,只保留动量+容量两维
+
+**动因**:同日早晨 king_score 上线后,主理人质问「为啥还要保留 Z」。复盘:
+
+- Z = 价格相对历史均线的偏离,**跟 RS 高度相关**(价格涨得多自然 Z 大 RS 大),caption 里我自己写过「Z 跟 RS 同向加分,不刹车」= 自承没独立信号
+- 少数 RS / Z 分歧场景反而是**噪声**:2020-03 疫情底部所有板块 Z 极负 → king_score 全打成负数(跟时代之王无关);主升浪冲顶期 Z 给「短期超买」加分(对识别**长期**王朝没价值)
+- 「时代之王」语义就两维:**动量(涨得多)** + **容量(大资金能进出)**,Z 是冗余项
+
+**改动**:
+
+1. **后端 valuation-radar**:
+   - 删除 `_KING_SCORE_W_Z = 0.5` 常量
+   - `king_score = 1.0×Z(rs_252d) + 0.8×Z(log10 ADV_63d)`,只剩两项
+   - 响应顶层 `king_score_weights` 不再含 `z` 键,只有 `{rs, cap}`
+   - Volume 全军覆没时降级为纯 RS(原本是降级为 RS+Z)
+
+2. **前端 valuation-radar-ui**:
+   - §1.6 caption:公式改写为两项,标语「动量 + 容量」替代「RS+Z+容量」
+   - 主图标题:`w_rs={x} / w_cap={x}`,去掉 `w_z`
+   - `_king_w` fallback 同步去掉 `z`
+
+3. **§1.5 不动**:板块强度波形仍用 `composite = Z(rs) + Z(z)`,那个图是看短期强势波形,Z 给冲顶强度加分合理
+
+**不动**:权重 1.0 / 0.8(用 25 候选 ETF 实际 ADV 分布反推校准过,见上一条);加冕门槛(rank=1 && rs_252d>0);universe 25 ETF
+
+**验收**:
+
+- 主图 🅰️ 标题只显示两个权重
+- URA 排名位置跟「砍 Z 前」相比应该几乎一致(Z 跟 RS 同向,砍掉 Z 对单月排序影响极小)
+- 若发现主图明显不同 → 说明 Z 之前在某些月份起作用了,要复盘 Z 是不是其实有信号
+
+---
+
 ## 2026-05-28 | Page0 王朝龙头股候选池口径升级（Yahoo/issuer/seed 三级标记）
 
 **动因**：候选池以前只显示「本地seed」，无数据源透明度。升级后显示真实口径（Yahoo/VanEck/iShares/…/seed fallback），stale 有提示。

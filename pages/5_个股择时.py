@@ -772,6 +772,16 @@ if _arena_data:
                         ))
                         if x_offset > 0:
                             boundary_xs.append(x_offset - 0.5)
+                        if spy_close is not None:
+                            _spy_seg = spy_close.reindex(_cash_idx, method="ffill").bfill().dropna()
+                            if len(_spy_seg) >= 2:
+                                _spy_pct = (_spy_seg / float(_spy_seg.iloc[0]) - 1) * 100
+                                _spy_cum = spy_running_return + _spy_pct
+                                for _si, _sdt in enumerate(_cash_idx):
+                                    if _sdt in _spy_seg.index:
+                                        spy_x_all.append(x_offset + _si)
+                                        spy_y_all.append(float(_spy_cum.loc[_sdt]))
+                                spy_running_return = float(_spy_cum.iloc[-1])
                         x_offset += _n
                 continue
             _wkd = _pc.get(_tk)

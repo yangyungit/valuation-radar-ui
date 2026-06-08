@@ -30,8 +30,6 @@ B组细筛质量 Harness Test
   │ 短stint亏损      │ 在 compute_scorecard_b 中加大抗跌韧性权重         │
   │ 长stint低效      │ 在 compute_scorecard_b 中加大夏普权重             │
   │ 严重亏损(>5%)    │ 加入 MA200 趋势健康门槛到分类阶段                  │
-  │ 宏观切换碎片化    │ 调整 B_REGIME_WEIGHTS 各剧本档位权重               │
-  │ 防御期动量噪声    │ B_REGIME_WEIGHTS Stag/Rec 的 RS120d 已归零        │
   └─────────────────┴─────────────────────────────────────────────────┘
 
 依赖: pip install pytest yfinance pandas numpy

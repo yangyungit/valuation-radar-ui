@@ -2020,6 +2020,36 @@ with st.expander("📖 债市阶梯详情（4 个 ratio 3Y 滚动 Z-Score）", e
         f"- **跳转 Page 1 §1 债市阶梯** 看 4 张完整 K-line + 滚动 Z 趋势图。"
     )
 
+# ── 上游 2.5：信用利差闸门（同步「真信用伤害」标尺，level 由后端定）──
+_us_credit  = (_upstream.get("credit") or {})
+_credit_lvl = str(_us_credit.get("level", "平静"))
+_credit_z   = float(_us_credit.get("z", 0.0))
+_CREDIT_COLOR = {"平静": "#2ECC71", "走阔": "#F1C40F", "爆开": "#E74C3C"}
+_CREDIT_DOT   = {"平静": "🟢", "走阔": "🟡", "爆开": "🔴"}
+_credit_color = _CREDIT_COLOR.get(_credit_lvl, "#888")
+_credit_dot   = _CREDIT_DOT.get(_credit_lvl, "⚪")
+_credit_summary = (
+    f"⏫ <b>上游 2.5 · 信用利差闸门</b>"
+    f"&nbsp;&nbsp;<b style='color:{_credit_color}; font-size:15px;'>{_credit_dot} {_credit_lvl}</b>"
+    f"&nbsp;&nbsp;<span style='color:#888;'>HY 利差 Z:</span> "
+    f"<b style='color:{_credit_color};'>{_credit_z:+.2f}</b>"
+)
+st.markdown(_upstream_card_html(_credit_color, "Credit Gate", _credit_summary), unsafe_allow_html=True)
+if _credit_lvl == "爆开":
+    st.warning(
+        "信用利差爆开（HY 利差 Z≥2）→ 真信用伤害，建议调阵型降敞口（非清仓）。"
+        "时长看政策：美联储救=V 型别清仓，加息不救=阴跌减仓。"
+    )
+with st.expander("📖 信用利差闸门详情（同步指标，绝不触发清仓）", expanded=False):
+    st.markdown(
+        f"- **当前状态**：{_credit_dot} <b style='color:{_credit_color};'>{_credit_lvl}</b>"
+        f"（HY 利差 Z = `{_credit_z:+.2f}`）\n"
+        f"- **三档**：`Z<1.0` 平静（下跌大概率假摔，逢跌加）；`1.0≤Z<2.0` 走阔（警戒审视）；`Z≥2.0` 爆开（真信用伤害，降敞口）\n"
+        f"- **信号源**：`HYG/IEF` 比值 250 日滚动 Z（高收益债 vs 国债，利差走阔=信用伤害）\n"
+        f"- **核心定位**：同步指标，等它爆崩盘已发生。**绝不触发清仓**（清仓=卖底），只输出状态供调阵型 + 人工判断。",
+        unsafe_allow_html=True,
+    )
+
 st.markdown("<div style='margin-bottom:12px;'></div>", unsafe_allow_html=True)
 _chain_dv   = (_chain_regime or {}).get("horsemen_daily_verdict", {}) or {}
 _chain_dc   = (_chain_regime or {}).get("horsemen_daily_confidence", {}) or {}
