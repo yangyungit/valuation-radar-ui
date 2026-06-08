@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import json
+import html
 import os
 import requests
 import calendar
@@ -1504,6 +1505,7 @@ _RES_DEGRADED_LABEL = {
     "missing_l2_factor_pack": "缺叙事快照",
     "missing_qs_factors": "缺质量因子",
     "kw_gap_days": "关键词数据滞后",
+    "no_bridge_evidence": "无桥梁证据",
 }
 
 _RES_DEGRADED_GROUP_LABEL = {
@@ -1511,6 +1513,12 @@ _RES_DEGRADED_GROUP_LABEL = {
     "C": "新闻",
     "S": "行业",
     "factor": "叙事因子",
+}
+
+_SURFACE_TIER_META = {
+    "candidate": {"label": "候选", "reason": "候选标的", "color": "#BDC3C7"},
+    "main": {"label": "候选", "reason": "候选标的", "color": "#BDC3C7"},
+    "proxy_reference": {"label": "参考", "reason": "参考·不计缺口", "color": "#7F8C8D"},
 }
 
 
@@ -1524,6 +1532,56 @@ def _res_degraded_label(value) -> str:
         return "、".join(_res_degraded_label(v) for v in value)
     key = str(value or "").strip()
     return _RES_DEGRADED_LABEL.get(key, key or "未知")
+
+
+def _html_escape(value) -> str:
+    return html.escape(str(value or ""), quote=True)
+
+
+def _surface_tier_for_row(row: dict) -> str:
+    detail = row.get("detail") or {}
+    tier = str(row.get("surface_tier") or detail.get("surface_tier") or "candidate").strip()
+    return tier if tier in _SURFACE_TIER_META else "candidate"
+
+
+def _bridge_evidence_summary(row: dict) -> str:
+    top = row.get("top_l2") or {}
+    parts = []
+    for key in ("A", "C", "S"):
+        try:
+            value = float(top.get(key) or 0.0)
+        except (TypeError, ValueError):
+            value = 0.0
+        parts.append(f"{key} {value:.2f}")
+
+    matched = top.get("matched_keywords") or {}
+    aff_terms = []
+    for kw in matched.get("affinity") or []:
+        term = kw.get("canonical") or kw.get("keyword")
+        if term:
+            aff_terms.append(str(term))
+        if len(aff_terms) >= 3:
+            break
+    cooc_terms = []
+    for kw in matched.get("cooc") or []:
+        term = kw.get("keyword")
+        if term:
+            cooc_terms.append(str(term))
+        if len(cooc_terms) >= 2:
+            break
+
+    summary = " / ".join(parts)
+    if aff_terms:
+        summary += " · A词 " + "、".join(aff_terms)
+    if cooc_terms:
+        summary += " · C词 " + "、".join(cooc_terms)
+
+    degraded_c = (top.get("degraded") or {}).get("C")
+    if degraded_c in ("no_cooc_data", ["no_cooc_data"]):
+        summary += " · affinity立榜·当日无新闻共现"
+    elif degraded_c:
+        summary += " · " + _res_degraded_label(degraded_c)
+    return summary
 
 
 def _res_gate_reason_cn(reason: str) -> str:
@@ -1727,15 +1785,19 @@ def _render_resonance_health_banner(meta: dict, as_of_date: str | None = None) -
             pass
 
     cooc_date = freshness.get("cooc_latest_date") or "—"
+    cooc_stale = bool(freshness.get("cooc_stale"))
+    cooc_stale_days = freshness.get("cooc_stale_days")
     cooc_warn = ""
-    if cooc_date != "—":
+    if cooc_stale:
+        if cooc_stale_days is None:
+            cooc_warn = " <span style='color:#F1C40F;'>C 暂记 0</span>"
+        else:
+            cooc_warn = f" <span style='color:#F1C40F;'>滞后 {cooc_stale_days} 天·C 暂记 0</span>"
+    elif cooc_date != "—":
         try:
             _cd = datetime.strptime(cooc_date, "%Y-%m-%d").date()
             _cg = (_ref_date - _cd).days
-            if _cg > 2:
-                cooc_warn = f" <span style='color:#E74C3C;'>C 桥已归零</span>"
-            else:
-                cooc_warn = f" <span style='color:#7F8C8D;'>({_cg}天)</span>"
+            cooc_warn = f" <span style='color:#7F8C8D;'>({_cg}天)</span>"
         except Exception:
             pass
 
@@ -1746,7 +1808,8 @@ def _render_resonance_health_banner(meta: dict, as_of_date: str | None = None) -
     seed_color = "#E74C3C" if seed_pct > 80 else "#F1C40F" if seed_pct > 50 else "#2ECC71"
     seed_tip = " → Page2 审批" if seed_pct > 80 else ""
 
-    degraded_total = sum(int(v) for v in degraded_counts.values())
+    true_gap_total = sum(int(v) for v in degraded_counts.values())
+    degraded_total = true_gap_total
     deg_color = "#E74C3C" if degraded_total > 0 else "#7F8C8D"
 
     st.markdown(
@@ -1784,8 +1847,8 @@ def _render_resonance_health_banner(meta: dict, as_of_date: str | None = None) -
                 </div>
             </div>
             <div>
-                <div title='数据缺口表示某些证据源缺失或过期；{cache_tip}'
-                     style='color:#7F8C8D; font-size:13px;'>数据缺口 {degraded_total} · {cache_label}</div>
+                <div title='真缺口 = 候选 top1 无任何 A/C/S 桥证据；{cache_tip}'
+                     style='color:#7F8C8D; font-size:13px;'>真缺口 {degraded_total} · {cache_label}</div>
                 <div style='font-size:15px; font-weight:bold; color:{cache_color};'>
                     <span style='color:{deg_color};'>{degraded_total}</span> ·
                     {cache_label}
@@ -1799,8 +1862,20 @@ def _render_resonance_health_banner(meta: dict, as_of_date: str | None = None) -
         unsafe_allow_html=True,
     )
 
+    if cooc_stale:
+        if cooc_stale_days is None:
+            _stale_msg = "共现桥数据滞后，C 暂记 0。"
+        else:
+            _stale_msg = f"共现桥数据滞后 {cooc_stale_days} 天，C 暂记 0。"
+        st.markdown(
+            f"<div style='background:#17140a; border:1px solid #3a2f12; color:#d8c27a; "
+            f"border-radius:6px; padding:9px 12px; margin:-4px 0 12px 0; font-size:13px;'>"
+            f"{_stale_msg}</div>",
+            unsafe_allow_html=True,
+        )
+
     if degraded_counts:
-        with st.expander(f"🔧 数据缺口明细（{degraded_total} 次）", expanded=False):
+        with st.expander(f"真缺口明细（{degraded_total} 次）", expanded=False):
             for _reason, _cnt in sorted(degraded_counts.items(), key=lambda x: -x[1]):
                 _label = _res_degraded_label(_reason)
                 st.markdown(
@@ -1819,22 +1894,24 @@ def _render_resonance_health_banner(meta: dict, as_of_date: str | None = None) -
 
 
 def _render_resonance_main_table(rows: list[dict]) -> None:
-    """v2 共振主表（显式 for 循环渲染，符合架构约束）。"""
+    """v2 共振完整榜单（显式 for 循环渲染，符合架构约束）。"""
     if not rows:
         st.info("D 组当前无候选标的。")
         return
     header_html = (
         "<div style='display:flex; align-items:center; border-bottom:2px solid #333;"
         " color:#888; font-size:13px; padding:8px 0; font-weight:bold;'>"
-        "<div style='width:60px;'>共振#</div>"
-        "<div style='width:140px;'>资产</div>"
-        "<div title='D组量价动量分，和叙事无关' style='width:80px; text-align:right;'>D组动量分</div>"
-        "<div title='叙事对这只票的支撑强度' style='width:90px; text-align:right;'>叙事支撑分</div>"
-        "<div title='动量分和叙事支撑分合成后的共振强度' style='width:90px; text-align:right;'>共振分</div>"
-        "<div title='当前得分最高的相关叙事线' style='width:140px;'>主叙事线</div>"
-        "<div style='width:120px;'>分区</div>"
-        "<div style='width:120px;'>桥梁/置信</div>"
-        "<div style='width:90px; text-align:right;'>排名变化</div>"
+        "<div style='width:58px;'>共振#</div>"
+        "<div style='width:132px;'>资产</div>"
+        "<div style='width:74px;'>类型</div>"
+        "<div title='D组量价动量分，和叙事无关' style='width:78px; text-align:right;'>D动量</div>"
+        "<div title='叙事对这只票的支撑强度' style='width:82px; text-align:right;'>叙事分</div>"
+        "<div title='动量分和叙事支撑分合成后的共振强度' style='width:82px; text-align:right;'>共振分</div>"
+        "<div title='当前得分最高的相关叙事线' style='width:132px;'>主叙事线</div>"
+        "<div style='width:102px;'>分区</div>"
+        "<div style='width:82px;'>置信度</div>"
+        "<div style='flex:1; min-width:240px;'>证据</div>"
+        "<div style='width:78px; text-align:right;'>排名</div>"
         "</div>"
     )
     rows_html = ""
@@ -1843,6 +1920,10 @@ def _render_resonance_main_table(rows: list[dict]) -> None:
         zmeta = _RES_ZONE_META.get(zone, _RES_ZONE_META["NO_NARRATIVE"])
         conf = r.get("bridge_confidence", "none")
         conf_color, conf_label = _RES_CONF_BADGE.get(conf, _RES_CONF_BADGE["none"])
+        tier = _surface_tier_for_row(r)
+        tmeta = _SURFACE_TIER_META.get(tier, _SURFACE_TIER_META["candidate"])
+        type_title = _html_escape(tmeta.get("reason", ""))
+        evidence = _html_escape(_bridge_evidence_summary(r))
         delta = r.get("rank_delta", 0)
         if delta > 0:
             delta_html = f"<span style='color:#2ECC71;'>↑{delta}</span>"
@@ -1850,31 +1931,36 @@ def _render_resonance_main_table(rows: list[dict]) -> None:
             delta_html = f"<span style='color:#E74C3C;'>↓{abs(delta)}</span>"
         else:
             delta_html = "<span style='color:#7F8C8D;'>—</span>"
-        top_l2 = (r.get("top_l2") or {}).get("l2_sector") or r.get("top_l2_sector") or "—"
+        top_l2 = _html_escape((r.get("top_l2") or {}).get("l2_sector") or r.get("top_l2_sector") or "—")
         _top = r.get("top_l2") or {}
         primary = _res_bridge_label(_top.get("primary_bridge") or "—")
-        zone_help = _RES_ZONE_HELP.get(zone, "")
+        zone_help = _html_escape(_RES_ZONE_HELP.get(zone, ""))
         rows_html += (
             "<div style='display:flex; align-items:center; border-bottom:1px solid #1e1e1e; padding:8px 0; font-size:14px;'>"
-            f"<div style='width:60px; color:#aaa; font-weight:bold;'>#{r.get('resonance_rank', '?')}</div>"
-            "<div style='width:140px; display:flex; flex-direction:column; gap:2px;'>"
-            f"<span style='font-weight:bold; color:#eee;'>{r['Ticker']}</span>"
-            f"<span style='font-size:13px; color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>{r.get('名称', '')}</span>"
+            f"<div style='width:58px; color:#aaa; font-weight:bold;'>#{r.get('resonance_rank', '?')}</div>"
+            "<div style='width:132px; display:flex; flex-direction:column; gap:2px;'>"
+            f"<span style='font-weight:bold; color:#eee;'>{_html_escape(r.get('Ticker', ''))}</span>"
+            f"<span style='font-size:13px; color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>{_html_escape(r.get('名称', ''))}</span>"
             "</div>"
-            f"<div style='width:80px; text-align:right; color:#9B59B6; font-weight:bold;'>{r.get('ScorecardD', 0):.1f}</div>"
-            f"<div style='width:90px; text-align:right; color:#3498DB; font-weight:bold;'>{r.get('NarrativeScore', 0):.1f}</div>"
-            f"<div style='width:90px; text-align:right; color:{zmeta['color']}; font-weight:bold; font-size:15px;'>{r.get('Resonance', 0):.1f}</div>"
-            f"<div style='width:140px; color:#bbb; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' title='{top_l2}'>{top_l2}</div>"
-            f"<div style='width:120px;'>"
+            f"<div style='width:74px;'>"
+            f"<span title='{type_title}' style='background:{tmeta['color']}18; color:{tmeta['color']}; border:1px solid {tmeta['color']}55;"
+            f" border-radius:4px; padding:2px 7px; font-size:13px; white-space:nowrap;'>{tmeta['label']}</span>"
+            "</div>"
+            f"<div style='width:78px; text-align:right; color:#9B59B6; font-weight:bold;'>{r.get('ScorecardD', 0):.1f}</div>"
+            f"<div style='width:82px; text-align:right; color:#3498DB; font-weight:bold;'>{r.get('NarrativeScore', 0):.1f}</div>"
+            f"<div style='width:82px; text-align:right; color:{zmeta['color']}; font-weight:bold; font-size:15px;'>{r.get('Resonance', 0):.1f}</div>"
+            f"<div style='width:132px; color:#bbb; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' title='{top_l2}'>{top_l2}</div>"
+            f"<div style='width:102px;'>"
             f"<span title='{zone_help}' style='background:{zmeta['bg']}; color:{zmeta['color']}; border:1px solid {zmeta['color']}55;"
-            f" border-radius:4px; padding:2px 8px; font-size:13px; font-weight:bold; white-space:nowrap;'>{zmeta['label']}</span>"
+            f" border-radius:4px; padding:2px 7px; font-size:13px; font-weight:bold; white-space:nowrap;'>{zmeta['label']}</span>"
             "</div>"
-            f"<div style='width:120px; display:flex; align-items:center; gap:6px; white-space:nowrap;'>"
-            f"<span style='color:#3498DB; font-weight:bold; font-size:14px; min-width:14px;'>{primary}</span>"
+            f"<div style='width:82px; display:flex; align-items:center; gap:5px; white-space:nowrap;'>"
             f"<span style='background:{conf_color}22; color:{conf_color}; border:1px solid {conf_color}55;"
             f" border-radius:4px; padding:2px 6px; font-size:13px;'>{conf_label}</span>"
             "</div>"
-            f"<div style='width:90px; text-align:right;'>{delta_html}</div>"
+            f"<div title='{evidence}' style='flex:1; min-width:240px; color:#999; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>"
+            f"<span style='color:#3498DB; font-weight:bold; margin-right:6px;'>{primary}</span>{evidence}</div>"
+            f"<div style='width:78px; text-align:right;'>{delta_html}</div>"
             "</div>"
         )
     st.markdown(
@@ -2648,7 +2734,7 @@ def _render_resonance_board_v2_response(
         st.info("后端返回空数据（可能新版共振榜关闭或当日无候选）。")
         return
 
-    st.markdown("##### 共振主榜")
+    st.markdown("##### 共振完整榜")
     _render_resonance_main_table(rows)
 
     strong_rows = [r for r in rows if r.get("zone") == "STRONG_NARRATIVE"]

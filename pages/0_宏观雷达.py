@@ -4,6 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import yfinance as yf
+import streamlit.components.v1 as components  # 持仓回测图横向滚动用
 from _yf_session import YF_SESSION  # curl_cffi 浏览器指纹，绕 Yahoo 401
 
 from api_client import (
@@ -408,13 +409,23 @@ def _render_dynasty_backtest(
             )
 
             # 分段彩色累计收益曲线 + SPY
+            # 高换手 → 段多，标签易糊。解法：按月数把画布加宽，外层 div 横向滚动，
+            # 保留每段标签（信息不删），合成 tab 标签缩成「领涨 等N只」防超长。
             _fig = go.Figure()
             _ret_series = (_nav / float(_nav.iloc[0]) - 1.0) * 100.0
-            _lbl_of_date = _ret_series.index.strftime("%Y-%m")
+            _lbl_of_date = list(_ret_series.index.strftime("%Y-%m"))
             _hold_seq = [_holdings_label(_slots_list, l) for l in _lbl_of_date]
+
+            def _short_lbl(_s: str) -> str:
+                if _s == "💰 空仓":
+                    return _s
+                _ps = _s.split("＋")
+                return _s if len(_ps) <= 2 else f"{_ps[0]} 等{len(_ps)}只"
+
             _seg_start = 0
             _ci = 0
             _annos = []
+            _seg_records = []
             for _i in range(1, len(_hold_seq) + 1):
                 if _i == len(_hold_seq) or _hold_seq[_i] != _hold_seq[_seg_start]:
                     _seg_dates = _ret_series.index[_seg_start:_i]
@@ -432,13 +443,20 @@ def _render_dynasty_backtest(
                     if _mid is not None and not _is_cash:
                         _annos.append(dict(
                             x=_mid, y=1.0, xref="x", yref="paper",
-                            text=_hold_seq[_seg_start], showarrow=False,
+                            text=_short_lbl(_hold_seq[_seg_start]), showarrow=False,
                             font=dict(size=13, color=_color),
-                            xanchor="center", yanchor="bottom",
+                            xanchor="center", yanchor="bottom", textangle=-30,
                         ))
                     if _seg_start > 0:
                         _fig.add_vline(x=_ret_series.index[_seg_start], line_dash="dash",
                                        line_color="rgba(200,200,200,0.3)", line_width=1)
+                    _seg_ret = (float(_nav.iloc[_i - 1]) / float(_nav.iloc[_seg_start]) - 1) * 100
+                    _seg_records.append({
+                        "标的": _hold_seq[_seg_start],
+                        "区间": f"{_lbl_of_date[_seg_start]}→{_lbl_of_date[_i - 1]}",
+                        "持续(月)": len(pd.unique(_lbl_of_date[_seg_start:_i])),
+                        "段内收益%": round(_seg_ret, 1),
+                    })
                     if not _is_cash:
                         _ci += 1
                     _seg_start = _i
@@ -454,19 +472,39 @@ def _render_dynasty_backtest(
                         name=f"SPY 同期 {_spy_ret:+.1f}%", showlegend=True,
                     ))
 
+            # 按月数加宽画布（每月 ~72px），下方横向滚动一次看全
+            _n_months = len(pd.unique(_lbl_of_date))
+            _chart_w = max(960, _n_months * 72)
             _fig.update_layout(
-                title=dict(text=f"{backtest_window} 持仓回测 · {_subtitle}",
+                title=dict(text=f"{backtest_window} 持仓回测 · {_subtitle}（可横向滚动）",
                            font=dict(size=15), x=0.01, xanchor="left"),
-                height=520, margin=dict(l=10, r=10, t=46, b=40),
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(30,30,30,0.6)",
+                width=_chart_w, autosize=False,
+                height=540, margin=dict(l=10, r=10, t=64, b=40),
+                paper_bgcolor="#0e1117", plot_bgcolor="rgba(30,30,30,0.6)",
                 font=dict(color="#ccc", size=13),
                 yaxis=dict(title="累计收益率 (%)", ticksuffix="%",
-                           gridcolor="rgba(100,100,100,0.3)"),
+                           gridcolor="rgba(100,100,100,0.3)", fixedrange=True),
                 xaxis=dict(gridcolor="rgba(100,100,100,0.3)"),
                 annotations=_annos,
                 showlegend=not _spy_wk.empty,
+                legend=dict(x=0.004, y=0.02, xanchor="left", yanchor="bottom",
+                            bgcolor="rgba(0,0,0,0.35)"),
             )
-            st.plotly_chart(_fig, use_container_width=True, key=f"dyn_bt_{_gname}")
+            _bt_html = _fig.to_html(include_plotlyjs="cdn", full_html=False,
+                                    config={"displayModeBar": False})
+            components.html(
+                "<style>body{margin:0;background:#0e1117;}</style>"
+                "<div style='overflow-x:auto;overflow-y:hidden;width:100%;"
+                f"background:#0e1117'>{_bt_html}</div>",
+                height=565, scrolling=True,
+            )
+
+            with st.expander("📋 持仓段明细（完整标的 · 区间 · 段内收益）", expanded=False):
+                _seg_df = pd.DataFrame(_seg_records)
+                st.dataframe(
+                    _seg_df, use_container_width=True, hide_index=True,
+                    height=min(560, 44 + 34 * len(_seg_records)),
+                )
 
 st.set_page_config(page_title="宏观雷达", layout="wide")
 
