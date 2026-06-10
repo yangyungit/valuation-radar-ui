@@ -14,6 +14,7 @@ from api_client import (
     fetch_sector_rotation,
     fetch_etf_meta,
     fetch_dynasty_leaders,
+    fetch_dynasty_double_dragon,
     fetch_theme_holdings_status,
 )
 
@@ -47,6 +48,7 @@ with st.sidebar:
         fetch_sector_rotation.clear()
         fetch_etf_meta.clear()
         fetch_dynasty_leaders.clear()
+        fetch_dynasty_double_dragon.clear()
         st.rerun()
 
 # ============================================================
@@ -562,7 +564,9 @@ else:
         help="月末快照：3Y/5Y/10Y 约对应 36/60/120 个格子",
     )
 
-    _dyn_tab1, _dyn_tab2 = st.tabs(["👑 王朝接力图", "🏆 王朝龙头股"])
+    _dyn_tab1, _dyn_tab2, _dyn_tab3 = st.tabs(
+        ["👑 王朝接力图", "🏆 王朝龙头股", "📈 C组双龙持仓"]
+    )
     with _dyn_tab1:
         if not selected_groups:
             st.info("👈 请在侧边栏勾选至少一个组别以渲染王朝图")
@@ -1117,6 +1121,247 @@ else:
                             "候选池: S&P500+GICS=一级行业当前成分；Yahoo/发行商=主题 ETF 官方持仓快照；"
                             "seed fallback=本地维护持仓，非实时官方数据。"
                         )
+
+    with _dyn_tab3:
+        st.markdown("#### 📈 C组双龙持仓 — 动量轮动历史模拟")
+        st.caption(
+            "**口径**：C 组 11 个 SPDR sector 成分股汇总池（≈ 标普500），每月按动量选最强 **2 只**持有，"
+            "守擂缓冲压换手，次日收盘成交、扣单边成本。"
+            "**诚实声明**：信号**不看未来**、可执行规则模拟；但股票池=**当前**标普500成分，"
+            "**含生存者偏差**（缺历史上被剔除/退市/收购的公司），结果偏乐观 → **研究原型，非真实业绩**。"
+        )
+
+        # 顶部控制区（复用上方 _dynasty_window 作为时间跨度，不新建窗口选择器）
+        _dd_c1, _dd_c2, _dd_c3, _dd_c4 = st.columns([2, 3, 1.2, 1.2])
+        with _dd_c1:
+            _dd_signal_label = st.radio(
+                "排名信号", ["12M", "12-1", "6M"], index=0, horizontal=True,
+                key="dd_signal",
+                help="谁更强：12M=过去一年涨幅；12-1=跳过最近一月避反转；6M=半年。风险门槛恒用 12M",
+            )
+        _dd_signal = {"12M": "12m", "12-1": "12-1", "6M": "6m"}[_dd_signal_label]
+        with _dd_c2:
+            _dd_k = st.slider(
+                "守擂名次 K", 2, 60, 30, key="dd_k",
+                help="在位的票仍在前 K 名就继续持有，跌出才换。K 越大越省换手（默认 30，中性值非最优）",
+            )
+        with _dd_c3:
+            _dd_risk = st.toggle(
+                "风险保护", value=True, key="dd_risk",
+                help="开：不合格的票（12M 收益≤0 或 跌破 MA200）转 BIL 避险",
+            )
+        with _dd_c4:
+            _dd_rebal = st.toggle(
+                "再平衡", value=False, key="dd_rebal",
+                help="开：每月把两槽掰回 50/50（砍赢家喂输家，与动量相悖，默认关）",
+            )
+
+        with st.expander("⚙️ 高级设置"):
+            _dd_cost = st.slider(
+                "单边成本 (bps)", 0, 50, 10, key="dd_cost",
+                help="买/卖各算一次，扣在成交名义额上",
+            )
+            _dd_show11 = st.checkbox(
+                "净值图叠加 11 行业 ETF 等权", value=False, key="dd_show11"
+            )
+
+        _dd = fetch_dynasty_double_dragon(
+            window=_dynasty_window, signal=_dd_signal, k=_dd_k,
+            risk_protect=_dd_risk, rebalance=_dd_rebal, cost_bps=float(_dd_cost),
+        )
+
+        if not _dd.get("success"):
+            st.warning(f"⚠️ C组双龙回测暂不可用：{_dd.get('error', '未知错误')}")
+        else:
+            _meta = _dd.get("meta", {})
+            _notes = []
+            if not _meta.get("date_added_used"):
+                _notes.append("未启用入指数日过滤（date_added 不可靠）")
+            if not _meta.get("bil_available"):
+                _notes.append("BIL 历史缺失，避险段按现金 0 收益")
+            if not _meta.get("rsp_available"):
+                _notes.append("RSP 缺失，未画等权标普对照")
+            st.caption(
+                f"池 {_meta.get('universe_size', '?')} 只 · 展示自 {_meta.get('display_start', '')} · "
+                + ("⚠️ " + "；".join(_notes) if _notes else "数据完整")
+            )
+
+            # ── 当前持仓卡（显式 for 循环渲染两个槽）──
+            st.markdown("##### 当前持仓")
+            _hold_cols = st.columns(2)
+            _cur = _dd.get("current_holdings", {})
+            _slot_items = [("槽A", _cur.get("slotA", {})), ("槽B", _cur.get("slotB", {}))]
+            for _si in range(len(_slot_items)):
+                _slabel, _sdata = _slot_items[_si]
+                with _hold_cols[_si]:
+                    if not _sdata or _sdata.get("bil"):
+                        _slot_html = (
+                            f"<div class='insight-box'><div class='insight-title'>{_slabel}</div>"
+                            "<div style='font-size:15px;color:#bbb;'>BIL（风险保护中）</div></div>"
+                        )
+                    else:
+                        _slot_html = (
+                            f"<div class='insight-box'><div class='insight-title'>{_slabel}</div>"
+                            f"<div style='font-size:16px;color:#fff;font-weight:bold;'>"
+                            f"{_sdata.get('name', '')} ({_sdata.get('ticker', '')})</div>"
+                            "<div style='font-size:14px;color:#bbb;margin-top:6px;'>"
+                            f"首次持有 {_sdata.get('since', '—')}｜当前排名 第 {_sdata.get('rank', '—')}"
+                            f"｜已守擂 {_sdata.get('held_months', '—')} 月</div></div>"
+                        )
+                    st.markdown(_slot_html, unsafe_allow_html=True)
+
+            # ── 净值曲线（默认只显双龙+SPY，其余 legendonly）──
+            st.markdown("##### 净值曲线（起点归一为 1）")
+            _eq = _dd.get("equity", {})
+            _dd_dates = pd.to_datetime(_dd.get("dates", []), errors="coerce")
+            _series_cfg = [
+                ("strategy", "双龙策略", "#E74C3C", True),
+                ("spy", "SPY", "#3498DB", True),
+                ("top2", "纯Top2 (K=2)", "#F39C12", False),
+                ("rsp", "RSP 等权标普", "#9B59B6", False),
+            ]
+            if _dd_show11:
+                _series_cfg.append(("eqw11", "11行业ETF等权", "#16A085", False))
+            _fig_eq = go.Figure()
+            for _key, _name, _color, _vis_default in _series_cfg:
+                _vals = _eq.get(_key, []) or []
+                if not _vals:
+                    continue
+                _s = pd.Series(_vals, index=_dd_dates).astype(float).dropna()
+                if _s.empty:
+                    continue
+                _fig_eq.add_trace(go.Scatter(
+                    x=_s.index, y=_s.values, name=_name,
+                    line=dict(color=_color, width=2 if _vis_default else 1.4),
+                    visible=True if _vis_default else "legendonly",
+                ))
+            _fig_eq.update_layout(
+                height=420, hovermode="x unified", template="plotly_dark",
+                margin=dict(l=10, r=10, t=30, b=10),
+                legend=dict(orientation="h", y=1.08), yaxis_title="净值",
+            )
+            st.plotly_chart(_fig_eq, use_container_width=True)
+            st.caption("默认只显双龙+SPY，点图例可展开 纯Top2 / RSP" + ("/11ETF" if _dd_show11 else ""))
+
+            # ── 统计卡（大白话命名）──
+            st.markdown("##### 统计卡")
+            _stats = _dd.get("stats", {})
+            _metrics_a = [
+                ("累计收益", f"{_stats.get('cum_return', 0) * 100:.0f}%"),
+                ("年化收益", f"{_stats.get('cagr', 0) * 100:.0f}%"),
+                ("最大回撤", f"{_stats.get('max_dd', 0) * 100:.0f}%"),
+                ("收益回撤比", f"{_stats.get('calmar', 0):.2f}"),
+                ("比SPY多赚", f"{_stats.get('excess_vs_spy', 0) * 100:.0f}%"),
+            ]
+            _metrics_b = [
+                ("换股次数", f"{_stats.get('n_swaps', 0)}"),
+                ("平均一只拿几个月", f"{_stats.get('avg_hold_months', 0)}"),
+                ("年均换手", f"{_stats.get('ann_turnover', 0):.2f}"),
+                ("累计成本", f"{_stats.get('cum_cost', 0) * 100:.1f}%"),
+                ("BIL停留月数", f"{_stats.get('bil_months', 0)}"),
+            ]
+            _row_a = st.columns(5)
+            for _mi in range(len(_metrics_a)):
+                with _row_a[_mi]:
+                    st.metric(_metrics_a[_mi][0], _metrics_a[_mi][1])
+            _row_b = st.columns(5)
+            for _mi in range(len(_metrics_b)):
+                with _row_b[_mi]:
+                    st.metric(_metrics_b[_mi][0], _metrics_b[_mi][1])
+            _front_map = {f["k"]: f for f in _dd.get("frontier", [])}
+            _t2 = _front_map.get(2, {})
+            if _t2:
+                st.caption(
+                    "**纯Top2 (K=2) 对照**："
+                    f"年化收益 {_t2.get('net_cagr', 0) * 100:.0f}% ｜ "
+                    f"年均换手 {_t2.get('ann_turnover', 0):.2f} ｜ "
+                    f"收益回撤比 {_t2.get('calmar', 0):.2f}（守擂 vs 月月追 Top2 的换手/收益取舍）"
+                )
+
+            # ── 持仓时间带（两条轨道 = 槽A/槽B 的接力）──
+            st.markdown("##### 持仓时间带")
+            _tl = _dd.get("holdings_timeline", [])
+            _band_rows = []
+            for _slot_key, _track in [("slotA", "槽A"), ("slotB", "槽B")]:
+                _prev = None
+                _start = None
+                for _h in _tl:
+                    _m = _h["month"]
+                    _cell = _h.get(_slot_key)
+                    if not _cell:
+                        _lab = "—"
+                    elif _cell.get("bil"):
+                        _lab = "BIL"
+                    else:
+                        _lab = _cell.get("ticker", "—")
+                    if _lab != _prev:
+                        if _prev is not None and _prev != "—":
+                            _band_rows.append({
+                                "Track": _track, "持仓": _prev,
+                                "Start": _start, "Finish": pd.Timestamp(_m + "-01"),
+                            })
+                        _prev = _lab
+                        _start = pd.Timestamp(_m + "-01")
+                if _prev is not None and _prev != "—" and _tl:
+                    _band_rows.append({
+                        "Track": _track, "持仓": _prev, "Start": _start,
+                        "Finish": pd.Timestamp(_tl[-1]["month"] + "-01") + pd.offsets.MonthBegin(1),
+                    })
+            if _band_rows:
+                _df_band = pd.DataFrame(_band_rows)
+                _fig_band = px.timeline(
+                    _df_band, x_start="Start", x_end="Finish", y="Track",
+                    color="持仓", color_discrete_map={"BIL": "#7f8c8d"},
+                )
+                _fig_band.update_yaxes(autorange="reversed", title="")
+                _fig_band.update_layout(
+                    height=240, template="plotly_dark",
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    legend=dict(orientation="h", y=-0.25),
+                )
+                st.plotly_chart(_fig_band, use_container_width=True)
+                st.caption("每只票一色，BIL 灰色；hover 看持有区间")
+
+            # ── 换手-收益取舍图（frontier）──
+            st.markdown("##### 换手-收益取舍图")
+            _fr = _dd.get("frontier", [])
+            if _fr:
+                _fr_sorted = sorted(_fr, key=lambda x: x["ann_turnover"])
+                _fr_x = [f["ann_turnover"] for f in _fr_sorted]
+                _fr_cagr = [f["net_cagr"] * 100 for f in _fr_sorted]
+                _fr_calmar = [f["calmar"] for f in _fr_sorted]
+                _fr_ktxt = [f"K{f['k']}" for f in _fr_sorted]
+                _fig_fr = go.Figure()
+                _fig_fr.add_trace(go.Scatter(
+                    x=_fr_x, y=_fr_cagr, mode="lines+markers+text",
+                    text=_fr_ktxt, textposition="top center",
+                    name="年化收益(%)", line=dict(color="#E74C3C"), yaxis="y1",
+                ))
+                _fig_fr.add_trace(go.Scatter(
+                    x=_fr_x, y=_fr_calmar, mode="lines+markers",
+                    name="收益回撤比", line=dict(color="#3498DB", dash="dot"), yaxis="y2",
+                ))
+                _cur_k = _dd.get("k")
+                for _f in _fr_sorted:
+                    if _f["k"] == _cur_k:
+                        _fig_fr.add_trace(go.Scatter(
+                            x=[_f["ann_turnover"]], y=[_f["net_cagr"] * 100],
+                            mode="markers", name=f"当前 K={_cur_k}",
+                            marker=dict(color="#F1C40F", size=16, symbol="star"), yaxis="y1",
+                        ))
+                _fig_fr.update_layout(
+                    height=380, template="plotly_dark",
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    xaxis_title="年均换手（每年大约换掉多少仓位）",
+                    yaxis=dict(title="年化收益(%)", side="left"),
+                    yaxis2=dict(title="收益回撤比", overlaying="y", side="right"),
+                    legend=dict(orientation="h", y=1.12),
+                )
+                st.plotly_chart(_fig_fr, use_container_width=True)
+                st.caption(
+                    "每点一个守擂 K，横轴=年均换手。看**稳定平台**别挑历史最高的孤点"
+                    "（单一路径+生存者偏差下=过拟合）"
+                )
 
 
 # ============================================================

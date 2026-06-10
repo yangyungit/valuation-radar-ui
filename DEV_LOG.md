@@ -1,3 +1,19 @@
+## 2026-06-10 | Page0 §1.6 新增第三个 tab「📈 C组双龙持仓」
+
+**动因**：在「板块王朝接力图」区块加第三个 tab，用 C 组 11 个 sector 成分股汇总池跑双龙动量轮动历史模拟，可视化净值/持仓/统计/换手-收益取舍。
+
+**改动**：
+
+- `api_client.py` 新增 `fetch_dynasty_double_dragon(window, signal, k, risk_protect, rebalance, cost_bps)`，照抄 `fetch_sector_leader_history` 的缓存(4h)+冷启动重试写法，timeout 180s（首屏 ~500 股较慢）。
+- `pages/0_宏观雷达.py`：`st.tabs` 加第三项；新增 `with _dyn_tab3:` 完整 UI——顶部控制区（排名信号 12M/12-1/6M、守擂 K 2~60 默认30、风险保护开、再平衡关、高级设置内成本 bps）；当前持仓卡（显式 for 循环渲染两槽）；净值曲线（默认双龙+SPY，纯Top2/RSP/11ETF legendonly）；统计卡（大白话命名 + 纯Top2 对照）；持仓时间带（px.timeline 两轨道）；frontier 取舍图（当前 K 高亮，不标最优）。侧边栏强刷注册 `fetch_dynasty_double_dragon.clear()`。
+- 复用上方 `_dynasty_window`（3Y/5Y/10Y）作时间跨度，不新建窗口选择器。业务计算全在后端，前端只渲染；送 plotly 前 `.astype(float).dropna()`；自定义 HTML 字号正文≥14px。
+
+**诚实声明**：UI 顶部明示信号无前视/次日成交/扣成本，但池=当前标普500成分含生存者偏差 → 研究原型，非真实业绩；未启用入指数日过滤（date_added 不可靠）也在 caption 标注。
+
+**契约**：依赖后端新 endpoint `GET /api/v1/macro/dynasty/double_dragon`（先后端后前端）。**未 push；本地需重启后端 `start_dev.sh` 才能加载新 endpoint（当前运行的后端进程早于本次改动）。**
+
+---
+
 ## 2026-06-10 | Page0 §1.6 王朝接力图 king_score 口径文案同步（母体 66→25）
 
 **动因**：后端把 dynasty king_score 标准化母体从 66 跨资产收窄到 25 个板块 ETF，并改用真实美股交易日 252 动量（详见后端 DEV_LOG 同日条目）。前端 §1.6 文案原写「对 25 个板块做横截面排名」，未说明标准化母体其实是全 66，属于「说得不够准」。

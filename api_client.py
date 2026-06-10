@@ -952,6 +952,49 @@ def fetch_sector_leader_history(
     return {"success": False, "error": str(last_exc)}
 
 
+@st.cache_data(ttl=3600 * 4)
+def fetch_dynasty_double_dragon(
+    window: str = "5Y",
+    signal: str = "12m",
+    k: int = 30,
+    risk_protect: bool = True,
+    rebalance: bool = False,
+    cost_bps: float = 10.0,
+) -> dict:
+    """从后端获取 C 组双龙持仓回测（研究原型），供 Page 0 §1.6「📈 C组双龙持仓」TAB 用。
+
+    每月按动量(signal)选最强 2 只持有，守擂缓冲 K 压换手，扣成本，
+    返回净值曲线 / 持仓时间线 / 统计卡 / 换手-收益取舍图(frontier)。
+    诚实定位：信号无前视、次日成交、扣成本；但池含生存者偏差，非真实业绩。
+    首次加载较慢（~500 股 + 预热 + BIL/RSP），Render 冷启动 502/504 自动重试一次。
+    失败返回 {"success": False, "error": ...}。
+    """
+    import time as _time
+    last_exc = None
+    for attempt in range(2):
+        try:
+            if attempt > 0:
+                _time.sleep(15)
+            r = requests.get(
+                f"{API_BASE_URL}/api/v1/macro/dynasty/double_dragon",
+                params={
+                    "window": window, "signal": signal, "k": k,
+                    "risk_protect": risk_protect, "rebalance": rebalance,
+                    "cost_bps": cost_bps,
+                },
+                timeout=180,
+            )
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_exc = e
+            err = str(e)
+            if attempt == 0 and any(c in err for c in ("502", "504", "Connection")):
+                continue
+            break
+    return {"success": False, "error": str(last_exc)}
+
+
 @st.cache_data(ttl=6 * 3600)
 def fetch_theme_holdings_status() -> dict:
     """从后端获取 14 个主题 ETF 的 holdings 数据源状态（source/provider/as_of_date/is_fallback/is_stale）。
