@@ -829,18 +829,19 @@ def fetch_macro_radar() -> dict:
 
 
 @st.cache_data(ttl=3600 * 4)
-def fetch_macro_radar_timeseries(window: str = "1Y") -> dict:
-    """从后端获取雷达指标历史时序（每日 RS / Z / 复合分），供 Page 0 §1.5 波形图使用。
+def fetch_macro_radar_timeseries(window: str = "1Y", profile: str = "waveform") -> dict:
+    """从后端获取雷达指标历史时序（每日 RS / Z / 复合分），供 Page 0 §1.5/§1.6 使用。
     `window` ∈ {1M, 3M, 6M, 1Y, 5Y, 10Y}——每个窗口用不同 RS/Z 计算尺度
-    （1M=RS_20d/Z_250d, 10Y=RS_252d/Z_750d），后端按 window 分桶缓存。
+    （1M=RS_20d/Z_250d, 10Y=RS_252d/Z_750d）。
+    `profile="dynasty"` 时所有跨度固定使用 RS_252d；后端按 (profile, window) 分桶缓存。
     排名由前端按选中组别动态计算。
-    返回 {"success": True, "window": ..., "rs_window": N, "z_window": N,
+    返回 {"success": True, "profile": ..., "window": ..., "rs_window": N, "z_window": N,
          "asof": "YYYY-MM-DD", "dates": [...], "tickers": {ticker: {...}}}。
     """
     try:
         r = requests.get(
             f"{API_BASE_URL}/api/v1/macro/radar/timeseries",
-            params={"window": window},
+            params={"window": window, "profile": profile},
             timeout=120,
         )
         r.raise_for_status()

@@ -113,6 +113,7 @@ _PAGE_TICKERS = [
 ]
 
 _WAVE_TAB_WINDOWS = ["1M", "3M", "6M", "1Y", "5Y", "10Y"]
+_DYNASTY_TAB_WINDOWS = ["1Y", "2Y", "3Y", "5Y", "10Y"]
 
 with st.spinner("📊 加载市场结构数据..."):
     df_prices       = get_global_data(_PAGE_TICKERS, years=10)
@@ -120,6 +121,10 @@ with st.spinner("📊 加载市场结构数据..."):
     # 6 个 tab 各 fetch 一次（后端按 window 用不同 RS/Z 窗口计算）
     _radar_ts_by_window = {
         w: fetch_macro_radar_timeseries(window=w) for w in _WAVE_TAB_WINDOWS
+    }
+    _dynasty_ts_by_window = {
+        w: fetch_macro_radar_timeseries(window=w, profile="dynasty")
+        for w in _DYNASTY_TAB_WINDOWS
     }
     _current_regime = fetch_current_regime()
     _chain_regime   = compute_macro_regime_api(z_window=750)
@@ -550,10 +555,11 @@ else:
 
     _dynasty_window = st.radio(
         "时间跨度",
-        options=["5Y", "10Y"],
+        options=_DYNASTY_TAB_WINDOWS,
+        index=_DYNASTY_TAB_WINDOWS.index("5Y"),
         horizontal=True,
         key="dynasty_window",
-        help="5Y = 60 个月格子 / 10Y = 120 个月格子",
+        help="月末快照：1Y/2Y/3Y/5Y/10Y 约对应 12/24/36/60/120 个格子",
     )
 
     _dyn_tab1, _dyn_tab2 = st.tabs(["👑 王朝接力图", "🏆 王朝龙头股"])
@@ -561,7 +567,7 @@ else:
         if not selected_groups:
             st.info("👈 请在侧边栏勾选至少一个组别以渲染王朝图")
         else:
-            _dyn_ts = _radar_ts_by_window.get(_dynasty_window, {}) or {}
+            _dyn_ts = _dynasty_ts_by_window.get(_dynasty_window, {}) or {}
             if not _dyn_ts.get("success"):
                 st.warning(f"⚠️ {_dynasty_window} 时序数据暂不可用:{_dyn_ts.get('error', '未知错误')}")
             else:
@@ -852,7 +858,7 @@ else:
 
         if not selected_groups:
             st.info("👈 请在侧边栏勾选至少一个组别以识别王朝期")
-        elif not (_dyn_ts := _radar_ts_by_window.get(_dynasty_window, {})) or not _dyn_ts.get("success"):
+        elif not (_dyn_ts := _dynasty_ts_by_window.get(_dynasty_window, {})) or not _dyn_ts.get("success"):
             st.warning(f"⚠️ {_dynasty_window} 时序数据暂不可用")
         else:
             _dyn_tickers2 = _dyn_ts.get("tickers", {}) or {}
