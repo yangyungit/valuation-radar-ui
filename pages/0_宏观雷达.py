@@ -113,7 +113,7 @@ _PAGE_TICKERS = [
 ]
 
 _WAVE_TAB_WINDOWS = ["1M", "3M", "6M", "1Y", "5Y", "10Y"]
-_DYNASTY_TAB_WINDOWS = ["1Y", "2Y", "3Y", "5Y", "10Y"]
+_DYNASTY_TAB_WINDOWS = ["3Y", "5Y", "10Y"]
 
 with st.spinner("📊 加载市场结构数据..."):
     df_prices       = get_global_data(_PAGE_TICKERS, years=10)
@@ -559,7 +559,7 @@ else:
         index=_DYNASTY_TAB_WINDOWS.index("5Y"),
         horizontal=True,
         key="dynasty_window",
-        help="月末快照：1Y/2Y/3Y/5Y/10Y 约对应 12/24/36/60/120 个格子",
+        help="月末快照：3Y/5Y/10Y 约对应 36/60/120 个格子",
     )
 
     _dyn_tab1, _dyn_tab2 = st.tabs(["👑 王朝接力图", "🏆 王朝龙头股"])
@@ -595,6 +595,7 @@ else:
                     ).astype(float)
                     _d_name_map = {tk: p.get("name", tk) for tk, p in _picked_d.items()}
                     _king_w = _dyn_ts.get("king_score_weights", {"rs": 1.0, "cap": 0.8})
+                    _dyn_asof = pd.to_datetime(_dyn_ts.get("asof"), errors="coerce")
 
                     # ETF AUM + ADV 标注(机构容量维度,辨别真王朝 vs 小众短命王)
                     _etf_info = _etf_meta.get("tickers", {}) if _etf_meta.get("success") else {}
@@ -655,8 +656,16 @@ else:
                         _demoted_mask = (_rank_m == 1) & (_rs_m <= 0)
                         _tier = _tier.mask(_demoted_mask, 0)
 
-                        _gold_cnt = (_tier == 2).sum(axis=0)
-                        _silver_cnt = (_tier == 1).sum(axis=0)
+                        _last_month = _tier.index[-1]
+                        _month_in_progress = bool(
+                            pd.notna(_dyn_asof) and _last_month > _dyn_asof
+                        )
+                        _confirmed_tier = (
+                            _tier.iloc[:-1] if _month_in_progress else _tier
+                        )
+
+                        _gold_cnt = (_confirmed_tier == 2).sum(axis=0)
+                        _silver_cnt = (_confirmed_tier == 1).sum(axis=0)
                         _sort_key = _gold_cnt * 10000 + _silver_cnt
                         _ordered_tk = _sort_key.sort_values(ascending=False).index.tolist()
 
@@ -673,7 +682,14 @@ else:
                             _meta = _etf_info.get(tk, {})
                             _adv_str = _fmt_usd(_meta.get("adv_usd"))
                             _ylabels.append(f"{_name} ({tk}) · ADV {_adv_str}")
-                        _xlabels = _tier_yx.columns.strftime("%Y-%m").tolist()
+                        _xlabels = [
+                            (
+                                f"{d.strftime('%Y-%m')} (进行中)"
+                                if _month_in_progress and d == _last_month
+                                else d.strftime("%Y-%m")
+                            )
+                            for d in _tier_yx.columns
+                        ]
 
                         _BADGE = {0: "⚪ 灰", 1: "🥈 银", 2: "🥇 金"}
                         _hover_text = []
@@ -754,8 +770,9 @@ else:
                         st.plotly_chart(fig_dyn, use_container_width=True, key=f"fig_dyn_{key_suffix}")
 
                         _stat_rows = []
+                        _confirmed_tier_yx = _confirmed_tier[_ordered_tk].T
                         for tk in _ordered_tk:
-                            _t_row = _tier_yx.loc[tk].values
+                            _t_row = _confirmed_tier_yx.loc[tk].values
                             _gold = int((_t_row == 2).sum())
                             _silver = int((_t_row == 1).sum())
                             _max_streak = 0
@@ -766,7 +783,8 @@ else:
                                     _max_streak = max(_max_streak, _cur)
                                 else:
                                     _cur = 0
-                            _gold_dates = _tier_yx.loc[tk].index[_tier_yx.loc[tk].values == 2]
+                            _confirmed_row = _confirmed_tier_yx.loc[tk]
+                            _gold_dates = _confirmed_row.index[_confirmed_row.values == 2]
                             _last_gold = _gold_dates.max() if len(_gold_dates) > 0 else None
                             _stat_rows.append({
                                 "板块": _d_name_map.get(tk, tk),
@@ -784,7 +802,6 @@ else:
                             for _, r in _kings_top3.iterrows()
                         ]) or "—"
 
-                        _last_month = _tier_yx.columns[-1]
                         _last_col = _tier_yx[_last_month]
                         _current_king_tk = None
                         _gold_now = _last_col[_last_col == 2]
@@ -802,11 +819,16 @@ else:
                             f"<span class='tag-bear'>🥈 {_d_name_map.get(tk, tk)} ({tk})</span>"
                             for tk in _current_silver_tks
                         ]) or "—"
+                        _current_label = (
+                            "当月领先(进行中·未定格)"
+                            if _month_in_progress
+                            else "当前在位之王"
+                        )
 
                         st.markdown(f"""
 <div class='insight-box'>
 <div class='insight-title'>👑 {metric_label} · 王朝接力摘要 ({_dynasty_window} · {len(_xlabels)} 个月)</div>
-<div style='margin-bottom:6px'>📍 当前在位之王({_last_month.strftime('%Y-%m')}): {_current_html} &nbsp; {_silver_html}</div>
+<div style='margin-bottom:6px'>📍 {_current_label}({_last_month.strftime('%Y-%m')}): {_current_html} &nbsp; {_silver_html}</div>
 <div style='margin-bottom:6px'>👑 累计王朝长度 Top3: {_kings_html}</div>
 <div class='insight-section' style='font-size:13px; color:#888;'>
 读法:🥇 金块 = 当月 Top1 且 RS_252d &gt; 0(跑赢 SPY);🥈 银块 = Top2-3;⚪ 灰块 = 其他,或 Top1 但 RS_252d ≤ 0(熊市无王降级)。<b style='color:#aaa;'>连续金块</b> = 王朝期;<b style='color:#aaa;'>累计金多 + 最长连续金长</b> = 真时代之王。<b style='color:#aaa;'>对比 🅰️ 与 🅱️</b>:king_score 把 URA/TAN 这类小众主题盘从「时代之王」候选里压下去——它们 RS 可能称霸,但 ADV 显著低于 XL*/SMH/IGV 机构盘,容量项是负贡献。
@@ -883,6 +905,7 @@ else:
                 ).astype(float)
                 _d_king_m2 = _d_king2.resample("ME").last()
                 _d_rs_m2   = _d_rs2.resample("ME").last()
+                _dyn_asof2 = pd.to_datetime(_dyn_ts.get("asof"), errors="coerce")
 
                 if _d_king_m2.empty or len(_d_king_m2) < 2:
                     st.warning(f"⚠️ {_dynasty_window}:月末快照数据不足")
@@ -894,13 +917,23 @@ else:
                     _tier2 = _tier2.mask(_gold_mask2, 2)
                     _demoted_mask2 = (_rank_m2 == 1) & (_d_rs_m2 <= 0)
                     _tier2 = _tier2.mask(_demoted_mask2, 0)
+                    _last_month2 = _tier2.index[-1]
+                    _month_in_progress2 = bool(
+                        pd.notna(_dyn_asof2) and _last_month2 > _dyn_asof2
+                    )
+                    _in_progress_tier2 = (
+                        _tier2.iloc[-1] if _month_in_progress2 else None
+                    )
+                    _confirmed_tier2 = (
+                        _tier2.iloc[:-1] if _month_in_progress2 else _tier2
+                    )
 
                     _d_name_map2 = {tk: p.get("name", tk) for tk, p in _picked_d2.items()}
-                    _gold_cnt2 = (_tier2 == 2).sum(axis=0)
-                    _silver_cnt2 = (_tier2 == 1).sum(axis=0)
+                    _gold_cnt2 = (_confirmed_tier2 == 2).sum(axis=0)
+                    _silver_cnt2 = (_confirmed_tier2 == 1).sum(axis=0)
                     _sort_key2 = _gold_cnt2 * 10000 + _silver_cnt2
                     _ordered_tk2 = _sort_key2.sort_values(ascending=False).index.tolist()
-                    _tier_yx2 = _tier2[_ordered_tk2].T
+                    _tier_yx2 = _confirmed_tier2[_ordered_tk2].T
                     _group_map2 = {tk: p.get("group", "") for tk, p in _picked_d2.items()}
 
                     def _segment_type(n_months: int) -> str:
@@ -953,6 +986,12 @@ else:
                                     _j += 1
                                 _api_start_idx = _i - 1 if _i > 0 else _i
                                 _n_months = _j - _i + 1
+                                _continues_in_progress = bool(
+                                    _month_in_progress2
+                                    and _j == len(_row) - 1
+                                    and _in_progress_tier2 is not None
+                                    and int(_in_progress_tier2.get(tk, 0)) == 2
+                                )
                                 _dynasties.append({
                                     "ticker":              tk,
                                     "name":                _d_name_map2.get(tk, tk),
@@ -969,6 +1008,7 @@ else:
                                     "sector_gold_total":   int(_gold_cnt2.get(tk, 0)),
                                     "sector_order":        _sector_order,
                                     "source_hint":         _source_hint(tk),
+                                    "continues_in_progress": _continues_in_progress,
                                 })
                                 _i = _j + 1
                             else:
@@ -977,6 +1017,18 @@ else:
                     if not _dynasties:
                         st.info(f"{_dynasty_window} 内未识别到任何连续金块期 (无王朝期)")
                     else:
+                        if _month_in_progress2 and _in_progress_tier2 is not None:
+                            _leading_now = _in_progress_tier2[
+                                _in_progress_tier2 == 2
+                            ].index.tolist()
+                            _leading_now_text = "、".join(
+                                f"{_d_name_map2.get(tk, tk)} ({tk})"
+                                for tk in _leading_now
+                            ) or "无板块满足加冕门槛"
+                            st.caption(
+                                f"{_last_month2.strftime('%Y-%m')} 当月领先（进行中·未定格）："
+                                f"{_leading_now_text}；不计入正式王朝月数。"
+                            )
                         _dynasties.sort(
                             key=lambda d: (
                                 -d["sector_gold_total"],
@@ -1009,7 +1061,11 @@ else:
                                     for i in range(3):
                                         if i < len(_leaders):
                                             _l = _leaders[i]
-                                            _flag = "" if _l.get("listed_full_period") else " ⚠️"
+                                            _has_warning = (
+                                                not _l.get("listed_full_period")
+                                                or bool(_l.get("stale_endpoint"))
+                                            )
+                                            _flag = " ⚠️" if _has_warning else ""
                                             _leaders_cells.append(
                                                 f"{_l['ticker']}{_flag} ({_l['name'][:20]})"
                                             )
@@ -1017,11 +1073,22 @@ else:
                                         else:
                                             _leaders_cells.append("—")
                                             _excess_cells.append("—")
-                                    _status = "OK" if _leaders else "无候选"
+                                    _stale_tickers = [
+                                        _l["ticker"] for _l in _leaders
+                                        if _l.get("stale_endpoint")
+                                    ]
+                                    _status = (
+                                        f"端点落后: {','.join(_stale_tickers)}"
+                                        if _stale_tickers
+                                        else ("OK" if _leaders else "无候选")
+                                    )
                                 _rows.append({
                                     "板块": f"{d['name']} ({d['ticker']})",
                                     "类型": d["segment_type"],
-                                    "王朝期": f"{d['display_start_label']} → {d['display_end_label']}",
+                                    "王朝期": (
+                                        f"{d['display_start_label']} → {d['display_end_label']}"
+                                        f"{'（当月进行中）' if d['continues_in_progress'] else ''}"
+                                    ),
                                     "计算区间": f"{d['api_start_label']} → {d['api_end_label']}",
                                     "持续(月)": d["n_months"],
                                     "累计戴金(月)": d["sector_gold_total"],
@@ -1046,7 +1113,7 @@ else:
                         st.caption(
                             "类型: 王朝=连续戴金≥3个月 / 接力段=2个月 / 脉冲=1个月。"
                             "计算区间使用「上一个月末→末段月末」，单月脉冲也能算在位超额。"
-                            "⚠️ = 计算区间开始时未上市，数字可能虚高。"
+                            "⚠️ = 计算区间开始时未上市，或个股端点落后 ETF 超过 5 个交易日。"
                             "候选池: S&P500+GICS=一级行业当前成分；Yahoo/发行商=主题 ETF 官方持仓快照；"
                             "seed fallback=本地维护持仓，非实时官方数据。"
                         )
