@@ -960,10 +960,11 @@ def fetch_dynasty_double_dragon(
     risk_protect: bool = True,
     rebalance: bool = False,
     cost_bps: float = 10.0,
+    n_holdings: int = 2,
 ) -> dict:
-    """从后端获取 C 组双龙持仓回测（研究原型），供 Page 0 §1.6「📈 C组双龙持仓」TAB 用。
+    """从后端获取 C 组双龙持仓回测（研究原型），供 Page 0「📈 C组双龙持仓」TAB 用。
 
-    每月按动量(signal)选最强 2 只持有，守擂缓冲 K 压换手，扣成本，
+    每月按动量(signal)选最强 N 只（2~5，默认 2）持有，守擂缓冲 K 压换手，扣成本，
     返回净值曲线 / 持仓时间线 / 统计卡 / 换手-收益取舍图(frontier)。
     诚实定位：信号无前视、次日成交、扣成本；但池含生存者偏差，非真实业绩。
     首次加载较慢（~500 股 + 预热 + BIL/RSP），Render 冷启动 502/504 自动重试一次。
@@ -980,7 +981,7 @@ def fetch_dynasty_double_dragon(
                 params={
                     "window": window, "signal": signal, "k": k,
                     "risk_protect": risk_protect, "rebalance": rebalance,
-                    "cost_bps": cost_bps,
+                    "cost_bps": cost_bps, "n_holdings": n_holdings,
                 },
                 timeout=180,
             )

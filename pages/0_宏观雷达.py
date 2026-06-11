@@ -1124,15 +1124,16 @@ else:
 
     with _dyn_tab3:
         st.markdown("#### 📈 C组双龙持仓 — 动量轮动历史模拟")
+        _dd_n_cur = int(st.session_state.get("dd_n", 2))
         st.caption(
-            "**口径**：C 组 11 个 SPDR sector 成分股汇总池（≈ 标普500），每月按动量选最强 **2 只**持有，"
+            f"**口径**：C 组 11 个 SPDR sector 成分股汇总池（≈ 标普500），每月按动量选最强 **{_dd_n_cur} 只**持有，"
             "守擂缓冲压换手，次日收盘成交、扣单边成本。"
             "**诚实声明**：信号**不看未来**、可执行规则模拟；但股票池=**当前**标普500成分，"
             "**含生存者偏差**（缺历史上被剔除/退市/收购的公司），结果偏乐观 → **研究原型，非真实业绩**。"
         )
 
         # 顶部控制区（复用上方 _dynasty_window 作为时间跨度，不新建窗口选择器）
-        _dd_c1, _dd_c2, _dd_c3, _dd_c4 = st.columns([2, 3, 1.2, 1.2])
+        _dd_c1, _dd_c2, _dd_c3, _dd_c4, _dd_c5 = st.columns([2, 1.5, 2.5, 1.2, 1.2])
         with _dd_c1:
             _dd_signal_label = st.radio(
                 "排名信号", ["12M", "12-1", "6M"], index=0, horizontal=True,
@@ -1141,19 +1142,26 @@ else:
             )
         _dd_signal = {"12M": "12m", "12-1": "12-1", "6M": "6m"}[_dd_signal_label]
         with _dd_c2:
+            _dd_n = st.slider("持仓数量", 2, 5, 2, key="dd_n",
+                              help="等权持有 N 只。N=2 为双龙默认")
+            st.caption("持仓越多越分散：回撤↓、换手成本↑")
+        with _dd_c3:
             _dd_k = st.slider(
-                "守擂名次 K", 2, 60, 30, key="dd_k",
+                "守擂名次 K", _dd_n, 60, max(30, _dd_n), key="dd_k",
                 help="在位的票仍在前 K 名就继续持有，跌出才换。K 越大越省换手（默认 30，中性值非最优）",
             )
-        with _dd_c3:
-            _dd_risk = st.toggle(
-                "风险保护", value=True, key="dd_risk",
-                help="开：不合格的票（12M 收益≤0 或 跌破 MA200）转 BIL 避险",
-            )
         with _dd_c4:
+            _dd_risk = st.toggle(
+                "个股趋势过滤", value=True, key="dd_risk",
+                help=(
+                    "不合格股票不能进入或继续持有，优先由其他合格股票补位；"
+                    "合格股票不足 N 只时，缺少的槽位才持有 BIL"
+                ),
+            )
+        with _dd_c5:
             _dd_rebal = st.toggle(
                 "再平衡", value=False, key="dd_rebal",
-                help="开：每月把两槽掰回 50/50（砍赢家喂输家，与动量相悖，默认关）",
+                help="开：每月把各槽掰回 1/N（砍赢家喂输家，与动量相悖，默认关）",
             )
 
         with st.expander("⚙️ 高级设置"):
@@ -1168,6 +1176,7 @@ else:
         _dd = fetch_dynasty_double_dragon(
             window=_dynasty_window, signal=_dd_signal, k=_dd_k,
             risk_protect=_dd_risk, rebalance=_dd_rebal, cost_bps=float(_dd_cost),
+            n_holdings=_dd_n,
         )
 
         if not _dd.get("success"):
@@ -1178,26 +1187,43 @@ else:
             if not _meta.get("date_added_used"):
                 _notes.append("未启用入指数日过滤（date_added 不可靠）")
             if not _meta.get("bil_available"):
-                _notes.append("BIL 历史缺失，避险段按现金 0 收益")
+                _notes.append("BIL 历史缺失，BIL 持有段按现金 0 收益")
             if not _meta.get("rsp_available"):
                 _notes.append("RSP 缺失，未画等权标普对照")
             st.caption(
-                f"池 {_meta.get('universe_size', '?')} 只 · 展示自 {_meta.get('display_start', '')} · "
+                f"池 {_meta.get('universe_size', '?')} 只 · 展示自 {_meta.get('display_start', '')}"
+                f" · 价格截至 {_meta.get('price_as_of', '')} · "
                 + ("⚠️ " + "；".join(_notes) if _notes else "数据完整")
             )
+            if not _meta.get("window_complete", True):
+                st.caption(
+                    f"请求{_dynasty_window}｜实际约 {_meta.get('actual_years', 0):.1f}Y"
+                    f"（{_meta.get('actual_days', 0)} 个交易日）"
+                )
+            if _meta.get("is_stale"):
+                st.warning(
+                    f"价格数据截至 {_meta.get('price_as_of', '—')}，"
+                    f"已落后最近收盘 {_meta.get('stale_days', '—')} 个交易日；"
+                    "以下持仓仅代表该历史信号时点。"
+                )
 
-            # ── 当前持仓卡（显式 for 循环渲染两个槽）──
-            st.markdown("##### 当前持仓")
-            _hold_cols = st.columns(2)
+            # ── 当前持仓卡（显式 for 循环渲染 N 个槽）──
+            _signal_as_of = str(_meta.get("signal_as_of", "") or "")
+            _signal_month = _signal_as_of[:7] if _signal_as_of else "最近信号"
+            st.markdown(f"##### 截至 {_signal_month} 信号的模拟持仓")
             _cur = _dd.get("current_holdings", {})
-            _slot_items = [("槽A", _cur.get("slotA", {})), ("槽B", _cur.get("slotB", {}))]
-            for _si in range(len(_slot_items)):
-                _slabel, _sdata = _slot_items[_si]
+            _cur_slots = _cur.get("slots", [])
+            _hold_cols = st.columns(max(len(_cur_slots), 1))
+            _slot_labels_card = ["槽A", "槽B", "槽C", "槽D", "槽E"]
+            for _si in range(len(_cur_slots)):
+                _slabel = _slot_labels_card[_si] if _si < len(_slot_labels_card) else f"槽{_si+1}"
+                _sdata = _cur_slots[_si] or {}
                 with _hold_cols[_si]:
                     if not _sdata or _sdata.get("bil"):
                         _slot_html = (
                             f"<div class='insight-box'><div class='insight-title'>{_slabel}</div>"
-                            "<div style='font-size:15px;color:#bbb;'>BIL（风险保护中）</div></div>"
+                            "<div style='font-size:15px;color:#bbb;'>"
+                            "BIL（无足够合格股票）</div></div>"
                         )
                     else:
                         _slot_html = (
@@ -1214,10 +1240,11 @@ else:
             st.markdown("##### 净值曲线（起点归一为 1）")
             _eq = _dd.get("equity", {})
             _dd_dates = pd.to_datetime(_dd.get("dates", []), errors="coerce")
+            _dd_n_val = _dd.get("n_holdings", 2)
             _series_cfg = [
                 ("strategy", "双龙策略", "#E74C3C", True),
                 ("spy", "SPY", "#3498DB", True),
-                ("top2", "纯Top2 (K=2)", "#F39C12", False),
+                ("topn", f"纯Top{_dd_n_val} (K={_dd_n_val})", "#F39C12", False),
                 ("rsp", "RSP 等权标普", "#9B59B6", False),
             ]
             if _dd_show11:
@@ -1241,7 +1268,7 @@ else:
                 legend=dict(orientation="h", y=1.08), yaxis_title="净值",
             )
             st.plotly_chart(_fig_eq, use_container_width=True)
-            st.caption("默认只显双龙+SPY，点图例可展开 纯Top2 / RSP" + ("/11ETF" if _dd_show11 else ""))
+            st.caption(f"默认只显双龙+SPY，点图例可展开 纯Top{_dd_n_val} / RSP" + ("/11ETF" if _dd_show11 else ""))
 
             # ── 统计卡（大白话命名）──
             st.markdown("##### 统计卡")
@@ -1269,25 +1296,30 @@ else:
                 with _row_b[_mi]:
                     st.metric(_metrics_b[_mi][0], _metrics_b[_mi][1])
             _front_map = {f["k"]: f for f in _dd.get("frontier", [])}
-            _t2 = _front_map.get(2, {})
-            if _t2:
+            _dd_n_val = _dd.get("n_holdings", 2)
+            _tn = _front_map.get(_dd_n_val, {})
+            if _tn:
                 st.caption(
-                    "**纯Top2 (K=2) 对照**："
-                    f"年化收益 {_t2.get('net_cagr', 0) * 100:.0f}% ｜ "
-                    f"年均换手 {_t2.get('ann_turnover', 0):.2f} ｜ "
-                    f"收益回撤比 {_t2.get('calmar', 0):.2f}（守擂 vs 月月追 Top2 的换手/收益取舍）"
+                    f"**纯Top{_dd_n_val} (K={_dd_n_val}) 对照**："
+                    f"年化收益 {_tn.get('net_cagr', 0) * 100:.0f}% ｜ "
+                    f"年均换手 {_tn.get('ann_turnover', 0):.2f} ｜ "
+                    f"收益回撤比 {_tn.get('calmar', 0):.2f}"
                 )
 
-            # ── 持仓时间带（两条轨道 = 槽A/槽B 的接力）──
+            # ── 持仓时间带（N 条轨道，逐槽接力）──
             st.markdown("##### 持仓时间带")
             _tl = _dd.get("holdings_timeline", [])
             _band_rows = []
-            for _slot_key, _track in [("slotA", "槽A"), ("slotB", "槽B")]:
+            _slot_labels_band = ["槽A", "槽B", "槽C", "槽D", "槽E"]
+            _n_track = _dd.get("n_holdings", 2)
+            for _slot_i in range(_n_track):
+                _track = _slot_labels_band[_slot_i] if _slot_i < len(_slot_labels_band) else f"槽{_slot_i+1}"
                 _prev = None
                 _start = None
                 for _h in _tl:
                     _m = _h["month"]
-                    _cell = _h.get(_slot_key)
+                    _slots_list = _h.get("slots", [])
+                    _cell = _slots_list[_slot_i] if _slot_i < len(_slots_list) else None
                     if not _cell:
                         _lab = "—"
                     elif _cell.get("bil"):
