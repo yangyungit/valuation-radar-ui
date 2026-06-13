@@ -318,10 +318,15 @@ def calc_slot_stats(
     price_cache: dict = None,
     spy_wk: pd.DataFrame = None,
     cash_rate: float = 0.04,
+    cost_bps: float = 0.0,
 ) -> tuple:
+    """cost_bps：单边换仓成本（手续费+滑点）。每次卖出旧标的、买入新标的各扣一次；
+    CASH 不算成本资产。成本在每段渲染前从 running_nav 扣除，只对真正进入价格窗口
+    的段计费（窗口外被跳过的段不计），避免凭空侵蚀起点。"""
     pc = price_cache if price_cache is not None else {}
     nav_all: list = []
     running_nav = 1.0
+    last_tk = None  # 上一段「实际渲染」的标的（用于判断换仓边界）
     for tk, s_m, e_m in segs:
         if tk == "CASH":
             if spy_wk is not None and not spy_wk.empty:
@@ -329,11 +334,14 @@ def calc_slot_stats(
                 ed = pd.Timestamp(f"{e_m}-01") + pd.offsets.MonthEnd(1)
                 cash_idx = spy_wk.index[(spy_wk.index >= sd) & (spy_wk.index <= ed)]
                 if len(cash_idx) >= 1:
+                    if cost_bps and last_tk is not None and last_tk != "CASH":
+                        running_nav *= max(0.0, 1.0 - cost_bps / 10000.0)
                     days = (cash_idx - cash_idx[0]).days.to_numpy()
                     cash_nav = running_nav * (1.0 + cash_rate) ** (days / 365.0)
                     cash_series = pd.Series(cash_nav, index=cash_idx, dtype=float)
                     nav_all.append(cash_series)
                     running_nav = float(cash_series.iloc[-1])
+                    last_tk = "CASH"
             continue
         wkd = pc.get(tk)
         if wkd is None or wkd.empty:
@@ -344,8 +352,12 @@ def calc_slot_stats(
         closes = wkd[mask]["Close"].astype(float).dropna()
         if len(closes) < 2:
             continue
+        if cost_bps:
+            sides = (1 if (last_tk is not None and last_tk != "CASH") else 0) + 1
+            running_nav *= max(0.0, 1.0 - sides * cost_bps / 10000.0)
         seg_nav = (closes / float(closes.iloc[0])) * running_nav
         running_nav = float(seg_nav.iloc[-1])
+        last_tk = tk
         nav_all.append(seg_nav)
     if not nav_all:
         return 0.0, 0.0, pd.Series(dtype=float)
@@ -398,10 +410,13 @@ def build_basket_nav(
     top_n: int = 2,
     cash_rate: float = 0.04,
     buffer_n: int | None = None,
+    cost_bps: float = 0.0,
 ) -> dict:
     """等权 top_n 篮子，月度再平衡。
     buffer_n 非空时启用动量缓冲：上月持仓只要还在当月 top buffer_n 就留任，
     掉出才换，空位按当月排名从高到低补满 top_n。buffer_n=None 退化为纯 top_n。
+    cost_bps：单边换仓成本（手续费+滑点），按当月换出+换入只数各扣一次，
+    仅对落在价格窗口内的月份计费。
     返回 {"nav", "total_ret", "max_dd", "turnover_pct", "monthly_holdings"}
     """
     months = sorted(k for k in history if not k.startswith("_"))
@@ -416,6 +431,7 @@ def build_basket_nav(
         )
         gate_open = rec.get("gate_status", "open") != "closed"
         recs = rec.get("tickers", [])
+        held_before = list(prev_basket)
         if not gate_open:
             basket = []
             prev_basket = []
@@ -441,6 +457,12 @@ def build_basket_nav(
             if spy_wk is not None and not spy_wk.empty
             else pd.DatetimeIndex([])
         )
+
+        if cost_bps and len(wk_idx) >= 1 and top_n > 0:
+            traded = len(set(held_before) ^ set(basket))
+            if traded:
+                running_nav *= max(
+                    0.0, 1.0 - (traded / top_n) * cost_bps / 10000.0)
 
         if not basket or len(wk_idx) < 1:
             if len(wk_idx) >= 1:

@@ -107,13 +107,14 @@ def _fmt_kpi(v, fmt: str = ".2f") -> str:
 def _slot_navs(
     gbdt: dict, grade: str, buffer_n: int,
     price_cache: dict, spy_wk: pd.DataFrame, cash_rate: float, months: list,
+    cost_bps: float = 0.0,
 ):
     """左右槽 NAV + 50/50 合成 NAV，供渲染与最优扫描共用。"""
     slots, _, gate_closed = hv.build_slot_assignments(gbdt, grade, buffer_n)
     seg_l = hv.build_slot_segments(slots, 0, months)
     seg_r = hv.build_slot_segments(slots, 1, months)
-    ret_l, dd_l, nav_l = hv.calc_slot_stats(seg_l, price_cache, spy_wk, cash_rate)
-    ret_r, dd_r, nav_r = hv.calc_slot_stats(seg_r, price_cache, spy_wk, cash_rate)
+    ret_l, dd_l, nav_l = hv.calc_slot_stats(seg_l, price_cache, spy_wk, cash_rate, cost_bps)
+    ret_r, dd_r, nav_r = hv.calc_slot_stats(seg_r, price_cache, spy_wk, cash_rate, cost_bps)
 
     nav_combined = pd.Series(dtype=float)
     ret_combined, dd_combined = 0.0, 0.0
@@ -145,10 +146,12 @@ def _calmar_of(nav: pd.Series) -> float:
 def _best_buffer_slot(
     gbdt: dict, grade: str, price_cache: dict,
     spy_wk: pd.DataFrame, cash_rate: float, max_n: int, months: list,
+    cost_bps: float = 0.0,
 ) -> int | None:
     best_n, best_cal = None, float("-inf")
     for n in range(2, max_n + 1):
-        nav_c = _slot_navs(gbdt, grade, n, price_cache, spy_wk, cash_rate, months)[4]
+        nav_c = _slot_navs(
+            gbdt, grade, n, price_cache, spy_wk, cash_rate, months, cost_bps)[4]
         cal = _calmar_of(nav_c)
         if cal == cal and cal > best_cal:
             best_cal, best_n = cal, n
@@ -158,11 +161,13 @@ def _best_buffer_slot(
 def _best_buffer_basket(
     gbdt: dict, grade: str, price_cache: dict,
     spy_wk: pd.DataFrame, cash_rate: float, max_n: int,
+    cost_bps: float = 0.0,
 ) -> int | None:
     best_n, best_cal = None, float("-inf")
     for n in range(2, max_n + 1):
         r = hv.build_basket_nav(
-            gbdt, grade, price_cache, spy_wk, top_n=2, cash_rate=cash_rate, buffer_n=n,
+            gbdt, grade, price_cache, spy_wk, top_n=2, cash_rate=cash_rate,
+            buffer_n=n, cost_bps=cost_bps,
         )
         cal = _calmar_of(r["nav"])
         if cal == cal and cal > best_cal:
@@ -174,6 +179,7 @@ def _render_slot(
     gbdt: dict, grade: str,
     _buffer_n: int, _price_cache: dict,
     _spy_wk: pd.DataFrame, _name_map: dict, _cash_rate: float,
+    _cost_bps: float = 0.0,
 ) -> None:
     months = sorted(k for k in gbdt if not k.startswith("_"))
     if len(months) < 2:
@@ -182,7 +188,7 @@ def _render_slot(
 
     (seg_l, seg_r, nav_l, nav_r, nav_combined,
      ret_combined, dd_combined, gate_closed) = _slot_navs(
-        gbdt, grade, _buffer_n, _price_cache, _spy_wk, _cash_rate, months,
+        gbdt, grade, _buffer_n, _price_cache, _spy_wk, _cash_rate, months, _cost_bps,
     )
 
     kpi = hv.compute_nav_kpi(nav_combined) if not nav_combined.empty else {}
@@ -219,7 +225,7 @@ def _render_slot(
 def _render_basket(
     gbdt: dict, grade: str,
     _price_cache: dict, _spy_wk: pd.DataFrame, _name_map: dict, _cash_rate: float,
-    _buffer_n: int | None = None,
+    _buffer_n: int | None = None, _cost_bps: float = 0.0,
 ) -> None:
     st.markdown("**GBDT · 等权 top-2 篮子**")
     months = sorted(k for k in gbdt if not k.startswith("_"))
@@ -229,7 +235,7 @@ def _render_basket(
 
     r = hv.build_basket_nav(
         gbdt, grade, _price_cache, _spy_wk, top_n=2, cash_rate=_cash_rate,
-        buffer_n=_buffer_n,
+        buffer_n=_buffer_n, cost_bps=_cost_bps,
     )
     c1, c2, c3 = st.columns(3)
     c1.metric("总收益", f"{r['total_ret']:+.1f}%")
@@ -283,31 +289,43 @@ def _topn_control(grade: str, key: str, is_basket: bool) -> None:
             with st.spinner("扫描 Top-N…"):
                 best = (
                     _best_buffer_basket(
-                        _gbdt, grade, price_cache, spy_wk, _CASH_RATE, _max_buffer_n)
+                        _gbdt, grade, price_cache, spy_wk, _CASH_RATE,
+                        _max_buffer_n, _cost_bps)
                     if is_basket else
                     _best_buffer_slot(
                         _gbdt, grade, price_cache, spy_wk, _CASH_RATE,
-                        _max_buffer_n, months_all)
+                        _max_buffer_n, months_all, _cost_bps)
                 )
             if best:
                 st.session_state[f"{key}_auto"] = best
                 st.rerun()
-    st.caption("⚠️ 自动值是样本内回看挑 Calmar 最高，有过拟合风险，仅供参考。")
+    st.caption("⚠️ 自动值是样本内回看挑 Calmar 最高（已计入下方换仓成本），有过拟合风险，仅供参考。")
 
+
+_cost_bps = float(st.number_input(
+    "换仓成本：手续费 + 滑点（单边 bps，买卖各扣一次）",
+    min_value=0.0, max_value=500.0, value=50.0, step=10.0,
+    help="月度颗粒度抓不到日内/周内闪崩，且 C 篮多为小盘高波动/加密类，"
+         "真实点差+滑点大，故建议调大留余量。三档共用此值，影响下方全部业绩。",
+))
+st.caption(
+    f"当前单边成本 {_cost_bps:.0f} bps（一次完整换仓 = 卖+买 = {_cost_bps * 2:.0f} bps）。"
+    "换手越高、此值越大，对收益的侵蚀越狠。"
+)
 
 tab_a, tab_b, tab_c = st.tabs(["🛡️ A 档", "🏦 B 档", "🚀 C 档"])
 with tab_a:
     _topn_control("A", "buf_a", is_basket=False)
     _render_slot(
         _gbdt, "A", st.session_state["buf_a"],
-        price_cache, spy_wk, name_map, _CASH_RATE)
+        price_cache, spy_wk, name_map, _CASH_RATE, _cost_bps)
 with tab_b:
     _topn_control("B", "buf_b", is_basket=False)
     _render_slot(
         _gbdt, "B", st.session_state["buf_b"],
-        price_cache, spy_wk, name_map, _CASH_RATE)
+        price_cache, spy_wk, name_map, _CASH_RATE, _cost_bps)
 with tab_c:
     _topn_control("C", "buf_c", is_basket=True)
     _render_basket(
         _gbdt, "C", price_cache, spy_wk, name_map, _CASH_RATE,
-        st.session_state["buf_c"])
+        st.session_state["buf_c"], _cost_bps)
