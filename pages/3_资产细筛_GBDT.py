@@ -18,6 +18,7 @@ from api_client import (
     fetch_gbdt_oos_history as _api_fetch_gbdt_oos_history,
     save_gbdt_state as _api_save_gbdt_state,
     gbdt_shap_detail as _api_gbdt_shap_detail,
+    gbdt_shap_detail_oos as _api_gbdt_shap_detail_oos,
     IS_PROD_REMOTE,
 )
 
@@ -644,7 +645,7 @@ with st.sidebar:
     st.markdown("---")
     st.header("🛠️ 缓存管理")
     if st.button("🔄 清除 GBDT 历史缓存"):
-        _api_fetch_gbdt_history.clear()
+        _api_fetch_gbdt_oos_history.clear()
         _fetch_backfill_prices_gbdt.clear()
         st.success("GBDT 缓存已清除")
         st.rerun()
@@ -659,7 +660,7 @@ with st.sidebar:
 st.title("🤖 GBDT 选股（并联打分器）")
 st.caption(
     "LightGBM 学习因子组合 → GBDT 百分位得分 → SHAP 组级贡献可解释 → "
-    "独立存 gbdt_history（删本页不影响 arena 原页）"
+    "历史榜读真实样本外（OOS）数据，无未来函数"
 )
 
 # ─────────────────────────────────────────────────────────────────
@@ -698,7 +699,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-_gbdt_history  = _api_fetch_gbdt_history()
+_gbdt_history  = _api_fetch_gbdt_oos_history()
 _sorted_months = sorted(_gbdt_history.keys(), reverse=True)
 _cls_months    = [mo for mo in _sorted_months if _CLS in _gbdt_history[mo]]
 
@@ -710,11 +711,11 @@ st.markdown(f"### 🐝 {hm['icon']} {hm['label']} — SHAP 因子全景")
 st.caption(
     "蜂群图：每行一个因子、每点一只候选票，颜色=因子值（红高蓝低），横轴=该因子把这票"
     "预测分推高/压低多少。瀑布图：单票从基准分起，因子级贡献逐格搭到最终分。"
-    "数据按需现算（载现役模型 + 该月特征），需先完成下方回填。"
+    "数据按需现算（用目标月 walk-forward 模型，与历史榜同口径，无未来函数）。"
 )
 
 if not _gbdt_history or not _cls_months:
-    st.info("暂无历史，先点下方「回填 GBDT 历史」。", icon="📋")
+    st.info("暂无 OOS 历史，先点下方「生成 OOS 回放」。", icon="📋")
 else:
     _sd_col1, _sd_col2 = st.columns([1, 2])
     with _sd_col1:
@@ -722,32 +723,30 @@ else:
     with _sd_col2:
         _do_shap = st.button("🐝 生成 / 刷新 SHAP 全景图", use_container_width=True)
 
-    _sd_key = f"shap_detail_{_CLS}_{_sd_month}"
+    _sd_key = f"shap_detail_oos_{_CLS}_{_sd_month}"
     if _do_shap:
-        with st.spinner(f"载入 {_CLS} 档现役模型 + 现算 {_sd_month} 因子级 SHAP…"):
-            _price_df, _vol_df = _fetch_backfill_prices_gbdt(tuple(sorted(_SCREEN_TICKERS)))
-            if _price_df.empty:
-                st.error("历史价格下载失败，无法现算 SHAP。")
+        with st.spinner(f"重训 {_CLS} 档 {_sd_month} walk-forward 模型 + 现算 SHAP（约 1-3 分钟）…"):
+            _regime_resp = fetch_current_regime()
+            _mprobs = _regime_resp.get("horsemen_monthly_probs") or {}
+            _price_df, _vol_df, _month_specs, _err = _prep_gbdt_inputs(
+                _SCREEN_TICKERS, _BF_MONTHS, _mprobs, 12)
+            if _err:
+                st.error(f"历史价格下载失败：{_err}")
             else:
-                _regime_resp = fetch_current_regime()
-                _mprobs = _regime_resp.get("horsemen_monthly_probs") or {}
-                _spec = _month_spec_for(_price_df, _sd_month, _mprobs)
-                if _spec is None:
-                    st.error(f"{_sd_month} 无法定位价格索引（数据量不足？）。")
+                _meta = get_stock_metadata(tuple(_SCREEN_TICKERS))
+                _detail = _api_gbdt_shap_detail_oos(
+                    price_df=_price_df,
+                    vol_df=_vol_df if not _vol_df.empty else None,
+                    meta_data=_meta,
+                    month_specs=_month_specs,
+                    target_month=_sd_month,
+                    grade=_CLS,
+                    z_seed_tickers=list(_Z_SEED_TICKERS),
+                )
+                if _detail.get("success"):
+                    st.session_state[_sd_key] = _detail
                 else:
-                    _meta = get_stock_metadata(tuple(_SCREEN_TICKERS))
-                    _detail = _api_gbdt_shap_detail(
-                        price_df=_price_df,
-                        vol_df=_vol_df if not _vol_df.empty else None,
-                        meta_data=_meta,
-                        month_spec=_spec,
-                        grade=_CLS,
-                        z_seed_tickers=list(_Z_SEED_TICKERS),
-                    )
-                    if _detail.get("success"):
-                        st.session_state[_sd_key] = _detail
-                    else:
-                        st.error(f"SHAP 现算失败：{_detail.get('error', '未知错误')}")
+                    st.error(f"SHAP 现算失败：{_detail.get('error', '未知错误')}")
 
     _detail = st.session_state.get(_sd_key)
     if _detail and _detail.get("success"):
@@ -780,16 +779,15 @@ st.markdown("---")
 bf_col1, bf_col2 = st.columns([1, 3])
 with bf_col1:
     _do_backfill = st.button(
-        "🔄 回填 GBDT 历史",
+        "🔄 训练现役模型（Phase 4 / 诊断）",
         use_container_width=True,
-        help="用 yfinance 历史价格 → GBDT 月度打分，回填过去 12 年并落盘 gbdt_history。",
+        help="用全样本训练现役模型并落盘 gbdt_history（含未来函数，不作历史业绩展示，仅供 Phase 4 晋级诊断）。",
     )
 with bf_col2:
     st.markdown(
         "<div style='font-size:13px;color:#666;padding-top:8px;'>"
-        "固定回填过去 12 年（含 12 个月热身期）。"
-        "首次约 3-6 分钟（模型训练 + 12 年价格下载）。"
-        "后端已内部去重，重复点击不覆盖已有月份（等价 upsert）。</div>",
+        "全样本回填（含 12 个月热身期），模型见过未来，<b>不代表真实业绩</b>。"
+        "首次约 3-6 分钟。后端已内部去重，重复点击不覆盖已有月份（等价 upsert）。</div>",
         unsafe_allow_html=True,
     )
 
@@ -798,14 +796,15 @@ with oos_col1:
     _do_oos = st.button(
         "🔬 生成 OOS 回放（真实样本外）",
         use_container_width=True,
-        help="每月只用历史数据重训模型再选股（walk-forward），落盘 gbdt_history_oos，供 page 6 渲染。",
+        help="每月只用历史数据重训模型再选股（walk-forward），落盘 gbdt_history_oos，供 Page 3 历史榜 + Page 6 渲染。",
     )
 with oos_col2:
     st.markdown(
         "<div style='font-size:13px;color:#666;padding-top:8px;'>"
         "真实样本外回放：每月只用之前的数据重训，无未来函数。"
-        "曲线从约 2017-2018 起（早期训练数据不足被切掉），数值远低于回填曲线属正常。"
-        "整包计算、不分片，约 4-6 分钟。</div>",
+        "Page 3 历史榜、颁奖台、排行榜均读这张表（A/B/C/D/Z 全档 + 组级 SHAP）。"
+        "曲线从约 2017-2018 起（早期训练数据不足被切掉），数值远低于全样本曲线属正常。"
+        "整包计算、不分片，约 8-12 分钟。</div>",
         unsafe_allow_html=True,
     )
 
@@ -863,15 +862,15 @@ if _do_oos:
 #  历史月度 Top 10
 # ─────────────────────────────────────────────────────────────────
 st.markdown("---")
-st.markdown(f"### 📅 {hm['icon']} {hm['label']} — GBDT 历史月度 Top 10")
+st.markdown(f"### 📅 {hm['icon']} {hm['label']} — GBDT 历史月度 Top 10（真实样本外）")
 st.caption(
-    "纵向追踪每月末 GBDT 打分排名（百分位 0-100）。"
+    "纵向追踪每月末 GBDT 打分排名（百分位 0-100）。数据来自 OOS 回放，每月只用当时数据重训，无未来函数。"
     "「SHAP 贡献」列展示当月最强因子组方向。"
     "点击颁奖台展开 SHAP 详细拆解。"
 )
 
 if not _gbdt_history:
-    st.info("暂无 GBDT 历史记录。点击下方「回填 GBDT 历史」生成。", icon="📋")
+    st.info("暂无 OOS 历史记录。点击下方「生成 OOS 回放」生成。", icon="📋")
 else:
     # ── 最近月颁奖台 ────────────────────────────────────────────
     if _cls_months:

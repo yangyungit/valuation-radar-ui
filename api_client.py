@@ -2304,6 +2304,47 @@ def gbdt_shap_detail(
         return {"success": False, "error": str(exc)}
 
 
+def gbdt_shap_detail_oos(
+    price_df,
+    vol_df=None,
+    meta_data: dict = None,
+    pit_meta_records: dict = None,
+    month_specs: list = None,
+    target_month: str = "",
+    grade: str = "",
+    z_seed_tickers: list = None,
+) -> dict:
+    """调后端 /api/v1/gbdt/shap_detail_oos，用目标月 walk-forward 模型现算因子级 SHAP。
+
+    返回成功：{success, grade, month_key, features, feature_cn, groups,
+              base_value, rows:[{ticker, name, pred, shap:{col:v}, feat:{col:v}}]}
+    失败：{success:False, error:...}
+    """
+    try:
+        price_records = {str(k): v for k, v in price_df.to_dict(orient="index").items()}
+        vol_records: dict = {}
+        if vol_df is not None and not vol_df.empty:
+            vol_records = {str(k): v for k, v in vol_df.to_dict(orient="index").items()}
+        payload = {
+            "price_records":    _sanitize_floats(price_records),
+            "vol_records":      _sanitize_floats(vol_records),
+            "meta_data":        _sanitize_floats(meta_data or {}),
+            "pit_meta_records": _sanitize_floats(pit_meta_records or {}),
+            "month_specs":      month_specs or [],
+            "target_month":     target_month,
+            "grade":            grade,
+            "z_seed_tickers":   list(z_seed_tickers or []),
+        }
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/gbdt/shap_detail_oos",
+            json=payload, timeout=300,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_gbdt_history() -> dict:
     """从后端读取全量 GBDT 月度档案（镜像 fetch_arena_history）。
