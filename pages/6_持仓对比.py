@@ -41,13 +41,14 @@ def _get_max_depth(hist: dict) -> int:
 
 
 _max_buffer_n = max(2, _get_max_depth(_gbdt))
+months_all = sorted(k for k in _gbdt if not k.startswith("_"))
 
-buffer_n = int(st.number_input(
-    "守擂缓冲区 Top-N",
-    min_value=2, max_value=_max_buffer_n,
-    value=min(6, _max_buffer_n), step=1,
-    help=f"A/B 守擂槽位缓冲 + C 篮子动量缓冲共用此值；数据深度上限 {_max_buffer_n}",
-))
+for _bk in ("buf_a", "buf_b", "buf_c"):
+    _v = st.session_state.get(_bk)
+    st.session_state[_bk] = (
+        min(6, _max_buffer_n) if _v is None
+        else max(2, min(int(_v), _max_buffer_n))
+    )
 
 _CASH_RATE = 0.04
 
@@ -66,10 +67,8 @@ def _collect_tickers(hist: dict, grade: str, top_n: int) -> set:
 
 
 all_tickers: set = set()
-for _g in ["A", "B"]:
-    all_tickers |= _collect_tickers(_gbdt, _g, buffer_n)
-# C 档只需 top-2
-all_tickers |= _collect_tickers(_gbdt, "C", 2)
+for _g in ["A", "B", "C"]:
+    all_tickers |= _collect_tickers(_gbdt, _g, _max_buffer_n)
 
 price_cache: dict = {}
 spy_wk: pd.DataFrame = pd.DataFrame()
@@ -104,23 +103,17 @@ def _fmt_kpi(v, fmt: str = ".2f") -> str:
         return "—"
 
 
-def _render_slot(
-    gbdt: dict, grade: str,
-    _buffer_n: int, _price_cache: dict,
-    _spy_wk: pd.DataFrame, _name_map: dict, _cash_rate: float,
-) -> None:
-    months = sorted(k for k in gbdt if not k.startswith("_"))
-    if len(months) < 2:
-        st.info("数据不足（月份 < 2）")
-        return
-
-    slots, _, gate_closed = hv.build_slot_assignments(gbdt, grade, _buffer_n)
+def _slot_navs(
+    gbdt: dict, grade: str, buffer_n: int,
+    price_cache: dict, spy_wk: pd.DataFrame, cash_rate: float, months: list,
+):
+    """左右槽 NAV + 50/50 合成 NAV，供渲染与最优扫描共用。"""
+    slots, _, gate_closed = hv.build_slot_assignments(gbdt, grade, buffer_n)
     seg_l = hv.build_slot_segments(slots, 0, months)
     seg_r = hv.build_slot_segments(slots, 1, months)
-    ret_l, dd_l, nav_l = hv.calc_slot_stats(seg_l, _price_cache, _spy_wk, _cash_rate)
-    ret_r, dd_r, nav_r = hv.calc_slot_stats(seg_r, _price_cache, _spy_wk, _cash_rate)
+    ret_l, dd_l, nav_l = hv.calc_slot_stats(seg_l, price_cache, spy_wk, cash_rate)
+    ret_r, dd_r, nav_r = hv.calc_slot_stats(seg_r, price_cache, spy_wk, cash_rate)
 
-    # 等权 50/50 合成
     nav_combined = pd.Series(dtype=float)
     ret_combined, dd_combined = 0.0, 0.0
     if not nav_l.empty and not nav_r.empty:
@@ -137,6 +130,59 @@ def _render_slot(
         nav_combined, ret_combined, dd_combined = nav_l.copy(), ret_l, dd_l
     elif not nav_r.empty:
         nav_combined, ret_combined, dd_combined = nav_r.copy(), ret_r, dd_r
+
+    return seg_l, seg_r, nav_l, nav_r, nav_combined, ret_combined, dd_combined, gate_closed
+
+
+def _calmar_of(nav: pd.Series) -> float:
+    if nav is None or nav.empty:
+        return float("nan")
+    cal = hv.compute_nav_kpi(nav).get("calmar", float("nan"))
+    return cal if (cal == cal and abs(cal) != float("inf")) else float("nan")
+
+
+def _best_buffer_slot(
+    gbdt: dict, grade: str, price_cache: dict,
+    spy_wk: pd.DataFrame, cash_rate: float, max_n: int, months: list,
+) -> int | None:
+    best_n, best_cal = None, float("-inf")
+    for n in range(2, max_n + 1):
+        nav_c = _slot_navs(gbdt, grade, n, price_cache, spy_wk, cash_rate, months)[4]
+        cal = _calmar_of(nav_c)
+        if cal == cal and cal > best_cal:
+            best_cal, best_n = cal, n
+    return best_n
+
+
+def _best_buffer_basket(
+    gbdt: dict, grade: str, price_cache: dict,
+    spy_wk: pd.DataFrame, cash_rate: float, max_n: int,
+) -> int | None:
+    best_n, best_cal = None, float("-inf")
+    for n in range(2, max_n + 1):
+        r = hv.build_basket_nav(
+            gbdt, grade, price_cache, spy_wk, top_n=2, cash_rate=cash_rate, buffer_n=n,
+        )
+        cal = _calmar_of(r["nav"])
+        if cal == cal and cal > best_cal:
+            best_cal, best_n = cal, n
+    return best_n
+
+
+def _render_slot(
+    gbdt: dict, grade: str,
+    _buffer_n: int, _price_cache: dict,
+    _spy_wk: pd.DataFrame, _name_map: dict, _cash_rate: float,
+) -> None:
+    months = sorted(k for k in gbdt if not k.startswith("_"))
+    if len(months) < 2:
+        st.info("数据不足（月份 < 2）")
+        return
+
+    (seg_l, seg_r, nav_l, nav_r, nav_combined,
+     ret_combined, dd_combined, gate_closed) = _slot_navs(
+        gbdt, grade, _buffer_n, _price_cache, _spy_wk, _cash_rate, months,
+    )
 
     kpi = hv.compute_nav_kpi(nav_combined) if not nav_combined.empty else {}
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -220,10 +266,45 @@ def _render_basket(
     st.plotly_chart(fig_r, use_container_width=True, key=f"{grade}_basket_slot1")
 
 
+st.markdown(f"**守擂缓冲区 Top-N（A/B/C 各自独立，数据深度上限 {_max_buffer_n}）**")
+_cc1, _cc2, _cc3, _cc4 = st.columns([1, 1, 1, 1.6])
+with _cc1:
+    st.number_input("🛡️ A 档", min_value=2, max_value=_max_buffer_n, step=1, key="buf_a")
+with _cc2:
+    st.number_input("🏦 B 档", min_value=2, max_value=_max_buffer_n, step=1, key="buf_b")
+with _cc3:
+    st.number_input("🚀 C 档", min_value=2, max_value=_max_buffer_n, step=1, key="buf_c")
+with _cc4:
+    st.write("")
+    if st.button("🎯 自动选最优 (Calmar)", use_container_width=True):
+        with st.spinner("扫描各档 Top-N…"):
+            _ba = _best_buffer_slot(
+                _gbdt, "A", price_cache, spy_wk, _CASH_RATE, _max_buffer_n, months_all)
+            _bb = _best_buffer_slot(
+                _gbdt, "B", price_cache, spy_wk, _CASH_RATE, _max_buffer_n, months_all)
+            _bc = _best_buffer_basket(
+                _gbdt, "C", price_cache, spy_wk, _CASH_RATE, _max_buffer_n)
+        if _ba:
+            st.session_state["buf_a"] = _ba
+        if _bb:
+            st.session_state["buf_b"] = _bb
+        if _bc:
+            st.session_state["buf_c"] = _bc
+        st.rerun()
+st.caption(
+    "⚠️ 自动值是在这段 OOS 窗口内回看挑 Calmar 最高，属样本内最优，有过拟合风险，仅供参考。"
+)
+
 tab_a, tab_b, tab_c = st.tabs(["🛡️ A 档", "🏦 B 档", "🚀 C 档"])
 with tab_a:
-    _render_slot(_gbdt, "A", buffer_n, price_cache, spy_wk, name_map, _CASH_RATE)
+    _render_slot(
+        _gbdt, "A", st.session_state["buf_a"],
+        price_cache, spy_wk, name_map, _CASH_RATE)
 with tab_b:
-    _render_slot(_gbdt, "B", buffer_n, price_cache, spy_wk, name_map, _CASH_RATE)
+    _render_slot(
+        _gbdt, "B", st.session_state["buf_b"],
+        price_cache, spy_wk, name_map, _CASH_RATE)
 with tab_c:
-    _render_basket(_gbdt, "C", price_cache, spy_wk, name_map, _CASH_RATE, buffer_n)
+    _render_basket(
+        _gbdt, "C", price_cache, spy_wk, name_map, _CASH_RATE,
+        st.session_state["buf_c"])
