@@ -44,7 +44,8 @@ _max_buffer_n = max(2, _get_max_depth(_gbdt))
 months_all = sorted(k for k in _gbdt if not k.startswith("_"))
 
 for _bk in ("buf_a", "buf_b", "buf_c"):
-    _v = st.session_state.get(_bk)
+    _pending = st.session_state.pop(f"{_bk}_auto", None)
+    _v = _pending if _pending is not None else st.session_state.get(_bk)
     st.session_state[_bk] = (
         min(6, _max_buffer_n) if _v is None
         else max(2, min(int(_v), _max_buffer_n))
@@ -266,45 +267,47 @@ def _render_basket(
     st.plotly_chart(fig_r, use_container_width=True, key=f"{grade}_basket_slot1")
 
 
-st.markdown(f"**守擂缓冲区 Top-N（A/B/C 各自独立，数据深度上限 {_max_buffer_n}）**")
-_cc1, _cc2, _cc3, _cc4 = st.columns([1, 1, 1, 1.6])
-with _cc1:
-    st.number_input("🛡️ A 档", min_value=2, max_value=_max_buffer_n, step=1, key="buf_a")
-with _cc2:
-    st.number_input("🏦 B 档", min_value=2, max_value=_max_buffer_n, step=1, key="buf_b")
-with _cc3:
-    st.number_input("🚀 C 档", min_value=2, max_value=_max_buffer_n, step=1, key="buf_c")
-with _cc4:
-    st.write("")
-    if st.button("🎯 自动选最优 (Calmar)", use_container_width=True):
-        with st.spinner("扫描各档 Top-N…"):
-            _ba = _best_buffer_slot(
-                _gbdt, "A", price_cache, spy_wk, _CASH_RATE, _max_buffer_n, months_all)
-            _bb = _best_buffer_slot(
-                _gbdt, "B", price_cache, spy_wk, _CASH_RATE, _max_buffer_n, months_all)
-            _bc = _best_buffer_basket(
-                _gbdt, "C", price_cache, spy_wk, _CASH_RATE, _max_buffer_n)
-        if _ba:
-            st.session_state["buf_a"] = _ba
-        if _bb:
-            st.session_state["buf_b"] = _bb
-        if _bc:
-            st.session_state["buf_c"] = _bc
-        st.rerun()
-st.caption(
-    "⚠️ 自动值是在这段 OOS 窗口内回看挑 Calmar 最高，属样本内最优，有过拟合风险，仅供参考。"
-)
+def _topn_control(grade: str, key: str, is_basket: bool) -> None:
+    """单档 Top-N 控件：number_input + 自动选最优按钮（按 Calmar 穷举扫描）。
+    自动值写临时 key + rerun，由页首在 widget 实例化前应用，避开 Streamlit
+    『widget 实例化后不能改同名 session_state』限制。"""
+    c1, c2 = st.columns([1, 1.4])
+    with c1:
+        st.number_input(
+            f"守擂缓冲区 Top-N（上限 {_max_buffer_n}）",
+            min_value=2, max_value=_max_buffer_n, step=1, key=key,
+        )
+    with c2:
+        st.write("")
+        if st.button("🎯 自动选最优 (Calmar)", key=f"auto_{key}", use_container_width=True):
+            with st.spinner("扫描 Top-N…"):
+                best = (
+                    _best_buffer_basket(
+                        _gbdt, grade, price_cache, spy_wk, _CASH_RATE, _max_buffer_n)
+                    if is_basket else
+                    _best_buffer_slot(
+                        _gbdt, grade, price_cache, spy_wk, _CASH_RATE,
+                        _max_buffer_n, months_all)
+                )
+            if best:
+                st.session_state[f"{key}_auto"] = best
+                st.rerun()
+    st.caption("⚠️ 自动值是样本内回看挑 Calmar 最高，有过拟合风险，仅供参考。")
+
 
 tab_a, tab_b, tab_c = st.tabs(["🛡️ A 档", "🏦 B 档", "🚀 C 档"])
 with tab_a:
+    _topn_control("A", "buf_a", is_basket=False)
     _render_slot(
         _gbdt, "A", st.session_state["buf_a"],
         price_cache, spy_wk, name_map, _CASH_RATE)
 with tab_b:
+    _topn_control("B", "buf_b", is_basket=False)
     _render_slot(
         _gbdt, "B", st.session_state["buf_b"],
         price_cache, spy_wk, name_map, _CASH_RATE)
 with tab_c:
+    _topn_control("C", "buf_c", is_basket=True)
     _render_basket(
         _gbdt, "C", price_cache, spy_wk, name_map, _CASH_RATE,
         st.session_state["buf_c"])
