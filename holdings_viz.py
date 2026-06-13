@@ -397,14 +397,18 @@ def build_basket_nav(
     spy_wk: pd.DataFrame,
     top_n: int = 2,
     cash_rate: float = 0.04,
+    buffer_n: int | None = None,
 ) -> dict:
     """等权 top_n 篮子，月度再平衡。
+    buffer_n 非空时启用动量缓冲：上月持仓只要还在当月 top buffer_n 就留任，
+    掉出才换，空位按当月排名从高到低补满 top_n。buffer_n=None 退化为纯 top_n。
     返回 {"nav", "total_ret", "max_dd", "turnover_pct", "monthly_holdings"}
     """
     months = sorted(k for k in history if not k.startswith("_"))
     running_nav = 1.0
     nav_parts: list = []
     monthly_holdings: dict = {}
+    prev_basket: list = []
 
     for m in months:
         rec = history[m].get(
@@ -412,10 +416,22 @@ def build_basket_nav(
         )
         gate_open = rec.get("gate_status", "open") != "closed"
         recs = rec.get("tickers", [])
-        basket = (
-            [r.get("ticker", "") for r in recs[:top_n] if r.get("ticker")]
-            if gate_open else []
-        )
+        if not gate_open:
+            basket = []
+            prev_basket = []
+        else:
+            ranked = [r.get("ticker", "") for r in recs if r.get("ticker")]
+            if buffer_n and prev_basket:
+                top_buf = ranked[:buffer_n]
+                basket = [t for t in prev_basket if t in top_buf][:top_n]
+                for t in ranked:
+                    if len(basket) >= top_n:
+                        break
+                    if t not in basket:
+                        basket.append(t)
+            else:
+                basket = ranked[:top_n]
+            prev_basket = basket
         monthly_holdings[m] = basket
 
         sd = pd.Timestamp(f"{m}-01")

@@ -45,8 +45,8 @@ _max_buffer_n = max(2, _get_max_depth(_gbdt))
 buffer_n = int(st.number_input(
     "守擂缓冲区 Top-N",
     min_value=2, max_value=_max_buffer_n,
-    value=min(3, _max_buffer_n), step=1,
-    help=f"数据深度上限 {_max_buffer_n}",
+    value=min(6, _max_buffer_n), step=1,
+    help=f"A/B 守擂槽位缓冲 + C 篮子动量缓冲共用此值；数据深度上限 {_max_buffer_n}",
 ))
 
 _CASH_RATE = 0.04
@@ -172,6 +172,7 @@ def _render_slot(
 def _render_basket(
     gbdt: dict, grade: str,
     _price_cache: dict, _spy_wk: pd.DataFrame, _name_map: dict, _cash_rate: float,
+    _buffer_n: int | None = None,
 ) -> None:
     st.markdown("**GBDT · 等权 top-2 篮子**")
     months = sorted(k for k in gbdt if not k.startswith("_"))
@@ -181,6 +182,7 @@ def _render_basket(
 
     r = hv.build_basket_nav(
         gbdt, grade, _price_cache, _spy_wk, top_n=2, cash_rate=_cash_rate,
+        buffer_n=_buffer_n,
     )
     c1, c2, c3 = st.columns(3)
     c1.metric("总收益", f"{r['total_ret']:+.1f}%")
@@ -224,4 +226,4 @@ with tab_a:
 with tab_b:
     _render_slot(_gbdt, "B", buffer_n, price_cache, spy_wk, name_map, _CASH_RATE)
 with tab_c:
-    _render_basket(_gbdt, "C", price_cache, spy_wk, name_map, _CASH_RATE)
+    _render_basket(_gbdt, "C", price_cache, spy_wk, name_map, _CASH_RATE, buffer_n)
