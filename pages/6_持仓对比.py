@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from api_client import fetch_core_data, fetch_gbdt_oos_history
+from api_client import fetch_core_data, fetch_gbdt_oos_history, fetch_gbdt_oos_prices
 import holdings_viz as hv
 
 st.set_page_config(page_title="GBDT 持仓回放", layout="wide", page_icon="⚖️")
@@ -19,9 +19,9 @@ if not _gbdt:
     )
     st.stop()
 
-# 系统 2026-02 才上线，更早全是用今天 universe 回填的，越往前幸存者偏差越重。
-# 截到 2023-01 这条判断线之后再回测（早期污染区不展示）。
-_BT_CUTOFF = "2023-01"
+# 回填改用 Sharadar 规则化 PIT 池（每月 top-1000 by 市值，退市票退市前在池），幸存者偏差
+# 已在 universe 级消除；regime 缓存只到 2016-06，OOS 重训需 24 月热身，曲线干净起点 2018-09。
+_BT_CUTOFF = "2018-09"
 _gbdt = {m: v for m, v in _gbdt.items() if m.startswith("_") or m >= _BT_CUTOFF}
 
 st.info(
@@ -29,10 +29,10 @@ st.info(
     "代表当时实际能做到的业绩。数值远低于 Page 3 回填曲线属正常——后者用全样本模型回填，含未来函数。",
     icon="📊",
 )
-st.warning(
-    f"⚠️ 曲线从 **{_BT_CUTOFF}** 起。系统 2026-02 才上线，更早的榜单都是用今天的 universe "
-    "回填的，已退市的输家不在池里（幸存者偏差），越往前越虚。2023 这条线是判断取舍，不是数据上的"
-    "干净起点——即便它也带轻度偏差。",
+st.success(
+    f"✅ 曲线从 **{_BT_CUTOFF}** 起，已消除幸存者偏差：回填池是每月规则化重建的 Sharadar "
+    "PIT 池（top-1000 by 当月市值），退市/被收购的票在退市前留在池里、之后才出池；基本面是 "
+    "SF1 真 PIT，价格是 Sharadar 含退市日线。不再是用今天的活池回填。",
     icon="🪦",
 )
 
@@ -91,6 +91,11 @@ spy_daily: pd.DataFrame = pd.DataFrame()
 spy_wk: pd.DataFrame = pd.DataFrame()
 
 with st.spinner("正在获取价格数据..."):
+    # 优先注入后端 Sharadar 股息复权日线（含退市票、深 8 年），缺的票 fetch_*_ohlcv 自动回退 yfinance
+    _need = tuple(sorted(_ab_tickers | _cd_tickers | {"SPY"}))
+    _primed = hv.prime_sharadar_prices(fetch_gbdt_oos_prices(_need))
+    if _primed:
+        st.caption(f"📦 已从 Sharadar 载入 {_primed} 票股息复权日线（含退市票）。")
     try:
         spy_daily = hv.fetch_daily_ohlcv("SPY")
         spy_wk = hv.daily_to_weekly(spy_daily)

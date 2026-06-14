@@ -2391,6 +2391,27 @@ def fetch_gbdt_oos_history() -> dict:
         return {}
 
 
+@st.cache_data(ttl=3600 * 4, show_spinner=False)
+def fetch_gbdt_oos_prices(tickers: tuple) -> dict:
+    """从后端读 OOS 回测持仓票的股息复权日线（Sharadar，含退市票）。
+
+    返回 {ticker: [[date,o,h,l,c,v], ...]}。给 Page 6 净值重建用，替代前端 yfinance
+    （后者只有 ~5 年、缺退市票）。tickers 用 tuple 以便 st.cache_data 缓存。
+    """
+    if not tickers:
+        return {}
+    try:
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/gbdt/oos_prices",
+            json={"tickers": list(tickers)},
+            timeout=60,
+        )
+        r.raise_for_status()
+        return r.json().get("prices", {}) or {}
+    except Exception:
+        return {}
+
+
 def get_gbdt_state(grade: str) -> tuple[dict, list]:
     """读 GBDT 守擂信念状态（镜像 fetch_conviction_state，读 gbdt_conviction_state 表）。"""
     try:

@@ -14,8 +14,51 @@ SLOT_COLORS = [
 ]
 
 
-@st.cache_data(ttl=3600 * 4, show_spinner=False)
+# Sharadar 价格缓存：Page 6 净值重建优先用后端推来的股息复权日线（含退市票、深 8 年），
+# 缺的票（如系统上线后新增的活票）才回退 yfinance（只有 ~5 年）。
+# prime_sharadar_prices() 由 Page 6 在拉价前注入一次。
+_SHARADAR_DAILY: dict = {}
+
+
+def _series_to_daily(series: list) -> pd.DataFrame:
+    """后端 [[date,o,h,l,c,v], ...] → 日线 DataFrame（index=date, cols=OHLCV）。"""
+    if not series:
+        return pd.DataFrame()
+    df = pd.DataFrame(series, columns=["date", "Open", "High", "Low", "Close", "Volume"])
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date").sort_index()
+    for c in ("Open", "High", "Low", "Close", "Volume"):
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df.dropna(subset=["Close"])
+
+
+def prime_sharadar_prices(prices: dict) -> int:
+    """注入后端 Sharadar 日线（{ticker: [[date,o,h,l,c,v]]}），供 fetch_*_ohlcv 优先取用。"""
+    n = 0
+    for tk, series in (prices or {}).items():
+        d = _series_to_daily(series)
+        if not d.empty:
+            _SHARADAR_DAILY[tk] = d
+            n += 1
+    return n
+
+
 def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
+    """周线 OHLCV：优先 Sharadar（含退市、深历史），缺则回退 yfinance。"""
+    if ticker in _SHARADAR_DAILY:
+        return daily_to_weekly(_SHARADAR_DAILY[ticker])
+    return _fetch_weekly_yf(ticker)
+
+
+def fetch_daily_ohlcv(ticker: str) -> pd.DataFrame:
+    """日线 OHLCV：优先 Sharadar（含退市、深历史），缺则回退 yfinance。"""
+    if ticker in _SHARADAR_DAILY:
+        return _SHARADAR_DAILY[ticker]
+    return _fetch_daily_yf(ticker)
+
+
+@st.cache_data(ttl=3600 * 4, show_spinner=False)
+def _fetch_weekly_yf(ticker: str) -> pd.DataFrame:
     h = yf.Ticker(ticker, session=YF_SESSION).history(period="5y")
     if h.empty:
         return pd.DataFrame()
@@ -32,7 +75,7 @@ def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=3600 * 4, show_spinner=False)
-def fetch_daily_ohlcv(ticker: str) -> pd.DataFrame:
+def _fetch_daily_yf(ticker: str) -> pd.DataFrame:
     """日线 OHLC（含分红调整）。day1 开盘买必须用日线，周线只有周五。"""
     h = yf.Ticker(ticker, session=YF_SESSION).history(start="2021-06-01")
     if h.empty:

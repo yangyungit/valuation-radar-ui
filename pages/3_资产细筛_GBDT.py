@@ -793,18 +793,23 @@ with bf_col2:
 
 oos_col1, oos_col2 = st.columns([1, 3])
 with oos_col1:
-    _do_oos = st.button(
-        "🔬 生成 OOS 回放（真实样本外）",
+    # 停用：OOS 回放已改由本地 Sharadar 离线回填（规则化 PIT 池 + 含退市价格）维护，
+    # 此按钮走的是 curated 池 + yfinance，会覆盖掉无幸存者偏差的 Sharadar 数据，故停用。
+    _do_oos = False
+    st.button(
+        "🔬 生成 OOS 回放（已停用）",
         use_container_width=True,
-        help="每月只用历史数据重训模型再选股（walk-forward），落盘 gbdt_history_oos，供 Page 3 历史榜 + Page 6 渲染。",
+        disabled=True,
+        help="OOS 数据现由本地 scripts/backfill_gbdt_oos_sharadar.py 维护（规则化 PIT 池，无幸存者偏差），不再从此按钮生成。",
     )
 with oos_col2:
     st.markdown(
         "<div style='font-size:13px;color:#666;padding-top:8px;'>"
-        "真实样本外回放：每月只用之前的数据重训，无未来函数。"
-        "Page 3 历史榜、颁奖台、排行榜均读这张表（A/B/C/D/Z 全档 + 组级 SHAP）。"
-        "曲线从约 2017-2018 起（早期训练数据不足被切掉），数值远低于全样本曲线属正常。"
-        "整包计算、不分片，约 8-12 分钟。</div>",
+        "OOS 回放已迁到<b>本地 Sharadar 离线回填</b>：每月规则化 PIT 池（top-1000 by 市值，含退市票）"
+        "+ SF1 真 PIT 基本面 + 含退市日线，幸存者偏差在 universe 级消除。"
+        "Page 3 历史榜、颁奖台、Page 6 净值均读这张表。"
+        "重跑：<code>scripts/backfill_gbdt_oos_sharadar.py</code> → "
+        "<code>push_local_to_render.py --tables gbdt_history_oos,gbdt_oos_prices</code>。</div>",
         unsafe_allow_html=True,
     )
 
