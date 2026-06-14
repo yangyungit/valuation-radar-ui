@@ -273,7 +273,27 @@ def _render_basket(
     st.plotly_chart(fig_r, use_container_width=True, key=f"{grade}_basket_slot1")
 
 
-def _topn_control(grade: str, key: str, is_basket: bool) -> None:
+# A/B/C 三档默认单边成本：波动级别不同，滑点不可能相同。
+# A=蓝筹避风港低点差，B=中盘，C=小盘/高波动篮真实点差最大。三档各自可调。
+_COST_DEFAULTS = {"A": 10.0, "B": 30.0, "C": 80.0}
+
+
+def _cost_input(grade: str, key: str) -> float:
+    """单档换仓成本输入（单边 bps，买卖各扣一次）。"""
+    v = float(st.number_input(
+        f"{grade} 档换仓成本（单边 bps，买卖各扣一次）",
+        min_value=0.0, max_value=500.0, value=_COST_DEFAULTS[grade], step=5.0,
+        key=key,
+        help="月度颗粒度抓不到日内/周内闪崩，真实点差+滑点建议调大留余量。"
+             "归零可还原未计成本的旧曲线。",
+    ))
+    st.caption(
+        f"当前 {grade} 单边 {v:.0f} bps（一次完整换仓 = 卖+买 = {v * 2:.0f} bps）。"
+    )
+    return v
+
+
+def _topn_control(grade: str, key: str, is_basket: bool, cost_bps: float) -> None:
     """单档 Top-N 控件：number_input + 自动选最优按钮（按 Calmar 穷举扫描）。
     自动值写临时 key + rerun，由页首在 widget 实例化前应用，避开 Streamlit
     『widget 实例化后不能改同名 session_state』限制。"""
@@ -290,42 +310,34 @@ def _topn_control(grade: str, key: str, is_basket: bool) -> None:
                 best = (
                     _best_buffer_basket(
                         _gbdt, grade, price_cache, spy_wk, _CASH_RATE,
-                        _max_buffer_n, _cost_bps)
+                        _max_buffer_n, cost_bps)
                     if is_basket else
                     _best_buffer_slot(
                         _gbdt, grade, price_cache, spy_wk, _CASH_RATE,
-                        _max_buffer_n, months_all, _cost_bps)
+                        _max_buffer_n, months_all, cost_bps)
                 )
             if best:
                 st.session_state[f"{key}_auto"] = best
                 st.rerun()
-    st.caption("⚠️ 自动值是样本内回看挑 Calmar 最高（已计入下方换仓成本），有过拟合风险，仅供参考。")
+    st.caption("⚠️ 自动值是样本内回看挑 Calmar 最高（已计入本档换仓成本），有过拟合风险，仅供参考。")
 
-
-_cost_bps = float(st.number_input(
-    "换仓成本：手续费 + 滑点（单边 bps，买卖各扣一次）",
-    min_value=0.0, max_value=500.0, value=50.0, step=10.0,
-    help="月度颗粒度抓不到日内/周内闪崩，且 C 篮多为小盘高波动/加密类，"
-         "真实点差+滑点大，故建议调大留余量。三档共用此值，影响下方全部业绩。",
-))
-st.caption(
-    f"当前单边成本 {_cost_bps:.0f} bps（一次完整换仓 = 卖+买 = {_cost_bps * 2:.0f} bps）。"
-    "换手越高、此值越大，对收益的侵蚀越狠。"
-)
 
 tab_a, tab_b, tab_c = st.tabs(["🛡️ A 档", "🏦 B 档", "🚀 C 档"])
 with tab_a:
-    _topn_control("A", "buf_a", is_basket=False)
+    _cost_a = _cost_input("A", "cost_a")
+    _topn_control("A", "buf_a", is_basket=False, cost_bps=_cost_a)
     _render_slot(
         _gbdt, "A", st.session_state["buf_a"],
-        price_cache, spy_wk, name_map, _CASH_RATE, _cost_bps)
+        price_cache, spy_wk, name_map, _CASH_RATE, _cost_a)
 with tab_b:
-    _topn_control("B", "buf_b", is_basket=False)
+    _cost_b = _cost_input("B", "cost_b")
+    _topn_control("B", "buf_b", is_basket=False, cost_bps=_cost_b)
     _render_slot(
         _gbdt, "B", st.session_state["buf_b"],
-        price_cache, spy_wk, name_map, _CASH_RATE, _cost_bps)
+        price_cache, spy_wk, name_map, _CASH_RATE, _cost_b)
 with tab_c:
-    _topn_control("C", "buf_c", is_basket=True)
+    _cost_c = _cost_input("C", "cost_c")
+    _topn_control("C", "buf_c", is_basket=True, cost_bps=_cost_c)
     _render_basket(
         _gbdt, "C", price_cache, spy_wk, name_map, _CASH_RATE,
-        st.session_state["buf_c"], _cost_bps)
+        st.session_state["buf_c"], _cost_c)
