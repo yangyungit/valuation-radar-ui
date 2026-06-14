@@ -34,7 +34,7 @@ def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
 @st.cache_data(ttl=3600 * 4, show_spinner=False)
 def fetch_daily_ohlcv(ticker: str) -> pd.DataFrame:
     """日线 OHLC（含分红调整）。day1 开盘买必须用日线，周线只有周五。"""
-    h = yf.Ticker(ticker, session=YF_SESSION).history(start="2014-01-01")
+    h = yf.Ticker(ticker, session=YF_SESSION).history(start="2021-06-01")
     if h.empty:
         return pd.DataFrame()
     d = h[["Open", "High", "Low", "Close", "Volume"]].dropna(how="all")
