@@ -43,11 +43,12 @@ def _get_max_depth(hist: dict) -> int:
 _max_buffer_n = max(2, _get_max_depth(_gbdt))
 months_all = sorted(k for k in _gbdt if not k.startswith("_"))
 
-for _bk in ("buf_a", "buf_b", "buf_c"):
+_BUF_DEFAULTS = {"buf_a": 6, "buf_b": 6, "buf_c": 10, "buf_d": 4}
+for _bk in ("buf_a", "buf_b", "buf_c", "buf_d"):
     _pending = st.session_state.pop(f"{_bk}_auto", None)
     _v = _pending if _pending is not None else st.session_state.get(_bk)
     st.session_state[_bk] = (
-        min(6, _max_buffer_n) if _v is None
+        max(2, min(_BUF_DEFAULTS[_bk], _max_buffer_n)) if _v is None
         else max(2, min(int(_v), _max_buffer_n))
     )
 
@@ -67,23 +68,37 @@ def _collect_tickers(hist: dict, grade: str, top_n: int) -> set:
     return tickers
 
 
-all_tickers: set = set()
-for _g in ["A", "B", "C"]:
-    all_tickers |= _collect_tickers(_gbdt, _g, _max_buffer_n)
+_ab_tickers: set = set()
+for _g in ["A", "B"]:
+    _ab_tickers |= _collect_tickers(_gbdt, _g, _max_buffer_n)
+_cd_tickers: set = set()
+for _g in ["C", "D"]:
+    _cd_tickers |= _collect_tickers(_gbdt, _g, _max_buffer_n)
 
-price_cache: dict = {}
+price_cache: dict = {}          # 周线：A/B 槽位图 + C/D 持仓过程拼接图
+price_cache_daily: dict = {}    # 日线：C/D 篮子 day1 开盘买
+spy_daily: pd.DataFrame = pd.DataFrame()
 spy_wk: pd.DataFrame = pd.DataFrame()
 
 with st.spinner("正在获取价格数据..."):
     try:
-        spy_wk = hv.fetch_weekly_ohlcv("SPY")
+        spy_daily = hv.fetch_daily_ohlcv("SPY")
+        spy_wk = hv.daily_to_weekly(spy_daily)
     except Exception as _e:
         st.warning(f"⚠️ SPY 价格拉取失败: {_e}")
-    for _tk in sorted(all_tickers):
+    for _tk in sorted(_ab_tickers):
         try:
             _wkd = hv.fetch_weekly_ohlcv(_tk)
             if not _wkd.empty:
                 price_cache[_tk] = _wkd
+        except Exception:
+            pass
+    for _tk in sorted(_cd_tickers):
+        try:
+            _d = hv.fetch_daily_ohlcv(_tk)
+            if not _d.empty:
+                price_cache_daily[_tk] = _d
+                price_cache[_tk] = hv.daily_to_weekly(_d)
         except Exception:
             pass
 
@@ -111,8 +126,9 @@ def _slot_navs(
 ):
     """左右槽 NAV + 50/50 合成 NAV，供渲染与最优扫描共用。"""
     slots, _, gate_closed = hv.build_slot_assignments(gbdt, grade, buffer_n)
-    seg_l = hv.build_slot_segments(slots, 0, months)
-    seg_r = hv.build_slot_segments(slots, 1, months)
+    months_exec = sorted(slots)
+    seg_l = hv.build_slot_segments(slots, 0, months_exec)
+    seg_r = hv.build_slot_segments(slots, 1, months_exec)
     ret_l, dd_l, nav_l = hv.calc_slot_stats(seg_l, price_cache, spy_wk, cash_rate, cost_bps)
     ret_r, dd_r, nav_r = hv.calc_slot_stats(seg_r, price_cache, spy_wk, cash_rate, cost_bps)
 
@@ -159,15 +175,15 @@ def _best_buffer_slot(
 
 
 def _best_buffer_basket(
-    gbdt: dict, grade: str, price_cache: dict,
-    spy_wk: pd.DataFrame, cash_rate: float, max_n: int,
-    cost_bps: float = 0.0,
+    gbdt: dict, grade: str, price_cache_daily: dict,
+    spy_daily: pd.DataFrame, cash_rate: float, max_n: int,
+    cost_bps: float = 0.0, rebalance_step: int = 1,
 ) -> int | None:
     best_n, best_cal = None, float("-inf")
     for n in range(2, max_n + 1):
         r = hv.build_basket_nav(
-            gbdt, grade, price_cache, spy_wk, top_n=2, cash_rate=cash_rate,
-            buffer_n=n, cost_bps=cost_bps,
+            gbdt, grade, price_cache_daily, spy_daily, top_n=2, cash_rate=cash_rate,
+            buffer_n=n, cost_bps=cost_bps, rebalance_step=rebalance_step,
         )
         cal = _calmar_of(r["nav"])
         if cal == cal and cal > best_cal:
@@ -224,23 +240,27 @@ def _render_slot(
 
 def _render_basket(
     gbdt: dict, grade: str,
-    _price_cache: dict, _spy_wk: pd.DataFrame, _name_map: dict, _cash_rate: float,
+    _price_cache: dict, _price_cache_daily: dict,
+    _spy_daily: pd.DataFrame, _spy_wk: pd.DataFrame,
+    _name_map: dict, _cash_rate: float,
     _buffer_n: int | None = None, _cost_bps: float = 0.0,
+    _rebalance_step: int = 1,
 ) -> None:
-    st.markdown("**GBDT · 等权 top-2 篮子**")
+    _freq_cn = "季度" if _rebalance_step == 3 else "月度"
+    st.markdown(f"**GBDT · 等权 top-2 篮子（{_freq_cn}调仓，日1开盘买，已顺延1月去 look-ahead）**")
     months = sorted(k for k in gbdt if not k.startswith("_"))
     if len(months) < 2:
         st.info("数据不足（月份 < 2）")
         return
 
     r = hv.build_basket_nav(
-        gbdt, grade, _price_cache, _spy_wk, top_n=2, cash_rate=_cash_rate,
-        buffer_n=_buffer_n, cost_bps=_cost_bps,
+        gbdt, grade, _price_cache_daily, _spy_daily, top_n=2, cash_rate=_cash_rate,
+        buffer_n=_buffer_n, cost_bps=_cost_bps, rebalance_step=_rebalance_step,
     )
     c1, c2, c3 = st.columns(3)
     c1.metric("总收益", f"{r['total_ret']:+.1f}%")
     c2.metric("最大回撤", f"-{r['max_dd']:.1f}%")
-    c3.metric("月均换手", f"{r['turnover_pct']:.0f}%")
+    c3.metric(f"{_freq_cn[0]}均换手", f"{r['turnover_pct']:.0f}%")
 
     kpi = hv.compute_nav_kpi(r["nav"]) if not r["nav"].empty else {}
     ck1, ck2, ck3 = st.columns(3)
@@ -250,32 +270,33 @@ def _render_basket(
 
     if not r["nav"].empty:
         st.plotly_chart(
-            hv.build_basket_fig(r["nav"], _spy_wk, "GBDT C 篮子"),
+            hv.build_basket_fig(r["nav"], _spy_wk, f"GBDT {grade} 篮子"),
             use_container_width=True,
-            key="C_gbdt_basket",
+            key=f"{grade}_gbdt_basket",
         )
     else:
         st.info("暂无足够数据生成图表。")
 
-    st.markdown("**持仓过程（每月 top-2 拆成左右两列，月度再平衡）**")
-    slots = hv.build_basket_slot_assignments(r["monthly_holdings"], months)
-    seg_l = hv.build_slot_segments(slots, 0, months)
-    seg_r = hv.build_slot_segments(slots, 1, months)
+    _exec_months = sorted(r["monthly_holdings"])
+    st.markdown(f"**持仓过程（top-2 拆成左右两列，{_freq_cn}再平衡）**")
+    slots = hv.build_basket_slot_assignments(r["monthly_holdings"], _exec_months)
+    seg_l = hv.build_slot_segments(slots, 0, _exec_months)
+    seg_r = hv.build_slot_segments(slots, 1, _exec_months)
     fig_l = hv.build_stitched_fig(
-        seg_l, f"GBDT {grade} 左列（每月 top-1）",
+        seg_l, f"GBDT {grade} 左列（top-1）",
         _spy_wk, _price_cache, _name_map,
     )
     fig_r = hv.build_stitched_fig(
-        seg_r, f"GBDT {grade} 右列（每月 top-2）",
+        seg_r, f"GBDT {grade} 右列（top-2）",
         _spy_wk, _price_cache, _name_map,
     )
     st.plotly_chart(fig_l, use_container_width=True, key=f"{grade}_basket_slot0")
     st.plotly_chart(fig_r, use_container_width=True, key=f"{grade}_basket_slot1")
 
 
-# A/B/C 三档默认单边成本：波动级别不同，滑点不可能相同。
-# A=蓝筹避风港低点差，B=中盘，C=小盘/高波动篮真实点差最大。三档各自可调。
-_COST_DEFAULTS = {"A": 10.0, "B": 30.0, "C": 80.0}
+# A/B/C/D 各档默认单边成本：波动级别不同，滑点不可能相同。
+# A=蓝筹低点差，B=中盘，C=小盘/高波动季度篮，D=短动量月度高换手点差最大。各自可调。
+_COST_DEFAULTS = {"A": 10.0, "B": 30.0, "C": 80.0, "D": 100.0}
 
 
 def _cost_input(grade: str, key: str) -> float:
@@ -293,7 +314,8 @@ def _cost_input(grade: str, key: str) -> float:
     return v
 
 
-def _topn_control(grade: str, key: str, is_basket: bool, cost_bps: float) -> None:
+def _topn_control(grade: str, key: str, is_basket: bool, cost_bps: float,
+                  rebalance_step: int = 1) -> None:
     """单档 Top-N 控件：number_input + 自动选最优按钮（按 Calmar 穷举扫描）。
     自动值写临时 key + rerun，由页首在 widget 实例化前应用，避开 Streamlit
     『widget 实例化后不能改同名 session_state』限制。"""
@@ -309,8 +331,8 @@ def _topn_control(grade: str, key: str, is_basket: bool, cost_bps: float) -> Non
             with st.spinner("扫描 Top-N…"):
                 best = (
                     _best_buffer_basket(
-                        _gbdt, grade, price_cache, spy_wk, _CASH_RATE,
-                        _max_buffer_n, cost_bps)
+                        _gbdt, grade, price_cache_daily, spy_daily, _CASH_RATE,
+                        _max_buffer_n, cost_bps, rebalance_step)
                     if is_basket else
                     _best_buffer_slot(
                         _gbdt, grade, price_cache, spy_wk, _CASH_RATE,
@@ -322,7 +344,8 @@ def _topn_control(grade: str, key: str, is_basket: bool, cost_bps: float) -> Non
     st.caption("⚠️ 自动值是样本内回看挑 Calmar 最高（已计入本档换仓成本），有过拟合风险，仅供参考。")
 
 
-tab_a, tab_b, tab_c = st.tabs(["🛡️ A 档", "🏦 B 档", "🚀 C 档"])
+tab_a, tab_b, tab_c, tab_d = st.tabs(
+    ["🛡️ A 档", "🏦 B 档", "👑 C 档（季度）", "🚀 D 档（月度自营）"])
 with tab_a:
     _cost_a = _cost_input("A", "cost_a")
     _topn_control("A", "buf_a", is_basket=False, cost_bps=_cost_a)
@@ -336,8 +359,16 @@ with tab_b:
         _gbdt, "B", st.session_state["buf_b"],
         price_cache, spy_wk, name_map, _CASH_RATE, _cost_b)
 with tab_c:
+    st.caption("C = 超长动量（252d）。季度调仓、日1开盘买、卖出一日卖。低换手、抗进场时机。")
     _cost_c = _cost_input("C", "cost_c")
-    _topn_control("C", "buf_c", is_basket=True, cost_bps=_cost_c)
+    _topn_control("C", "buf_c", is_basket=True, cost_bps=_cost_c, rebalance_step=3)
     _render_basket(
-        _gbdt, "C", price_cache, spy_wk, name_map, _CASH_RATE,
-        st.session_state["buf_c"], _cost_c)
+        _gbdt, "C", price_cache, price_cache_daily, spy_daily, spy_wk,
+        name_map, _CASH_RATE, st.session_state["buf_c"], _cost_c, _rebalance_step=3)
+with tab_d:
+    st.caption("D = 短动量自营（信号头几天就得进场）。月度调仓、日1开盘买、卖出一日卖。高换手、收益高、回撤大。")
+    _cost_d = _cost_input("D", "cost_d")
+    _topn_control("D", "buf_d", is_basket=True, cost_bps=_cost_d, rebalance_step=1)
+    _render_basket(
+        _gbdt, "D", price_cache, price_cache_daily, spy_daily, spy_wk,
+        name_map, _CASH_RATE, st.session_state["buf_d"], _cost_d, _rebalance_step=1)

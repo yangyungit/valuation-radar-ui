@@ -31,6 +31,41 @@ def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
     return w
 
 
+@st.cache_data(ttl=3600 * 4, show_spinner=False)
+def fetch_daily_ohlcv(ticker: str) -> pd.DataFrame:
+    """日线 OHLC（含分红调整）。day1 开盘买必须用日线，周线只有周五。"""
+    h = yf.Ticker(ticker, session=YF_SESSION).history(start="2014-01-01")
+    if h.empty:
+        return pd.DataFrame()
+    d = h[["Open", "High", "Low", "Close", "Volume"]].dropna(how="all")
+    if d.index.tz is not None:
+        try:
+            d.index = d.index.tz_localize(None)
+        except TypeError:
+            d.index = d.index.tz_convert(None)
+    return d
+
+
+def daily_to_weekly(d: pd.DataFrame) -> pd.DataFrame:
+    """日线降采样到 W-FRI（拼接图 / A 曲线复用，省一次网络拉取）。"""
+    if d is None or d.empty:
+        return pd.DataFrame()
+    w = d.resample("W-FRI").agg({
+        "Open": "first", "High": "max", "Low": "min",
+        "Close": "last", "Volume": "sum",
+    }).dropna()
+    return w
+
+
+def next_month_key(m: str, k: int = 1) -> str:
+    """'2026-05' + k 个月 → '2026-06'。去 look-ahead 用：决策月顺延执行。"""
+    y, mm = int(m[:4]), int(m[5:7])
+    mm += k
+    y += (mm - 1) // 12
+    mm = (mm - 1) % 12 + 1
+    return f"{y:04d}-{mm:02d}"
+
+
 def get_holding_periods(cls_map: dict, ticker: str) -> list:
     periods: list = []
     in_h, start, prev = False, None, None
@@ -65,13 +100,17 @@ def build_slot_segments(slot_assignments: dict, slot_idx: int, months: list) -> 
 
 
 def build_slot_assignments(
-    history: dict, grade: str, buffer_n: int,
+    history: dict, grade: str, buffer_n: int, shift_months: int = 1,
 ) -> tuple[dict, dict, list]:
     """返回 (slot_assignments, hold_map, gate_closed).
     slot_assignments: {month: [slot0_ticker_or_CASH, slot1_...]}
     hold_map:         {month: set(持仓)}（闸门关月为空集）
     gate_closed:      [(month, reason), ...]
     逻辑与 page5 525-596 完全一致。
+
+    shift_months：决策月顺延 N 月执行，去 look-ahead（月 M 的持仓在 M+N 才进场，
+    因为 M 的排名是用截至 M 月末的数据算的）。slot_assignments / gate_closed 的 key
+    随之顺延，下游窗口（月初→月末）自然落在执行月。
     """
     months = sorted(k for k in history if not k.startswith("_"))
     hold_map: dict = {}
@@ -130,6 +169,13 @@ def build_slot_assignments(
                     break
         slot_assignments[m] = new_slots
         prev_slots = new_slots
+
+    if shift_months:
+        slot_assignments = {
+            next_month_key(m, shift_months): v for m, v in slot_assignments.items()
+        }
+        hold_map = {next_month_key(m, shift_months): v for m, v in hold_map.items()}
+        gate_closed = [(next_month_key(m, shift_months), r) for m, r in gate_closed]
 
     return slot_assignments, hold_map, gate_closed
 
@@ -402,135 +448,146 @@ def compute_nav_kpi(nav: pd.Series) -> dict:
     return {"calmar": calmar, "r2": r2, "sortino": sortino, "cagr": cagr}
 
 
+def _basket_select(history: dict, grade: str, top_n: int,
+                   buffer_n: int | None) -> dict:
+    """{决策月: [tickers]}，闸门关→[]。动量缓冲逻辑同原 build_basket_nav。"""
+    months = sorted(k for k in history if not k.startswith("_"))
+    out: dict = {}
+    prev_basket: list = []
+    for m in months:
+        rec = history[m].get(
+            grade, {"tickers": [], "gate_status": "open", "gate_reason": ""})
+        if rec.get("gate_status", "open") == "closed":
+            out[m] = []
+            prev_basket = []
+            continue
+        ranked = [r.get("ticker", "") for r in rec.get("tickers", []) if r.get("ticker")]
+        if buffer_n and prev_basket:
+            top_buf = ranked[:buffer_n]
+            basket = [t for t in prev_basket if t in top_buf][:top_n]
+            for t in ranked:
+                if len(basket) >= top_n:
+                    break
+                if t not in basket:
+                    basket.append(t)
+        else:
+            basket = ranked[:top_n]
+        out[m] = basket
+        prev_basket = basket
+    return out
+
+
 def build_basket_nav(
     history: dict,
     grade: str,
-    price_cache: dict,
-    spy_wk: pd.DataFrame,
+    price_cache_daily: dict,
+    spy_daily: pd.DataFrame,
     top_n: int = 2,
     cash_rate: float = 0.04,
     buffer_n: int | None = None,
     cost_bps: float = 0.0,
+    rebalance_step: int = 1,
+    shift_months: int = 1,
 ) -> dict:
-    """等权 top_n 篮子，月度再平衡。
-    buffer_n 非空时启用动量缓冲：上月持仓只要还在当月 top buffer_n 就留任，
-    掉出才换，空位按当月排名从高到低补满 top_n。buffer_n=None 退化为纯 top_n。
-    cost_bps：单边换仓成本（手续费+滑点），按当月换出+换入只数各扣一次，
-    仅对落在价格窗口内的月份计费。
+    """等权 top_n 篮子，日1开盘买入 + 顺延执行（去 look-ahead）。
+
+    决策月 M 的篮子（用截至 M 月末数据算的排名）在 M+shift_months 月才进场，
+    每 rebalance_step 个月调一次仓（1=月度，3=季度）。进场=执行段首个交易日开盘价，
+    持有到段末交易日收盘，按日线走净值，卖出一日卖在调仓点。
+    返回的 nav 已降采样到周线，供 compute_nav_kpi（√52 年化）消费。
+
+    buffer_n：动量缓冲（同原逻辑）。cost_bps：单边换仓成本，按换手只数计费一次。
     返回 {"nav", "total_ret", "max_dd", "turnover_pct", "monthly_holdings"}
     """
-    months = sorted(k for k in history if not k.startswith("_"))
+    decision_baskets = _basket_select(history, grade, top_n, buffer_n)
+    dmonths = sorted(decision_baskets)
+    empty = {"nav": pd.Series(dtype=float), "total_ret": 0.0, "max_dd": 0.0,
+             "turnover_pct": 0.0, "monthly_holdings": {}}
+    if len(dmonths) < 2 or spy_daily is None or spy_daily.empty:
+        return empty
+
+    cal = spy_daily.index
     running_nav = 1.0
     nav_parts: list = []
-    monthly_holdings: dict = {}
-    prev_basket: list = []
+    exec_holdings: dict = {}
+    prev: list = []
+    turns: list = []
 
-    for m in months:
-        rec = history[m].get(
-            grade, {"tickers": [], "gate_status": "open", "gate_reason": ""}
-        )
-        gate_open = rec.get("gate_status", "open") != "closed"
-        recs = rec.get("tickers", [])
-        held_before = list(prev_basket)
-        if not gate_open:
-            basket = []
-            prev_basket = []
-        else:
-            ranked = [r.get("ticker", "") for r in recs if r.get("ticker")]
-            if buffer_n and prev_basket:
-                top_buf = ranked[:buffer_n]
-                basket = [t for t in prev_basket if t in top_buf][:top_n]
-                for t in ranked:
-                    if len(basket) >= top_n:
-                        break
-                    if t not in basket:
-                        basket.append(t)
-            else:
-                basket = ranked[:top_n]
-            prev_basket = basket
-        monthly_holdings[m] = basket
+    for i in range(0, len(dmonths), rebalance_step):
+        dm = dmonths[i]
+        basket = decision_baskets[dm]
+        start_m = next_month_key(dm, shift_months)
+        span = [next_month_key(start_m, j) for j in range(rebalance_step)]
+        sd = pd.Timestamp(f"{span[0]}-01")
+        ed = pd.Timestamp(f"{span[-1]}-01") + pd.offsets.MonthEnd(1)
+        day_idx = cal[(cal >= sd) & (cal <= ed)]
 
-        sd = pd.Timestamp(f"{m}-01")
-        ed = sd + pd.offsets.MonthEnd(1)
-        wk_idx = (
-            spy_wk.index[(spy_wk.index >= sd) & (spy_wk.index <= ed)]
-            if spy_wk is not None and not spy_wk.empty
-            else pd.DatetimeIndex([])
-        )
+        if i > 0:
+            denom = max(len(basket), len(prev), 1)
+            turns.append(len(set(basket) - set(prev)) / denom)
+        traded = len(set(prev) ^ set(basket))
+        for sm in span:
+            exec_holdings[sm] = basket
+        if cost_bps and basket and traded and top_n > 0 and len(day_idx) >= 1:
+            running_nav *= max(0.0, 1.0 - (traded / top_n) * cost_bps / 10000.0)
+        prev = basket
 
-        if cost_bps and len(wk_idx) >= 1 and top_n > 0:
-            traded = len(set(held_before) ^ set(basket))
-            if traded:
-                running_nav *= max(
-                    0.0, 1.0 - (traded / top_n) * cost_bps / 10000.0)
-
-        if not basket or len(wk_idx) < 1:
-            if len(wk_idx) >= 1:
-                days = (wk_idx - wk_idx[0]).days.to_numpy()
+        if not basket or len(day_idx) < 1:
+            if len(day_idx) >= 1:
+                days = (day_idx - day_idx[0]).days.to_numpy()
                 cash_nav = running_nav * (1.0 + cash_rate) ** (days / 365.0)
-                part = pd.Series(cash_nav, index=wk_idx, dtype=float)
+                part = pd.Series(cash_nav, index=day_idx, dtype=float)
                 nav_parts.append(part)
                 running_nav = float(part.iloc[-1])
             continue
 
         valid_paths: list = []
         for tk in basket:
-            wkd = price_cache.get(tk)
-            if wkd is None or wkd.empty:
+            d = price_cache_daily.get(tk)
+            if d is None or d.empty:
                 continue
-            closes = (
-                wkd["Close"][(wkd.index >= sd) & (wkd.index <= ed)]
-                .astype(float).dropna()
-            )
-            if len(closes) < 2:
+            win = d[(d.index >= sd) & (d.index <= ed)]
+            if len(win) < 2:
                 continue
-            norm = closes / float(closes.iloc[0])
-            valid_paths.append(norm.reindex(wk_idx, method="ffill").bfill())
+            entry = float(win["Open"].iloc[0])
+            if entry <= 0:
+                continue
+            path = win["Close"].astype(float) / entry
+            valid_paths.append(path.reindex(day_idx, method="ffill").bfill())
 
         if not valid_paths:
-            days = (wk_idx - wk_idx[0]).days.to_numpy()
+            days = (day_idx - day_idx[0]).days.to_numpy()
             cash_nav = running_nav * (1.0 + cash_rate) ** (days / 365.0)
-            part = pd.Series(cash_nav, index=wk_idx, dtype=float)
+            part = pd.Series(cash_nav, index=day_idx, dtype=float)
             nav_parts.append(part)
             running_nav = float(part.iloc[-1])
             continue
 
         basket_path = pd.concat(valid_paths, axis=1).mean(axis=1)
-        month_nav = basket_path * running_nav
-        running_nav = float(month_nav.iloc[-1])
-        nav_parts.append(month_nav)
+        seg_nav = basket_path * running_nav
+        running_nav = float(seg_nav.iloc[-1])
+        nav_parts.append(seg_nav)
 
     if not nav_parts:
-        return {
-            "nav": pd.Series(dtype=float),
-            "total_ret": 0.0, "max_dd": 0.0,
-            "turnover_pct": 0.0, "monthly_holdings": monthly_holdings,
-        }
+        return {**empty, "monthly_holdings": exec_holdings}
 
-    nav = pd.concat(nav_parts).sort_index()
-    nav = nav[~nav.index.duplicated(keep="last")]
+    nav_daily = pd.concat(nav_parts).sort_index()
+    nav_daily = nav_daily[~nav_daily.index.duplicated(keep="last")]
+    nav = nav_daily.resample("W-FRI").last().dropna()
+    if len(nav) < 2:
+        return {**empty, "monthly_holdings": exec_holdings}
     total_ret = (float(nav.iloc[-1]) / float(nav.iloc[0]) - 1) * 100
     peak = nav.cummax()
     dd = (peak - nav) / peak.replace(0, float("nan"))
     max_dd = float(dd.max()) * 100
-
-    hold_months = [m for m in months if monthly_holdings.get(m)]
-    turnover_sum = 0.0
-    turnover_count = 0
-    for i in range(1, len(hold_months)):
-        prev = set(monthly_holdings.get(hold_months[i - 1], []))
-        curr = set(monthly_holdings.get(hold_months[i], []))
-        if prev and curr:
-            turnover_sum += len(curr - prev) / top_n
-            turnover_count += 1
-    turnover_pct = (turnover_sum / turnover_count * 100) if turnover_count > 0 else 0.0
+    turnover_pct = float(np.mean(turns)) * 100 if turns else 0.0
 
     return {
         "nav": nav,
         "total_ret": total_ret,
         "max_dd": max_dd,
         "turnover_pct": turnover_pct,
-        "monthly_holdings": monthly_holdings,
+        "monthly_holdings": exec_holdings,
     }
 
 
