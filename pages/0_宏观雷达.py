@@ -15,6 +15,7 @@ from api_client import (
     fetch_etf_meta,
     fetch_dynasty_leaders,
 )
+import holdings_viz as hv
 
 st.set_page_config(page_title="宏观雷达", layout="wide")
 
@@ -623,6 +624,23 @@ else:
                                 _rs63_cols[tk] = pd.Series(np.nan, index=_dyn_idx)
                         _d_rs63 = pd.DataFrame(_rs63_cols, index=_dyn_idx).astype(float)
 
+                    # 王朝接力净值用价格:dynasty ETF 不全在 _PAGE_TICKERS,单独拉
+                    # 一次(yfinance,缓存 4h)。周线 Close 喂 holdings_viz(同 Page 6 持仓对比)。
+                    _dyn_px = get_global_data(sorted(_picked_d.keys()) + ["SPY"], years=10)
+                    _dyn_price_cache: dict = {}
+                    _dyn_spy_wk = pd.DataFrame()
+                    if _dyn_px is not None and not _dyn_px.empty:
+                        _dyn_wk = _dyn_px.resample("W-FRI").last()
+                        if "SPY" in _dyn_wk.columns:
+                            _dyn_spy_wk = (
+                                _dyn_wk[["SPY"]].rename(columns={"SPY": "Close"}).dropna()
+                            )
+                        for _tk in _picked_d:
+                            if _tk in _dyn_wk.columns:
+                                _s = _dyn_wk[_tk].dropna()
+                                if len(_s) >= 2:
+                                    _dyn_price_cache[_tk] = _s.to_frame(name="Close")
+
                     # 同一套规则渲染王朝接力图:任意 metric_df 做横截面排名 + 加冕门槛
                     # 加冕门槛: Top1 + RS_252d > 0(年化跑赢 SPY),熊市无王降级
                     # RS_63d 仅作 hover 参考信息显示,不进门槛——双 RS 实测过严,正常回调被误杀
@@ -817,6 +835,133 @@ else:
                                 use_container_width=True,
                                 hide_index=True,
                             )
+
+                        # ── 王朝接力净值:每月取 metric top-2(龙头+次龙头)持有,顺延 1 月
+                        # 执行去 look-ahead;左右两列保持槽位连续(上月在左列且本月仍持有就
+                        # 留左列),方便观察持仓。周线净值复用 holdings_viz(同 Page 6 持仓对比)。
+                        st.markdown("---")
+                        st.markdown(f"##### 📈 {metric_label} · 王朝接力净值(龙头 + 次龙头,左右两列)")
+                        st.caption(
+                            "每月末按排名取 **Top1(龙头) + Top2(次龙头)** 两个仓位,顺延 1 月执行"
+                            "(去 look-ahead) · **守擂防抖**:已持有的标的只要还在 Top-N 缓冲区内就"
+                            "继续持有,掉出缓冲区才换人——避免排名在 2/3 名边界抖动时来回换仓 · "
+                            "左右两列只为对齐观察:上月在某列且本月仍持有的留原列,不来回跳 · "
+                            "各列等权,合成线 = 左右 50/50 · 周线 NAV,价格 yfinance 股息+拆股复权,"
+                            "与后端 king_score 同源 · 净值最长回看约 10 年,早期未上市的 ETF 月份缺价。"
+                        )
+                        _dyn_buf = int(st.number_input(
+                            "守擂缓冲区 Top-N(≥2,越大越不换仓)",
+                            min_value=2, max_value=10, value=4, step=1,
+                            key=f"dyn_nav_buf_{key_suffix}",
+                            help="持有的票掉到第 N 名以内都不换;掉出第 N 名才被替换为当前 Top2。"
+                                 "= 2 即严格只拿前两名(最敏感,换手最高)。",
+                        ))
+                        if not _dyn_price_cache:
+                            st.info("暂无可用价格数据,无法渲染王朝接力净值。")
+                        else:
+                            # 守擂防抖:已持有票在 Top-N 内则留任,否则换成当前 Top2。
+                            # 逻辑同 holdings_viz.build_slot_assignments 的 survivor 选择。
+                            _mh: dict = {}
+                            _prev_h: list = []
+                            for _ts, _row in _rank_m.iterrows():
+                                _r = _row.dropna().sort_values()
+                                if _r.empty:
+                                    continue
+                                _order = _r.index.tolist()
+                                _t2 = _order[:2]
+                                _tN = set(_order[:_dyn_buf])
+                                if _prev_h:
+                                    _surv = [t for t in _prev_h if t in _tN]
+                                    if len(_surv) >= 2:
+                                        _hold = _surv[:2]
+                                    elif len(_surv) == 1:
+                                        _fill = next(
+                                            (t for t in _order if t not in _surv), None)
+                                        _hold = _surv + ([_fill] if _fill else [])
+                                        if len(_hold) < 2:
+                                            _hold = _t2
+                                    else:
+                                        _hold = _t2
+                                else:
+                                    _hold = _t2
+                                _mh[hv.next_month_key(_ts.strftime("%Y-%m"), 1)] = _hold
+                                _prev_h = _hold
+                            _exec_months = sorted(_mh)
+                            if not _exec_months:
+                                st.info("月度排名数据不足,无法渲染净值。")
+                            else:
+                                _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
+                                _seg_l = hv.build_slot_segments(_slots, 0, _exec_months)
+                                _seg_r = hv.build_slot_segments(_slots, 1, _exec_months)
+                                _nav_l = hv.calc_slot_stats(
+                                    _seg_l, _dyn_price_cache, _dyn_spy_wk, 0.04)[2]
+                                _nav_r = hv.calc_slot_stats(
+                                    _seg_r, _dyn_price_cache, _dyn_spy_wk, 0.04)[2]
+
+                                _navc = pd.Series(dtype=float)
+                                if not _nav_l.empty and not _nav_r.empty:
+                                    _uidx = _nav_l.index.union(_nav_r.index)
+                                    _nl = _nav_l.reindex(_uidx).ffill().bfill()
+                                    _nr = _nav_r.reindex(_uidx).ffill().bfill()
+                                    _navc = 0.5 * _nl + 0.5 * _nr
+                                elif not _nav_l.empty:
+                                    _navc = _nav_l.copy()
+                                elif not _nav_r.empty:
+                                    _navc = _nav_r.copy()
+
+                                if _navc.empty:
+                                    st.info("价格窗口内无足够数据生成净值曲线。")
+                                else:
+                                    _ret_c = (
+                                        float(_navc.iloc[-1]) / float(_navc.iloc[0]) - 1
+                                    ) * 100
+                                    _peak_c = _navc.cummax()
+                                    _dd_c = float(
+                                        ((_peak_c - _navc)
+                                         / _peak_c.replace(0, float("nan"))).max()
+                                    ) * 100
+                                    _kpi = hv.compute_nav_kpi(_navc)
+
+                                    def _fmt_k(v, f=".2f"):
+                                        try:
+                                            if isinstance(v, float) and (
+                                                v != v or abs(v) == float("inf")):
+                                                return "—"
+                                            return f"{v:{f}}"
+                                        except (TypeError, ValueError):
+                                            return "—"
+
+                                    _c1, _c2, _c3, _c4, _c5 = st.columns(5)
+                                    _c1.metric("总收益", f"{_ret_c:+.1f}%")
+                                    _c2.metric("最大回撤", f"-{_dd_c:.1f}%")
+                                    _c3.metric("Calmar", _fmt_k(_kpi.get("calmar", float("nan"))))
+                                    _c4.metric("Sortino", _fmt_k(_kpi.get("sortino", float("nan"))))
+                                    _c5.metric("logR²", _fmt_k(_kpi.get("r2", float("nan"))))
+
+                                    st.plotly_chart(
+                                        hv.build_combined_fig(
+                                            _nav_l, _nav_r, _navc, _dyn_spy_wk,
+                                            "王朝接力 — 左列+右列 50/50 合成 vs SPY",
+                                        ),
+                                        use_container_width=True,
+                                        key=f"dyn_nav_combined_{key_suffix}",
+                                    )
+                                    st.plotly_chart(
+                                        hv.build_stitched_fig(
+                                            _seg_l, "王朝接力 左列 (Slot 0)",
+                                            _dyn_spy_wk, _dyn_price_cache, _d_name_map,
+                                        ),
+                                        use_container_width=True,
+                                        key=f"dyn_nav_l_{key_suffix}",
+                                    )
+                                    st.plotly_chart(
+                                        hv.build_stitched_fig(
+                                            _seg_r, "王朝接力 右列 (Slot 1)",
+                                            _dyn_spy_wk, _dyn_price_cache, _d_name_map,
+                                        ),
+                                        use_container_width=True,
+                                        key=f"dyn_nav_r_{key_suffix}",
+                                    )
 
                     st.markdown(
                         f"##### 🅰️ 按 king_score 排名(主图 · 动量+容量 · "
