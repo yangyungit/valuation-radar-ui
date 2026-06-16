@@ -746,9 +746,12 @@ else:
                                     _demote_note = "<br><i>Top1 但 RS_252d ≤ 0 → 降级(熊市无王)</i>"
                                 _meta = _etf_info.get(tk, {})
                                 _aum_str = _fmt_usd(_meta.get("aum"))
+                                _in_prog_note = (
+                                    "（进行中）" if (_month_in_progress and _d == _last_month) else ""
+                                )
                                 _row_txt.append(
                                     f"<b>{_d_name_map.get(tk, tk)} ({tk})</b><br>"
-                                    f"{_d.strftime('%Y-%m')}<br>"
+                                    f"{_d.strftime('%Y-%m')}{_in_prog_note}<br>"
                                     f"{_BADGE[_t_val]}<br>"
                                     f"排名 {_rank_str}<br>"
                                     f"{hover_metric_label} {_m_str}<br>"
@@ -762,7 +765,7 @@ else:
 
                         fig_dyn = go.Figure(data=go.Heatmap(
                             z=_tier_yx.values,
-                            x=_xlabels,
+                            x=list(_tier_yx.columns),
                             y=_ylabels,
                             colorscale=[
                                 [0.0000, "#2a2a2a"],
@@ -785,7 +788,7 @@ else:
                             margin=dict(l=20, r=20, t=40, b=20),
                             plot_bgcolor="#111111", paper_bgcolor="#111111",
                             font=dict(color="#ddd"),
-                            xaxis=dict(showgrid=False, side="bottom", tickangle=-45),
+                            xaxis=dict(showgrid=False, side="bottom", tickformat="%b %Y", tickangle=-45),
                             yaxis=dict(showgrid=False, autorange="reversed"),
                             title=dict(
                                 text=f"{_dynasty_window} 月末王朝接力 · 按 {metric_label} 排名 · {len(_ordered_tk)} 板块 · {len(_xlabels)} 月",
