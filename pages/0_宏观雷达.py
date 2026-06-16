@@ -829,10 +829,10 @@ else:
                         st.markdown("---")
                         st.markdown(f"##### 📈 {metric_label} · 王朝接力净值(龙头 + 次龙头,左右两列)")
                         st.caption(
-                            "每月末按排名取 **Top1(龙头) + Top2(次龙头)** 两个仓位,顺延 1 月执行"
-                            "(去 look-ahead) · **守擂防抖**:已持有的标的只要还在 Top-N 缓冲区内就"
-                            "继续持有,掉出缓冲区才换人——避免排名在 2/3 名边界抖动时来回换仓 · "
-                            "左右两列只为对齐观察:上月在某列且本月仍持有的留原列,不来回跳 · "
+                            "每月末选 **2 个仓位**,顺延 1 月执行(去 look-ahead) · **进场门槛**:新进场"
+                            "必须当月在前 3(图上银/金格) · **资历优先**:够格的按近 6 月进前 3 次数排序,"
+                            "优先老牌、不追单月暴涨 · **守擂防抖**:在任票只要还在 Top-N 缓冲区内就继续持有,"
+                            "掉出缓冲区才换人 · 左右两列只为对齐观察:上月在某列且本月仍持有的留原列,不来回跳 · "
                             "各列等权,合成线 = 左右 50/50 · 周线 NAV,价格 yfinance 股息+拆股复权,"
                             "与后端 king_score 同源 · 净值最长回看约 10 年,早期未上市的 ETF 月份缺价。"
                         )
@@ -843,14 +843,18 @@ else:
                             help="持有的票掉到第 N 名以内都不换;掉出第 N 名才被替换为当前 Top2。"
                                  "= 2 即严格只拿前两名(最敏感,换手最高)。",
                         ))
+                        # 进场资历:近 6 月里进过前 3(金/银)的次数,滚动统计。NaN 比较得 False。
+                        _ten6 = (_rank_m <= 3).astype(int).rolling(6, min_periods=1).sum()
                         if not _dyn_price_cache:
                             st.info("暂无可用价格数据,无法渲染王朝接力净值。")
                         else:
-                            # 守擂防抖:已持有票在 Top-N 内则留任,否则换成当前 Top2。
-                            # 逻辑同 holdings_viz.build_slot_assignments 的 survivor 选择。
+                            # 选股两层:① 进场门槛=当月前 3(图上银/金格);② 门槛内按近 6 月
+                            # 资历(进前 3 次数)排序,挡单月暴涨抢位。在任票守擂——仍在 Top-N
+                            # 缓冲区内就留任,不受前 3 门槛约束,门槛只管新进场。
                             _mh: dict = {}
                             _mh_src: dict = {}   # 执行月 → 排名来源月(月末快照月)
                             _mh_raw: dict = {}   # 执行月 → 来源月纯排名 [Top1, Top2]
+                            _mh_ten: dict = {}   # 执行月 → {持有标的: 近6月进前3次数}
                             _prev_h: list = []
                             for _ts, _row in _rank_m.iterrows():
                                 _r = _row.dropna().sort_values()
@@ -859,24 +863,29 @@ else:
                                 _order = _r.index.tolist()
                                 _t2 = _order[:2]
                                 _tN = set(_order[:_dyn_buf])
-                                if _prev_h:
-                                    _surv = [t for t in _prev_h if t in _tN]
-                                    if len(_surv) >= 2:
-                                        _hold = _surv[:2]
-                                    elif len(_surv) == 1:
-                                        _fill = next(
-                                            (t for t in _order if t not in _surv), None)
-                                        _hold = _surv + ([_fill] if _fill else [])
-                                        if len(_hold) < 2:
-                                            _hold = _t2
-                                    else:
-                                        _hold = _t2
-                                else:
-                                    _hold = _t2
+                                _tnow = _ten6.loc[_ts]
+                                _elig = [t for t in _order if _r[t] <= 3]
+                                _elig_t = sorted(
+                                    _elig, key=lambda t: (-float(_tnow.get(t, 0)), _r[t]))
+                                # 守擂:在任票仍在 Top-N 缓冲区内则留任(不受前 3 门槛约束)
+                                _hold = [t for t in _prev_h if t in _tN][:2] if _prev_h else []
+                                # 空槽用「资格池按资历」补;池子不够再用纯排名兜底
+                                for t in _elig_t:
+                                    if len(_hold) >= 2:
+                                        break
+                                    if t not in _hold:
+                                        _hold.append(t)
+                                if len(_hold) < 2:
+                                    for t in _order:
+                                        if len(_hold) >= 2:
+                                            break
+                                        if t not in _hold:
+                                            _hold.append(t)
                                 _exec_m = hv.next_month_key(_ts.strftime("%Y-%m"), 1)
                                 _mh[_exec_m] = _hold
                                 _mh_src[_exec_m] = _ts.strftime("%Y-%m")
                                 _mh_raw[_exec_m] = _t2
+                                _mh_ten[_exec_m] = {t: int(_tnow.get(t, 0)) for t in _hold}
                                 _prev_h = _hold
                             _exec_months = sorted(_mh)
                             if not _exec_months:
@@ -888,12 +897,18 @@ else:
                                     if not t or t == "CASH":
                                         return "—"
                                     return f"{_d_name_map.get(t, t)} ({t})"
+
+                                def _wt(t, ten):
+                                    b = _dyn_nm(t)
+                                    return (f"{b} · 资历{ten[t]}"
+                                            if (t and t != "CASH" and t in ten) else b)
                                 _picks_rows = []
                                 for _em in _exec_months:
                                     _sa = _slots.get(_em, ["—", "—"])
                                     _raw = _mh_raw.get(_em, [])
                                     _raw1 = _raw[0] if len(_raw) > 0 else None
                                     _raw2 = _raw[1] if len(_raw) > 1 else None
+                                    _ten = _mh_ten.get(_em, {})
                                     _held = {t for t in _sa if t and t != "CASH"}
                                     _kept = bool(_raw) and _held != set(_raw)
                                     _picks_rows.append({
@@ -901,16 +916,18 @@ else:
                                         "执行月(实际持有)": _em,
                                         "来源月 Top1(龙头)": _dyn_nm(_raw1),
                                         "来源月 Top2(次龙头)": _dyn_nm(_raw2),
-                                        "左列实际持有": _dyn_nm(_sa[0]),
-                                        "右列实际持有": _dyn_nm(_sa[1]),
+                                        "左列实际持有": _wt(_sa[0], _ten),
+                                        "右列实际持有": _wt(_sa[1], _ten),
                                         "守擂留任": "是" if _kept else "",
                                     })
                                 st.markdown("**每月左右两列实际持仓**(对照上方王朝接力图逐行核对)")
                                 st.caption(
                                     "「排名来源月」对应王朝接力图里那一格的月份;「执行月」= 来源月 + 1 = 真正持有的月份"
                                     "(去 look-ahead:月末排名是用截至月末的价格算的,只能下月才进场)。"
-                                    "当「左/右列实际持有」≠「来源月 Top1/Top2」时,通常是:① **守擂留任=是**——"
-                                    "上月的票还在缓冲区内被留任;② 来源月 Top1 在图上因 RS_252d≤0 被降级成灰块(净值不看 RS,仍按纯排名取)。"
+                                    "**选股两层**:① 新进场必须当月在前 3(图上银/金格)才够格;② 够格的按「资历」"
+                                    "(近 6 月进过前 3 的次数,数字越大越老牌)排序,优先老牌、不追单月暴涨。"
+                                    "标的后缀 `· 资历N` 就是这个次数。当「实际持有」≠「来源月 Top1/Top2」时:"
+                                    "① **守擂留任=是**——上月的票还在缓冲区内被留任;② 资历更高的老牌把单月窜上来的新票挤掉。"
                                 )
                                 st.dataframe(
                                     pd.DataFrame(_picks_rows).iloc[::-1],
