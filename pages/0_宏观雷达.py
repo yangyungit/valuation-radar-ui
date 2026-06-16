@@ -671,9 +671,11 @@ else:
                         _tier = pd.DataFrame(
                             0, index=_rank_m.index, columns=_rank_m.columns, dtype=int
                         )
+                        # tier: 0=背景 1=第3名(暗灰) 2=第2名(亮灰) 3=第1名(金)
                         _tier[_rank_m <= 3] = 1
+                        _tier[_rank_m <= 2] = 2
                         _gold_mask = (_rank_m == 1) & (_rs_m > 0)
-                        _tier = _tier.mask(_gold_mask, 2)
+                        _tier = _tier.mask(_gold_mask, 3)
                         _demoted_mask = (_rank_m == 1) & (_rs_m <= 0)
                         _tier = _tier.mask(_demoted_mask, 0)
 
@@ -685,8 +687,8 @@ else:
                             _tier.iloc[:-1] if _month_in_progress else _tier
                         )
 
-                        _gold_cnt = (_confirmed_tier == 2).sum(axis=0)
-                        _silver_cnt = (_confirmed_tier == 1).sum(axis=0)
+                        _gold_cnt = (_confirmed_tier == 3).sum(axis=0)
+                        _silver_cnt = ((_confirmed_tier == 1) | (_confirmed_tier == 2)).sum(axis=0)
                         _sort_key = _gold_cnt * 10000 + _silver_cnt
                         _ordered_tk = _sort_key.sort_values(ascending=False).index.tolist()
 
@@ -712,7 +714,7 @@ else:
                             for d in _tier_yx.columns
                         ]
 
-                        _BADGE = {0: "⚪ 灰", 1: "🥈 银", 2: "🥇 金"}
+                        _BADGE = {0: "⚪ 灰", 1: "🥉 第3", 2: "🥈 第2", 3: "🥇 金"}
                         _hover_text = []
                         for tk in _ordered_tk:
                             _row_txt = []
@@ -763,16 +765,18 @@ else:
                             x=_xlabels,
                             y=_ylabels,
                             colorscale=[
-                                [0.00, "#2a2a2a"],
-                                [0.33, "#2a2a2a"],
-                                [0.34, "#9aa0a6"],
-                                [0.66, "#9aa0a6"],
-                                [0.67, "#FFD700"],
-                                [1.00, "#FFD700"],
+                                [0.0000, "#2a2a2a"],
+                                [0.1667, "#2a2a2a"],
+                                [0.1667, "#565b60"],
+                                [0.5000, "#565b60"],
+                                [0.5000, "#aab0b6"],
+                                [0.8333, "#aab0b6"],
+                                [0.8333, "#FFD700"],
+                                [1.0000, "#FFD700"],
                             ],
-                            zmin=0, zmax=2,
-                            text=_hover_text,
-                            hovertemplate="%{text}<extra></extra>",
+                            zmin=0, zmax=3,
+                            customdata=np.array(_hover_text, dtype=object),
+                            hovertemplate="%{customdata}<extra></extra>",
                             showscale=False,
                             xgap=1, ygap=1,
                         ))
@@ -794,18 +798,18 @@ else:
                         _confirmed_tier_yx = _confirmed_tier[_ordered_tk].T
                         for tk in _ordered_tk:
                             _t_row = _confirmed_tier_yx.loc[tk].values
-                            _gold = int((_t_row == 2).sum())
-                            _silver = int((_t_row == 1).sum())
+                            _gold = int((_t_row == 3).sum())
+                            _silver = int(((_t_row == 1) | (_t_row == 2)).sum())
                             _max_streak = 0
                             _cur = 0
                             for v in _t_row:
-                                if v == 2:
+                                if v == 3:
                                     _cur += 1
                                     _max_streak = max(_max_streak, _cur)
                                 else:
                                     _cur = 0
                             _confirmed_row = _confirmed_tier_yx.loc[tk]
-                            _gold_dates = _confirmed_row.index[_confirmed_row.values == 2]
+                            _gold_dates = _confirmed_row.index[_confirmed_row.values == 3]
                             _last_gold = _gold_dates.max() if len(_gold_dates) > 0 else None
                             _stat_rows.append({
                                 "板块": _d_name_map.get(tk, tk),
@@ -825,10 +829,10 @@ else:
 
                         _last_col = _tier_yx[_last_month]
                         _current_king_tk = None
-                        _gold_now = _last_col[_last_col == 2]
+                        _gold_now = _last_col[_last_col == 3]
                         if len(_gold_now) > 0:
                             _current_king_tk = _gold_now.index[0]
-                        _current_silver_tks = _last_col[_last_col == 1].index.tolist()
+                        _current_silver_tks = _last_col[(_last_col == 1) | (_last_col == 2)].index.tolist()
                         if _current_king_tk:
                             _current_html = (
                                 f"<span class='tag-bull'>🥇 {_d_name_map.get(_current_king_tk, _current_king_tk)} "
@@ -852,7 +856,7 @@ else:
 <div style='margin-bottom:6px'>📍 {_current_label}({_last_month.strftime('%Y-%m')}): {_current_html} &nbsp; {_silver_html}</div>
 <div style='margin-bottom:6px'>👑 累计王朝长度 Top3: {_kings_html}</div>
 <div class='insight-section' style='font-size:13px; color:#888;'>
-读法:🥇 金块 = 当月 Top1 且 RS_252d &gt; 0(跑赢 SPY);🥈 银块 = Top2-3;⚪ 灰块 = 其他,或 Top1 但 RS_252d ≤ 0(熊市无王降级)。<b style='color:#aaa;'>连续金块</b> = 王朝期;<b style='color:#aaa;'>累计金多 + 最长连续金长</b> = 真时代之王。<b style='color:#aaa;'>对比 🅰️ 与 🅱️</b>:king_score 把 URA/TAN 这类小众主题盘从「时代之王」候选里压下去——它们 RS 可能称霸,但 ADV 显著低于 XL*/SMH/IGV 机构盘,容量项是负贡献。
+读法:🥇 金块 = 当月 Top1 且 RS_252d &gt; 0(跑赢 SPY);🥈 亮灰 = 第2名,🥉 暗灰 = 第3名;⚪ 深灰块 = 其他,或 Top1 但 RS_252d ≤ 0(熊市无王降级)。<b style='color:#aaa;'>连续金块</b> = 王朝期;<b style='color:#aaa;'>累计金多 + 最长连续金长</b> = 真时代之王。<b style='color:#aaa;'>对比 🅰️ 与 🅱️</b>:king_score 把 URA/TAN 这类小众主题盘从「时代之王」候选里压下去——它们 RS 可能称霸,但 ADV 显著低于 XL*/SMH/IGV 机构盘,容量项是负贡献。
 </div>
 </div>
 """, unsafe_allow_html=True)
