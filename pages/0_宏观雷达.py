@@ -17,6 +17,7 @@ from api_client import (
     fetch_dynasty_double_dragon,
     fetch_theme_holdings_status,
 )
+import holdings_viz as hv
 
 
 st.set_page_config(page_title="宏观雷达", layout="wide")
@@ -551,7 +552,6 @@ else:
         "**加冕门槛**:Top1 + RS_252d > 0(年化跑赢 SPY)才戴金,否则降为灰——熊市无王 · "
         "**主图排序指标 king_score = 1.0×Z(RS_252d) + 0.8×Z(log10 ADV_63d)** —— 两项都**只在这 25 个板块内**做横截面 Z-Score(不掺美债/BTC 等跨资产,否则小众盘容量惩罚被摊薄),RS 用真实美股交易日 252 日动量。**容量项把 URA/TAN 这类小众主题盘压下去**,机构盘(XL*/SMH/IGV)容量项加分 · "
         "**ADV 逐月动态**:每月用当月过去 63 日 (Close × Volume) 均值,**不是用当前快照穿越历史** · "
-        "**两个对照版本(上下排列)**:🅰️ 按 king_score 排名(主图,动量+容量) / 🅱️ 按纯 RS_252d 排名(对照,只看动量,可见容量项把哪几个月的金牌从谁手里抢走) · "
         "**用途**:找「时代之王」——连续戴金且容量充足 = 真王朝。hover 里有当月 ADV_63d + 当前 AUM 快照(AUM 历史 yfinance 拿不到,只展示不进算法)"
     )
 
@@ -636,6 +636,23 @@ else:
                             else:
                                 _rs63_cols[tk] = pd.Series(np.nan, index=_dyn_idx)
                         _d_rs63 = pd.DataFrame(_rs63_cols, index=_dyn_idx).astype(float)
+
+                    # 王朝接力净值用价格:dynasty ETF 不全在 _PAGE_TICKERS,单独拉
+                    # 一次(yfinance,缓存 4h)。周线 Close 喂 holdings_viz(同 Page 6 持仓对比)。
+                    _dyn_px = get_global_data(sorted(_picked_d.keys()) + ["SPY"], years=10)
+                    _dyn_price_cache: dict = {}
+                    _dyn_spy_wk = pd.DataFrame()
+                    if _dyn_px is not None and not _dyn_px.empty:
+                        _dyn_wk = _dyn_px.resample("W-FRI").last()
+                        if "SPY" in _dyn_wk.columns:
+                            _dyn_spy_wk = (
+                                _dyn_wk[["SPY"]].rename(columns={"SPY": "Close"}).dropna()
+                            )
+                        for _tk in _picked_d:
+                            if _tk in _dyn_wk.columns:
+                                _s = _dyn_wk[_tk].dropna()
+                                if len(_s) >= 2:
+                                    _dyn_price_cache[_tk] = _s.to_frame(name="Close")
 
                     # 同一套规则渲染王朝接力图:任意 metric_df 做横截面排名 + 加冕门槛
                     # 加冕门槛: Top1 + RS_252d > 0(年化跑赢 SPY),熊市无王降级
@@ -840,18 +857,188 @@ else:
 </div>
 """, unsafe_allow_html=True)
 
-                        with st.expander(
-                            f"📊 {_dynasty_window} · {metric_label} · 王朝统计明细表(所有板块)",
-                            expanded=False,
-                        ):
-                            st.dataframe(
-                                _stat_df.style.background_gradient(
-                                    subset=["累计戴金月数", "累计戴银月数", "最长连续戴金"],
-                                    cmap="YlOrBr",
-                                ),
-                                use_container_width=True,
-                                hide_index=True,
-                            )
+                        # ── 王朝接力净值:每月取 metric top-2(龙头+次龙头)持有,顺延 1 月
+                        # 执行去 look-ahead;左右两列保持槽位连续(上月在左列且本月仍持有就
+                        # 留左列),方便观察持仓。周线净值复用 holdings_viz(同 Page 6 持仓对比)。
+                        st.markdown("---")
+                        st.markdown(f"##### 📈 {metric_label} · 王朝接力净值(龙头 + 次龙头,左右两列)")
+                        st.caption(
+                            "每月末选 **2 个仓位**,顺延 1 月执行(去 look-ahead) · **进场门槛**:新进场"
+                            "必须当月在前 3(图上银/金格) · **资历优先**:够格的按近 6 月进前 3 次数排序,"
+                            "优先老牌、不追单月暴涨 · **守擂防抖**:在任票只要还在 Top-N 缓冲区内就继续持有,"
+                            "掉出缓冲区才换人 · 左右两列只为对齐观察:上月在某列且本月仍持有的留原列,不来回跳 · "
+                            "各列等权,合成线 = 左右 50/50 · 周线 NAV,价格 yfinance 股息+拆股复权,"
+                            "与后端 king_score 同源 · 净值最长回看约 10 年,早期未上市的 ETF 月份缺价。"
+                        )
+                        _dyn_buf = int(st.number_input(
+                            "守擂缓冲区 Top-N(≥2,越大越不换仓)",
+                            min_value=2, max_value=10, value=4, step=1,
+                            key=f"dyn_nav_buf_{key_suffix}",
+                            help="持有的票掉到第 N 名以内都不换;掉出第 N 名才被替换为当前 Top2。"
+                                 "= 2 即严格只拿前两名(最敏感,换手最高)。",
+                        ))
+                        # 进场资历:近 6 月里进过前 3(金/银)的次数,滚动统计。NaN 比较得 False。
+                        _ten6 = (_rank_m <= 3).astype(int).rolling(6, min_periods=1).sum()
+                        if not _dyn_price_cache:
+                            st.info("暂无可用价格数据,无法渲染王朝接力净值。")
+                        else:
+                            # 选股两层:① 进场门槛=当月前 3(图上银/金格);② 门槛内按近 6 月
+                            # 资历(进前 3 次数)排序,挡单月暴涨抢位。在任票守擂——仍在 Top-N
+                            # 缓冲区内就留任,不受前 3 门槛约束,门槛只管新进场。
+                            _mh: dict = {}
+                            _mh_src: dict = {}   # 执行月 → 排名来源月(月末快照月)
+                            _mh_raw: dict = {}   # 执行月 → 来源月纯排名 [Top1, Top2]
+                            _mh_ten: dict = {}   # 执行月 → {持有标的: 近6月进前3次数}
+                            _prev_h: list = []
+                            for _ts, _row in _rank_m.iterrows():
+                                _r = _row.dropna().sort_values()
+                                if _r.empty:
+                                    continue
+                                _order = _r.index.tolist()
+                                _t2 = _order[:2]
+                                _tN = set(_order[:_dyn_buf])
+                                _tnow = _ten6.loc[_ts]
+                                _elig = [t for t in _order if _r[t] <= 3]
+                                _elig_t = sorted(
+                                    _elig, key=lambda t: (-float(_tnow.get(t, 0)), _r[t]))
+                                # 守擂:在任票仍在 Top-N 缓冲区内则留任(不受前 3 门槛约束)
+                                _hold = [t for t in _prev_h if t in _tN][:2] if _prev_h else []
+                                # 空槽用「资格池按资历」补;池子不够再用纯排名兜底
+                                for t in _elig_t:
+                                    if len(_hold) >= 2:
+                                        break
+                                    if t not in _hold:
+                                        _hold.append(t)
+                                if len(_hold) < 2:
+                                    for t in _order:
+                                        if len(_hold) >= 2:
+                                            break
+                                        if t not in _hold:
+                                            _hold.append(t)
+                                _exec_m = hv.next_month_key(_ts.strftime("%Y-%m"), 1)
+                                _mh[_exec_m] = _hold
+                                _mh_src[_exec_m] = _ts.strftime("%Y-%m")
+                                _mh_raw[_exec_m] = _t2
+                                _mh_ten[_exec_m] = {t: int(_tnow.get(t, 0)) for t in _hold}
+                                _prev_h = _hold
+                            _exec_months = sorted(_mh)
+                            if not _exec_months:
+                                st.info("月度排名数据不足,无法渲染净值。")
+                            else:
+                                _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
+
+                                def _dyn_nm(t):
+                                    if not t or t == "CASH":
+                                        return "—"
+                                    return f"{_d_name_map.get(t, t)} ({t})"
+
+                                def _wt(t, ten):
+                                    b = _dyn_nm(t)
+                                    return (f"{b} · 资历{ten[t]}"
+                                            if (t and t != "CASH" and t in ten) else b)
+                                _picks_rows = []
+                                for _em in _exec_months:
+                                    _sa = _slots.get(_em, ["—", "—"])
+                                    _raw = _mh_raw.get(_em, [])
+                                    _raw1 = _raw[0] if len(_raw) > 0 else None
+                                    _raw2 = _raw[1] if len(_raw) > 1 else None
+                                    _ten = _mh_ten.get(_em, {})
+                                    _held = {t for t in _sa if t and t != "CASH"}
+                                    _kept = bool(_raw) and _held != set(_raw)
+                                    _picks_rows.append({
+                                        "排名来源月": _mh_src.get(_em, "—"),
+                                        "执行月(实际持有)": _em,
+                                        "来源月 Top1(龙头)": _dyn_nm(_raw1),
+                                        "来源月 Top2(次龙头)": _dyn_nm(_raw2),
+                                        "左列实际持有": _wt(_sa[0], _ten),
+                                        "右列实际持有": _wt(_sa[1], _ten),
+                                        "守擂留任": "是" if _kept else "",
+                                    })
+                                st.markdown("**每月左右两列实际持仓**(对照上方王朝接力图逐行核对)")
+                                st.caption(
+                                    "「排名来源月」对应王朝接力图里那一格的月份;「执行月」= 来源月 + 1 = 真正持有的月份"
+                                    "(去 look-ahead:月末排名是用截至月末的价格算的,只能下月才进场)。"
+                                    "**选股两层**:① 新进场必须当月在前 3(图上银/金格)才够格;② 够格的按「资历」"
+                                    "(近 6 月进过前 3 的次数,数字越大越老牌)排序,优先老牌、不追单月暴涨。"
+                                    "标的后缀 `· 资历N` 就是这个次数。当「实际持有」≠「来源月 Top1/Top2」时:"
+                                    "① **守擂留任=是**——上月的票还在缓冲区内被留任;② 资历更高的老牌把单月窜上来的新票挤掉。"
+                                )
+                                st.dataframe(
+                                    pd.DataFrame(_picks_rows).iloc[::-1],
+                                    use_container_width=True, hide_index=True,
+                                )
+
+                                _seg_l = hv.build_slot_segments(_slots, 0, _exec_months)
+                                _seg_r = hv.build_slot_segments(_slots, 1, _exec_months)
+                                _nav_l = hv.calc_slot_stats(
+                                    _seg_l, _dyn_price_cache, _dyn_spy_wk, 0.04)[2]
+                                _nav_r = hv.calc_slot_stats(
+                                    _seg_r, _dyn_price_cache, _dyn_spy_wk, 0.04)[2]
+
+                                _navc = pd.Series(dtype=float)
+                                if not _nav_l.empty and not _nav_r.empty:
+                                    _uidx = _nav_l.index.union(_nav_r.index)
+                                    _nl = _nav_l.reindex(_uidx).ffill().bfill()
+                                    _nr = _nav_r.reindex(_uidx).ffill().bfill()
+                                    _navc = 0.5 * _nl + 0.5 * _nr
+                                elif not _nav_l.empty:
+                                    _navc = _nav_l.copy()
+                                elif not _nav_r.empty:
+                                    _navc = _nav_r.copy()
+
+                                if _navc.empty:
+                                    st.info("价格窗口内无足够数据生成净值曲线。")
+                                else:
+                                    _ret_c = (
+                                        float(_navc.iloc[-1]) / float(_navc.iloc[0]) - 1
+                                    ) * 100
+                                    _peak_c = _navc.cummax()
+                                    _dd_c = float(
+                                        ((_peak_c - _navc)
+                                         / _peak_c.replace(0, float("nan"))).max()
+                                    ) * 100
+                                    _kpi = hv.compute_nav_kpi(_navc)
+
+                                    def _fmt_k(v, f=".2f"):
+                                        try:
+                                            if isinstance(v, float) and (
+                                                v != v or abs(v) == float("inf")):
+                                                return "—"
+                                            return f"{v:{f}}"
+                                        except (TypeError, ValueError):
+                                            return "—"
+
+                                    _c1, _c2, _c3, _c4, _c5 = st.columns(5)
+                                    _c1.metric("总收益", f"{_ret_c:+.1f}%")
+                                    _c2.metric("最大回撤", f"-{_dd_c:.1f}%")
+                                    _c3.metric("Calmar", _fmt_k(_kpi.get("calmar", float("nan"))))
+                                    _c4.metric("Sortino", _fmt_k(_kpi.get("sortino", float("nan"))))
+                                    _c5.metric("logR²", _fmt_k(_kpi.get("r2", float("nan"))))
+
+                                    st.plotly_chart(
+                                        hv.build_combined_fig(
+                                            _nav_l, _nav_r, _navc, _dyn_spy_wk,
+                                            "王朝接力 — 左列+右列 50/50 合成 vs SPY",
+                                        ),
+                                        use_container_width=True,
+                                        key=f"dyn_nav_combined_{key_suffix}",
+                                    )
+                                    st.plotly_chart(
+                                        hv.build_stitched_fig(
+                                            _seg_l, "王朝接力 左列 (Slot 0)",
+                                            _dyn_spy_wk, _dyn_price_cache, _d_name_map,
+                                        ),
+                                        use_container_width=True,
+                                        key=f"dyn_nav_l_{key_suffix}",
+                                    )
+                                    st.plotly_chart(
+                                        hv.build_stitched_fig(
+                                            _seg_r, "王朝接力 右列 (Slot 1)",
+                                            _dyn_spy_wk, _dyn_price_cache, _d_name_map,
+                                        ),
+                                        use_container_width=True,
+                                        key=f"dyn_nav_r_{key_suffix}",
+                                    )
 
                     st.markdown(
                         f"##### 🅰️ 按 king_score 排名(主图 · 动量+容量 · "
@@ -859,17 +1046,6 @@ else:
                     )
                     _render_relay(_d_king, "king_score", "king_score", "king")
 
-                    st.markdown("---")
-                    st.markdown("##### 🅱️ 按纯 RS_252d 排名(对照,只看动量不看容量)")
-                    st.caption(
-                        "**对照用**:仅按 RS_252d(年化超额收益 vs SPY)单维度排名,不加 Z 价格、不加 ADV 容量 · "
-                        "**怎么读**:对比 🅰️ 与 🅱️ 的金块位置——"
-                        "🅰️ 戴金但 🅱️ 没戴 = 这个月该板块 RS 不是 Top1,但 ADV 容量加分把它推上 Top1(机构盘抢到金牌);"
-                        "🅱️ 戴金但 🅰️ 没戴 = 该板块 RS 是 Top1,但容量不够大,被 king_score 压下去(小众主题盘失冠);"
-                        "🅰️ 🅱️ 同戴 = 又有动量又有容量,真王朝 · "
-                        "**用途**:看容量项把哪几个月的金牌从谁手里抢走"
-                    )
-                    _render_relay(_d_rs, "纯 RS_252d", "RS_252d", "rs")
     # 预拉 holdings status（供 _source_hint 查询，6h 缓存，不阻塞主流程）
     _holdings_status = fetch_theme_holdings_status()
     _holdings_items  = (_holdings_status.get("items") or {}) if _holdings_status.get("success") else {}
