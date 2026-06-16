@@ -823,19 +823,6 @@ else:
 </div>
 """, unsafe_allow_html=True)
 
-                        with st.expander(
-                            f"📊 {_dynasty_window} · {metric_label} · 王朝统计明细表(所有板块)",
-                            expanded=False,
-                        ):
-                            st.dataframe(
-                                _stat_df.style.background_gradient(
-                                    subset=["累计戴金月数", "累计戴银月数", "最长连续戴金"],
-                                    cmap="YlOrBr",
-                                ),
-                                use_container_width=True,
-                                hide_index=True,
-                            )
-
                         # ── 王朝接力净值:每月取 metric top-2(龙头+次龙头)持有,顺延 1 月
                         # 执行去 look-ahead;左右两列保持槽位连续(上月在左列且本月仍持有就
                         # 留左列),方便观察持仓。周线净值复用 holdings_viz(同 Page 6 持仓对比)。
@@ -862,6 +849,8 @@ else:
                             # 守擂防抖:已持有票在 Top-N 内则留任,否则换成当前 Top2。
                             # 逻辑同 holdings_viz.build_slot_assignments 的 survivor 选择。
                             _mh: dict = {}
+                            _mh_src: dict = {}   # 执行月 → 排名来源月(月末快照月)
+                            _mh_raw: dict = {}   # 执行月 → 来源月纯排名 [Top1, Top2]
                             _prev_h: list = []
                             for _ts, _row in _rank_m.iterrows():
                                 _r = _row.dropna().sort_values()
@@ -884,13 +873,50 @@ else:
                                         _hold = _t2
                                 else:
                                     _hold = _t2
-                                _mh[hv.next_month_key(_ts.strftime("%Y-%m"), 1)] = _hold
+                                _exec_m = hv.next_month_key(_ts.strftime("%Y-%m"), 1)
+                                _mh[_exec_m] = _hold
+                                _mh_src[_exec_m] = _ts.strftime("%Y-%m")
+                                _mh_raw[_exec_m] = _t2
                                 _prev_h = _hold
                             _exec_months = sorted(_mh)
                             if not _exec_months:
                                 st.info("月度排名数据不足,无法渲染净值。")
                             else:
                                 _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
+
+                                def _dyn_nm(t):
+                                    if not t or t == "CASH":
+                                        return "—"
+                                    return f"{_d_name_map.get(t, t)} ({t})"
+                                _picks_rows = []
+                                for _em in _exec_months:
+                                    _sa = _slots.get(_em, ["—", "—"])
+                                    _raw = _mh_raw.get(_em, [])
+                                    _raw1 = _raw[0] if len(_raw) > 0 else None
+                                    _raw2 = _raw[1] if len(_raw) > 1 else None
+                                    _held = {t for t in _sa if t and t != "CASH"}
+                                    _kept = bool(_raw) and _held != set(_raw)
+                                    _picks_rows.append({
+                                        "排名来源月": _mh_src.get(_em, "—"),
+                                        "执行月(实际持有)": _em,
+                                        "来源月 Top1(龙头)": _dyn_nm(_raw1),
+                                        "来源月 Top2(次龙头)": _dyn_nm(_raw2),
+                                        "左列实际持有": _dyn_nm(_sa[0]),
+                                        "右列实际持有": _dyn_nm(_sa[1]),
+                                        "守擂留任": "是" if _kept else "",
+                                    })
+                                st.markdown("**每月左右两列实际持仓**(对照上方王朝接力图逐行核对)")
+                                st.caption(
+                                    "「排名来源月」对应王朝接力图里那一格的月份;「执行月」= 来源月 + 1 = 真正持有的月份"
+                                    "(去 look-ahead:月末排名是用截至月末的价格算的,只能下月才进场)。"
+                                    "当「左/右列实际持有」≠「来源月 Top1/Top2」时,通常是:① **守擂留任=是**——"
+                                    "上月的票还在缓冲区内被留任;② 来源月 Top1 在图上因 RS_252d≤0 被降级成灰块(净值不看 RS,仍按纯排名取)。"
+                                )
+                                st.dataframe(
+                                    pd.DataFrame(_picks_rows).iloc[::-1],
+                                    use_container_width=True, hide_index=True,
+                                )
+
                                 _seg_l = hv.build_slot_segments(_slots, 0, _exec_months)
                                 _seg_r = hv.build_slot_segments(_slots, 1, _exec_months)
                                 _nav_l = hv.calc_slot_stats(
