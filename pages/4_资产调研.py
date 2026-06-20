@@ -462,20 +462,26 @@ if _arena_hist:
 
     _ARENA_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "arena_config.json")
 
-    def _load_buffer_n() -> int:
+    _CLS_LIST = ["A", "B", "C", "D", "Z"]
+
+    def _load_buffer_n_map() -> dict:
+        """读 arena_config.json 的 buffer_n；兼容旧 int（广播到全 5 组）。"""
         try:
             if os.path.exists(_ARENA_CONFIG_FILE):
                 with open(_ARENA_CONFIG_FILE, "r", encoding="utf-8") as _cf:
-                    return int(json.load(_cf).get("buffer_n", 3))
+                    raw = json.load(_cf).get("buffer_n", 3)
+                if isinstance(raw, dict):
+                    return {c: int(raw.get(c, 3)) for c in _CLS_LIST}
+                return {c: int(raw) for c in _CLS_LIST}
         except Exception:
             pass
-        return 3
+        return {c: 3 for c in _CLS_LIST}
 
-    def _save_buffer_n(n: int) -> None:
+    def _save_buffer_n_map(m: dict) -> None:
         try:
             os.makedirs(os.path.dirname(_ARENA_CONFIG_FILE), exist_ok=True)
             with open(_ARENA_CONFIG_FILE, "w", encoding="utf-8") as _cf:
-                json.dump({"buffer_n": n}, _cf)
+                json.dump({"buffer_n": m}, _cf)
         except Exception:
             pass
 
@@ -489,31 +495,33 @@ if _arena_hist:
     _min_data_depth = min(_latest_depths) if _latest_depths else 3
     _max_buffer_n = max(2, _min_data_depth)
 
-    if SharedKeys.CONFIRMED_BUFFER_N not in st.session_state:
-        st.session_state[SharedKeys.CONFIRMED_BUFFER_N] = min(_load_buffer_n(), _max_buffer_n)
+    if SharedKeys.CONFIRMED_BUFFER_N_BY_CLS not in st.session_state:
+        _loaded = _load_buffer_n_map()
+        st.session_state[SharedKeys.CONFIRMED_BUFFER_N_BY_CLS] = {
+            c: min(_loaded[c], _max_buffer_n) for c in _CLS_LIST
+        }
 
-    _buf_col, _btn_col, _info_col = st.columns([1, 1, 3])
-    with _buf_col:
-        _input_n = st.number_input(
-            "守擂缓冲区 Top-N",
-            min_value=2,
-            max_value=_max_buffer_n,
-            value=min(st.session_state[SharedKeys.CONFIRMED_BUFFER_N], _max_buffer_n),
-            step=1,
-            key="arena_buffer_n_input",
-            help=(
-                f"上期持仓在本月 Top-N 内即保留不换仓（越大越不易触发换仓）。"
-                f"当前历史数据每赛道存储深度为 {_min_data_depth} 条，上限受此约束。"
-            ),
-        )
-    with _btn_col:
+    _cur_map = st.session_state[SharedKeys.CONFIRMED_BUFFER_N_BY_CLS]
+    _cols = st.columns([1, 1, 1, 1, 1, 1, 2])
+    _inputs: dict = {}
+    for _i, _c in enumerate(_CLS_LIST):
+        with _cols[_i]:
+            _inputs[_c] = st.number_input(
+                f"{_c} 组 Top-N",
+                min_value=2,
+                max_value=_max_buffer_n,
+                value=min(int(_cur_map.get(_c, 3)), _max_buffer_n),
+                step=1,
+                key=f"arena_buffer_n_input_{_c}",
+            )
+    with _cols[5]:
         st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
         if st.button("✅ 确认", key="confirm_buffer_n"):
-            _clamped_n = min(int(_input_n), _max_buffer_n)
-            st.session_state[SharedKeys.CONFIRMED_BUFFER_N] = _clamped_n
-            _save_buffer_n(_clamped_n)
-            st.toast(f"缓冲区已更新为 Top-{_clamped_n}，历史换仓历史已重算 ✅", icon="🔄")
-    _buffer_n: int = st.session_state[SharedKeys.CONFIRMED_BUFFER_N]
+            _new_map = {c: min(int(_inputs[c]), _max_buffer_n) for c in _CLS_LIST}
+            st.session_state[SharedKeys.CONFIRMED_BUFFER_N_BY_CLS] = _new_map
+            _save_buffer_n_map(_new_map)
+            st.toast("各赛道缓冲区已更新，换仓历史已重算 ✅", icon="🔄")
+    _buffer_n_map: dict = st.session_state[SharedKeys.CONFIRMED_BUFFER_N_BY_CLS]
 
     if _min_data_depth <= 3:
         st.warning(
@@ -524,16 +532,15 @@ if _arena_hist:
             icon="🔒",
         )
 
-    with _info_col:
+    with _cols[6]:
         st.caption(
-            f"展示每月如何从 Page 3 竞技场 Top-{_buffer_n} 收窄为最终 Top-2 持仓。"
-            f"当前缓冲区 Top-{_buffer_n}（数据深度上限 {_min_data_depth}），"
-            "修改数值后点击「确认」重新计算换仓历史。"
-            "持仓目标（Top-2）保持不变，只有守擂「宽容度」发生变化。"
+            f"每个赛道独立设置守擂缓冲区 Top-N（上限 {_max_buffer_n}，数据深度 {_min_data_depth}）。"
+            "上期持仓仍在本组 Top-N 内即保留不换仓，越大越不易触发换仓。"
+            "修改数值后点击「确认」重新计算换仓历史。持仓目标（Top-2）不变，只调守擂宽容度。"
         )
 
-    # ── 以 slider 返回值（_buffer_n）驱动下方所有计算 ──────────────
-    _all_streaks = {c: _compute_streaks_p4(c, _buffer_n) for c in ["A", "B", "C", "D", "Z"]}
+    # ── 以每赛道 Top-N（_buffer_n_map）驱动下方所有计算 ──────────────
+    _all_streaks = {c: _compute_streaks_p4(c, _buffer_n_map[c]) for c in _CLS_LIST}
 
     _holdings_map: dict = {}
     for _cls in ["A", "B", "C", "D", "Z"]:
@@ -543,14 +550,14 @@ if _arena_hist:
         for _m in _months_asc:
             _recs = _arena_hist[_m].get(_cls, {}).get("tickers", [])
             _t2_set = {r["ticker"] for r in _recs[:2]}
-            _t3_set = {r["ticker"] for r in _recs[:_buffer_n]}
+            _t3_set = {r["ticker"] for r in _recs[:_buffer_n_map[_cls]]}
             _t2_list = [r["ticker"] for r in _recs[:2]]
             if _prev_hold:
                 _survivors = _prev_hold & _t3_set
                 if len(_survivors) >= 2:
                     _hold = _survivors
                 elif len(_survivors) == 1:
-                    _fill = next((r["ticker"] for r in _recs[:_buffer_n] if r["ticker"] not in _survivors), None)
+                    _fill = next((r["ticker"] for r in _recs[:_buffer_n_map[_cls]] if r["ticker"] not in _survivors), None)
                     _hold = _survivors | {_fill} if _fill else _t2_set
                 else:
                     _hold = _t2_set
@@ -663,9 +670,9 @@ if _arena_hist:
         "<div style='background:#1a1a2e; border:1px solid #3a3a5c; border-radius:8px;"
         " padding:14px 18px; margin-bottom:16px; font-size:13px; color:#ccc; line-height:1.8;'>"
         "<b style='color:#F1C40F; font-size:14px;'>📐 换仓规则（持仓稳定性协议）</b><br>"
-        f"① Page 3 竞技场每月产出各赛道 <b>Top-{_buffer_n}</b> 综合评分排名（缓冲区大小可调）。<br>"
-        f"② 若上月持仓的所有标的仍出现在本月 Top-{_buffer_n} 之内，则 <b style='color:#2ECC71;'>维持不动（信念守擂制）</b>——"
-        f"在位者只要守住 Top-{_buffer_n} 席位即可保留持仓，减少无谓换手。<br>"
+        "① Page 3 竞技场每月产出各赛道 <b>Top-N</b> 综合评分排名（每个赛道缓冲区大小独立可调）。<br>"
+        "② 若上月持仓的所有标的仍出现在本月本组 Top-N 之内，则 <b style='color:#2ECC71;'>维持不动（信念守擂制）</b>——"
+        "在位者只要守住本组 Top-N 席位即可保留持仓，减少无谓换手。<br>"
         "③ 若任意一只持仓跌出缓冲区，则全部换仓，采用本月 <b style='color:#F39C12;'>Top-2</b> 作为新持仓。<br>"
         "④ 历史表格中 <code>[Top2→X/Y]</code> 标注代表当月 <b style='color:#E67E22;'>守擂生效</b>——上月持仓仍在缓冲区内未触发换仓，"
         "但 Top-2 排名已更新为 X/Y，括号内为本期真实前两名供参考。<br>"
@@ -683,7 +690,8 @@ if _arena_hist:
         "</span>"
         f"<span style='font-size:13px; font-weight:600; color:#F1C40F; "
         f"background:#2e2400; border:1px solid #F1C40F55; border-radius:999px; "
-        f"padding:2px 12px;'>守擂缓冲区：Top-{_buffer_n}</span>"
+        f"padding:2px 12px;'>守擂缓冲区："
+        + " / ".join(f"{_c}={_buffer_n_map[_c]}" for _c in _CLS_LIST) + "</span>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -722,7 +730,7 @@ if _arena_hist:
             _is_diff = _h.get("diff", False)
             _mo_st = _hold_streaks[_cls].get(_mo, {})
 
-            _all_recs = _entry.get(_cls, {}).get("tickers", [])[:_buffer_n]
+            _all_recs = _entry.get(_cls, {}).get("tickers", [])[:_buffer_n_map[_cls]]
             _rec_map = {r["ticker"]: r for r in _all_recs if r["ticker"] in _hold_set}
             _slots = _slot_assignments[_cls].get(_mo, [None, None])
 

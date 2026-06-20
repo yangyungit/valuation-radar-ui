@@ -474,24 +474,33 @@ _TOOL_SYMBOLS = {
 
 _ARENA_CONFIG_FILE_P5 = os.path.join(os.path.dirname(__file__), "..", "data", "arena_config.json")
 
-def _load_buffer_n_p5() -> int:
-    """优先 session_state（同会话 Page 4 已写入），回退磁盘文件，兜底默认 3。"""
-    if SharedKeys.CONFIRMED_BUFFER_N in st.session_state:
-        return int(st.session_state[SharedKeys.CONFIRMED_BUFFER_N])
+_P5_CLS = ["A", "B", "C", "D", "Z"]
+
+
+def _load_buffer_n_map_p5() -> dict:
+    """优先 session_state（Page 4 已写入 per-class），回退磁盘 arena_config.json，
+    兼容旧 int（广播到全 5 组），兜底默认 3。"""
+    if SharedKeys.CONFIRMED_BUFFER_N_BY_CLS in st.session_state:
+        _m = st.session_state[SharedKeys.CONFIRMED_BUFFER_N_BY_CLS]
+        if isinstance(_m, dict):
+            return {c: int(_m.get(c, 3)) for c in _P5_CLS}
     try:
         if os.path.exists(_ARENA_CONFIG_FILE_P5):
             with open(_ARENA_CONFIG_FILE_P5, "r", encoding="utf-8") as _cf:
-                return int(json.load(_cf).get("buffer_n", 3))
+                raw = json.load(_cf).get("buffer_n", 3)
+            if isinstance(raw, dict):
+                return {c: int(raw.get(c, 3)) for c in _P5_CLS}
+            return {c: int(raw) for c in _P5_CLS}
     except Exception:
         pass
-    return 3
+    return {c: 3 for c in _P5_CLS}
 
 
-def _save_buffer_n_p5(n: int) -> None:
+def _save_buffer_n_map_p5(m: dict) -> None:
     try:
         os.makedirs(os.path.dirname(_ARENA_CONFIG_FILE_P5), exist_ok=True)
         with open(_ARENA_CONFIG_FILE_P5, "w", encoding="utf-8") as _cf:
-            json.dump({"buffer_n": n}, _cf)
+            json.dump({"buffer_n": m}, _cf)
     except Exception:
         pass
 
@@ -511,16 +520,42 @@ if _arena_data:
     _p5_min_depth = min(_p5_depths) if _p5_depths else 3
     _p5_max_buffer_n = max(2, _p5_min_depth)
 
-    _auth_buffer = min(_load_buffer_n_p5(), _p5_max_buffer_n)
-    if "p5_buffer_n_input" not in st.session_state:
-        st.session_state["p5_buffer_n_input"] = _auth_buffer
-        st.session_state[SharedKeys.P5_BUFFER_SYNCED] = _auth_buffer
-    else:
-        _last_synced = st.session_state.get(SharedKeys.P5_BUFFER_SYNCED)
-        if _auth_buffer != _last_synced:
-            st.session_state["p5_buffer_n_input"] = _auth_buffer
-            st.session_state[SharedKeys.P5_BUFFER_SYNCED] = _auth_buffer
-    _buffer_n: int = min(int(st.session_state["p5_buffer_n_input"]), _p5_max_buffer_n)
+    # ── 每赛道独立 Top-N：从 Page 4 / 磁盘同步，A/B/C 有独立控件，D/Z 只读镜像 ──
+    _auth_map = {c: min(_load_buffer_n_map_p5()[c], _p5_max_buffer_n) for c in _P5_CLS}
+    _synced = st.session_state.get(SharedKeys.P5_BUFFER_SYNCED)
+    if not isinstance(_synced, dict):
+        _synced = None
+    _buffer_n_map: dict = {}
+    for _c_b in _P5_CLS:
+        if _c_b in ("A", "B", "C"):
+            _wk_b = f"p5_buffer_n_input_{_c_b}"
+            if _wk_b not in st.session_state:
+                st.session_state[_wk_b] = _auth_map[_c_b]
+            elif _synced is None or _synced.get(_c_b) != _auth_map[_c_b]:
+                st.session_state[_wk_b] = _auth_map[_c_b]
+            _buffer_n_map[_c_b] = min(int(st.session_state[_wk_b]), _p5_max_buffer_n)
+        else:
+            _buffer_n_map[_c_b] = _auth_map[_c_b]
+    st.session_state[SharedKeys.P5_BUFFER_SYNCED] = dict(_auth_map)
+
+    def _p5_buffer_input(cls: str) -> None:
+        """渲染某组守擂缓冲区 Top-N 控件，改动后回写 per-class map + 磁盘 + 哨兵。"""
+        _wk = f"p5_buffer_n_input_{cls}"
+        st.number_input(
+            f"{cls} 组守擂缓冲区 Top-N",
+            min_value=2, max_value=_p5_max_buffer_n, step=1, key=_wk,
+            help=f"数据深度 {_p5_min_depth} 条/赛道/月。修改后图表立即更新，与 Page 4 双向同步。",
+        )
+        _new = min(int(st.session_state[_wk]), _p5_max_buffer_n)
+        _cmap = dict(st.session_state.get(SharedKeys.CONFIRMED_BUFFER_N_BY_CLS, {}) or {})
+        if _cmap.get(cls) != _new:
+            _cmap[cls] = _new
+            st.session_state[SharedKeys.CONFIRMED_BUFFER_N_BY_CLS] = _cmap
+            _save_buffer_n_map_p5(_cmap)
+            _sent = st.session_state.get(SharedKeys.P5_BUFFER_SYNCED)
+            _sent = dict(_sent) if isinstance(_sent, dict) else {}
+            _sent[cls] = _new
+            st.session_state[SharedKeys.P5_BUFFER_SYNCED] = _sent
     _tm_months = sorted(k for k in _arena_data if not k.startswith("_"))
     _tm_hold: dict = {}
     _score_anomalies: list = []
@@ -540,11 +575,11 @@ if _arena_data:
             if not _gate_open:
                 _gate_closed_by_cls[_c].append((_m, _gate_reason))
             _recs = _rec_obj.get("tickers", [])
-            _t3 = {r.get("ticker", "") for r in _recs[:_buffer_n]} - {""}
+            _t3 = {r.get("ticker", "") for r in _recs[:_buffer_n_map[_c]]} - {""}
             _t2 = {r.get("ticker", "") for r in _recs[:2]} - {""}
 
             if _c == "B":
-                for _r in _recs[:_buffer_n]:
+                for _r in _recs[:_buffer_n_map[_c]]:
                     if _r.get("score", 999) == 0 or _r.get("score") is None:
                         _score_anomalies.append({
                             "month": _m, "ticker": _r.get("ticker", "?"),
@@ -558,7 +593,7 @@ if _arena_data:
                 if len(_survivors) >= 2:
                     _strategy_hold = _survivors
                 elif len(_survivors) == 1:
-                    _fill = next((r.get("ticker") for r in _recs[:_buffer_n] if r.get("ticker") and r["ticker"] not in _survivors), None)
+                    _fill = next((r.get("ticker") for r in _recs[:_buffer_n_map[_c]] if r.get("ticker") and r["ticker"] not in _survivors), None)
                     _strategy_hold = _survivors | {_fill} if _fill else _t2
                 else:
                     _strategy_hold = _t2
@@ -667,7 +702,7 @@ if _arena_data:
 
     # 提前读取权重模式（session_state，供下方 NAV 合成使用；radio 控件在图表标题下方渲染）
     _weight_mode: str = st.session_state.get("a_weight_mode", "等权 50/50")
-    _a_streaks_full = _shift_hold_fwd(_compute_streaks_p5("A", _buffer_n), {})
+    _a_streaks_full = _shift_hold_fwd(_compute_streaks_p5("A", _buffer_n_map["A"]), {})
     _a_slot_weights = _compute_slot_weights(_a_slot_assignments, _a_streaks_full, _tm_months)
 
     # ── 拉取 A 组所有标的 OHLCV ───────────────────────────────────────
@@ -722,7 +757,7 @@ if _arena_data:
     _b_seg_right = _build_slot_segments(_b_slot_assignments, 1, _tm_months)
 
     _b_weight_mode: str = st.session_state.get("b_weight_mode", "等权 50/50")
-    _b_streaks_full = _shift_hold_fwd(_compute_streaks_p5("B", _buffer_n), {})
+    _b_streaks_full = _shift_hold_fwd(_compute_streaks_p5("B", _buffer_n_map["B"]), {})
     _b_slot_weights = _compute_slot_weights(_b_slot_assignments, _b_streaks_full, _tm_months)
 
     # ── 拉取 B 组所有标的 OHLCV ───────────────────────────────────────
@@ -771,7 +806,7 @@ if _arena_data:
     _c_seg_right = _build_slot_segments(_c_slot_assignments, 1, _tm_months)
 
     _c_weight_mode: str = st.session_state.get("c_weight_mode", "等权 50/50")
-    _c_streaks_full = _shift_hold_fwd(_compute_streaks_p5("C", _buffer_n), {})
+    _c_streaks_full = _shift_hold_fwd(_compute_streaks_p5("C", _buffer_n_map["C"]), {})
     _c_slot_weights = _compute_slot_weights(_c_slot_assignments, _c_streaks_full, _tm_months)
 
     # ── 拉取 C 组所有标的 OHLCV ───────────────────────────────────────
@@ -1050,19 +1085,7 @@ if _arena_data:
 
         _buf_col_p5, _w_col = st.columns([1, 2])
         with _buf_col_p5:
-            st.number_input(
-                "守擂缓冲区 Top-N",
-                min_value=2,
-                max_value=_p5_max_buffer_n,
-                step=1,
-                key="p5_buffer_n_input",
-                help=f"数据深度 {_p5_min_depth} 条/赛道/月。修改后图表立即更新，与 Page 4 双向同步。",
-            )
-            _effective_p5 = min(int(st.session_state["p5_buffer_n_input"]), _p5_max_buffer_n)
-            if _effective_p5 != st.session_state.get("confirmed_buffer_n"):
-                st.session_state["confirmed_buffer_n"] = _effective_p5
-                _save_buffer_n_p5(_effective_p5)
-                st.session_state["_p5_buffer_synced"] = _effective_p5
+            _p5_buffer_input("A")
         with _w_col:
             st.radio(
                 "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
@@ -1070,7 +1093,7 @@ if _arena_data:
             )
 
         st.caption(
-            f"Top-{_buffer_n}（上限 {_p5_min_depth}）｜"
+            f"Top-{_buffer_n_map['A']}（上限 {_p5_min_depth}）｜"
             f"换仓 **{_switch_count}** 次 × 4腿 ｜ "
             f"摩擦 **-{_a_friction_pct:.1f}%**（佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%）"
         )
@@ -1242,13 +1265,17 @@ if _arena_data:
                     _spy_nav_b = _spy_close_b / float(_spy_close_b.iloc[0])
                     _spy_adv_b = _compute_nav_kpi(_spy_nav_b)
 
-        st.radio(
-            "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
-            horizontal=True, key="b_weight_mode",
-        )
+        _buf_col_b, _w_col_b = st.columns([1, 2])
+        with _buf_col_b:
+            _p5_buffer_input("B")
+        with _w_col_b:
+            st.radio(
+                "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
+                horizontal=True, key="b_weight_mode",
+            )
 
         st.caption(
-            f"Top-{_buffer_n}（上限 {_p5_min_depth}）｜"
+            f"Top-{_buffer_n_map['B']}（上限 {_p5_min_depth}）｜"
             f"换仓 **{_b_switch_count}** 次 × 4腿 ｜ "
             f"摩擦 **-{_b_friction_pct:.1f}%**（佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%）"
         )
@@ -1414,13 +1441,17 @@ if _arena_data:
                     _spy_nav_cc = _spy_close_cc / float(_spy_close_cc.iloc[0])
                     _spy_adv_c = _compute_nav_kpi(_spy_nav_cc)
 
-        st.radio(
-            "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
-            horizontal=True, key="c_weight_mode",
-        )
+        _buf_col_c, _w_col_c = st.columns([1, 2])
+        with _buf_col_c:
+            _p5_buffer_input("C")
+        with _w_col_c:
+            st.radio(
+                "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
+                horizontal=True, key="c_weight_mode",
+            )
 
         st.caption(
-            f"Top-{_buffer_n}（上限 {_p5_min_depth}）｜"
+            f"Top-{_buffer_n_map['C']}（上限 {_p5_min_depth}）｜"
             f"换仓 **{_c_switch_count}** 次 × 4腿 ｜ "
             f"摩擦 **-{_c_friction_pct:.1f}%**（佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%）"
         )

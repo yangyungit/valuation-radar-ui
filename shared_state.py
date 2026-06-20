@@ -18,8 +18,9 @@ class SharedKeys:
     """
 
     # ── Arena 守擂缓冲区（Page 4 ↔ Page 5 双向同步） ──
-    ARENA_BUFFER_N = "arena_buffer_n"            # 当前生效的 Top-N
-    CONFIRMED_BUFFER_N = "confirmed_buffer_n"    # Page 4 点「确认」后的值
+    ARENA_BUFFER_N = "arena_buffer_n"            # 当前生效的 Top-N（旧全局值，保留兼容）
+    CONFIRMED_BUFFER_N = "confirmed_buffer_n"    # Page 4 点「确认」后的值（旧全局值，保留兼容）
+    CONFIRMED_BUFFER_N_BY_CLS = "confirmed_buffer_n_by_cls"  # 每赛道独立 Top-N {A..Z: int}
     P5_BUFFER_SYNCED = "_p5_buffer_synced"       # Page 5 同步方向哨兵
 
     # ── A 组合成权重模式（Page 4 → Page 5） ──
@@ -41,6 +42,7 @@ class SharedKeys:
 SHARED_DEFAULTS: dict = {
     SharedKeys.ARENA_BUFFER_N: 3,
     SharedKeys.CONFIRMED_BUFFER_N: 3,
+    SharedKeys.CONFIRMED_BUFFER_N_BY_CLS: {"A": 3, "B": 3, "C": 3, "D": 3, "Z": 3},
     SharedKeys.A_WEIGHT_MODE: "equal",
 }
 
