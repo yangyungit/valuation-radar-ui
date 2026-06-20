@@ -723,6 +723,55 @@ if _arena_data:
     except Exception as _e:
         _b_section_error = f"B 组价格数据拉取失败: {_e}"
 
+    # ── C 组 slot-stable 列分配 ─────────────────────────────────────────
+    _c_slot_assignments: dict = {}
+    _prev_slots_c: list = [None, None]
+    _c_gate_months: set = {m for m, _ in _gate_closed_by_cls.get("C", [])}
+    for _m in _tm_months:
+        if _m in _c_gate_months:
+            _c_slot_assignments[_m] = ["CASH", "CASH"]
+            continue  # 不更新 _prev_slots_c，守擂记忆原地保持
+        _hold_set_c = _tm_hold["C"].get(_m, set())
+        _new_slots_c = [None, None]
+        _assigned_c: set = set()
+        for _si in range(2):
+            if _prev_slots_c[_si] and _prev_slots_c[_si] in _hold_set_c:
+                _new_slots_c[_si] = _prev_slots_c[_si]
+                _assigned_c.add(_prev_slots_c[_si])
+        _remaining_c = sorted(t for t in _hold_set_c if t not in _assigned_c)
+        for _t in _remaining_c:
+            for _si in range(2):
+                if _new_slots_c[_si] is None:
+                    _new_slots_c[_si] = _t
+                    break
+        _c_slot_assignments[_m] = _new_slots_c
+        _prev_slots_c = _new_slots_c
+
+    _c_seg_left = _build_slot_segments(_c_slot_assignments, 0, _tm_months)
+    _c_seg_right = _build_slot_segments(_c_slot_assignments, 1, _tm_months)
+
+    _c_weight_mode: str = st.session_state.get("c_weight_mode", "等权 50/50")
+    _c_streaks_full = _compute_streaks_p5("C", _buffer_n)
+    _c_slot_weights = _compute_slot_weights(_c_slot_assignments, _c_streaks_full, _tm_months)
+
+    # ── 拉取 C 组所有标的 OHLCV ───────────────────────────────────────
+    _c_tickers_all = sorted({
+        tk for slots in _c_slot_assignments.values() for tk in slots if tk and tk != "CASH"
+    })
+    _c_price_cache: dict = {}
+    _c_section_error: str | None = None
+    try:
+        with st.spinner("正在获取 C 组 K 线数据..."):
+            for _tk in _c_tickers_all:
+                try:
+                    _wkd = _fetch_weekly_ohlcv(_tk)
+                    if not _wkd.empty:
+                        _c_price_cache[_tk] = _wkd
+                except Exception:
+                    pass
+    except Exception as _e:
+        _c_section_error = f"C 组价格数据拉取失败: {_e}"
+
     # ── 绘制首尾相接拼接累计收益率线形图（整数 x 轴，各段顺序衔接）────────────
     def _build_stitched_kline_fig(
         segs: list, slot_name: str, spy_wk: pd.DataFrame = None,
@@ -903,7 +952,9 @@ if _arena_data:
     st.header("📈 累计收益率图")
     st.caption("左/右列 = Page 4 月度 Top-2 的 slot-stable 分配；颜色区分持仓期，💰 空仓 = 闸门关")
 
-    _main_tab_a, _main_tab_b = st.tabs(["🛡️ A 级（避风港）", "🏦 B 级（压舱石）"])
+    _main_tab_a, _main_tab_b, _main_tab_c = st.tabs([
+        "🛡️ A 级（避风港）", "🏦 B 级（压舱石）", "🚀 C 级（趋势动量）",
+    ])
 
     with _main_tab_a:
         # 闸门关闭告警（当月最新月份优先显示）
@@ -1269,6 +1320,178 @@ if _arena_data:
                     showlegend=True,
                 )
                 st.plotly_chart(_b_fig_comb, use_container_width=True, key="b_combined_chart")
+            else:
+                st.info("暂无足够数据生成合成收益率图。")
+
+    with _main_tab_c:
+        # 闸门关闭告警
+        _c_closed = _gate_closed_by_cls.get("C", [])
+        if _c_closed:
+            _c_latest_m = _tm_months[-1] if _tm_months else ""
+            _c_cur_reason = next((r for m, r in _c_closed if m == _c_latest_m), None)
+            if _c_cur_reason is not None:
+                st.error(f"🚧 **C 组闸门关（{_c_latest_m}）**：{_c_cur_reason or '本月空仓'}")
+            if len(_c_closed) > (1 if _c_cur_reason is not None else 0):
+                with st.expander(f"⚠️ C 组历史闸门关（{len(_c_closed)} 个月）", expanded=False):
+                    for _cg_m, _cg_r in _c_closed:
+                        st.markdown(f"- **{_cg_m}**：{_cg_r or '不满足持仓条件'}")
+
+        if _c_section_error:
+            st.error(_c_section_error)
+
+        _c_ret_left, _c_dd_left, _c_nav_left = _calc_slot_stats(_c_seg_left, _c_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
+        _c_ret_right, _c_dd_right, _c_nav_right = _calc_slot_stats(_c_seg_right, _c_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
+
+        # ── 合成 C 级整体（等权或信念倾斜）────────────────────────────────
+        _c_ret_combined, _c_dd_combined = 0.0, 0.0
+        _c_nav_combined: pd.Series = pd.Series(dtype=float)
+        if not _c_nav_left.empty and not _c_nav_right.empty:
+            _c_idx_union = _c_nav_left.index.union(_c_nav_right.index)
+            _c_nl = _c_nav_left.reindex(_c_idx_union).ffill().bfill()
+            _c_nr = _c_nav_right.reindex(_c_idx_union).ffill().bfill()
+            if _c_weight_mode.startswith("信念倾斜"):
+                _c_month_keys_arr = _c_idx_union.strftime("%Y-%m")
+                _c_w_left_arr = pd.Series(
+                    [_c_slot_weights.get(_mk, (0.5, 0.5))[0] for _mk in _c_month_keys_arr],
+                    index=_c_idx_union, dtype=float,
+                )
+                _c_w_right_arr = 1.0 - _c_w_left_arr
+                _c_nav_combined = (_c_w_left_arr * _c_nl + _c_w_right_arr * _c_nr).astype(float)
+            else:
+                _c_nav_combined = 0.5 * _c_nl + 0.5 * _c_nr
+            _c_ret_combined = (float(_c_nav_combined.iloc[-1]) / float(_c_nav_combined.iloc[0]) - 1) * 100
+            _c_peak_c = _c_nav_combined.cummax()
+            _c_dd_c = (_c_peak_c - _c_nav_combined) / _c_peak_c.replace(0, float("nan"))
+            _c_dd_combined = float(_c_dd_c.max()) * 100
+        elif not _c_nav_left.empty:
+            _c_ret_combined, _c_dd_combined = _c_ret_left, _c_dd_left
+            _c_nav_combined = _c_nav_left.copy()
+        elif not _c_nav_right.empty:
+            _c_ret_combined, _c_dd_combined = _c_ret_right, _c_dd_right
+            _c_nav_combined = _c_nav_right.copy()
+
+        # ── 换仓次数统计 ────────────────────────────────────────────────
+        _c_months_with_hold = [m for m in _tm_months if _tm_hold["C"].get(m)]
+        _c_switch_count = sum(
+            1 for _i in range(1, len(_c_months_with_hold))
+            if _tm_hold["C"].get(_c_months_with_hold[_i]) != _tm_hold["C"].get(_c_months_with_hold[_i - 1])
+        )
+
+        _c_friction_pct = _c_switch_count * _p5_per_switch_friction * 100
+        _c_net_ret = _c_ret_combined - _c_friction_pct
+
+        _c_adv: dict = {}
+        _spy_adv_c: dict = {}
+        if not _c_nav_combined.empty:
+            _c_adv = _compute_nav_kpi(_c_nav_combined)
+            if _spy_wk_a is not None and not _spy_wk_a.empty:
+                _spy_mask_cc = (
+                    (_spy_wk_a.index >= _c_nav_combined.index[0])
+                    & (_spy_wk_a.index <= _c_nav_combined.index[-1])
+                )
+                _spy_close_cc = _spy_wk_a[_spy_mask_cc]["Close"].astype(float).dropna()
+                if len(_spy_close_cc) >= 8:
+                    _spy_nav_cc = _spy_close_cc / float(_spy_close_cc.iloc[0])
+                    _spy_adv_c = _compute_nav_kpi(_spy_nav_cc)
+
+        st.radio(
+            "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
+            horizontal=True, key="c_weight_mode",
+        )
+
+        st.caption(
+            f"Top-{_buffer_n}（上限 {_p5_min_depth}）｜"
+            f"换仓 **{_c_switch_count}** 次 × 4腿 ｜ "
+            f"摩擦 **-{_c_friction_pct:.1f}%**（佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%）"
+        )
+
+        st.markdown("**🟨 C 级合成**")
+        _cc1, _cc2, _cc3, _cc4, _cc5 = st.columns(5)
+        _cc1.metric(
+            "总收益（毛）", f"{_c_ret_combined:+.1f}%",
+            delta=f"净 {_c_net_ret:+.1f}%", delta_color="off",
+        )
+        _cc2.metric("最大回撤", f"-{_c_dd_combined:.1f}%")
+        if _c_adv:
+            _cc3.metric(
+                "Calmar", _fmt_kpi(_c_adv.get("calmar", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_c.get('calmar', float('nan')))}" if _spy_adv_c else None,
+                delta_color="off",
+            )
+            _cc4.metric(
+                "logNAV R²", _fmt_kpi(_c_adv.get("r2", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_c.get('r2', float('nan')))}" if _spy_adv_c else None,
+                delta_color="off",
+            )
+            _cc5.metric(
+                "Sortino", _fmt_kpi(_c_adv.get("sortino", float("nan"))),
+                delta=f"SPY {_fmt_kpi(_spy_adv_c.get('sortino', float('nan')))}" if _spy_adv_c else None,
+                delta_color="off",
+            )
+
+        _c_block_l, _c_block_r = st.columns(2)
+        with _c_block_l:
+            st.markdown("**🟦 左列 Slot 0**")
+            _c_lc1, _c_lc2 = st.columns(2)
+            _c_lc1.metric("总收益", f"{_c_ret_left:+.1f}%")
+            _c_lc2.metric("最大回撤", f"-{_c_dd_left:.1f}%")
+        with _c_block_r:
+            st.markdown("**🟦 右列 Slot 1**")
+            _c_rc1, _c_rc2 = st.columns(2)
+            _c_rc1.metric("总收益", f"{_c_ret_right:+.1f}%")
+            _c_rc2.metric("最大回撤", f"-{_c_dd_right:.1f}%")
+
+        if _c_weight_mode.startswith("信念倾斜") and _c_slot_weights:
+            _c_avg_wl = sum(v[0] for v in _c_slot_weights.values()) / max(len(_c_slot_weights), 1)
+            _c_avg_wr = 1.0 - _c_avg_wl
+            st.caption(
+                f"信念倾斜模式：历史月均权重 左列 **{_c_avg_wl*100:.0f}%** / 右列 **{_c_avg_wr*100:.0f}%**"
+                "（streak 更长的 slot 权重更高，范围限制在 30%-70%）"
+            )
+
+        _c_tab_left, _c_tab_right, _c_tab_combined = st.tabs([
+            "📈 左列 (Slot 0)", "📈 右列 (Slot 1)", "📊 合成收益率",
+        ])
+        with _c_tab_left:
+            _c_fig_left = _build_stitched_kline_fig(_c_seg_left, "左列 (Slot 0)", _spy_wk_a, _c_price_cache, _name_map)
+            st.plotly_chart(_c_fig_left, use_container_width=True, key="c_slot0_chart")
+        with _c_tab_right:
+            _c_fig_right = _build_stitched_kline_fig(_c_seg_right, "右列 (Slot 1)", _spy_wk_a, _c_price_cache, _name_map)
+            st.plotly_chart(_c_fig_right, use_container_width=True, key="c_slot1_chart")
+        with _c_tab_combined:
+            if not _c_nav_combined.empty:
+                _c_fig_comb = go.Figure()
+                _c_nav_pct = (_c_nav_combined / float(_c_nav_combined.iloc[0]) - 1) * 100
+                _c_fig_comb.add_trace(go.Scatter(
+                    x=_c_nav_pct.index, y=_c_nav_pct.values,
+                    mode="lines", name=f"C 级合成（{_c_weight_mode.split('（')[0]}）",
+                    line=dict(color="#E67E22", width=2),
+                ))
+                if _spy_wk_a is not None and not _spy_wk_a.empty:
+                    _c_spy_mask_c = (
+                        (_spy_wk_a.index >= _c_nav_combined.index[0])
+                        & (_spy_wk_a.index <= _c_nav_combined.index[-1])
+                    )
+                    _c_spy_seg_c = _spy_wk_a[_c_spy_mask_c]["Close"].astype(float).dropna()
+                    if len(_c_spy_seg_c) >= 2:
+                        _c_spy_pct_c = (_c_spy_seg_c / float(_c_spy_seg_c.iloc[0]) - 1) * 100
+                        _c_fig_comb.add_trace(go.Scatter(
+                            x=_c_spy_pct_c.index, y=_c_spy_pct_c.values,
+                            mode="lines", name="SPY",
+                            line=dict(color="#888", width=1.5, dash="dot"),
+                        ))
+                _c_fig_comb.update_layout(
+                    title=f"C 级合成收益率（{_c_weight_mode}）",
+                    xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
+                    yaxis=dict(title="累计收益率 (%)", ticksuffix="%", gridcolor="rgba(100,100,100,0.3)"),
+                    height=520,
+                    margin=dict(l=10, r=10, t=44, b=60),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(30,30,30,0.6)",
+                    font=dict(color="#ccc", size=13),
+                    showlegend=True,
+                )
+                st.plotly_chart(_c_fig_comb, use_container_width=True, key="c_combined_chart")
             else:
                 st.info("暂无足够数据生成合成收益率图。")
 
