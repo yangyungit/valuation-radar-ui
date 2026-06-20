@@ -506,11 +506,14 @@ def _save_buffer_n_map_p5(m: dict) -> None:
 
 
 if _arena_data:
-    # ── 检测数据深度（以最近月份为准，旧月份由切片自动兜底）────────
+    # ── 检测数据深度（跳过未跑完的当月，用最近一个完整月）────────
     _p5_sorted_months = sorted(
         [k for k in _arena_data if not k.startswith("_")], reverse=True,
     )
-    _p5_latest = _p5_sorted_months[0] if _p5_sorted_months else None
+    import datetime as _dt_depth_p5
+    _p5_cur_ym = _dt_depth_p5.date.today().strftime("%Y-%m")
+    _p5_depth_months = [m for m in _p5_sorted_months if m != _p5_cur_ym] or _p5_sorted_months
+    _p5_latest = _p5_depth_months[0] if _p5_depth_months else None
     _p5_depths = []
     if _p5_latest and _p5_latest in _arena_data:
         for _c_p5 in ["A", "B", "C", "D", "Z"]:

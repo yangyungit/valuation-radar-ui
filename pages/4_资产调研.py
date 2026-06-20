@@ -485,11 +485,16 @@ if _arena_hist:
         except Exception:
             pass
 
-    # ── 检测历史数据实际深度（以最近月份为准，旧月份由切片自动兜底）──
+    # ── 检测历史数据实际深度（跳过未跑完的当月，用最近一个完整月）──
+    # 当月（如月中回填）各组深度参差，会把缓冲区上限误夹到 3；改用上一个完整月。
+    import datetime as _dt_depth
+    _cur_ym = _dt_depth.date.today().strftime("%Y-%m")
+    _depth_months = [m for m in _sorted_months if m != _cur_ym] or _sorted_months
+    _depth_month = _depth_months[0] if _depth_months else None
     _latest_depths = []
-    if _latest_month and _latest_month in _arena_hist:
+    if _depth_month and _depth_month in _arena_hist:
         for _c in ["A", "B", "C", "D", "Z"]:
-            _recs_depth = _arena_hist[_latest_month].get(_c, {}).get("tickers", [])
+            _recs_depth = _arena_hist[_depth_month].get(_c, {}).get("tickers", [])
             if _recs_depth:
                 _latest_depths.append(len(_recs_depth))
     _min_data_depth = min(_latest_depths) if _latest_depths else 3
