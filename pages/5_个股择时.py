@@ -570,6 +570,26 @@ if _arena_data:
             _prev_h = _strategy_hold
         _tm_hold[_c] = _cm
 
+    # ── 消除未来函数：名单截至「当月月末」打分 → 必须持有「下一月」──────────
+    # 原实现把 month_key M 的名单当作 M 月整月持有，而该名单是用截至 M 月末的
+    # RS/动量/Z 分选出的（mom20/RS120/RS250 直接含 M 月内涨幅），等于用月末才
+    # 知道的涨幅在月初买入。这里把持有名单 + 闸门关月整体后移一月：M 月末决策
+    # → M+1 月持有。最旧月无上月名单（空仓）；最新月名单要到下月才持有，落到
+    # _tm_months 之外被自动丢弃。下游 slot 分配/取价/画图/KPI 全部随之诚实。
+    def _shift_hold_fwd(month_map: dict, default):
+        return {_tm_months[_i]: month_map.get(_tm_months[_i - 1], default)
+                for _i in range(1, len(_tm_months))}
+
+    for _c in ["A", "B", "C", "D"]:
+        _tm_hold[_c] = _shift_hold_fwd(_tm_hold[_c], set())
+        _shifted_gate: list = []
+        for _gm, _gr in _gate_closed_by_cls[_c]:
+            if _gm in _tm_months:
+                _gi = _tm_months.index(_gm) + 1
+                if _gi < len(_tm_months):
+                    _shifted_gate.append((_tm_months[_gi], _gr))
+        _gate_closed_by_cls[_c] = _shifted_gate
+
     # ── 名称映射（供 K 线图和盈利统计共用）─────────────────────────────
     _name_map: dict = {}
     for _m in _tm_months:
@@ -647,7 +667,7 @@ if _arena_data:
 
     # 提前读取权重模式（session_state，供下方 NAV 合成使用；radio 控件在图表标题下方渲染）
     _weight_mode: str = st.session_state.get("a_weight_mode", "等权 50/50")
-    _a_streaks_full = _compute_streaks_p5("A", _buffer_n)
+    _a_streaks_full = _shift_hold_fwd(_compute_streaks_p5("A", _buffer_n), {})
     _a_slot_weights = _compute_slot_weights(_a_slot_assignments, _a_streaks_full, _tm_months)
 
     # ── 拉取 A 组所有标的 OHLCV ───────────────────────────────────────
@@ -702,7 +722,7 @@ if _arena_data:
     _b_seg_right = _build_slot_segments(_b_slot_assignments, 1, _tm_months)
 
     _b_weight_mode: str = st.session_state.get("b_weight_mode", "等权 50/50")
-    _b_streaks_full = _compute_streaks_p5("B", _buffer_n)
+    _b_streaks_full = _shift_hold_fwd(_compute_streaks_p5("B", _buffer_n), {})
     _b_slot_weights = _compute_slot_weights(_b_slot_assignments, _b_streaks_full, _tm_months)
 
     # ── 拉取 B 组所有标的 OHLCV ───────────────────────────────────────
@@ -751,7 +771,7 @@ if _arena_data:
     _c_seg_right = _build_slot_segments(_c_slot_assignments, 1, _tm_months)
 
     _c_weight_mode: str = st.session_state.get("c_weight_mode", "等权 50/50")
-    _c_streaks_full = _compute_streaks_p5("C", _buffer_n)
+    _c_streaks_full = _shift_hold_fwd(_compute_streaks_p5("C", _buffer_n), {})
     _c_slot_weights = _compute_slot_weights(_c_slot_assignments, _c_streaks_full, _tm_months)
 
     # ── 拉取 C 组所有标的 OHLCV ───────────────────────────────────────
