@@ -187,12 +187,6 @@ with st.sidebar:
     )
     # 摩擦成本公式：2(标的) × (买+卖) × 50%仓位 = 2×(佣金+滑点) / 100
     _p5_per_switch_friction = 2.0 * (_p5_commission_pct + _p5_slippage_pct) / 100.0
-    st.slider(
-        "空仓年化收益率 (%)", min_value=0.00, max_value=6.00,
-        value=4.00, step=0.25, format="%.2f",
-        key="p5_cash_annual_return",
-        help="闸门关期间现金仓按此利率复利计息（对应 SGOV/BIL 约 4~5%）",
-    )
 
 
 # ── 择时策略接口标准 ──────────────────────────────────────────────────
@@ -1030,7 +1024,8 @@ if _arena_data:
         if _a_section_error:
             st.error(_a_section_error)
 
-        _p5_cash_rate = st.session_state.get("p5_cash_annual_return", 0.04)
+        # 空仓不计息，NAV 保持水平（与拼接 K 线图的空仓画法一致）
+        _p5_cash_rate = 0.0
         _ret_left, _dd_left, _nav_left = _calc_slot_stats(_seg_left, _a_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
         _ret_right, _dd_right, _nav_right = _calc_slot_stats(_seg_right, _a_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
 
