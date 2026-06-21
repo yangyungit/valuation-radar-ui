@@ -1035,7 +1035,7 @@ if _arena_data:
         )
 
         st.markdown("**🟨 A 级合成**")
-        _ac1, _ac2, _ac3, _ac4, _ac5, _ac6 = st.columns(6)
+        _ac1, _ac2, _ac3, _ac4, _ac5, _ac6, _ac7 = st.columns(7)
         _ac1.metric(
             "总收益（毛）", f"{_ret_combined:+.1f}%",
             delta=f"净 {_a_net_ret:+.1f}%", delta_color="off",
@@ -1062,6 +1062,11 @@ if _arena_data:
                 "Sortino", _fmt_kpi(_a_adv.get("sortino", float("nan"))),
                 delta=f"SPY {_fmt_kpi(_spy_adv_a.get('sortino', float('nan')))}" if _spy_adv_a else None,
                 delta_color="off",
+            )
+            _ac7.metric(
+                "Ulcer", _fmt_kpi(_a_adv.get("ulcer", float("nan")), ".1f"),
+                delta=f"SPY {_fmt_kpi(_spy_adv_a.get('ulcer', float('nan')), '.1f')}" if _spy_adv_a else None,
+                delta_color="off", help="回撤深度×水下时长的 RMS，越小越好",
             )
 
         _block_0, _block_1, _block_2 = st.columns(3)
@@ -1201,27 +1206,38 @@ if _arena_data:
         )
 
         st.markdown("**🟨 B 级合成**")
-        _bc1, _bc2, _bc3, _bc4, _bc5 = st.columns(5)
+        _bc1, _bc2, _bc3, _bc4, _bc5, _bc6, _bc7 = st.columns(7)
         _bc1.metric(
             "总收益（毛）", f"{_b_ret_combined:+.1f}%",
             delta=f"净 {_b_net_ret:+.1f}%", delta_color="off",
         )
         _bc2.metric("最大回撤", f"-{_b_dd_combined:.1f}%")
         if _b_adv:
-            _bc3.metric(
+            import math as _math
+            _b_cagr = _b_adv.get("cagr", float("nan"))
+            _b_cagr_str = f"{_b_cagr * 100:+.1f}%" if not _math.isnan(_b_cagr) else "—"
+            _b_spy_cagr = _spy_adv_b.get("cagr", float("nan")) if _spy_adv_b else float("nan")
+            _b_spy_cagr_str = (f"SPY {_b_spy_cagr * 100:+.1f}%" if not _math.isnan(_b_spy_cagr) else None) if _spy_adv_b else None
+            _bc3.metric("CAGR", _b_cagr_str, delta=_b_spy_cagr_str, delta_color="off")
+            _bc4.metric(
                 "Calmar", _fmt_kpi(_b_adv.get("calmar", float("nan"))),
                 delta=f"SPY {_fmt_kpi(_spy_adv_b.get('calmar', float('nan')))}" if _spy_adv_b else None,
                 delta_color="off",
             )
-            _bc4.metric(
+            _bc5.metric(
                 "logNAV R²", _fmt_kpi(_b_adv.get("r2", float("nan"))),
                 delta=f"SPY {_fmt_kpi(_spy_adv_b.get('r2', float('nan')))}" if _spy_adv_b else None,
                 delta_color="off",
             )
-            _bc5.metric(
+            _bc6.metric(
                 "Sortino", _fmt_kpi(_b_adv.get("sortino", float("nan"))),
                 delta=f"SPY {_fmt_kpi(_spy_adv_b.get('sortino', float('nan')))}" if _spy_adv_b else None,
                 delta_color="off",
+            )
+            _bc7.metric(
+                "Ulcer", _fmt_kpi(_b_adv.get("ulcer", float("nan")), ".1f"),
+                delta=f"SPY {_fmt_kpi(_spy_adv_b.get('ulcer', float('nan')), '.1f')}" if _spy_adv_b else None,
+                delta_color="off", help="回撤深度×水下时长的 RMS，越小越好",
             )
 
         _b_block_l, _b_block_r = st.columns(2)
@@ -1353,27 +1369,38 @@ if _arena_data:
         )
 
         st.markdown("**🟨 C 级合成**")
-        _cc1, _cc2, _cc3, _cc4, _cc5 = st.columns(5)
+        _cc1, _cc2, _cc3, _cc4, _cc5, _cc6, _cc7 = st.columns(7)
         _cc1.metric(
             "总收益（毛）", f"{_c_ret_combined:+.1f}%",
             delta=f"净 {_c_net_ret:+.1f}%", delta_color="off",
         )
         _cc2.metric("最大回撤", f"-{_c_dd_combined:.1f}%")
         if _c_adv:
-            _cc3.metric(
+            import math as _math
+            _c_cagr = _c_adv.get("cagr", float("nan"))
+            _c_cagr_str = f"{_c_cagr * 100:+.1f}%" if not _math.isnan(_c_cagr) else "—"
+            _c_spy_cagr = _spy_adv_c.get("cagr", float("nan")) if _spy_adv_c else float("nan")
+            _c_spy_cagr_str = (f"SPY {_c_spy_cagr * 100:+.1f}%" if not _math.isnan(_c_spy_cagr) else None) if _spy_adv_c else None
+            _cc3.metric("CAGR", _c_cagr_str, delta=_c_spy_cagr_str, delta_color="off")
+            _cc4.metric(
                 "Calmar", _fmt_kpi(_c_adv.get("calmar", float("nan"))),
                 delta=f"SPY {_fmt_kpi(_spy_adv_c.get('calmar', float('nan')))}" if _spy_adv_c else None,
                 delta_color="off",
             )
-            _cc4.metric(
+            _cc5.metric(
                 "logNAV R²", _fmt_kpi(_c_adv.get("r2", float("nan"))),
                 delta=f"SPY {_fmt_kpi(_spy_adv_c.get('r2', float('nan')))}" if _spy_adv_c else None,
                 delta_color="off",
             )
-            _cc5.metric(
+            _cc6.metric(
                 "Sortino", _fmt_kpi(_c_adv.get("sortino", float("nan"))),
                 delta=f"SPY {_fmt_kpi(_spy_adv_c.get('sortino', float('nan')))}" if _spy_adv_c else None,
                 delta_color="off",
+            )
+            _cc7.metric(
+                "Ulcer", _fmt_kpi(_c_adv.get("ulcer", float("nan")), ".1f"),
+                delta=f"SPY {_fmt_kpi(_spy_adv_c.get('ulcer', float('nan')), '.1f')}" if _spy_adv_c else None,
+                delta_color="off", help="回撤深度×水下时长的 RMS，越小越好",
             )
 
         _c_block_l, _c_block_r = st.columns(2)

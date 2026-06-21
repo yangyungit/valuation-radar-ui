@@ -80,17 +80,22 @@ def calc_slot_stats(
 
 
 def compute_nav_kpi(nav: pd.Series) -> dict:
-    """Calmar / log-NAV R² / Sortino / CAGR（周线 NAV 输入，√52 年化）。"""
+    """Calmar / log-NAV R² / Sortino / CAGR / Ulcer（周线 NAV 输入，√52 年化）。"""
     if nav.empty or len(nav) < 8:
-        return {"calmar": float("nan"), "r2": float("nan"), "sortino": float("nan")}
+        return {"calmar": float("nan"), "r2": float("nan"),
+                "sortino": float("nan"), "ulcer": float("nan")}
     nav = nav.astype(float).dropna()
     wk_ret = nav.pct_change().dropna()
     years = len(nav) / 52.0
     if years < 0.1:
-        return {"calmar": float("nan"), "r2": float("nan"), "sortino": float("nan")}
+        return {"calmar": float("nan"), "r2": float("nan"),
+                "sortino": float("nan"), "ulcer": float("nan")}
     cagr = (float(nav.iloc[-1]) / float(nav.iloc[0])) ** (1.0 / years) - 1.0
     peak = nav.cummax()
-    max_dd = abs(float((nav / peak - 1.0).min()))
+    dd = nav / peak - 1.0
+    max_dd = abs(float(dd.min()))
+    # Ulcer Index：回撤深度×水下时长的 RMS（百分比口径），与 harness portfolio_engine 同口径
+    ulcer = float(np.sqrt(np.mean((dd.values.astype(float) * 100.0) ** 2)))
     calmar = cagr / max_dd if max_dd > 1e-9 else float("nan")
     log_nav = np.log(nav.values)
     x = np.arange(len(log_nav), dtype=float)
@@ -102,4 +107,4 @@ def compute_nav_kpi(nav: pd.Series) -> dict:
     neg_rets = wk_ret[wk_ret < 0]
     down_std = float(neg_rets.std()) * (52.0 ** 0.5) if len(neg_rets) > 1 else float("nan")
     sortino = cagr / down_std if (down_std and not math.isnan(down_std) and down_std > 1e-9) else float("nan")
-    return {"calmar": calmar, "r2": r2, "sortino": sortino, "cagr": cagr}
+    return {"calmar": calmar, "r2": r2, "sortino": sortino, "cagr": cagr, "ulcer": ulcer}
