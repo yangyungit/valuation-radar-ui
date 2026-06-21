@@ -536,12 +536,13 @@ if _arena_data:
     st.session_state[SharedKeys.P5_BUFFER_SYNCED] = dict(_auth_map)
 
     def _p5_buffer_input(cls: str) -> None:
-        """渲染某组守擂缓冲区 Top-N 控件，改动后回写 per-class map + 磁盘 + 哨兵。"""
+        """渲染某组守擂候选池 buffer_n 控件，改动后回写 per-class map + 磁盘 + 哨兵。"""
         _wk = f"p5_buffer_n_input_{cls}"
         st.number_input(
-            f"{cls} 组守擂缓冲区 Top-N",
+            f"{cls} 组守擂候选池 buffer_n",
             min_value=2, max_value=_p5_max_buffer_n, step=1, key=_wk,
-            help=f"数据深度 {_p5_min_depth} 条/赛道/月。修改后图表立即更新，与 Page 4 双向同步。",
+            help=f"守擂候选池大小：只有信念排名前 buffer_n 的在位者才允许守擂（不是持仓数）。"
+                 f"数据深度 {_p5_min_depth} 条/赛道/月。修改后图表立即更新，与 Page 4 双向同步。",
         )
         _new = min(int(st.session_state[_wk]), _p5_max_buffer_n)
         _cmap = dict(st.session_state.get(SharedKeys.CONFIRMED_BUFFER_N_BY_CLS, {}) or {})
@@ -1091,7 +1092,7 @@ if _arena_data:
             )
 
         st.caption(
-            f"Top-{_buffer_n_map['A']}（上限 {_p5_min_depth}）｜"
+            f"守擂池 buffer_n={_buffer_n_map['A']}（上限 {_p5_min_depth}）｜"
             f"换仓 **{_switch_count}** 次 × 4腿 ｜ "
             f"摩擦 **-{_a_friction_pct:.1f}%**（佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%）"
         )
@@ -1273,7 +1274,7 @@ if _arena_data:
             )
 
         st.caption(
-            f"Top-{_buffer_n_map['B']}（上限 {_p5_min_depth}）｜"
+            f"守擂池 buffer_n={_buffer_n_map['B']}（上限 {_p5_min_depth}）｜"
             f"换仓 **{_b_switch_count}** 次 × 4腿 ｜ "
             f"摩擦 **-{_b_friction_pct:.1f}%**（佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%）"
         )
@@ -1449,7 +1450,7 @@ if _arena_data:
             )
 
         st.caption(
-            f"Top-{_buffer_n_map['C']}（上限 {_p5_min_depth}）｜"
+            f"守擂池 buffer_n={_buffer_n_map['C']}（上限 {_p5_min_depth}）｜"
             f"换仓 **{_c_switch_count}** 次 × 4腿 ｜ "
             f"摩擦 **-{_c_friction_pct:.1f}%**（佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%）"
         )
