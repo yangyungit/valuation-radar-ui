@@ -718,7 +718,6 @@ if _arena_data:
     _b_seg_left = _build_slot_segments(_b_slot_assignments, 0, _tm_months)
     _b_seg_right = _build_slot_segments(_b_slot_assignments, 1, _tm_months)
 
-
     # ── 拉取 B 组所有标的 OHLCV ───────────────────────────────────────
     _b_tickers_all = sorted({
         tk for slots in _b_slot_assignments.values() for tk in slots if tk and tk != "CASH"
@@ -763,7 +762,6 @@ if _arena_data:
 
     _c_seg_left = _build_slot_segments(_c_slot_assignments, 0, _tm_months)
     _c_seg_right = _build_slot_segments(_c_slot_assignments, 1, _tm_months)
-
 
     # ── 拉取 C 组所有标的 OHLCV ───────────────────────────────────────
     _c_tickers_all = sorted({
