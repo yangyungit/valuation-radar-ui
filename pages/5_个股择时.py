@@ -562,6 +562,7 @@ if _arena_data:
     _gate_closed_by_cls: dict = {c: [] for c in ["A", "B", "C", "D"]}
 
     for _c in ["A", "B", "C", "D"]:
+        _n_hold = 3 if _c == "A" else 2   # A 持 3，其余持 2
         _prev_h: set = set()
         _cm: dict = {}
         for _m in _tm_months:
@@ -573,8 +574,8 @@ if _arena_data:
             if not _gate_open:
                 _gate_closed_by_cls[_c].append((_m, _gate_reason))
             _recs = _rec_obj.get("tickers", [])
-            _t3 = {r.get("ticker", "") for r in _recs[:_buffer_n_map[_c]]} - {""}
-            _t2 = {r.get("ticker", "") for r in _recs[:2]} - {""}
+            _pool = {r.get("ticker", "") for r in _recs[:_buffer_n_map[_c]]} - {""}   # 守擂候选池
+            _topn = {r.get("ticker", "") for r in _recs[:_n_hold]} - {""}            # 本月目标 top-n
 
             if _c == "B":
                 for _r in _recs[:_buffer_n_map[_c]]:
@@ -587,16 +588,18 @@ if _arena_data:
                         })
 
             if _prev_h:
-                _survivors = _prev_h & _t3
-                if len(_survivors) >= 2:
-                    _strategy_hold = _survivors
-                elif len(_survivors) == 1:
-                    _fill = next((r.get("ticker") for r in _recs[:_buffer_n_map[_c]] if r.get("ticker") and r["ticker"] not in _survivors), None)
-                    _strategy_hold = _survivors | {_fill} if _fill else _t2
-                else:
-                    _strategy_hold = _t2
+                # 保留仍在 buffer 池里的存活者，剩余空位按排名补满到 _n_hold
+                _strategy_hold = set(_prev_h & _pool)
+                for _r in _recs[:_buffer_n_map[_c]]:
+                    if len(_strategy_hold) >= _n_hold:
+                        break
+                    _tk = _r.get("ticker", "")
+                    if _tk and _tk not in _strategy_hold:
+                        _strategy_hold.add(_tk)
+                if len(_strategy_hold) < _n_hold:
+                    _strategy_hold |= _topn
             else:
-                _strategy_hold = _t2
+                _strategy_hold = _topn
 
             # 闸门关：当月 hold 置空（NAV 记现金）；_prev_h 保留策略持仓，守擂记忆不中断
             _cm[_m] = _strategy_hold if _gate_open else set()
@@ -632,22 +635,22 @@ if _arena_data:
 
     # ── A 组 slot-stable 列分配 ─────────────────────────────────────────
     _a_slot_assignments: dict = {}
-    _prev_slots_a: list = [None, None]
+    _prev_slots_a: list = [None, None, None]
     _a_gate_months: set = {m for m, _ in _gate_closed_by_cls.get("A", [])}
     for _m in _tm_months:
         if _m in _a_gate_months:
-            _a_slot_assignments[_m] = ["CASH", "CASH"]
+            _a_slot_assignments[_m] = ["CASH", "CASH", "CASH"]
             continue  # 不更新 _prev_slots_a，守擂记忆原地保持
         _hold_set_a = _tm_hold["A"].get(_m, set())
-        _new_slots_a = [None, None]
+        _new_slots_a = [None, None, None]
         _assigned_a: set = set()
-        for _si in range(2):
+        for _si in range(3):
             if _prev_slots_a[_si] and _prev_slots_a[_si] in _hold_set_a:
                 _new_slots_a[_si] = _prev_slots_a[_si]
                 _assigned_a.add(_prev_slots_a[_si])
         _remaining_a = sorted(t for t in _hold_set_a if t not in _assigned_a)
         for _t in _remaining_a:
-            for _si in range(2):
+            for _si in range(3):
                 if _new_slots_a[_si] is None:
                     _new_slots_a[_si] = _t
                     break
@@ -662,46 +665,7 @@ if _arena_data:
 
     _seg_left = _build_slot_segments(_a_slot_assignments, 0, _tm_months)
     _seg_right = _build_slot_segments(_a_slot_assignments, 1, _tm_months)
-
-    # ── 信念在榜连续月数计算 ────────────────────────────────────────────
-    def _compute_streaks_p5(cls: str, top_n: int) -> dict:
-        """返回 {month: {ticker: 连续在 Top-N 内的月数}}"""
-        _months_s = sorted(k for k in _arena_data if not k.startswith("_"))
-        _res_s: dict = {}
-        _prev_tk_s: set = set()
-        _prev_st_s: dict = {}
-        for _ms in _months_s:
-            _recs_s = _arena_data[_ms].get(cls, {}).get("tickers", [])
-            _cur_tk_s = {r["ticker"] for r in _recs_s[:top_n]}
-            _cur_st_s: dict = {}
-            for _t_s in _cur_tk_s:
-                _cur_st_s[_t_s] = _prev_st_s.get(_t_s, 0) + 1 if _t_s in _prev_tk_s else 1
-            _res_s[_ms] = _cur_st_s
-            _prev_tk_s = _cur_tk_s
-            _prev_st_s = _cur_st_s
-        return _res_s
-
-    def _compute_slot_weights(slot_assignments: dict, streaks: dict, months: list) -> dict:
-        """返回 {month: (w_left, w_right)}，streak 更长的 slot 权重更高（限制在 30%-70%）"""
-        _sw_res: dict = {}
-        for _m_sw in months:
-            _slots_sw = slot_assignments.get(_m_sw, [None, None])
-            _tk_l, _tk_r = _slots_sw[0], _slots_sw[1]
-            _s_l = streaks.get(_m_sw, {}).get(_tk_l, 1) if _tk_l else 1
-            _s_r = streaks.get(_m_sw, {}).get(_tk_r, 1) if _tk_r else 1
-            _total_sw = _s_l + _s_r
-            if _total_sw == 0:
-                _sw_res[_m_sw] = (0.5, 0.5)
-            else:
-                _raw_l = _s_l / _total_sw
-                _w_l = max(0.30, min(0.70, _raw_l))
-                _sw_res[_m_sw] = (_w_l, 1.0 - _w_l)
-        return _sw_res
-
-    # 提前读取权重模式（session_state，供下方 NAV 合成使用；radio 控件在图表标题下方渲染）
-    _weight_mode: str = st.session_state.get("a_weight_mode", "等权 50/50")
-    _a_streaks_full = _shift_hold_fwd(_compute_streaks_p5("A", _buffer_n_map["A"]), {})
-    _a_slot_weights = _compute_slot_weights(_a_slot_assignments, _a_streaks_full, _tm_months)
+    _seg_third = _build_slot_segments(_a_slot_assignments, 2, _tm_months)
 
     # ── 拉取 A 组所有标的 OHLCV ───────────────────────────────────────
     _a_tickers_all = sorted({
@@ -754,9 +718,6 @@ if _arena_data:
     _b_seg_left = _build_slot_segments(_b_slot_assignments, 0, _tm_months)
     _b_seg_right = _build_slot_segments(_b_slot_assignments, 1, _tm_months)
 
-    _b_weight_mode: str = st.session_state.get("b_weight_mode", "等权 50/50")
-    _b_streaks_full = _shift_hold_fwd(_compute_streaks_p5("B", _buffer_n_map["B"]), {})
-    _b_slot_weights = _compute_slot_weights(_b_slot_assignments, _b_streaks_full, _tm_months)
 
     # ── 拉取 B 组所有标的 OHLCV ───────────────────────────────────────
     _b_tickers_all = sorted({
@@ -803,9 +764,6 @@ if _arena_data:
     _c_seg_left = _build_slot_segments(_c_slot_assignments, 0, _tm_months)
     _c_seg_right = _build_slot_segments(_c_slot_assignments, 1, _tm_months)
 
-    _c_weight_mode: str = st.session_state.get("c_weight_mode", "等权 50/50")
-    _c_streaks_full = _shift_hold_fwd(_compute_streaks_p5("C", _buffer_n_map["C"]), {})
-    _c_slot_weights = _compute_slot_weights(_c_slot_assignments, _c_streaks_full, _tm_months)
 
     # ── 拉取 C 组所有标的 OHLCV ───────────────────────────────────────
     _c_tickers_all = sorted({
@@ -1003,7 +961,7 @@ if _arena_data:
     #  Section: A/B 级累计收益率图（Tab 切换）
     # ═══════════════════════════════════════════════════════════════════
     st.header("📈 累计收益率图")
-    st.caption("左/右列 = Page 4 月度 Top-2 的 slot-stable 分配；颜色区分持仓期，💰 空仓 = 闸门关")
+    st.caption("各 Slot = slot-stable 分配（A 组 3 列、B/C 组 2 列）；颜色区分持仓期，💰 空仓 = 闸门关")
 
     _main_tab_a, _main_tab_b, _main_tab_c = st.tabs([
         "🛡️ A 级（避风港）", "🏦 B 级（压舱石）", "🚀 C 级（趋势动量）",
@@ -1029,34 +987,22 @@ if _arena_data:
         _p5_cash_rate = 0.0
         _ret_left, _dd_left, _nav_left = _calc_slot_stats(_seg_left, _a_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
         _ret_right, _dd_right, _nav_right = _calc_slot_stats(_seg_right, _a_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
+        _ret_third, _dd_third, _nav_third = _calc_slot_stats(_seg_third, _a_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
 
-        # ── 合成 A 级整体（等权或信念倾斜）────────────────────────────────
+        # ── 合成 A 级整体（在场列等权 1/n）────────────────────────────────
         _ret_combined, _dd_combined = 0.0, 0.0
         _nav_combined: pd.Series = pd.Series(dtype=float)
-        if not _nav_left.empty and not _nav_right.empty:
-            _idx_union = _nav_left.index.union(_nav_right.index)
-            _nl = _nav_left.reindex(_idx_union).ffill().bfill()
-            _nr = _nav_right.reindex(_idx_union).ffill().bfill()
-            if _weight_mode.startswith("信念倾斜"):
-                _month_keys_arr = _idx_union.strftime("%Y-%m")
-                _w_left_arr = pd.Series(
-                    [_a_slot_weights.get(_mk, (0.5, 0.5))[0] for _mk in _month_keys_arr],
-                    index=_idx_union, dtype=float,
-                )
-                _w_right_arr = 1.0 - _w_left_arr
-                _nav_combined = (_w_left_arr * _nl + _w_right_arr * _nr).astype(float)
-            else:
-                _nav_combined = 0.5 * _nl + 0.5 * _nr
+        _navs_a = [_n for _n in (_nav_left, _nav_right, _nav_third) if not _n.empty]
+        if _navs_a:
+            _idx_union = _navs_a[0].index
+            for _n in _navs_a[1:]:
+                _idx_union = _idx_union.union(_n.index)
+            _aligned_a = [_n.reindex(_idx_union).ffill().bfill() for _n in _navs_a]
+            _nav_combined = sum(_aligned_a) / len(_aligned_a)
             _ret_combined = (float(_nav_combined.iloc[-1]) / float(_nav_combined.iloc[0]) - 1) * 100
             _peak_c = _nav_combined.cummax()
             _dd_c = (_peak_c - _nav_combined) / _peak_c.replace(0, float("nan"))
             _dd_combined = float(_dd_c.max()) * 100
-        elif not _nav_left.empty:
-            _ret_combined, _dd_combined = _ret_left, _dd_left
-            _nav_combined = _nav_left.copy()
-        elif not _nav_right.empty:
-            _ret_combined, _dd_combined = _ret_right, _dd_right
-            _nav_combined = _nav_right.copy()
 
         # ── 换仓次数统计 ────────────────────────────────────────────────
         _a_months_with_hold = [m for m in _tm_months if _tm_hold["A"].get(m)]
@@ -1082,18 +1028,11 @@ if _arena_data:
                     _spy_nav_a = _spy_close_a / float(_spy_close_a.iloc[0])
                     _spy_adv_a = _compute_nav_kpi(_spy_nav_a)
 
-        _buf_col_p5, _w_col = st.columns([1, 2])
-        with _buf_col_p5:
-            _p5_buffer_input("A")
-        with _w_col:
-            st.radio(
-                "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
-                horizontal=True, key="a_weight_mode",
-            )
+        _p5_buffer_input("A")
 
         st.caption(
             f"守擂池 buffer_n={_buffer_n_map['A']}（上限 {_p5_min_depth}）｜"
-            f"换仓 **{_switch_count}** 次 × 4腿 ｜ "
+            f"换仓 **{_switch_count}** 次 × 6腿 ｜ "
             f"摩擦 **-{_a_friction_pct:.1f}%**（佣金 {_p5_commission_pct:.2f}% + 滑点 {_p5_slippage_pct:.2f}%）"
         )
 
@@ -1127,42 +1066,42 @@ if _arena_data:
                 delta_color="off",
             )
 
-        _block_l, _block_r = st.columns(2)
-        with _block_l:
-            st.markdown("**🟦 左列 Slot 0**")
-            _lc1, _lc2 = st.columns(2)
-            _lc1.metric("总收益", f"{_ret_left:+.1f}%")
-            _lc2.metric("最大回撤", f"-{_dd_left:.1f}%")
-        with _block_r:
-            st.markdown("**🟦 右列 Slot 1**")
-            _rc1, _rc2 = st.columns(2)
-            _rc1.metric("总收益", f"{_ret_right:+.1f}%")
-            _rc2.metric("最大回撤", f"-{_dd_right:.1f}%")
+        _block_0, _block_1, _block_2 = st.columns(3)
+        with _block_0:
+            st.markdown("**🟦 Slot 0**")
+            _s0c1, _s0c2 = st.columns(2)
+            _s0c1.metric("总收益", f"{_ret_left:+.1f}%")
+            _s0c2.metric("最大回撤", f"-{_dd_left:.1f}%")
+        with _block_1:
+            st.markdown("**🟦 Slot 1**")
+            _s1c1, _s1c2 = st.columns(2)
+            _s1c1.metric("总收益", f"{_ret_right:+.1f}%")
+            _s1c2.metric("最大回撤", f"-{_dd_right:.1f}%")
+        with _block_2:
+            st.markdown("**🟦 Slot 2**")
+            _s2c1, _s2c2 = st.columns(2)
+            _s2c1.metric("总收益", f"{_ret_third:+.1f}%")
+            _s2c2.metric("最大回撤", f"-{_dd_third:.1f}%")
 
-        if _weight_mode.startswith("信念倾斜") and _a_slot_weights:
-            _avg_wl = sum(v[0] for v in _a_slot_weights.values()) / max(len(_a_slot_weights), 1)
-            _avg_wr = 1.0 - _avg_wl
-            st.caption(
-                f"信念倾斜模式：历史月均权重 左列 **{_avg_wl*100:.0f}%** / 右列 **{_avg_wr*100:.0f}%**"
-                "（streak 更长的 slot 权重更高，范围限制在 30%-70%）"
-            )
-
-        _tab_left, _tab_right, _tab_combined = st.tabs([
-            "📈 左列 (Slot 0)", "📈 右列 (Slot 1)", "📊 合成收益率",
+        _tab_left, _tab_right, _tab_third, _tab_combined = st.tabs([
+            "📈 Slot 0", "📈 Slot 1", "📈 Slot 2", "📊 合成收益率",
         ])
         with _tab_left:
-            _fig_left = _build_stitched_kline_fig(_seg_left, "左列 (Slot 0)", _spy_wk_a, _a_price_cache, _name_map)
+            _fig_left = _build_stitched_kline_fig(_seg_left, "Slot 0", _spy_wk_a, _a_price_cache, _name_map)
             st.plotly_chart(_fig_left, use_container_width=True, key="a_slot0_chart")
         with _tab_right:
-            _fig_right = _build_stitched_kline_fig(_seg_right, "右列 (Slot 1)", _spy_wk_a, _a_price_cache, _name_map)
+            _fig_right = _build_stitched_kline_fig(_seg_right, "Slot 1", _spy_wk_a, _a_price_cache, _name_map)
             st.plotly_chart(_fig_right, use_container_width=True, key="a_slot1_chart")
+        with _tab_third:
+            _fig_third = _build_stitched_kline_fig(_seg_third, "Slot 2", _spy_wk_a, _a_price_cache, _name_map)
+            st.plotly_chart(_fig_third, use_container_width=True, key="a_slot2_chart")
         with _tab_combined:
             if not _nav_combined.empty:
                 _fig_comb = go.Figure()
                 _nav_pct = (_nav_combined / float(_nav_combined.iloc[0]) - 1) * 100
                 _fig_comb.add_trace(go.Scatter(
                     x=_nav_pct.index, y=_nav_pct.values,
-                    mode="lines", name=f"A 级合成（{_weight_mode.split('（')[0]}）",
+                    mode="lines", name="A 级合成（等权）",
                     line=dict(color="#F1C40F", width=2),
                 ))
                 if _spy_wk_a is not None and not _spy_wk_a.empty:
@@ -1179,7 +1118,7 @@ if _arena_data:
                             line=dict(color="#888", width=1.5, dash="dot"),
                         ))
                 _fig_comb.update_layout(
-                    title=f"A 级合成收益率（{_weight_mode}）",
+                    title="A 级合成收益率（等权 1/3）",
                     xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
                     yaxis=dict(title="累计收益率 (%)", ticksuffix="%", gridcolor="rgba(100,100,100,0.3)"),
                     height=520,
@@ -1212,23 +1151,14 @@ if _arena_data:
         _b_ret_left, _b_dd_left, _b_nav_left = _calc_slot_stats(_b_seg_left, _b_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
         _b_ret_right, _b_dd_right, _b_nav_right = _calc_slot_stats(_b_seg_right, _b_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
 
-        # ── 合成 B 级整体（等权或信念倾斜）────────────────────────────────
+        # ── 合成 B 级整体（等权 1/2）────────────────────────────────
         _b_ret_combined, _b_dd_combined = 0.0, 0.0
         _b_nav_combined: pd.Series = pd.Series(dtype=float)
         if not _b_nav_left.empty and not _b_nav_right.empty:
             _b_idx_union = _b_nav_left.index.union(_b_nav_right.index)
             _b_nl = _b_nav_left.reindex(_b_idx_union).ffill().bfill()
             _b_nr = _b_nav_right.reindex(_b_idx_union).ffill().bfill()
-            if _b_weight_mode.startswith("信念倾斜"):
-                _b_month_keys_arr = _b_idx_union.strftime("%Y-%m")
-                _b_w_left_arr = pd.Series(
-                    [_b_slot_weights.get(_mk, (0.5, 0.5))[0] for _mk in _b_month_keys_arr],
-                    index=_b_idx_union, dtype=float,
-                )
-                _b_w_right_arr = 1.0 - _b_w_left_arr
-                _b_nav_combined = (_b_w_left_arr * _b_nl + _b_w_right_arr * _b_nr).astype(float)
-            else:
-                _b_nav_combined = 0.5 * _b_nl + 0.5 * _b_nr
+            _b_nav_combined = 0.5 * _b_nl + 0.5 * _b_nr
             _b_ret_combined = (float(_b_nav_combined.iloc[-1]) / float(_b_nav_combined.iloc[0]) - 1) * 100
             _b_peak_c = _b_nav_combined.cummax()
             _b_dd_c = (_b_peak_c - _b_nav_combined) / _b_peak_c.replace(0, float("nan"))
@@ -1264,14 +1194,7 @@ if _arena_data:
                     _spy_nav_b = _spy_close_b / float(_spy_close_b.iloc[0])
                     _spy_adv_b = _compute_nav_kpi(_spy_nav_b)
 
-        _buf_col_b, _w_col_b = st.columns([1, 2])
-        with _buf_col_b:
-            _p5_buffer_input("B")
-        with _w_col_b:
-            st.radio(
-                "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
-                horizontal=True, key="b_weight_mode",
-            )
+        _p5_buffer_input("B")
 
         st.caption(
             f"守擂池 buffer_n={_buffer_n_map['B']}（上限 {_p5_min_depth}）｜"
@@ -1315,14 +1238,6 @@ if _arena_data:
             _b_rc1.metric("总收益", f"{_b_ret_right:+.1f}%")
             _b_rc2.metric("最大回撤", f"-{_b_dd_right:.1f}%")
 
-        if _b_weight_mode.startswith("信念倾斜") and _b_slot_weights:
-            _b_avg_wl = sum(v[0] for v in _b_slot_weights.values()) / max(len(_b_slot_weights), 1)
-            _b_avg_wr = 1.0 - _b_avg_wl
-            st.caption(
-                f"信念倾斜模式：历史月均权重 左列 **{_b_avg_wl*100:.0f}%** / 右列 **{_b_avg_wr*100:.0f}%**"
-                "（streak 更长的 slot 权重更高，范围限制在 30%-70%）"
-            )
-
         _b_tab_left, _b_tab_right, _b_tab_combined = st.tabs([
             "📈 左列 (Slot 0)", "📈 右列 (Slot 1)", "📊 合成收益率",
         ])
@@ -1338,7 +1253,7 @@ if _arena_data:
                 _b_nav_pct = (_b_nav_combined / float(_b_nav_combined.iloc[0]) - 1) * 100
                 _b_fig_comb.add_trace(go.Scatter(
                     x=_b_nav_pct.index, y=_b_nav_pct.values,
-                    mode="lines", name=f"B 级合成（{_b_weight_mode.split('（')[0]}）",
+                    mode="lines", name="B 级合成（等权）",
                     line=dict(color="#3498DB", width=2),
                 ))
                 if _spy_wk_a is not None and not _spy_wk_a.empty:
@@ -1355,7 +1270,7 @@ if _arena_data:
                             line=dict(color="#888", width=1.5, dash="dot"),
                         ))
                 _b_fig_comb.update_layout(
-                    title=f"B 级合成收益率（{_b_weight_mode}）",
+                    title="B 级合成收益率（等权 1/2）",
                     xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
                     yaxis=dict(title="累计收益率 (%)", ticksuffix="%", gridcolor="rgba(100,100,100,0.3)"),
                     height=520,
@@ -1388,23 +1303,14 @@ if _arena_data:
         _c_ret_left, _c_dd_left, _c_nav_left = _calc_slot_stats(_c_seg_left, _c_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
         _c_ret_right, _c_dd_right, _c_nav_right = _calc_slot_stats(_c_seg_right, _c_price_cache, _spy_wk_a, cash_rate=_p5_cash_rate)
 
-        # ── 合成 C 级整体（等权或信念倾斜）────────────────────────────────
+        # ── 合成 C 级整体（等权 1/2）────────────────────────────────
         _c_ret_combined, _c_dd_combined = 0.0, 0.0
         _c_nav_combined: pd.Series = pd.Series(dtype=float)
         if not _c_nav_left.empty and not _c_nav_right.empty:
             _c_idx_union = _c_nav_left.index.union(_c_nav_right.index)
             _c_nl = _c_nav_left.reindex(_c_idx_union).ffill().bfill()
             _c_nr = _c_nav_right.reindex(_c_idx_union).ffill().bfill()
-            if _c_weight_mode.startswith("信念倾斜"):
-                _c_month_keys_arr = _c_idx_union.strftime("%Y-%m")
-                _c_w_left_arr = pd.Series(
-                    [_c_slot_weights.get(_mk, (0.5, 0.5))[0] for _mk in _c_month_keys_arr],
-                    index=_c_idx_union, dtype=float,
-                )
-                _c_w_right_arr = 1.0 - _c_w_left_arr
-                _c_nav_combined = (_c_w_left_arr * _c_nl + _c_w_right_arr * _c_nr).astype(float)
-            else:
-                _c_nav_combined = 0.5 * _c_nl + 0.5 * _c_nr
+            _c_nav_combined = 0.5 * _c_nl + 0.5 * _c_nr
             _c_ret_combined = (float(_c_nav_combined.iloc[-1]) / float(_c_nav_combined.iloc[0]) - 1) * 100
             _c_peak_c = _c_nav_combined.cummax()
             _c_dd_c = (_c_peak_c - _c_nav_combined) / _c_peak_c.replace(0, float("nan"))
@@ -1440,14 +1346,7 @@ if _arena_data:
                     _spy_nav_cc = _spy_close_cc / float(_spy_close_cc.iloc[0])
                     _spy_adv_c = _compute_nav_kpi(_spy_nav_cc)
 
-        _buf_col_c, _w_col_c = st.columns([1, 2])
-        with _buf_col_c:
-            _p5_buffer_input("C")
-        with _w_col_c:
-            st.radio(
-                "合成权重", ["等权 50/50", "信念倾斜（按在榜月数）"],
-                horizontal=True, key="c_weight_mode",
-            )
+        _p5_buffer_input("C")
 
         st.caption(
             f"守擂池 buffer_n={_buffer_n_map['C']}（上限 {_p5_min_depth}）｜"
@@ -1491,14 +1390,6 @@ if _arena_data:
             _c_rc1.metric("总收益", f"{_c_ret_right:+.1f}%")
             _c_rc2.metric("最大回撤", f"-{_c_dd_right:.1f}%")
 
-        if _c_weight_mode.startswith("信念倾斜") and _c_slot_weights:
-            _c_avg_wl = sum(v[0] for v in _c_slot_weights.values()) / max(len(_c_slot_weights), 1)
-            _c_avg_wr = 1.0 - _c_avg_wl
-            st.caption(
-                f"信念倾斜模式：历史月均权重 左列 **{_c_avg_wl*100:.0f}%** / 右列 **{_c_avg_wr*100:.0f}%**"
-                "（streak 更长的 slot 权重更高，范围限制在 30%-70%）"
-            )
-
         _c_tab_left, _c_tab_right, _c_tab_combined = st.tabs([
             "📈 左列 (Slot 0)", "📈 右列 (Slot 1)", "📊 合成收益率",
         ])
@@ -1514,7 +1405,7 @@ if _arena_data:
                 _c_nav_pct = (_c_nav_combined / float(_c_nav_combined.iloc[0]) - 1) * 100
                 _c_fig_comb.add_trace(go.Scatter(
                     x=_c_nav_pct.index, y=_c_nav_pct.values,
-                    mode="lines", name=f"C 级合成（{_c_weight_mode.split('（')[0]}）",
+                    mode="lines", name="C 级合成（等权）",
                     line=dict(color="#E67E22", width=2),
                 ))
                 if _spy_wk_a is not None and not _spy_wk_a.empty:
@@ -1531,7 +1422,7 @@ if _arena_data:
                             line=dict(color="#888", width=1.5, dash="dot"),
                         ))
                 _c_fig_comb.update_layout(
-                    title=f"C 级合成收益率（{_c_weight_mode}）",
+                    title="C 级合成收益率（等权 1/2）",
                     xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
                     yaxis=dict(title="累计收益率 (%)", ticksuffix="%", gridcolor="rgba(100,100,100,0.3)"),
                     height=520,
