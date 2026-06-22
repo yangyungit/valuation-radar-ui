@@ -106,6 +106,13 @@ def load_arena_history(local_path=LOCAL_HISTORY_PATH,
     return json.loads(_cached(str(local_path), prefer_remote))
 
 
+def describe_source() -> str:
+    """供报告/日志显示当前实际取数源，避免再被'读了本地却以为读后端'误导。"""
+    if os.environ.get("ARENA_HISTORY_SOURCE", "remote").lower() == "local":
+        return f"本地文件 {LOCAL_HISTORY_PATH}"
+    return f"Render {resolve_api_base()}（不可达时降级本地兜底）"
+
+
 def write_local(local_path=LOCAL_HISTORY_PATH) -> tuple[int, str]:
     """拉 Render 覆盖本地快照。Render 不可达时抛异常，不破坏现有本地文件。"""
     data = fetch_from_render()

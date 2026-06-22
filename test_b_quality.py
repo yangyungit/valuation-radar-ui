@@ -47,7 +47,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 
-from arena_history_source import load_arena_history
+from arena_history_source import load_arena_history, describe_source
 
 # ═══════════════════════════════════════════════════════════════════
 #  路径与配置
@@ -231,7 +231,7 @@ def print_report(stints):
     sep = "=" * 78
     print(f"\n{sep}")
     print("  B组持仓质量诊断报告")
-    print(f"  数据来源: {HISTORY_FILE}")
+    print(f"  数据来源: {describe_source()}")
     print(f"  总stint数: {len(stints)}  |  涉及ticker数: {len(by_ticker)}")
     print(sep)
 
