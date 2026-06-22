@@ -41,3 +41,6 @@ pip-log.txt
 # Planning / internal docs (optional, remove if you want to track them)
 pages/REFACTOR_PLAN.md
 pages/plan.md
+
+# Arena history 离线兜底快照（真相源是 Render universe.db；本地由 refresh_arena_history.py 生成，不进版本库）
+data/arena_history.json
