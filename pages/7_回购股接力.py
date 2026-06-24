@@ -20,9 +20,9 @@ st.markdown("""
 st.title("👑 回购股接力图 (Buyback Relay)")
 st.caption(
     "**池子**:回购股.md 第一、二节(教科书级 + 大型现金流机器,排除陷阱版),全美股。"
-    "**排名**:每月末在池内做横截面排名,**king_score = 1.0×Z(RS_252d) + 0.8×Z(log10 ADV_63d)** —— "
-    "动量(年化跑赢 SPY)+ 容量(美元成交额)两维,与板块王朝接力图同源。"
-    "**🥇 金牌 = 当月 Top1 且 RS_252d > 0(跑赢 SPY,否则降灰)/🥈 银牌 = Top2**。"
+    "**排名**:每月末在池内做横截面排名,**king_score = 1.0×Z(RS_210d) + 0.8×Z(log10 ADV_63d)** —— "
+    "动量(年化跑赢 SPY)+ 容量(美元成交额)两维。动量窗口用 210 日(回测择优,板块王朝接力图仍 252)。"
+    "**🥇 金牌 = 当月 Top1 且 RS_210d > 0(跑赢 SPY,否则降灰)/🥈 银牌 = Top2**。"
     "下方持有**金+银两个仓位等权**,月末选仓、顺延 1 月执行(去 look-ahead)。"
 )
 
@@ -105,7 +105,7 @@ for tk in _ordered:
             f"{_BADGE[t]}<br>"
             f"排名 {_rk_s}<br>"
             f"king_score {_kv_s}<br>"
-            f"RS_252d {_rs_s}"
+            f"RS_210d {_rs_s}"
         )
     _hover.append(row)
 
@@ -145,7 +145,7 @@ _last_col = _tier_yx[_last_month]
 _gold_now = _last_col[_last_col == 3].index.tolist()
 _silver_now = _last_col[_last_col == 2].index.tolist()
 _gold_html = " ".join(f"<span class='tag-bull'>🥇 {name_map.get(t, t)} ({t})</span>" for t in _gold_now) \
-    or "<span style='color:#888'>当前无金牌(无个股同时满足 Top1 + RS_252d &gt; 0)</span>"
+    or "<span style='color:#888'>当前无金牌(无个股同时满足 Top1 + RS_210d &gt; 0)</span>"
 _silver_html = " ".join(f"<span class='tag-bear'>🥈 {name_map.get(t, t)} ({t})</span>" for t in _silver_now) or "—"
 _label = "当月领先(进行中·未定格)" if _month_in_progress else "当前在位"
 st.markdown(f"""
