@@ -850,6 +850,23 @@ def fetch_macro_radar_timeseries(window: str = "1Y", profile: str = "waveform") 
         return {"success": False, "error": str(e), "dates": [], "tickers": {}}
 
 
+@st.cache_data(ttl=3600 * 4)
+def fetch_buyback_relay_timeseries(window: str = "5Y") -> dict:
+    """回购股池接力图时序（king_score = 动量 RS_252d + 容量 ADV_63d，池内横截面排名）。
+    供「回购股接力」页调用。失败返回 {"success": False, "error": ...}。
+    """
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/buyback_relay/timeseries",
+            params={"window": window},
+            timeout=120,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "dates": [], "tickers": {}}
+
+
 @st.cache_data(ttl=3600)
 def fetch_changepoint() -> dict:
     """从后端获取变点检测数据包（多变量 CUSUM）。
