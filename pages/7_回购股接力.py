@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
-from api_client import fetch_buyback_relay_timeseries
+from api_client import fetch_buyback_relay_timeseries, get_global_data
 import holdings_viz as hv
 
 st.set_page_config(page_title="回购股接力", layout="wide")
@@ -187,44 +187,86 @@ st.dataframe(_medal_df, use_container_width=True, hide_index=True)
 st.markdown("---")
 st.markdown("### 📈 持有金 + 银两仓(等权)· 净值 vs SPY")
 st.caption(
-    "每月末按 king_score 选 Top2,顺延 1 月执行(去 look-ahead) · **守擂缓冲**:在任票掉到第 N 名以内不换,"
-    "掉出才替换 · 日 1 开盘买入、等权、周线 NAV、yfinance 股息+拆股复权 · "
-    "⚠️ 日线价格 yfinance 最长约 5 年,10Y 跨度的净值起点仍约 5 年前。"
+    "每月末按 king_score 选 Top2,顺延 1 月执行(去 look-ahead) · **进场门槛**:新进场必须当月在前 2(金/银) · "
+    "**守擂防抖**:在任票掉到第 N 名以内不换,掉出才替换 · 左右两列各等权,合成线 = 50/50 · "
+    "周线 NAV,价格 yfinance 股息+拆股复权,与 king_score 同源 · 净值最长回看约 10 年。"
 )
 _buf = int(st.number_input("守擂缓冲区 Top-N(≥2,越大越不换仓)", min_value=2, max_value=10, value=4, step=1, key="bb_buf"))
 
-with st.spinner("加载个股日线、重建净值..."):
+with st.spinner("加载价格、重建净值..."):
     _pool = list(_tickers.keys())
-    _pc_daily = {}
-    for tk in _pool:
-        d = hv.fetch_daily_ohlcv(tk)
-        if d is not None and not d.empty:
-            _pc_daily[tk] = d
-    _spy_daily = hv.fetch_daily_ohlcv("SPY")
+    _px = get_global_data(_pool + ["SPY"], years=10)
 
-# 月末决策篮子:king_score 降序 → build_basket_nav 内部按 top_n/buffer 取仓
-_history = {}
-for _ts, _row in king_m.iterrows():
-    _r = _row.dropna().sort_values(ascending=False)
+_price_cache: dict = {}
+_spy_wk = pd.DataFrame()
+if _px is not None and not _px.empty:
+    _wk = _px.resample("W-FRI").last()
+    if "SPY" in _wk.columns:
+        _spy_wk = _wk[["SPY"]].rename(columns={"SPY": "Close"}).dropna()
+    for _tk in _pool:
+        if _tk in _wk.columns:
+            _s = _wk[_tk].dropna()
+            if len(_s) >= 2:
+                _price_cache[_tk] = _s.to_frame(name="Close")
+
+# 月末选 Top2:守擂缓冲 + 进场门槛(当月前 2)。决策月顺延 1 月执行(去 look-ahead)。
+_ten6 = (rank_m <= 2).astype(int).rolling(6, min_periods=1).sum()   # 近 6 月进前 2 的次数 = 资历
+_mh: dict = {}
+_mh_raw: dict = {}
+_prev_h: list = []
+for _ts, _row in rank_m.iterrows():
+    _r = _row.dropna().sort_values()
     if _r.empty:
         continue
-    _history[_ts.strftime("%Y-%m")] = {
-        "buyback": {"tickers": [{"ticker": tk} for tk in _r.index], "gate_status": "open", "gate_reason": ""}
-    }
+    _order = _r.index.tolist()
+    _t2 = _order[:2]
+    _tN = set(_order[:_buf])
+    _tnow = _ten6.loc[_ts]
+    _elig = [t for t in _order if _r[t] <= 2]
+    _elig_t = sorted(_elig, key=lambda t: (-float(_tnow.get(t, 0)), _r[t]))
+    _hold = [t for t in _prev_h if t in _tN][:2] if _prev_h else []
+    for t in _elig_t:
+        if len(_hold) >= 2:
+            break
+        if t not in _hold:
+            _hold.append(t)
+    if len(_hold) < 2:
+        for t in _order:
+            if len(_hold) >= 2:
+                break
+            if t not in _hold:
+                _hold.append(t)
+    _exec_m = hv.next_month_key(_ts.strftime("%Y-%m"), 1)
+    _mh[_exec_m] = _hold
+    _mh_raw[_exec_m] = _t2
+    _prev_h = _hold
 
-if not _history or _spy_daily is None or _spy_daily.empty or not _pc_daily:
+_exec_months = sorted(_mh)
+if not _price_cache or not _exec_months:
     st.info("价格数据不足,无法重建净值。")
 else:
-    _res = hv.build_basket_nav(
-        _history, "buyback", _pc_daily, _spy_daily,
-        top_n=2, buffer_n=_buf, shift_months=1,
-    )
-    _nav = _res.get("nav", pd.Series(dtype=float))
-    if _nav is None or _nav.empty:
+    _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
+    _seg_l = hv.build_slot_segments(_slots, 0, _exec_months)
+    _seg_r = hv.build_slot_segments(_slots, 1, _exec_months)
+    _nav_l = hv.calc_slot_stats(_seg_l, _price_cache, _spy_wk, 0.04)[2]
+    _nav_r = hv.calc_slot_stats(_seg_r, _price_cache, _spy_wk, 0.04)[2]
+
+    _navc = pd.Series(dtype=float)
+    if not _nav_l.empty and not _nav_r.empty:
+        _uidx = _nav_l.index.union(_nav_r.index)
+        _navc = 0.5 * _nav_l.reindex(_uidx).ffill().bfill() + 0.5 * _nav_r.reindex(_uidx).ffill().bfill()
+    elif not _nav_l.empty:
+        _navc = _nav_l.copy()
+    elif not _nav_r.empty:
+        _navc = _nav_r.copy()
+
+    if _navc.empty:
         st.info("价格窗口内无足够数据生成净值曲线。")
     else:
-        _spy_wk = hv.daily_to_weekly(_spy_daily)
-        _kpi = hv.compute_nav_kpi(_nav)
+        _ret_c = (float(_navc.iloc[-1]) / float(_navc.iloc[0]) - 1) * 100
+        _peak = _navc.cummax()
+        _dd_c = float(((_peak - _navc) / _peak.replace(0, float("nan"))).max()) * 100
+        _kpi = hv.compute_nav_kpi(_navc)
 
         def _fmt(v, f=".2f"):
             try:
@@ -235,27 +277,34 @@ else:
                 return "—"
 
         c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("总收益", f"{_res.get('total_ret', 0):+.1f}%")
-        c2.metric("最大回撤", f"-{_res.get('max_dd', 0):.1f}%")
+        c1.metric("总收益", f"{_ret_c:+.1f}%")
+        c2.metric("最大回撤", f"-{_dd_c:.1f}%")
         c3.metric("Calmar", _fmt(_kpi.get("calmar", float("nan"))))
         c4.metric("Sortino", _fmt(_kpi.get("sortino", float("nan"))))
-        c5.metric("年换手", f"{_res.get('turnover_pct', 0):.0f}%")
+        c5.metric("logR²", _fmt(_kpi.get("r2", float("nan"))))
 
         st.plotly_chart(
-            hv.build_basket_fig(_nav, _spy_wk, "回购股 Top2 等权 vs SPY"),
-            use_container_width=True, key="bb_nav",
+            hv.build_combined_fig(_nav_l, _nav_r, _navc, _spy_wk, "回购股 Top2 — 左右两列 50/50 合成 vs SPY"),
+            use_container_width=True, key="bb_nav_combined",
         )
 
         # 每月实际持仓(执行月)
-        _mh = _res.get("monthly_holdings", {}) or {}
+        def _nm(t):
+            return f"{name_map.get(t, t)} ({t})" if (t and t != "CASH") else "—"
+
         _pick_rows = []
-        for _em in sorted(_mh):
-            _held = [t for t in _mh[_em] if t]
+        for _em in _exec_months:
+            _sa = _slots.get(_em, ["—", "—"])
+            _raw = _mh_raw.get(_em, [])
+            _held = {t for t in _sa if t and t != "CASH"}
+            _kept = bool(_raw) and _held != set(_raw)
             _pick_rows.append({
-                "执行月(实际持有)": _em,
-                "仓位1": f"{name_map.get(_held[0], _held[0])} ({_held[0]})" if len(_held) > 0 else "—",
-                "仓位2": f"{name_map.get(_held[1], _held[1])} ({_held[1]})" if len(_held) > 1 else "—",
+                "来源月 Top1(金)": _nm(_raw[0] if len(_raw) > 0 else None),
+                "来源月 Top2(银)": _nm(_raw[1] if len(_raw) > 1 else None),
+                "执行月": _em,
+                "左列实际持有": _nm(_sa[0]),
+                "右列实际持有": _nm(_sa[1]),
+                "守擂留任": "是" if _kept else "",
             })
-        if _pick_rows:
-            st.markdown("**每月实际持仓**(对照上方接力图核对)")
-            st.dataframe(pd.DataFrame(_pick_rows).iloc[::-1], use_container_width=True, hide_index=True)
+        st.markdown("**每月实际持仓**(对照上方接力图核对;执行月 = 来源月 + 1)")
+        st.dataframe(pd.DataFrame(_pick_rows).iloc[::-1], use_container_width=True, hide_index=True)
