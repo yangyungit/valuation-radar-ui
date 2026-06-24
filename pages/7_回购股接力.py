@@ -277,12 +277,14 @@ else:
             except (TypeError, ValueError):
                 return "—"
 
-        c1, c2, c3, c4, c5 = st.columns(5)
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
         c1.metric("总收益", f"{_ret_c:+.1f}%")
         c2.metric("最大回撤", f"-{_dd_c:.1f}%")
-        c3.metric("Calmar", _fmt(_kpi.get("calmar", float("nan"))))
-        c4.metric("Sortino", _fmt(_kpi.get("sortino", float("nan"))))
-        c5.metric("logR²", _fmt(_kpi.get("r2", float("nan"))))
+        _cagr_v = _kpi.get("cagr", float("nan"))
+        c3.metric("CAGR", f"{_cagr_v * 100:+.1f}%" if not (_cagr_v != _cagr_v) else "—")
+        c4.metric("Calmar", _fmt(_kpi.get("calmar", float("nan"))))
+        c5.metric("Sortino", _fmt(_kpi.get("sortino", float("nan"))))
+        c6.metric("logR²", _fmt(_kpi.get("r2", float("nan"))))
 
         st.plotly_chart(
             hv.build_combined_fig(_nav_l, _nav_r, _navc, _spy_wk, "回购股 Top2 — 左右两列 50/50 合成 vs SPY"),
