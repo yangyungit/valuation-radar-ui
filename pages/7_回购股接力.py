@@ -287,25 +287,18 @@ else:
             hv.build_combined_fig(_nav_l, _nav_r, _navc, _spy_wk, "回购股 Top2 — 左右两列 50/50 合成 vs SPY"),
             use_container_width=True, key="bb_nav_combined",
         )
+        st.plotly_chart(
+            hv.build_stitched_fig(_seg_l, "回购股接力 左列 (Slot 0)", _spy_wk, _price_cache, name_map),
+            use_container_width=True, key="bb_nav_l",
+        )
+        st.plotly_chart(
+            hv.build_stitched_fig(_seg_r, "回购股接力 右列 (Slot 1)", _spy_wk, _price_cache, name_map),
+            use_container_width=True, key="bb_nav_r",
+        )
 
         # 每月实际持仓(执行月)
         def _nm(t):
             return f"{name_map.get(t, t)} ({t})" if (t and t != "CASH") else "—"
-
-        # 左右列按标的固定底色:同一只票始终同色 → 连续同色块=守擂没换,颜色一变=接力换手
-        def _hex_to_rgba(h, a=0.32):
-            h = h.lstrip("#")
-            return f"rgba({int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)},{a})"
-
-        _lr_tickers = []
-        for _em in _exec_months:
-            for _t in _slots.get(_em, ["—", "—"]):
-                if _t and _t != "CASH" and _t not in _lr_tickers:
-                    _lr_tickers.append(_t)
-        _disp_color = {
-            _nm(t): _hex_to_rgba(hv.SLOT_COLORS[i % len(hv.SLOT_COLORS)])
-            for i, t in enumerate(_lr_tickers)
-        }
 
         _pick_rows = []
         for _em in _exec_months:
@@ -321,14 +314,5 @@ else:
                 "右列实际持有": _nm(_sa[1]),
                 "守擂留任": "是" if _kept else "",
             })
-        st.markdown("**每月实际持仓**(对照上方接力图核对;执行月 = 来源月 + 1;左右列按标的染色,同色=同一只票)")
-
-        def _color_lr(v):
-            c = _disp_color.get(v, "")
-            return f"background-color: {c}" if c else ""
-
-        st.dataframe(
-            pd.DataFrame(_pick_rows).iloc[::-1].style.map(
-                _color_lr, subset=["左列实际持有", "右列实际持有"]),
-            use_container_width=True, hide_index=True,
-        )
+        st.markdown("**每月实际持仓**(对照上方接力图核对;执行月 = 来源月 + 1)")
+        st.dataframe(pd.DataFrame(_pick_rows).iloc[::-1], use_container_width=True, hide_index=True)
