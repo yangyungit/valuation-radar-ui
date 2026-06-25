@@ -160,7 +160,7 @@ def render_group(
         "**守擂防抖**：在任票掉到第 N 名以内不换，掉出才替换 · 左右两列各等权，合成线 = 50/50 · "
         "周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
     )
-    _buf = int(st.number_input("守擂缓冲区 Top-N(≥2,越大越不换仓)", min_value=2, max_value=10, value=4, step=1, key=f"{kp}_buf"))
+    _buf = int(st.number_input("守擂缓冲区 buffer_N(≥2,越大越不换仓)", min_value=2, max_value=10, value=4, step=1, key=f"{kp}_buf"))
 
     _ten6 = (rank_m <= 2).astype(int).rolling(6, min_periods=1).sum()
     _mh: dict = {}

@@ -878,7 +878,7 @@ else:
                             "与后端 king_score 同源 · 净值最长回看约 10 年,早期未上市的 ETF 月份缺价。"
                         )
                         _dyn_buf = int(st.number_input(
-                            "守擂缓冲区 Top-N(≥2,越大越不换仓)",
+                            "守擂缓冲区 buffer_N(≥2,越大越不换仓)",
                             min_value=2, max_value=10, value=4, step=1,
                             key=f"dyn_nav_buf_{key_suffix}",
                             help="持有的票掉到第 N 名以内都不换;掉出第 N 名才被替换为当前 Top2。"
