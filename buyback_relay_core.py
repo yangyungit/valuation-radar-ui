@@ -24,6 +24,7 @@ def render_group(
     spy_wk: pd.DataFrame,
     score_label: str = "king_score",
     score_fmt: str = "{:+.2f}",
+    default_k: float = 1.0,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -157,10 +158,13 @@ def render_group(
     st.markdown(f"### 📈 持有金 + 银两仓(等权)· 净值 vs SPY")
     st.caption(
         f"每月末按 {score_label} 选组内 Top2，顺延 1 月执行(去 look-ahead) · **进场门槛**：新进场必须当月在组内前 2(金/银) · "
-        "**守擂防抖**：在任票掉到第 N 名以内不换，掉出才替换 · 左右两列各等权，合成线 = 50/50 · "
-        "周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
+        "**守擂死区**：在任票的分数距 Top2 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
+        "左右两列各等权，合成线 = 50/50 · 周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
     )
-    _buf = int(st.number_input("守擂缓冲区 buffer_N(≥2,越大越不换仓)", min_value=2, max_value=10, value=4, step=1, key=f"{kp}_buf"))
+    _k = float(st.number_input(
+        "守擂死区 δ(×当月横截面标准差,越大越不换仓; 0=掉出 Top2 立刻换)",
+        min_value=0.0, max_value=3.0, value=float(default_k), step=0.25, key=f"{kp}_dk",
+    ))
 
     _ten6 = (rank_m <= 2).astype(int).rolling(6, min_periods=1).sum()
     _mh: dict = {}
@@ -172,11 +176,16 @@ def render_group(
             continue
         _order = _r.index.tolist()
         _t2 = _order[:2]
-        _tN = set(_order[:_buf])
+        _sc = g_score.loc[_ts].dropna()
+        # 守擂死区：留任阈值建在「分数」上，而非排名位置——排名会被旁边股票挤动，
+        # 分差只看在任票自身离 Top2 门槛多远，不被第三只股票污染。
+        _cut2 = float(_sc.sort_values(ascending=False).iloc[1]) if len(_sc) >= 2 else (
+            float(_sc.iloc[0]) if len(_sc) else float("nan"))
+        _delta = _k * (float(_sc.std()) if len(_sc) >= 2 else 0.0)
         _tnow = _ten6.loc[_ts]
         _elig = [t for t in _order if _r[t] <= 2]
         _elig_t = sorted(_elig, key=lambda t: (-float(_tnow.get(t, 0)), _r[t]))
-        _hold = [t for t in _prev_h if t in _tN][:2] if _prev_h else []
+        _hold = [t for t in _prev_h if t in _sc.index and _sc[t] >= _cut2 - _delta][:2] if _prev_h else []
         for t in _elig_t:
             if len(_hold) >= 2:
                 break

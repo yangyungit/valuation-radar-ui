@@ -95,4 +95,5 @@ _tech_cols = [c for c in _all_cols if c in _TECH_TICKERS]
 
 st.markdown("## 💻 纯科技股组")
 render_group("纯科技股", _tech_cols, "bb_tech",
-             score_m=king_m, score_label="king_score", score_fmt="{:+.2f}", **_COMMON)
+             score_m=king_m, score_label="king_score", score_fmt="{:+.2f}",
+             default_k=0.75, **_COMMON)
