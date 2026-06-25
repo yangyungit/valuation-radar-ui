@@ -1313,7 +1313,7 @@ else:
 
     with _dyn_tab3:
         st.markdown("#### 📈 C组双龙持仓 — 动量轮动历史模拟")
-        _dd_n_cur = int(st.session_state.get("dd_n", 2))
+        _dd_n_cur = 3
         st.caption(
             f"**口径**：C 组 11 个 SPDR sector 成分股汇总池（≈ 标普500），每月按动量选最强 **{_dd_n_cur} 只**持有，"
             "守擂缓冲压换手，次日收盘成交、扣单边成本。"
@@ -1322,7 +1322,9 @@ else:
         )
 
         # 顶部控制区（复用上方 _dynasty_window 作为时间跨度，不新建窗口选择器）
-        _dd_c1, _dd_c2, _dd_c3, _dd_c4, _dd_c5 = st.columns([2, 1.5, 2.5, 1.2, 1.2])
+        _dd_n = 3
+        _dd_k = 10
+        _dd_c1, _dd_c4, _dd_c5 = st.columns([2, 1.2, 1.2])
         with _dd_c1:
             _dd_signal_label = st.radio(
                 "排名信号", ["12M", "12-1", "6M"], index=0, horizontal=True,
@@ -1330,15 +1332,6 @@ else:
                 help="谁更强：12M=过去一年涨幅；12-1=跳过最近一月避反转；6M=半年。风险门槛恒用 12M",
             )
         _dd_signal = {"12M": "12m", "12-1": "12-1", "6M": "6m"}[_dd_signal_label]
-        with _dd_c2:
-            _dd_n = st.slider("持仓数量", 2, 5, 2, key="dd_n",
-                              help="等权持有 N 只。N=2 为双龙默认")
-            st.caption("持仓越多越分散：回撤↓、换手成本↑")
-        with _dd_c3:
-            _dd_k = st.slider(
-                "守擂名次 K", _dd_n, 60, max(30, _dd_n), key="dd_k",
-                help="在位的票仍在前 K 名就继续持有，跌出才换。K 越大越省换手（默认 30，中性值非最优）",
-            )
         with _dd_c4:
             _dd_risk = st.toggle(
                 "个股趋势过滤", value=True, key="dd_risk",
@@ -1474,7 +1467,7 @@ else:
                 ("平均一只拿几个月", f"{_stats.get('avg_hold_months', 0)}"),
                 ("年均换手", f"{_stats.get('ann_turnover', 0):.2f}"),
                 ("累计成本", f"{_stats.get('cum_cost', 0) * 100:.1f}%"),
-                ("BIL停留月数", f"{_stats.get('bil_months', 0)}"),
+                ("Sortino 比率", f"{_stats.get('sortino', 0):.2f}"),
             ]
             _row_a = st.columns(5)
             for _mi in range(len(_metrics_a)):
