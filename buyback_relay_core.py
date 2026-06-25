@@ -167,60 +167,101 @@ def render_group(
     ))
 
     _ten6 = (rank_m <= 2).astype(int).rolling(6, min_periods=1).sum()
-    _mh: dict = {}
-    _mh_raw: dict = {}
-    _prev_h: list = []
-    for _ts, _row in rank_m.iterrows():
-        _r = _row.dropna().sort_values()
-        if _r.empty:
-            continue
-        _order = _r.index.tolist()
-        _t2 = _order[:2]
-        _sc = g_score.loc[_ts].dropna()
-        # 守擂死区：留任阈值建在「分数」上，而非排名位置——排名会被旁边股票挤动，
-        # 分差只看在任票自身离 Top2 门槛多远，不被第三只股票污染。
-        _cut2 = float(_sc.sort_values(ascending=False).iloc[1]) if len(_sc) >= 2 else (
-            float(_sc.iloc[0]) if len(_sc) else float("nan"))
-        _delta = _k * (float(_sc.std()) if len(_sc) >= 2 else 0.0)
-        _tnow = _ten6.loc[_ts]
-        _elig = [t for t in _order if _r[t] <= 2]
-        _elig_t = sorted(_elig, key=lambda t: (-float(_tnow.get(t, 0)), _r[t]))
-        _hold = [t for t in _prev_h if t in _sc.index and _sc[t] >= _cut2 - _delta][:2] if _prev_h else []
-        for t in _elig_t:
-            if len(_hold) >= 2:
-                break
-            if t not in _hold:
-                _hold.append(t)
-        if len(_hold) < 2:
-            for t in _order:
+
+    def _holdings_for_k(kval):
+        _mh, _mh_raw, _prev_h = {}, {}, []
+        for _ts, _row in rank_m.iterrows():
+            _r = _row.dropna().sort_values()
+            if _r.empty:
+                continue
+            _order = _r.index.tolist()
+            _t2 = _order[:2]
+            _sc = g_score.loc[_ts].dropna()
+            # 守擂死区：留任阈值建在「分数」上，而非排名位置——排名会被旁边股票挤动，
+            # 分差只看在任票自身离 Top2 门槛多远，不被第三只股票污染。
+            _cut2 = float(_sc.sort_values(ascending=False).iloc[1]) if len(_sc) >= 2 else (
+                float(_sc.iloc[0]) if len(_sc) else float("nan"))
+            _delta = kval * (float(_sc.std()) if len(_sc) >= 2 else 0.0)
+            _tnow = _ten6.loc[_ts]
+            _elig = [t for t in _order if _r[t] <= 2]
+            _elig_t = sorted(_elig, key=lambda t: (-float(_tnow.get(t, 0)), _r[t]))
+            _hold = [t for t in _prev_h if t in _sc.index and _sc[t] >= _cut2 - _delta][:2] if _prev_h else []
+            for t in _elig_t:
                 if len(_hold) >= 2:
                     break
                 if t not in _hold:
                     _hold.append(t)
-        _exec_m = hv.next_month_key(_ts.strftime("%Y-%m"), 1)
-        _mh[_exec_m] = _hold
-        _mh_raw[_exec_m] = _t2
-        _prev_h = _hold
+            if len(_hold) < 2:
+                for t in _order:
+                    if len(_hold) >= 2:
+                        break
+                    if t not in _hold:
+                        _hold.append(t)
+            _exec_m = hv.next_month_key(_ts.strftime("%Y-%m"), 1)
+            _mh[_exec_m] = _hold
+            _mh_raw[_exec_m] = _t2
+            _prev_h = _hold
+        return _mh, _mh_raw
 
-    _exec_months = sorted(_mh)
-    if not price_cache or not _exec_months:
+    def _build_nav(_mh):
+        _exec_months = sorted(_mh)
+        if not price_cache or not _exec_months:
+            return None
+        _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
+        _seg_l = hv.build_slot_segments(_slots, 0, _exec_months)
+        _seg_r = hv.build_slot_segments(_slots, 1, _exec_months)
+        _nav_l = hv.calc_slot_stats(_seg_l, price_cache, spy_wk, 0.04)[2]
+        _nav_r = hv.calc_slot_stats(_seg_r, price_cache, spy_wk, 0.04)[2]
+        _navc = pd.Series(dtype=float)
+        if not _nav_l.empty and not _nav_r.empty:
+            _uidx = _nav_l.index.union(_nav_r.index)
+            _navc = 0.5 * _nav_l.reindex(_uidx).ffill().bfill() + 0.5 * _nav_r.reindex(_uidx).ffill().bfill()
+        elif not _nav_l.empty:
+            _navc = _nav_l.copy()
+        elif not _nav_r.empty:
+            _navc = _nav_r.copy()
+        return _exec_months, _slots, _seg_l, _seg_r, _nav_l, _nav_r, _navc
+
+    # ── δ 敏感性扫描：固定其余逻辑，只扫 δ，看总收益对 δ 平不平缓 ──
+    _k_grid = [round(x * 0.25, 2) for x in range(13)]  # 0.00 → 3.00 步长 0.25
+    _sweep = []
+    for _kv in _k_grid:
+        _r = _build_nav(_holdings_for_k(_kv)[0])
+        if _r is None or _r[6].empty:
+            _sweep.append(float("nan"))
+        else:
+            _nc = _r[6]
+            _sweep.append((float(_nc.iloc[-1]) / float(_nc.iloc[0]) - 1) * 100)
+    _sweep_fig = go.Figure()
+    _sweep_fig.add_trace(go.Scatter(
+        x=_k_grid, y=_sweep, mode="lines+markers", name="总收益",
+        line=dict(color="#FFD700", width=2), marker=dict(size=6),
+        hovertemplate="δ=%{x} → 总收益 %{y:.1f}%<extra></extra>",
+    ))
+    if _k in _k_grid:
+        _cur = _sweep[_k_grid.index(_k)]
+        if _cur == _cur:
+            _sweep_fig.add_trace(go.Scatter(
+                x=[_k], y=[_cur], mode="markers", name="当前 δ",
+                marker=dict(size=12, color="#2ECC71", symbol="circle-open", line=dict(width=3)),
+                hovertemplate="当前 δ=%{x} → %{y:.1f}%<extra></extra>",
+            ))
+    _sweep_fig.update_layout(
+        height=260, margin=dict(l=20, r=20, t=36, b=20),
+        plot_bgcolor="#111111", paper_bgcolor="#111111", font=dict(color="#ddd"),
+        xaxis=dict(title="δ (×横截面标准差)", showgrid=True, gridcolor="#222", dtick=0.25),
+        yaxis=dict(title="总收益 %", showgrid=True, gridcolor="#222"),
+        title=dict(text=f"δ 敏感性 · 总收益随 δ 变化（线越平 = 越不挑 δ）", font=dict(size=13), x=0.01, xanchor="left"),
+        showlegend=False,
+    )
+    st.plotly_chart(_sweep_fig, use_container_width=True, key=f"{kp}_dk_sweep")
+
+    _mh, _mh_raw = _holdings_for_k(_k)
+    _nav = _build_nav(_mh)
+    if _nav is None:
         st.info("价格数据不足，无法重建净值。")
         return
-
-    _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
-    _seg_l = hv.build_slot_segments(_slots, 0, _exec_months)
-    _seg_r = hv.build_slot_segments(_slots, 1, _exec_months)
-    _nav_l = hv.calc_slot_stats(_seg_l, price_cache, spy_wk, 0.04)[2]
-    _nav_r = hv.calc_slot_stats(_seg_r, price_cache, spy_wk, 0.04)[2]
-
-    _navc = pd.Series(dtype=float)
-    if not _nav_l.empty and not _nav_r.empty:
-        _uidx = _nav_l.index.union(_nav_r.index)
-        _navc = 0.5 * _nav_l.reindex(_uidx).ffill().bfill() + 0.5 * _nav_r.reindex(_uidx).ffill().bfill()
-    elif not _nav_l.empty:
-        _navc = _nav_l.copy()
-    elif not _nav_r.empty:
-        _navc = _nav_r.copy()
+    _exec_months, _slots, _seg_l, _seg_r, _nav_l, _nav_r, _navc = _nav
 
     if _navc.empty:
         st.info("价格窗口内无足够数据生成净值曲线。")
