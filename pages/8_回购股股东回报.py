@@ -18,7 +18,7 @@ st.markdown("""
 
 st.title("💰 回购股股东回报率接力 (Shareholder Yield Relay)")
 st.caption(
-    "**池子**：与 Page 7 相同（回购股.md 第一、二节），同样拆成纯科技 / 其余两组。"
+    "**池子**：回购股.md 第一、二节里**剔除纯科技股后的其余组**（支付网络 / 消费 / 金融数据 / 工业医疗等）。"
     "**排名轴换成股东回报率 = 股息率 + 净回购率**（季频 Sharadar SF1 ART，PIT 安全）。"
     "净回购率 = (t−4Q 股本 / t 股本 − 1) × 100，增发为负（惩罚稀释股东的公司）。"
     "季报变化慢，排名比动量稳——对非科技低波动质量股更适用。"
@@ -105,12 +105,7 @@ _COMMON = dict(
 )
 
 _all_cols = list(king_m.columns)
-_tech_cols = [c for c in _all_cols if c in _TECH_TICKERS]
 _rest_cols = [c for c in _all_cols if c not in _TECH_TICKERS]
 
-st.markdown("## 💻 纯科技股组（按股东回报率排名）")
-render_group("纯科技股", _tech_cols, "shy_tech", score_m=shy_m, **_COMMON)
-
-st.markdown("---")
 st.markdown("## 🏛️ 其余组（按股东回报率排名）")
 render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, **_COMMON)

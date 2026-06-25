@@ -18,11 +18,8 @@ st.markdown("""
 
 st.title("👑 回购股接力图 (Buyback Relay)")
 st.caption(
-    "**池子**:回购股.md 第一、二节(教科书级 + 大型现金流机器,排除陷阱版),全美股。"
-    "本页把候选池拆成**纯科技股**(半导体/软件/平台,不含 V/MA)与**其余**两组,各自独立排名、各跑一套接力图 + 净值。"
-    "**科技组排名**:king_score = Z(RS_210d) —— 纯动量。"
-    "**非科技组排名**:可切换——动量 / R² 趋势平滑度 / 信息比率，三选一，金牌门槛仍是 Top1 且 RS_210d > 0。"
-    "动量窗口用 210 日(回测择优)。"
+    "**池子**:回购股.md 第一、二节(教科书级 + 大型现金流机器,排除陷阱版)里的**纯科技股**(半导体/软件/平台,不含 V/MA)。"
+    "**排名**:king_score = Z(RS_210d) —— 纯动量,动量窗口用 210 日(回测择优)。"
     "**🥇 金牌 = 当月 Top1 且 RS_210d > 0(跑赢 SPY,否则降灰)/🥈 银牌 = Top2**。"
     "下方持有**金+银两个仓位等权**,月末选仓、顺延 1 月执行(去 look-ahead)。"
 )
@@ -52,8 +49,6 @@ _idx = pd.to_datetime(_dates, errors="coerce")
 king = pd.DataFrame({tk: p.get("king_score", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
 rs = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
 adv = pd.DataFrame({tk: p.get("adv_63d", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
-r2 = pd.DataFrame({tk: p.get("r2_210d", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
-ir = pd.DataFrame({tk: p.get("info_ratio_210d", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
 name_map = {tk: p.get("name", tk) for tk, p in _tickers.items()}
 grade_map = {tk: p.get("group", "") for tk, p in _tickers.items()}
 asof = pd.to_datetime(ts.get("asof"), errors="coerce")
@@ -62,8 +57,6 @@ asof = pd.to_datetime(ts.get("asof"), errors="coerce")
 king_m = king.resample("ME").last()
 rs_m = rs.resample("ME").last()
 adv_m = adv.resample("ME").last()
-r2_m = r2.resample("ME").last()
-ir_m = ir.resample("ME").last()
 if king_m.empty or len(king_m) < 2:
     st.warning("⚠️ 月末快照数据不足")
     st.stop()
@@ -99,24 +92,7 @@ _COMMON = dict(
 
 _all_cols = list(king_m.columns)
 _tech_cols = [c for c in _all_cols if c in _TECH_TICKERS]
-_rest_cols = [c for c in _all_cols if c not in _TECH_TICKERS]
 
 st.markdown("## 💻 纯科技股组")
 render_group("纯科技股", _tech_cols, "bb_tech",
              score_m=king_m, score_label="king_score", score_fmt="{:+.2f}", **_COMMON)
-
-st.markdown("---")
-st.markdown("## 🏛️ 其余组（含支付网络 / 消费 / 金融数据 / 工业医疗等）")
-
-_metric = st.radio(
-    "非科技组排名指标", ["动量 king_score", "R² 趋势平滑度", "信息比率"],
-    index=0, horizontal=True, key="bb_rest_metric",
-)
-_score_m, _slabel, _sfmt = {
-    "动量 king_score": (king_m,  "king_score",    "{:+.2f}"),
-    "R² 趋势平滑度":   (r2_m,    "R²(signed)",    "{:+.2f}"),
-    "信息比率":        (ir_m,    "信息比率",      "{:+.3f}"),
-}[_metric]
-
-render_group("其余回购股", _rest_cols, "bb_rest",
-             score_m=_score_m, score_label=_slabel, score_fmt=_sfmt, **_COMMON)
