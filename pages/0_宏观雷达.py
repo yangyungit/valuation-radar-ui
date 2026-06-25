@@ -1005,6 +1005,11 @@ else:
                                          / _peak_c.replace(0, float("nan"))).max()
                                     ) * 100
                                     _kpi = hv.compute_nav_kpi(_navc)
+                                    _years_c = (_navc.index[-1] - _navc.index[0]).days / 365.25
+                                    _cagr_c = (
+                                        ((float(_navc.iloc[-1]) / float(_navc.iloc[0])) ** (1 / _years_c) - 1) * 100
+                                        if _years_c > 0 else float("nan")
+                                    )
 
                                     def _fmt_k(v, f=".2f"):
                                         try:
@@ -1015,12 +1020,13 @@ else:
                                         except (TypeError, ValueError):
                                             return "—"
 
-                                    _c1, _c2, _c3, _c4, _c5 = st.columns(5)
+                                    _c1, _c2, _c3, _c4, _c5, _c6 = st.columns(6)
                                     _c1.metric("总收益", f"{_ret_c:+.1f}%")
-                                    _c2.metric("最大回撤", f"-{_dd_c:.1f}%")
-                                    _c3.metric("Calmar", _fmt_k(_kpi.get("calmar", float("nan"))))
-                                    _c4.metric("Sortino", _fmt_k(_kpi.get("sortino", float("nan"))))
-                                    _c5.metric("logR²", _fmt_k(_kpi.get("r2", float("nan"))))
+                                    _c2.metric("CAGR", f"{_cagr_c:+.1f}%" if _cagr_c == _cagr_c else "—")
+                                    _c3.metric("最大回撤", f"-{_dd_c:.1f}%")
+                                    _c4.metric("Calmar", _fmt_k(_kpi.get("calmar", float("nan"))))
+                                    _c5.metric("Sortino", _fmt_k(_kpi.get("sortino", float("nan"))))
+                                    _c6.metric("logR²", _fmt_k(_kpi.get("r2", float("nan"))))
 
                                     st.plotly_chart(
                                         hv.build_combined_fig(
