@@ -47,9 +47,16 @@ if not _tickers or not _dates:
     st.stop()
 
 _idx = pd.to_datetime(_dates, errors="coerce")
+_n = len(_idx)
+
+
+def _aligned(vals):
+    vals = list(vals or [])
+    return vals if len(vals) == _n else [np.nan] * _n
+
 
 shy_raw = pd.DataFrame(
-    {tk: p.get("shareholder_yield", []) for tk, p in _tickers.items()}, index=_idx
+    {tk: _aligned(p.get("shareholder_yield")) for tk, p in _tickers.items()}, index=_idx
 ).astype(float)
 
 if shy_raw.isnull().all().all():
