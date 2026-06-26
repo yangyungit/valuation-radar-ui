@@ -34,6 +34,8 @@ window = st.radio("时间跨度", _WINDOWS, index=1, horizontal=True, key="bb_wi
 
 with st.spinner("📊 加载回购股接力数据..."):
     ts = fetch_buyback_relay_timeseries(window)
+    # δ 稳健性扫描要切尾部 3/5/10Y，固定再拉一份最长历史（缓存；选 10Y 时零额外成本）
+    ts_long = ts if window == "10Y" else fetch_buyback_relay_timeseries("10Y")
 
 if not ts.get("success"):
     st.error(f"⚠️ 回购股接力数据暂不可用:{ts.get('error', '未知错误')}")
@@ -90,10 +92,30 @@ _COMMON = dict(
     price_cache=_price_cache, spy_wk=_spy_wk,
 )
 
+def _long_king_m():
+    """从 10Y 长历史构造月末 king_score，供 δ 稳健性扫描切尾部 3/5/10Y。失败返回 None。"""
+    if window == "10Y":
+        return king_m
+    if not (isinstance(ts_long, dict) and ts_long.get("success")):
+        return None
+    _tk_l = ts_long.get("tickers", {}) or {}
+    _dt_l = ts_long.get("dates", []) or []
+    if not _tk_l or not _dt_l:
+        return None
+    _ix_l = pd.to_datetime(_dt_l, errors="coerce")
+    _king_l = pd.DataFrame(
+        {tk: p.get("king_score", []) for tk, p in _tk_l.items()}, index=_ix_l
+    ).astype(float)
+    return _king_l.resample("ME").last()
+
+
+king_m_long = _long_king_m()
+
 _all_cols = list(king_m.columns)
 _tech_cols = [c for c in _all_cols if c in _TECH_TICKERS]
 
 st.markdown("## 💻 纯科技股组")
 render_group("纯科技股", _tech_cols, "bb_tech",
-             score_m=king_m, score_label="king_score", score_fmt="{:+.2f}",
+             score_m=king_m, sweep_score_m=king_m_long,
+             score_label="king_score", score_fmt="{:+.2f}",
              default_k=0.75, **_COMMON)
