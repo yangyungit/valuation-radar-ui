@@ -19,8 +19,7 @@ st.markdown("""
 st.title("🔄 因子 ETF 轮动接力 (Factor Rotation Relay)")
 st.caption(
     "**池子**：美股因子 ETF（动量 / 价值 / 质量 / 低波 / 成长 / 高股息 / 小盘 / 等权 / 高Beta），对标 SPY。"
-    "**排名**：全池横截面 **king_score = 1.0×Z(RS_252d) + w_cap×Z(log10 ADV_63d)**——动量 + 交易量两维，年化动量。"
-    "**w_cap 滑块**：0 = 纯动量（看谁跑赢 SPY 最多）；越大越偏向大而流动的 ETF（容量项把小而纯的因子 ETF 压下去）。"
+    "**排名**：全池横截面 **king_score = Z(RS_252d)**——纯动量，看谁跑赢 SPY 最多（年化）。"
     "**🥇 金牌 = 当月 Top1 且 RS_252d > 0（跑赢 SPY，否则降灰）/🥈 银牌 = Top2**。"
     "下方持有**金+银两仓等权**，月末选仓、顺延 1 月执行（去 look-ahead）。"
 )
@@ -50,15 +49,9 @@ if not _tickers or not _dates:
 
 _idx = pd.to_datetime(_dates, errors="coerce")
 rs = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
-adv = pd.DataFrame({tk: p.get("adv_63d", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
 name_map = {tk: p.get("name", tk) for tk, p in _tickers.items()}
 grade_map = {tk: p.get("group", "") for tk, p in _tickers.items()}
 asof = pd.to_datetime(ts.get("asof"), errors="coerce")
-
-w_cap = float(st.slider(
-    "交易量权重 w_cap（0 = 纯动量；0.8 = 板块王朝同口径，偏向大而流动的 ETF）",
-    min_value=0.0, max_value=0.8, value=0.8, step=0.1, key="fac_wcap",
-))
 
 
 def _zrows(df: pd.DataFrame) -> pd.DataFrame:
@@ -66,18 +59,13 @@ def _zrows(df: pd.DataFrame) -> pd.DataFrame:
     return df.sub(df.mean(axis=1), axis=0).div(df.std(axis=1).replace(0, np.nan), axis=0)
 
 
-def _king(_rs_m: pd.DataFrame, _adv_m: pd.DataFrame) -> pd.DataFrame:
-    """king_score = Z(RS) + w_cap × Z(log10 ADV)；w_cap=0 或量缺则退纯动量。"""
-    _z_rs = _zrows(_rs_m)
-    _log_adv = np.log10(_adv_m.where(_adv_m > 0))
-    if w_cap > 0 and _log_adv.notna().any().any():
-        return _z_rs + w_cap * _zrows(_log_adv)
-    return _z_rs
+def _king(_rs_m: pd.DataFrame) -> pd.DataFrame:
+    """king_score = Z(RS)，纯动量。"""
+    return _zrows(_rs_m)
 
 
 rs_m = rs.resample("ME").last()
-adv_m = adv.resample("ME").last()
-king_m = _king(rs_m, adv_m)
+king_m = _king(rs_m)
 if king_m.empty or len(king_m) < 2:
     st.warning("⚠️ 月末快照数据不足")
     st.stop()
@@ -104,7 +92,7 @@ if _px is not None and not _px.empty:
 
 
 def _king_long():
-    """从 10Y 长历史构造月末 king_score（同 w_cap），供 δ 稳健性扫描切尾部 3/5/10Y。"""
+    """从 10Y 长历史构造月末 king_score，供 δ 稳健性扫描切尾部 3/5/10Y。"""
     if window == "10Y":
         return king_m
     if not (isinstance(ts_long, dict) and ts_long.get("success")):
@@ -115,8 +103,7 @@ def _king_long():
         return None
     _ix_l = pd.to_datetime(_dt_l, errors="coerce")
     _rs_l = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tk_l.items()}, index=_ix_l).astype(float).resample("ME").last()
-    _adv_l = pd.DataFrame({tk: p.get("adv_63d", []) for tk, p in _tk_l.items()}, index=_ix_l).astype(float).resample("ME").last()
-    return _king(_rs_l, _adv_l)
+    return _king(_rs_l)
 
 
 king_m_long = _king_long()
@@ -129,6 +116,6 @@ _COMMON = dict(
 )
 
 _all_cols = list(king_m.columns)
-st.markdown("## 🔄 全因子 ETF 轮动（动量 + 交易量）")
+st.markdown("## 🔄 全因子 ETF 轮动（纯动量）")
 render_group("因子 ETF", _all_cols, "fac_all",
              score_m=king_m, sweep_score_m=king_m_long, default_k=0.75, **_COMMON)
