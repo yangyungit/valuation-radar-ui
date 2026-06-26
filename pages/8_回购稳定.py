@@ -35,6 +35,8 @@ window = st.radio("时间跨度", _WINDOWS, index=1, horizontal=True, key="shy_w
 
 with st.spinner("📊 加载回购股数据..."):
     ts = fetch_buyback_relay_timeseries(window)
+    # δ 稳健性扫描要切尾部 3/5/10Y，固定再拉一份最长历史（缓存；选 10Y 时零额外成本）
+    ts_long = ts if window == "10Y" else fetch_buyback_relay_timeseries("10Y")
 
 if not ts.get("success"):
     st.error(f"⚠️ 数据暂不可用：{ts.get('error', '未知错误')}")
@@ -107,5 +109,28 @@ _COMMON = dict(
 _all_cols = list(king_m.columns)
 _rest_cols = [c for c in _all_cols if c not in _TECH_TICKERS]
 
+
+def _long_score_m():
+    """从 10Y 长历史构造月末股东回报率，供 δ 稳健性扫描切尾部 3/5/10Y。失败返回 None。"""
+    if window == "10Y":
+        return shy_m
+    if not (isinstance(ts_long, dict) and ts_long.get("success")):
+        return None
+    _tk_l = ts_long.get("tickers", {}) or {}
+    _dt_l = ts_long.get("dates", []) or []
+    if not _tk_l or not _dt_l:
+        return None
+    _ix_l = pd.to_datetime(_dt_l, errors="coerce")
+    _nl = len(_ix_l)
+    _raw_l = pd.DataFrame(
+        {tk: (lambda v: v if len(v) == _nl else [np.nan] * _nl)(list(p.get("shareholder_yield") or []))
+         for tk, p in _tk_l.items()},
+        index=_ix_l,
+    ).astype(float)
+    return _raw_l.resample("ME").last()
+
+
+shy_m_long = _long_score_m()
+
 st.markdown("## 🏛️ 其余组（按股东回报率排名）")
-render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, **_COMMON)
+render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, sweep_score_m=shy_m_long, **_COMMON)

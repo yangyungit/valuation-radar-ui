@@ -25,6 +25,7 @@ def render_group(
     score_label: str = "king_score",
     score_fmt: str = "{:+.2f}",
     default_k: float = 1.0,
+    sweep_score_m: pd.DataFrame = None,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -168,21 +169,31 @@ def render_group(
 
     _ten6 = (rank_m <= 2).astype(int).rolling(6, min_periods=1).sum()
 
-    def _holdings_for_k(kval):
+    # δ 敏感性扫描专用的「最长历史」源：用 10Y 时序，才能切出尾部 3/5/10Y 三段。
+    # 展示用的 NAV/热力图仍走当前 radio 窗口（rank_m/g_score/_ten6），二者互不污染。
+    if sweep_score_m is not None and not sweep_score_m.empty:
+        _cols_L = [c for c in cols if c in sweep_score_m.columns]
+        _gscore_L = sweep_score_m[_cols_L]
+        _rank_L = _gscore_L.rank(axis=1, ascending=False, method="min")
+        _ten6_L = (_rank_L <= 2).astype(int).rolling(6, min_periods=1).sum()
+    else:
+        _gscore_L, _rank_L, _ten6_L = g_score, rank_m, _ten6
+
+    def _holdings_for_k(kval, rank_src=rank_m, score_src=g_score, ten6_src=_ten6):
         _mh, _mh_raw, _prev_h = {}, {}, []
-        for _ts, _row in rank_m.iterrows():
+        for _ts, _row in rank_src.iterrows():
             _r = _row.dropna().sort_values()
             if _r.empty:
                 continue
             _order = _r.index.tolist()
             _t2 = _order[:2]
-            _sc = g_score.loc[_ts].dropna()
+            _sc = score_src.loc[_ts].dropna()
             # 守擂死区：留任阈值建在「分数」上，而非排名位置——排名会被旁边股票挤动，
             # 分差只看在任票自身离 Top2 门槛多远，不被第三只股票污染。
             _cut2 = float(_sc.sort_values(ascending=False).iloc[1]) if len(_sc) >= 2 else (
                 float(_sc.iloc[0]) if len(_sc) else float("nan"))
             _delta = kval * (float(_sc.std()) if len(_sc) >= 2 else 0.0)
-            _tnow = _ten6.loc[_ts]
+            _tnow = ten6_src.loc[_ts]
             _elig = [t for t in _order if _r[t] <= 2]
             _elig_t = sorted(_elig, key=lambda t: (-float(_tnow.get(t, 0)), _r[t]))
             _hold = [t for t in _prev_h if t in _sc.index and _sc[t] >= _cut2 - _delta][:2] if _prev_h else []
@@ -222,39 +233,97 @@ def render_group(
             _navc = _nav_r.copy()
         return _exec_months, _slots, _seg_l, _seg_r, _nav_l, _nav_r, _navc
 
-    # ── δ 敏感性扫描：固定其余逻辑，只扫 δ，看总收益对 δ 平不平缓 ──
+    # ── δ 跨 3/5/10Y 稳健性扫描：用最长历史建净值，按尾部 3/5/10Y 各算总收益。
+    #    单段峰值 = 过拟合（短窗口噪声最大）；找三段都不差的 δ（plateau 重叠）才稳健。──
     _k_grid = [round(x * 0.25, 2) for x in range(13)]  # 0.00 → 3.00 步长 0.25
-    _sweep = []
+    _HZ = [("3Y", 3), ("5Y", 5), ("10Y", 10)]
+
+    def _trail_ret(_nav_s, _yrs):
+        # 长度不够这段窗口就返回 NaN，不拿短历史冒充长窗口
+        if _nav_s is None or _nav_s.empty:
+            return float("nan")
+        _end = _nav_s.index[-1]
+        if (_end - _nav_s.index[0]).days < _yrs * 365.25 * 0.9:
+            return float("nan")
+        _seg = _nav_s[_nav_s.index >= _end - pd.DateOffset(years=_yrs)]
+        if len(_seg) < 2:
+            return float("nan")
+        return (float(_seg.iloc[-1]) / float(_seg.iloc[0]) - 1) * 100
+
+    _curves = {lbl: [] for lbl, _ in _HZ}
     for _kv in _k_grid:
-        _r = _build_nav(_holdings_for_k(_kv)[0])
-        if _r is None or _r[6].empty:
-            _sweep.append(float("nan"))
-        else:
-            _nc = _r[6]
-            _sweep.append((float(_nc.iloc[-1]) / float(_nc.iloc[0]) - 1) * 100)
+        _rk = _build_nav(_holdings_for_k(_kv, _rank_L, _gscore_L, _ten6_L)[0])
+        _nav_kv = _rk[6] if (_rk is not None) else None
+        for lbl, yrs in _HZ:
+            _curves[lbl].append(_trail_ret(_nav_kv, yrs))
+
+    # 各段在网格内转百分位（抗量级差/负收益）；稳健分 = 三段百分位取最小（maximin）
+    _valid_hz = [lbl for lbl, _ in _HZ if pd.Series(_curves[lbl]).notna().sum() >= 2]
+    _robust = pd.Series([float("nan")] * len(_k_grid))
+    if _valid_hz:
+        _pct_stack = pd.concat([pd.Series(_curves[l]).rank(pct=True) for l in _valid_hz], axis=1)
+        _robust = _pct_stack.min(axis=1)  # 任一段 NaN → 该 δ 不可比 → NaN
+
+    # 各段归一化到自身峰值（形状可比，重叠平台一眼可见 + 算跨段离散）
+    _norm = {}
+    for lbl, _ in _HZ:
+        _c = pd.Series(_curves[lbl])
+        _mx = _c.max()
+        _norm[lbl] = (_c / _mx) if (_mx == _mx and _mx > 0) else _c * float("nan")
+
+    # 推荐 δ*：稳健分最高；并列先挑跨段离散最小（抖动小），再挑更大 δ（换手低）
+    _rec_k = None
+    if _robust.notna().any() and _valid_hz:
+        _spread = pd.concat([_norm[l] for l in _valid_hz], axis=1)
+        _spread = _spread.max(axis=1) - _spread.min(axis=1)
+        _best = _robust.max()
+        _cand = [i for i in range(len(_k_grid)) if _robust[i] == _robust[i] and _robust[i] >= _best - 1e-9]
+        _cand.sort(key=lambda i: (_spread[i] if _spread[i] == _spread[i] else 9e9, -_k_grid[i]))
+        _rec_k = _k_grid[_cand[0]]
+
+    _COLOR = {"3Y": "#5DADE2", "5Y": "#FFD700", "10Y": "#E67E22"}
     _sweep_fig = go.Figure()
-    _sweep_fig.add_trace(go.Scatter(
-        x=_k_grid, y=_sweep, mode="lines+markers", name="总收益",
-        line=dict(color="#FFD700", width=2), marker=dict(size=6),
-        hovertemplate="δ=%{x} → 总收益 %{y:.1f}%<extra></extra>",
-    ))
-    if _k in _k_grid:
-        _cur = _sweep[_k_grid.index(_k)]
-        if _cur == _cur:
-            _sweep_fig.add_trace(go.Scatter(
-                x=[_k], y=[_cur], mode="markers", name="当前 δ",
-                marker=dict(size=12, color="#2ECC71", symbol="circle-open", line=dict(width=3)),
-                hovertemplate="当前 δ=%{x} → %{y:.1f}%<extra></extra>",
-            ))
+    for lbl, _ in _HZ:
+        if pd.Series(_curves[lbl]).notna().sum() < 2:
+            continue
+        _sweep_fig.add_trace(go.Scatter(
+            x=_k_grid, y=list(_norm[lbl]), mode="lines+markers", name=lbl,
+            line=dict(color=_COLOR[lbl], width=2), marker=dict(size=5),
+            customdata=_curves[lbl],
+            hovertemplate=f"{lbl} δ=%{{x}} → 总收益 %{{customdata:.1f}}%<extra></extra>",
+        ))
+    if _rec_k is not None:
+        _sweep_fig.add_vline(x=_rec_k, line=dict(color="#2ECC71", width=2, dash="dash"))
+        _sweep_fig.add_annotation(
+            x=_rec_k, y=1.02, yref="paper", text=f"推荐 δ*={_rec_k}", showarrow=False,
+            font=dict(color="#2ECC71", size=12), bgcolor="#111", xanchor="left",
+        )
+    _sweep_fig.add_vline(x=_k, line=dict(color="#888", width=1, dash="dot"))
     _sweep_fig.update_layout(
-        height=260, margin=dict(l=20, r=20, t=36, b=20),
+        height=300, margin=dict(l=20, r=20, t=46, b=20),
         plot_bgcolor="#111111", paper_bgcolor="#111111", font=dict(color="#ddd"),
         xaxis=dict(title="δ (×横截面标准差)", showgrid=True, gridcolor="#222", dtick=0.25),
-        yaxis=dict(title="总收益 %", showgrid=True, gridcolor="#222"),
-        title=dict(text=f"δ 敏感性 · 总收益随 δ 变化（线越平 = 越不挑 δ）", font=dict(size=13), x=0.01, xanchor="left"),
-        showlegend=False,
+        yaxis=dict(title="各段归一化收益 (÷自身峰值)", showgrid=True, gridcolor="#222"),
+        title=dict(
+            text="δ 稳健性 · 尾部 3/5/10Y 总收益（各自归一化；三线齐高处=稳健 δ；灰点线=当前 δ）",
+            font=dict(size=13), x=0.01, xanchor="left",
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
     )
     st.plotly_chart(_sweep_fig, use_container_width=True, key=f"{kp}_dk_sweep")
+
+    def _argmax_k(lbl):
+        _c = pd.Series(_curves[lbl])
+        return _k_grid[int(_c.idxmax())] if _c.notna().any() else None
+
+    _peaks = " · ".join(f"{lbl} 单峰 δ={_argmax_k(lbl)}" for lbl, _ in _HZ if _argmax_k(lbl) is not None)
+    if _rec_k is not None:
+        st.caption(
+            f"✅ **推荐 δ\\* = {_rec_k}**（三段都不差的重叠平台，跨窗口稳健；当前 δ={_k}）。"
+            f"对照各段单独最优：{_peaks}——单段峰值各不相同正是过拟合的症状，别照搬，按 δ\\* 钉死。"
+        )
+    else:
+        st.caption("⚠️ 净值历史不足，无法跨 3/5/10Y 比较 δ（多为长窗口数据未就绪）。")
 
     _mh, _mh_raw = _holdings_for_k(_k)
     _nav = _build_nav(_mh)
