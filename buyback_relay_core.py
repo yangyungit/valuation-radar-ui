@@ -54,7 +54,7 @@ def render_group(
     _rank_yx = rank_m[_ordered].T
     _rs_yx = g_rs[_ordered].T
     _score_yx = g_score[_ordered].T
-    _ylabels = list(_ordered)
+    _ylabels = [f"{tk}({grade_map.get(tk, '')})" if grade_map.get(tk) else tk for tk in _ordered]
 
     _hover = []
     for tk in _ordered:
@@ -117,10 +117,14 @@ def render_group(
     _last_col = _tier_yx[last_month]
     _gold_now = _last_col[_last_col == 3].index.tolist()
     _silver_now = _last_col[_last_col == 2].index.tolist()
+    def _label(t):
+        g = grade_map.get(t, "")
+        return f"{t}({g})" if g else t
+
     _gold_html = " ".join(
-        f"<span class='tag-bull'>🥇 {t}</span>" for t in _gold_now
+        f"<span class='tag-bull'>🥇 {_label(t)}</span>" for t in _gold_now
     ) or "<span style='color:#888'>当前无金牌(无个股同时满足 Top1 + RS_210d &gt; 0)</span>"
-    _silver_html = " ".join(f"<span class='tag-bear'>🥈 {t}</span>" for t in _silver_now) or "—"
+    _silver_html = " ".join(f"<span class='tag-bear'>🥈 {_label(t)}</span>" for t in _silver_now) or "—"
     _label = "当月领先(进行中·未定格)" if month_in_progress else "当前在位"
     st.markdown(f"""
 <div class='insight-box'>
@@ -373,6 +377,12 @@ def render_group(
     def _nm(t):
         return t if (t and t != "CASH") else "—"
 
+    def _nmg(t):
+        if not t or t == "CASH":
+            return "—"
+        g = grade_map.get(t, "")
+        return f"{t}({g})" if g else t
+
     _pick_rows = []
     for _em in _exec_months:
         _sa = _slots.get(_em, ["—", "—"])
@@ -380,11 +390,11 @@ def render_group(
         _held = {t for t in _sa if t and t != "CASH"}
         _kept = bool(_raw) and _held != set(_raw)
         _pick_rows.append({
-            "来源月 Top1(金)": _nm(_raw[0] if len(_raw) > 0 else None),
-            "来源月 Top2(银)": _nm(_raw[1] if len(_raw) > 1 else None),
+            "来源月 Top1(金)": _nmg(_raw[0] if len(_raw) > 0 else None),
+            "来源月 Top2(银)": _nmg(_raw[1] if len(_raw) > 1 else None),
             "执行月": _em,
-            "左列实际持有": _nm(_sa[0]),
-            "右列实际持有": _nm(_sa[1]),
+            "左列实际持有": _nmg(_sa[0]),
+            "右列实际持有": _nmg(_sa[1]),
             "守擂留任": "是" if _kept else "",
         })
     st.markdown("**每月实际持仓**(对照上方接力图核对；执行月 = 来源月 + 1)")
