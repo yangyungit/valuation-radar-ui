@@ -332,15 +332,13 @@ def build_stitched_fig(
         n = len(closes)
         x_vals = list(range(x_offset, x_offset + n))
         color = SLOT_COLORS[ci % len(SLOT_COLORS)]
-        cn = nm.get(tk, tk)
-
         seg_pct = (closes / float(closes.iloc[0]) - 1) * 100
         seg_cum = running_return + seg_pct
 
         fig.add_trace(go.Scatter(
             x=x_vals, y=seg_cum.values, mode="lines",
             line=dict(color=color, width=2),
-            name=f"{cn}（{s_m}→{e_m}）",
+            name=f"{tk}（{s_m}→{e_m}）",
             showlegend=False,
         ))
         running_return = float(seg_cum.iloc[-1])
@@ -361,7 +359,7 @@ def build_stitched_fig(
         name_annotations.append(dict(
             x=x_offset + n // 2, y=1.0,
             xref="x", yref="paper",
-            text=cn, showarrow=False,
+            text=tk, showarrow=False,
             font=dict(size=13, color=color),
             xanchor="center", yanchor="bottom",
         ))
