@@ -54,7 +54,7 @@ def render_group(
     _rank_yx = rank_m[_ordered].T
     _rs_yx = g_rs[_ordered].T
     _score_yx = g_score[_ordered].T
-    _ylabels = [f"{name_map.get(tk, tk)} ({tk})" for tk in _ordered]
+    _ylabels = list(_ordered)
 
     _hover = []
     for tk in _ordered:
@@ -72,7 +72,7 @@ def render_group(
                 _sv_s = "—"
             _rs_s = f"{rsv:+.2f}%" if pd.notna(rsv) else "—"
             row.append(
-                f"<b>{name_map.get(tk, tk)} ({tk})</b><br>"
+                f"<b>{tk}</b><br>"
                 f"{d.strftime('%Y-%m')}{_ip}<br>"
                 f"{_BADGE[t]}<br>"
                 f"排名 {_rk_s}<br>"
@@ -118,9 +118,9 @@ def render_group(
     _gold_now = _last_col[_last_col == 3].index.tolist()
     _silver_now = _last_col[_last_col == 2].index.tolist()
     _gold_html = " ".join(
-        f"<span class='tag-bull'>🥇 {name_map.get(t, t)} ({t})</span>" for t in _gold_now
+        f"<span class='tag-bull'>🥇 {t}</span>" for t in _gold_now
     ) or "<span style='color:#888'>当前无金牌(无个股同时满足 Top1 + RS_210d &gt; 0)</span>"
-    _silver_html = " ".join(f"<span class='tag-bear'>🥈 {name_map.get(t, t)} ({t})</span>" for t in _silver_now) or "—"
+    _silver_html = " ".join(f"<span class='tag-bear'>🥈 {t}</span>" for t in _silver_now) or "—"
     _label = "当月领先(进行中·未定格)" if month_in_progress else "当前在位"
     st.markdown(f"""
 <div class='insight-box'>
@@ -144,8 +144,7 @@ def render_group(
                 cur = 0
         gdates = _conf_yx.loc[tk].index[_conf_yx.loc[tk].values == 3]
         _medal_rows.append({
-            "股票": name_map.get(tk, tk),
-            "代码": tk,
+            "股票": tk,
             "档位": grade_map.get(tk, ""),
             "🥇 累计金牌(月)": gold,
             "🥈 累计银牌(月)": silver,
@@ -372,7 +371,7 @@ def render_group(
     )
 
     def _nm(t):
-        return f"{name_map.get(t, t)} ({t})" if (t and t != "CASH") else "—"
+        return t if (t and t != "CASH") else "—"
 
     _pick_rows = []
     for _em in _exec_months:
