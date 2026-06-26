@@ -867,6 +867,24 @@ def fetch_buyback_relay_timeseries(window: str = "5Y") -> dict:
         return {"success": False, "error": str(e), "dates": [], "tickers": {}}
 
 
+@st.cache_data(ttl=3600 * 4)
+def fetch_factor_relay_timeseries(window: str = "5Y") -> dict:
+    """因子 ETF 轮动接力图时序（横截面母体 = 因子 ETF 池，返回原始 rs / adv_63d，
+    前端按滑块自调容量权重重算 king_score）。供「因子轮动」页调用。
+    失败返回 {"success": False, "error": ...}。
+    """
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/factor_relay/timeseries",
+            params={"window": window},
+            timeout=120,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "dates": [], "tickers": {}}
+
+
 @st.cache_data(ttl=3600)
 def fetch_changepoint() -> dict:
     """从后端获取变点检测数据包（多变量 CUSUM）。
