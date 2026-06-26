@@ -260,9 +260,11 @@ def build_stitched_fig(
     spy_wk: pd.DataFrame = None,
     price_cache: dict = None,
     name_map: dict = None,
+    grade_map: dict = None,
 ) -> go.Figure:
     pc = price_cache if price_cache is not None else {}
     nm = name_map if name_map is not None else {}
+    gm = grade_map if grade_map is not None else {}
     fig = go.Figure()
     x_offset = 0
     tick_vals: list = []
@@ -356,10 +358,12 @@ def build_stitched_fig(
 
         tick_vals.append(x_offset + n // 2)
         tick_texts.append(f"{s_m}→{e_m}")
+        _g = gm.get(tk, "")
+        _ann_text = f"{tk}({_g})" if _g else tk
         name_annotations.append(dict(
             x=x_offset + n // 2, y=1.0,
             xref="x", yref="paper",
-            text=tk, showarrow=False,
+            text=_ann_text, showarrow=False,
             font=dict(size=13, color=color),
             xanchor="center", yanchor="bottom",
         ))

@@ -366,11 +366,11 @@ def render_group(
         use_container_width=True, key=f"{kp}_nav_combined",
     )
     st.plotly_chart(
-        hv.build_stitched_fig(_seg_l, f"{group_label}接力 左列 (Slot 0)", spy_wk, price_cache, name_map),
+        hv.build_stitched_fig(_seg_l, f"{group_label}接力 左列 (Slot 0)", spy_wk, price_cache, name_map, grade_map),
         use_container_width=True, key=f"{kp}_nav_l",
     )
     st.plotly_chart(
-        hv.build_stitched_fig(_seg_r, f"{group_label}接力 右列 (Slot 1)", spy_wk, price_cache, name_map),
+        hv.build_stitched_fig(_seg_r, f"{group_label}接力 右列 (Slot 1)", spy_wk, price_cache, name_map, grade_map),
         use_container_width=True, key=f"{kp}_nav_r",
     )
 
