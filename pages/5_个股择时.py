@@ -812,7 +812,7 @@ if _arena_data:
                         _x_vals = list(range(x_offset, x_offset + _n))
                         fig.add_trace(go.Scatter(
                             x=_x_vals,
-                            y=[running_return] * _n,
+                            y=[max(0.001, 1.0 + running_return / 100)] * _n,
                             mode="lines",
                             line=dict(color="#bbbbbb", width=2, dash="dot"),
                             name=f"💰 空仓（{_s_m}→{_e_m}）",
@@ -838,7 +838,7 @@ if _arena_data:
                                 for _si, _sdt in enumerate(_cash_idx):
                                     if _sdt in _spy_seg.index:
                                         spy_x_all.append(x_offset + _si)
-                                        spy_y_all.append(float(_spy_cum.loc[_sdt]))
+                                        spy_y_all.append(max(0.001, 1.0 + float(_spy_cum.loc[_sdt]) / 100))
                                 spy_running_return = float(_spy_cum.iloc[-1])
                         x_offset += _n
                 continue
@@ -864,7 +864,7 @@ if _arena_data:
 
             fig.add_trace(go.Scatter(
                 x=_x_vals,
-                y=_seg_cum.values,
+                y=[max(0.001, 1.0 + v / 100) for v in _seg_cum],
                 mode="lines",
                 line=dict(color=_color, width=2),
                 name=f"{_cn}（{_s_m}→{_e_m}）",
@@ -882,7 +882,7 @@ if _arena_data:
                     for _si, _sdt in enumerate(_closes.index):
                         if _sdt in _spy_seg.index:
                             spy_x_all.append(x_offset + _si)
-                            spy_y_all.append(float(_spy_cum.loc[_sdt]))
+                            spy_y_all.append(max(0.001, 1.0 + float(_spy_cum.loc[_sdt]) / 100))
                     spy_running_return = float(_spy_cum.iloc[-1])
 
             # x 轴只显示时间区间，名称单独以 annotation 显示在图表顶部
@@ -930,8 +930,10 @@ if _arena_data:
                 gridcolor="rgba(100,100,100,0.3)",
             ),
             yaxis=dict(
-                title="累计收益率 (%)",
-                ticksuffix="%",
+                title="NAV（对数，1.0 = 起始）",
+                type="log",
+                tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
+                ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
                 gridcolor="rgba(100,100,100,0.3)",
             ),
             annotations=name_annotations,
@@ -1101,9 +1103,9 @@ if _arena_data:
         with _tab_combined:
             if not _nav_combined.empty:
                 _fig_comb = go.Figure()
-                _nav_pct = (_nav_combined / float(_nav_combined.iloc[0]) - 1) * 100
+                _nav_base = _nav_combined / float(_nav_combined.iloc[0])
                 _fig_comb.add_trace(go.Scatter(
-                    x=_nav_pct.index, y=_nav_pct.values,
+                    x=_nav_base.index, y=_nav_base.values,
                     mode="lines", name="A 级合成（等权）",
                     line=dict(color="#F1C40F", width=2),
                 ))
@@ -1114,16 +1116,16 @@ if _arena_data:
                     )
                     _spy_seg_c = _spy_wk_a[_spy_mask_c]["Close"].astype(float).dropna()
                     if len(_spy_seg_c) >= 2:
-                        _spy_pct_c = (_spy_seg_c / float(_spy_seg_c.iloc[0]) - 1) * 100
+                        _spy_base_c = _spy_seg_c / float(_spy_seg_c.iloc[0])
                         _fig_comb.add_trace(go.Scatter(
-                            x=_spy_pct_c.index, y=_spy_pct_c.values,
+                            x=_spy_base_c.index, y=_spy_base_c.values,
                             mode="lines", name="SPY",
                             line=dict(color="#888", width=1.5, dash="dot"),
                         ))
                 _fig_comb.update_layout(
                     title="A 级合成收益率（等权 1/3）",
                     xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
-                    yaxis=dict(title="累计收益率 (%)", ticksuffix="%", gridcolor="rgba(100,100,100,0.3)"),
+                    yaxis=dict(title="NAV（对数，1.0 = 起始）", type="log", tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0], ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"], gridcolor="rgba(100,100,100,0.3)"),
                     height=520,
                     margin=dict(l=10, r=10, t=44, b=60),
                     paper_bgcolor="rgba(0,0,0,0)",
@@ -1264,9 +1266,9 @@ if _arena_data:
         with _b_tab_combined:
             if not _b_nav_combined.empty:
                 _b_fig_comb = go.Figure()
-                _b_nav_pct = (_b_nav_combined / float(_b_nav_combined.iloc[0]) - 1) * 100
+                _b_nav_base = _b_nav_combined / float(_b_nav_combined.iloc[0])
                 _b_fig_comb.add_trace(go.Scatter(
-                    x=_b_nav_pct.index, y=_b_nav_pct.values,
+                    x=_b_nav_base.index, y=_b_nav_base.values,
                     mode="lines", name="B 级合成（等权）",
                     line=dict(color="#3498DB", width=2),
                 ))
@@ -1277,16 +1279,16 @@ if _arena_data:
                     )
                     _b_spy_seg_c = _spy_wk_a[_b_spy_mask_c]["Close"].astype(float).dropna()
                     if len(_b_spy_seg_c) >= 2:
-                        _b_spy_pct_c = (_b_spy_seg_c / float(_b_spy_seg_c.iloc[0]) - 1) * 100
+                        _b_spy_base_c = _b_spy_seg_c / float(_b_spy_seg_c.iloc[0])
                         _b_fig_comb.add_trace(go.Scatter(
-                            x=_b_spy_pct_c.index, y=_b_spy_pct_c.values,
+                            x=_b_spy_base_c.index, y=_b_spy_base_c.values,
                             mode="lines", name="SPY",
                             line=dict(color="#888", width=1.5, dash="dot"),
                         ))
                 _b_fig_comb.update_layout(
                     title="B 级合成收益率（等权 1/2）",
                     xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
-                    yaxis=dict(title="累计收益率 (%)", ticksuffix="%", gridcolor="rgba(100,100,100,0.3)"),
+                    yaxis=dict(title="NAV（对数，1.0 = 起始）", type="log", tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0], ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"], gridcolor="rgba(100,100,100,0.3)"),
                     height=520,
                     margin=dict(l=10, r=10, t=44, b=60),
                     paper_bgcolor="rgba(0,0,0,0)",
@@ -1427,9 +1429,9 @@ if _arena_data:
         with _c_tab_combined:
             if not _c_nav_combined.empty:
                 _c_fig_comb = go.Figure()
-                _c_nav_pct = (_c_nav_combined / float(_c_nav_combined.iloc[0]) - 1) * 100
+                _c_nav_base = _c_nav_combined / float(_c_nav_combined.iloc[0])
                 _c_fig_comb.add_trace(go.Scatter(
-                    x=_c_nav_pct.index, y=_c_nav_pct.values,
+                    x=_c_nav_base.index, y=_c_nav_base.values,
                     mode="lines", name="C 级合成（等权）",
                     line=dict(color="#E67E22", width=2),
                 ))
@@ -1440,16 +1442,16 @@ if _arena_data:
                     )
                     _c_spy_seg_c = _spy_wk_a[_c_spy_mask_c]["Close"].astype(float).dropna()
                     if len(_c_spy_seg_c) >= 2:
-                        _c_spy_pct_c = (_c_spy_seg_c / float(_c_spy_seg_c.iloc[0]) - 1) * 100
+                        _c_spy_base_c = _c_spy_seg_c / float(_c_spy_seg_c.iloc[0])
                         _c_fig_comb.add_trace(go.Scatter(
-                            x=_c_spy_pct_c.index, y=_c_spy_pct_c.values,
+                            x=_c_spy_base_c.index, y=_c_spy_base_c.values,
                             mode="lines", name="SPY",
                             line=dict(color="#888", width=1.5, dash="dot"),
                         ))
                 _c_fig_comb.update_layout(
                     title="C 级合成收益率（等权 1/2）",
                     xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
-                    yaxis=dict(title="累计收益率 (%)", ticksuffix="%", gridcolor="rgba(100,100,100,0.3)"),
+                    yaxis=dict(title="NAV（对数，1.0 = 起始）", type="log", tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0], ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"], gridcolor="rgba(100,100,100,0.3)"),
                     height=520,
                     margin=dict(l=10, r=10, t=44, b=60),
                     paper_bgcolor="rgba(0,0,0,0)",

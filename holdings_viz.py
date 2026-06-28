@@ -291,7 +291,7 @@ def build_stitched_fig(
                     n = len(cash_idx)
                     x_vals = list(range(x_offset, x_offset + n))
                     fig.add_trace(go.Scatter(
-                        x=x_vals, y=[running_return] * n,
+                        x=x_vals, y=[max(0.001, 1.0 + running_return / 100)] * n,
                         mode="lines",
                         line=dict(color="#bbbbbb", width=2, dash="dot"),
                         name=f"💰 空仓（{s_m}→{e_m}）",
@@ -316,7 +316,7 @@ def build_stitched_fig(
                             for si, sdt in enumerate(cash_idx):
                                 if sdt in spy_seg.index:
                                     spy_x_all.append(x_offset + si)
-                                    spy_y_all.append(float(spy_cum.loc[sdt]))
+                                    spy_y_all.append(max(0.001, 1.0 + float(spy_cum.loc[sdt]) / 100))
                             spy_running_return = float(spy_cum.iloc[-1])
                     x_offset += n
             continue
@@ -338,7 +338,7 @@ def build_stitched_fig(
         seg_cum = running_return + seg_pct
 
         fig.add_trace(go.Scatter(
-            x=x_vals, y=seg_cum.values, mode="lines",
+            x=x_vals, y=[max(0.001, 1.0 + v / 100) for v in seg_cum], mode="lines",
             line=dict(color=color, width=2),
             name=f"{tk}（{s_m}→{e_m}）",
             showlegend=False,
@@ -353,7 +353,7 @@ def build_stitched_fig(
                 for si, sdt in enumerate(closes.index):
                     if sdt in spy_seg.index:
                         spy_x_all.append(x_offset + si)
-                        spy_y_all.append(float(spy_cum.loc[sdt]))
+                        spy_y_all.append(max(0.001, 1.0 + float(spy_cum.loc[sdt]) / 100))
                 spy_running_return = float(spy_cum.iloc[-1])
 
         tick_vals.append(x_offset + n // 2)
@@ -391,7 +391,10 @@ def build_stitched_fig(
             gridcolor="rgba(100,100,100,0.3)",
         ),
         yaxis=dict(
-            title="累计收益率 (%)", ticksuffix="%",
+            title="NAV（对数，1.0 = 起始）",
+            type="log",
+            tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
+            ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
             gridcolor="rgba(100,100,100,0.3)",
         ),
         annotations=name_annotations,
@@ -651,9 +654,9 @@ def build_combined_fig(
     if nav_combined.empty:
         return fig
 
-    def _pct(s: pd.Series) -> pd.Series:
+    def _nav_rel(s: pd.Series) -> pd.Series:
         s = s.astype(float).dropna()
-        return (s / float(s.iloc[0]) - 1) * 100 if not s.empty else s
+        return s / float(s.iloc[0]) if not s.empty else s
 
     # SPY 对齐到合成曲线的时间区间（最底层）
     if spy_wk is not None and not spy_wk.empty:
@@ -661,32 +664,32 @@ def build_combined_fig(
         spy_seg = spy_wk[(spy_wk.index >= sd) & (spy_wk.index <= ed)]["Close"]
         spy_seg = spy_seg.astype(float).dropna()
         if len(spy_seg) >= 2:
-            spy_pct = (spy_seg / float(spy_seg.iloc[0]) - 1) * 100
+            spy_nav = spy_seg / float(spy_seg.iloc[0])
             fig.add_trace(go.Scatter(
-                x=spy_pct.index, y=spy_pct.values, mode="lines",
-                name=f"SPY {float(spy_pct.iloc[-1]):+.1f}%",
+                x=spy_nav.index, y=spy_nav.values, mode="lines",
+                name=f"SPY {(float(spy_nav.iloc[-1]) - 1) * 100:+.1f}%",
                 line=dict(color="rgba(170,170,170,0.45)", width=1.5, dash="dot"),
             ))
 
     if not nav_l.empty:
-        l_pct = _pct(nav_l)
+        l_nav = _nav_rel(nav_l)
         fig.add_trace(go.Scatter(
-            x=l_pct.index, y=l_pct.values, mode="lines",
-            name=f"左列 Slot 0 {float(l_pct.iloc[-1]):+.1f}%",
+            x=l_nav.index, y=l_nav.values, mode="lines",
+            name=f"左列 Slot 0 {(float(l_nav.iloc[-1]) - 1) * 100:+.1f}%",
             line=dict(color="rgba(46,204,113,0.7)", width=1.5),
         ))
     if not nav_r.empty:
-        r_pct = _pct(nav_r)
+        r_nav = _nav_rel(nav_r)
         fig.add_trace(go.Scatter(
-            x=r_pct.index, y=r_pct.values, mode="lines",
-            name=f"右列 Slot 1 {float(r_pct.iloc[-1]):+.1f}%",
+            x=r_nav.index, y=r_nav.values, mode="lines",
+            name=f"右列 Slot 1 {(float(r_nav.iloc[-1]) - 1) * 100:+.1f}%",
             line=dict(color="rgba(52,152,219,0.7)", width=1.5),
         ))
 
-    a_pct = _pct(nav_combined)
+    a_nav = _nav_rel(nav_combined)
     fig.add_trace(go.Scatter(
-        x=a_pct.index, y=a_pct.values, mode="lines",
-        name=f"A 曲线（50/50 合成） {float(a_pct.iloc[-1]):+.1f}%",
+        x=a_nav.index, y=a_nav.values, mode="lines",
+        name=f"A 曲线（50/50 合成） {(float(a_nav.iloc[-1]) - 1) * 100:+.1f}%",
         line=dict(color="#F1C40F", width=3),
     ))
 
@@ -694,7 +697,10 @@ def build_combined_fig(
         title=title,
         xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
         yaxis=dict(
-            title="累计收益率 (%)", ticksuffix="%",
+            title="NAV（对数，1.0 = 起始）",
+            type="log",
+            tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
+            ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
             gridcolor="rgba(100,100,100,0.3)",
         ),
         height=480, margin=dict(l=10, r=10, t=44, b=60),
