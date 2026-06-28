@@ -20,8 +20,8 @@ st.title("🚀 科技龙头接力图 (Tech Leader Relay)")
 st.caption(
     "**池子**:美股 + 美股 ADR 的科技龙头(半导体/软件云/平台/硬件支付),**不要求真回购**,含 NVDA / SaaS / 成长股。"
     "与「回购进攻」页独立,不混池(回购管防御腿、本页看进攻腿)。"
-    "**两层**:先过**慢变量门槛**(营收 TTM YoY 增速 > 0 且近 2 季加速度 ≥ 0,砍掉增速塌掉的伪龙头),"
-    "存活者再按 **king_score = Z(RS_210d)** 纯动量排名(窗口 210 日)。门槛逐月生效、无 look-ahead。"
+    "**两层**:先过**慢变量门槛**(每月在全池按营收 TTM YoY 增速排横截面百分位,只留 **top 60%**,砍掉增速垫底的伪龙头),"
+    "存活者再按 **king_score = Z(RS_210d)** 纯动量排名(窗口 210 日)。门槛逐月生效、随牛熊自调松紧、无 look-ahead。"
     "**🥇 金牌 = 当月 Top1 且 RS_210d > 0(跑赢 SPY,否则降灰)/🥈 银牌 = Top2**。"
     "下方持有**金+银两个仓位等权**,月末选仓、顺延 1 月执行(去 look-ahead)。"
 )
@@ -146,16 +146,20 @@ st.markdown(f"## 🚀 {_label}组（{len(_cols)} 只）")
 st.caption("切换上方分组 = 换横截面排名母体：全池 = 47 只一起排 Top2；单赛道 = 只在该赛道内排 Top2。")
 
 # 慢变量门槛体检：本月母体内谁被刷掉、谁缺基本面放行（透明展示，不做黑盒）
+# 百分位在全池（47 只）横截面算，与后端 gate 口径一致，不随上方分组视图变。
+_min_pct = float((ts.get("gate") or {}).get("min_pctile", 0.40))
+_keep_top = f"top {round((1.0 - _min_pct) * 100)}%"
 _gm_last = gate_m.iloc[-1] if not gate_m.empty else pd.Series(dtype=float)
 _yoy_last = rev_yoy_m.iloc[-1] if not rev_yoy_m.empty else pd.Series(dtype=float)
 _acc_last = rev_accel_m.iloc[-1] if not rev_accel_m.empty else pd.Series(dtype=float)
+_pct_last = _yoy_last.rank(pct=True) if not _yoy_last.empty else pd.Series(dtype=float)
 _gated_out = [c for c in _cols if _gm_last.get(c) == 0]
 _passed = [c for c in _cols if _gm_last.get(c) == 1]
 _no_data = [c for c in _cols if c in _gm_last.index and pd.isna(_gm_last.get(c))]
 st.caption(
-    f"🚦 **慢变量门槛**（营收 TTM YoY 增速 > 0 且近 2 季加速度 ≥ 0）：本月母体 {len(_cols)} 只 → "
+    f"🚦 **慢变量门槛**（每月全池按营收 TTM YoY 增速排横截面百分位，只留 **{_keep_top}**）：本月母体 {len(_cols)} 只 → "
     f"过门 **{len(_passed)}** 只参与排名，刷掉 {len(_gated_out)} 只，缺基本面放行 {len(_no_data)} 只。"
-    "门槛逐月生效、月末取值顺延执行，被刷的月份 king_score 置空、自动排不进金银牌。"
+    "百分位在全池 47 只内算（不随分组视图变）、门槛逐月生效随牛熊自调、月末取值顺延执行，被刷的月份 king_score 置空、自动排不进金银牌。"
 )
 with st.expander(f"🚦 本月门槛体检（刷掉 {len(_gated_out)} · 放行 {len(_no_data)} 缺数据）"):
     def _gate_tbl(_list):
@@ -163,10 +167,11 @@ with st.expander(f"🚦 本月门槛体检（刷掉 {len(_gated_out)} · 放行 
             "股票": f"{t}({grade_map.get(t, '')})" if grade_map.get(t) else t,
             "名称": name_map.get(t, t),
             "营收YoY增速%": round(float(_yoy_last[t]), 1) if t in _yoy_last.index and pd.notna(_yoy_last.get(t)) else None,
+            "全池百分位%": round(float(_pct_last[t]) * 100, 0) if t in _pct_last.index and pd.notna(_pct_last.get(t)) else None,
             "近2季加速度": round(float(_acc_last[t]), 1) if t in _acc_last.index and pd.notna(_acc_last.get(t)) else None,
         } for t in _list])
     if _gated_out:
-        st.markdown("**被刷掉（增速塌掉或减速）**")
+        st.markdown(f"**被刷掉（营收增速排不进全池 {_keep_top}）**")
         st.dataframe(_gate_tbl(_gated_out), use_container_width=True, hide_index=True)
     if _no_data:
         st.markdown("**缺基本面数据 → 放行不刷**（SF1 无营收，多为部分 ADR / 次新股）")
