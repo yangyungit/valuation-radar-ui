@@ -6,6 +6,10 @@ import holdings_viz as hv
 
 _BADGE = {0: "⚪ 灰", 2: "🥈 银", 3: "🥇 金"}
 
+# 进场持续性门槛：新进场须最近 6 月内 ≥ 这么多次进过 Top2，滤掉只闪现一个月的生面孔
+# （KLAC 式动量假突破：冲上榜单一个月就反转崩盘）。守擂留任不受此约束。
+_ENTRY_MIN_TOP2_HITS = 2
+
 
 def render_group(
     group_label: str,
@@ -161,7 +165,9 @@ def render_group(
 
     st.markdown(f"### 📈 持有金 + 银两仓(等权)· 净值 vs SPY")
     st.caption(
-        f"每月末按 {score_label} 选组内 Top2，顺延 1 月执行(去 look-ahead) · **进场门槛**：新进场必须当月在组内前 2(金/银) · "
+        f"每月末按 {score_label} 选组内 Top2，顺延 1 月执行(去 look-ahead) · "
+        "**进场门槛**：新进场须当月在组内前 2(金/银) **且最近 6 月内 ≥2 次进 Top2**(滤掉只闪现一个月的生面孔) · "
+        "**没够格不硬上**：凑不满 2 仓的槽位持现金(年化 4%，至少不亏本) · "
         "**守擂死区**：在任票的分数距 Top2 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
         "左右两列各等权，合成线 = 50/50 · 周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
     )
@@ -197,20 +203,21 @@ def render_group(
                 float(_sc.iloc[0]) if len(_sc) else float("nan"))
             _delta = kval * (float(_sc.std()) if len(_sc) >= 2 else 0.0)
             _tnow = ten6_src.loc[_ts]
-            _elig = [t for t in _order if _r[t] <= 2]
+            # 在任票：分数仍在死区内就留任，不受进场门槛约束（已经进来的不赶）。
+            _hold = [t for t in _prev_h
+                     if t != "CASH" and t in _sc.index and _sc[t] >= _cut2 - _delta][:2] if _prev_h else []
+            # 新进场门槛：当月 Top2 且最近 6 月内 ≥ _ENTRY_MIN_TOP2_HITS 次进过 Top2，
+            # 滤掉只闪现一个月的生面孔。
+            _elig = [t for t in _order
+                     if _r[t] <= 2 and float(_tnow.get(t, 0)) >= _ENTRY_MIN_TOP2_HITS]
             _elig_t = sorted(_elig, key=lambda t: (-float(_tnow.get(t, 0)), _r[t]))
-            _hold = [t for t in _prev_h if t in _sc.index and _sc[t] >= _cut2 - _delta][:2] if _prev_h else []
             for t in _elig_t:
                 if len(_hold) >= 2:
                     break
                 if t not in _hold:
                     _hold.append(t)
-            if len(_hold) < 2:
-                for t in _order:
-                    if len(_hold) >= 2:
-                        break
-                    if t not in _hold:
-                        _hold.append(t)
+            # 没机会不硬上：凑不满 2 仓的槽位持现金（年化 4%，至少不亏本）。
+            _hold = (_hold + ["CASH", "CASH"])[:2]
             _exec_m = hv.next_month_key(_ts.strftime("%Y-%m"), 1)
             _mh[_exec_m] = _hold
             _mh_raw[_exec_m] = _t2
