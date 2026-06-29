@@ -30,6 +30,8 @@ fi = pd.to_datetime(f["datekey"]); pdt = pd.to_datetime(px["date"])
 
 # 可叠加到主图的序列。pct 类挂左轴(指标值 %)，dollar 类各挂独立右轴(量纲差异大)。
 OVERLAYS = [
+    ("ROIC %",        "roic_pct",    "#1f6fb4", "pct"),
+    ("Rule of 40 %",  "rule40",      "#d62728", "pct"),
     ("净利率 %",      "net_margin",  "#2ca02c", "pct"),
     ("毛利率 %",      "gross_margin","#9467bd", "pct"),
     ("EPS (TTM,$)",  "eps_ttm",     "#ff7f0e", "dollar"),
@@ -37,8 +39,8 @@ OVERLAYS = [
     ("营收 (TTM,$)", "revenue_usd", "#e377c2", "dollar"),
 ]
 sel_overlays = st.multiselect(
-    "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=[],
-    help="净利率/毛利率挂左侧 % 轴；EPS/FCF/营收 各挂独立右侧 $ 轴",
+    "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=["ROIC %", "Rule of 40 %"],
+    help="ROIC/Rule40/净利率/毛利率挂左侧 % 轴；EPS/FCF/营收 各挂独立右侧 $ 轴",
 )
 
 dollar_sel = [o for o in OVERLAYS if o[3] == "dollar" and o[0] in sel_overlays]
@@ -47,14 +49,10 @@ step = 0.055
 plot_right = max(0.55, 1.0 - step * len(dollar_sel))
 
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=fi, y=f["roic_pct"], name="ROIC %",
-                         line=dict(color="#1f6fb4", width=2), yaxis="y"))
-fig.add_trace(go.Scatter(x=fi, y=f["rule40"], name="Rule of 40 %",
-                         line=dict(color="#d62728", width=2), yaxis="y"))
 for label, key, color, kind in OVERLAYS:
     if kind == "pct" and label in sel_overlays:
         fig.add_trace(go.Scatter(x=fi, y=f[key], name=label,
-                                 line=dict(color=color, width=1.4), yaxis="y"))
+                                 line=dict(color=color, width=1.6), yaxis="y"))
 fig.add_trace(go.Scatter(x=pdt, y=px["closeadj"], name=f"{tk} 复权价(log)",
                          line=dict(color="#7f7f7f", width=1.1), yaxis="y2"))
 
@@ -73,7 +71,11 @@ for i, (label, key, color, _) in enumerate(dollar_sel):
 fig.add_hline(y=40, line_dash="dash", line_color="#d62728", opacity=0.4)
 fig.add_hline(y=20, line_dash="dash", line_color="#1f6fb4", opacity=0.4)
 
-vals = np.array([v for v in (f["roic_pct"] + f["rule40"]) if v is not None], dtype=float)
+pct_vals = []
+for label, key, _, kind in OVERLAYS:
+    if kind == "pct" and label in sel_overlays:
+        pct_vals += [v for v in f[key] if v is not None]
+vals = np.array(pct_vals, dtype=float)
 yrange = None
 if len(vals):
     lo = min(np.nanpercentile(vals, 2), -20); hi = max(np.nanpercentile(vals, 97), 60)
