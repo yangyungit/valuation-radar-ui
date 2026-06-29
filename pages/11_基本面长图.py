@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from api_client import fetch_fundamentals_manifest, fetch_fundamentals
 
 st.set_page_config(page_title="基本面长图", layout="wide", page_icon="📈")
@@ -29,35 +28,68 @@ if not resp.get("success"):
 d = resp["data"]; f = d["fundamentals"]; px = d["price"]
 fi = pd.to_datetime(f["datekey"]); pdt = pd.to_datetime(px["date"])
 
-show_margin = st.checkbox("叠加净利率 / 毛利率", value=False)
+# 可叠加到主图的序列。pct 类挂左轴(指标值 %)，dollar 类各挂独立右轴(量纲差异大)。
+OVERLAYS = [
+    ("净利率 %",      "net_margin",  "#2ca02c", "pct"),
+    ("毛利率 %",      "gross_margin","#9467bd", "pct"),
+    ("EPS (TTM,$)",  "eps_ttm",     "#ff7f0e", "dollar"),
+    ("FCF ($)",      "fcf_usd",     "#17becf", "dollar"),
+    ("营收 (TTM,$)", "revenue_usd", "#e377c2", "dollar"),
+]
+sel_overlays = st.multiselect(
+    "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=[],
+    help="净利率/毛利率挂左侧 % 轴；EPS/FCF/营收 各挂独立右侧 $ 轴",
+)
 
-fig = make_subplots(specs=[[{"secondary_y": True}]])
-fig.add_trace(go.Scatter(x=fi, y=f["roic_pct"], name="ROIC %", line=dict(color="#1f6fb4", width=2)), secondary_y=False)
-fig.add_trace(go.Scatter(x=fi, y=f["rule40"], name="Rule of 40 %", line=dict(color="#d62728", width=2)), secondary_y=False)
-if show_margin:
-    fig.add_trace(go.Scatter(x=fi, y=f["net_margin"], name="净利率 %", line=dict(color="#2ca02c", width=1.4)), secondary_y=False)
-    fig.add_trace(go.Scatter(x=fi, y=f["gross_margin"], name="毛利率 %", line=dict(color="#9467bd", width=1.4)), secondary_y=False)
-fig.add_trace(go.Scatter(x=pdt, y=px["closeadj"], name=f"{tk} 复权价(log)", line=dict(color="#7f7f7f", width=1.1)), secondary_y=True)
-fig.add_hline(y=40, line_dash="dash", line_color="#d62728", opacity=0.4, secondary_y=False)
-fig.add_hline(y=20, line_dash="dash", line_color="#1f6fb4", opacity=0.4, secondary_y=False)
+dollar_sel = [o for o in OVERLAYS if o[3] == "dollar" and o[0] in sel_overlays]
+# 右侧轴：第 0 条永远是复权价，其余是被勾选的 $ 序列，依次向右排开
+step = 0.055
+plot_right = max(0.55, 1.0 - step * len(dollar_sel))
+
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=fi, y=f["roic_pct"], name="ROIC %",
+                         line=dict(color="#1f6fb4", width=2), yaxis="y"))
+fig.add_trace(go.Scatter(x=fi, y=f["rule40"], name="Rule of 40 %",
+                         line=dict(color="#d62728", width=2), yaxis="y"))
+for label, key, color, kind in OVERLAYS:
+    if kind == "pct" and label in sel_overlays:
+        fig.add_trace(go.Scatter(x=fi, y=f[key], name=label,
+                                 line=dict(color=color, width=1.4), yaxis="y"))
+fig.add_trace(go.Scatter(x=pdt, y=px["closeadj"], name=f"{tk} 复权价(log)",
+                         line=dict(color="#7f7f7f", width=1.1), yaxis="y2"))
+
+axis_layout = {}
+for i, (label, key, color, _) in enumerate(dollar_sel):
+    ax = f"y{i + 3}"
+    fig.add_trace(go.Scatter(x=fi, y=f[key], name=label,
+                             line=dict(color=color, width=1.6), yaxis=ax))
+    axis_layout[f"yaxis{i + 3}"] = dict(
+        title=dict(text=label, font=dict(color=color)),
+        tickfont=dict(color=color), overlaying="y", side="right",
+        anchor="free", position=min(0.999, plot_right + step * (i + 1)),
+        showgrid=False,
+    )
+
+fig.add_hline(y=40, line_dash="dash", line_color="#d62728", opacity=0.4)
+fig.add_hline(y=20, line_dash="dash", line_color="#1f6fb4", opacity=0.4)
 
 vals = np.array([v for v in (f["roic_pct"] + f["rule40"]) if v is not None], dtype=float)
+yrange = None
 if len(vals):
     lo = min(np.nanpercentile(vals, 2), -20); hi = max(np.nanpercentile(vals, 97), 60)
-    fig.update_yaxes(range=[lo - 10, hi + 15], title_text="指标值 (%)", secondary_y=False)
-fig.update_yaxes(type="log", title_text="复权价 (log)", secondary_y=True)
-fig.update_layout(height=620, plot_bgcolor="#111", paper_bgcolor="#111",
-                  font=dict(color="#ddd"), legend=dict(orientation="h", y=1.02),
-                  margin=dict(l=50, r=50, t=30, b=40))
-st.plotly_chart(fig, use_container_width=True)
+    yrange = [lo - 10, hi + 15]
 
-with st.expander("EPS / FCF / 营收 明细（单位不同分开看）", expanded=False):
-    c1, c2, c3 = st.columns(3)
-    for col, key, title in [(c1, "eps_ttm", "EPS (TTM, $)"),
-                            (c2, "fcf_usd", "FCF ($)"),
-                            (c3, "revenue_usd", "Revenue (TTM, $)")]:
-        mini = go.Figure(go.Scatter(x=fi, y=f[key], line=dict(color="#1f6fb4")))
-        mini.update_layout(title=title, height=240, plot_bgcolor="#111",
-                           paper_bgcolor="#111", font=dict(color="#ccc"),
-                           margin=dict(l=40, r=10, t=40, b=30))
-        col.plotly_chart(mini, use_container_width=True)
+fig.update_layout(
+    height=640, plot_bgcolor="#111", paper_bgcolor="#111",
+    font=dict(color="#ddd"), legend=dict(orientation="h", y=1.04),
+    margin=dict(l=50, r=50, t=30, b=40),
+    hovermode="x unified",
+    xaxis=dict(domain=[0.0, plot_right], showspikes=True, spikemode="across",
+               spikesnap="cursor", spikedash="dash", spikecolor="#999",
+               spikethickness=1),
+    yaxis=dict(title="指标值 (%)", range=yrange),
+    yaxis2=dict(title="复权价 (log)", type="log", overlaying="y",
+                side="right", anchor="x", showgrid=False),
+    **axis_layout,
+)
+st.plotly_chart(fig, use_container_width=True)
