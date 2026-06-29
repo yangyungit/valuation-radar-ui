@@ -59,16 +59,23 @@ fig.add_trace(go.Scatter(x=pdt, y=px["closeadj"], name=f"{tk} 复权价(log)",
                          line=dict(color="#7f7f7f", width=1.1), yaxis="y2"))
 
 axis_layout = {}
-for i, (label, key, color, _) in enumerate(dollar_sel):
+for i, (label, key, color, kind) in enumerate(dollar_sel):
     ax = f"y{i + 3}"
     fig.add_trace(go.Scatter(x=fi, y=f[key], name=label,
                              line=dict(color=color, width=1.6), yaxis=ax))
-    axis_layout[f"yaxis{i + 3}"] = dict(
+    cfg = dict(
         title=dict(text=label, font=dict(color=color)),
         tickfont=dict(color=color), overlaying="y", side="right",
         anchor="free", position=min(0.999, plot_right + step * (i + 1)),
         showgrid=False,
     )
+    # PE 这类倍数：早年盈利近 0 会爆出离群值撑爆轴，按分位数夹一下（同估值带图口径）
+    if kind == "ratio":
+        vv = np.array([v for v in (f.get(key) or []) if v is not None], dtype=float)
+        if len(vv):
+            hi = min(np.nanpercentile(vv, 90) * 1.8, np.nanpercentile(vv, 99.5))
+            cfg["range"] = [0, hi]
+    axis_layout[f"yaxis{i + 3}"] = cfg
 
 fig.add_hline(y=40, line_dash="dash", line_color="#d62728", opacity=0.4)
 fig.add_hline(y=20, line_dash="dash", line_color="#1f6fb4", opacity=0.4)
