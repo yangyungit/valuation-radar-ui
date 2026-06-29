@@ -2780,3 +2780,21 @@ def save_gbdt_state(grade: str, state: dict, holders: list) -> bool:
         return r.json().get("success", False)
     except Exception:
         return False
+
+
+@st.cache_data(ttl=3600)
+def fetch_fundamentals_manifest() -> dict:
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/fundamentals/manifest", timeout=15)
+        r.raise_for_status(); return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "tickers": []}
+
+
+@st.cache_data(ttl=3600)
+def fetch_fundamentals(ticker: str) -> dict:
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/fundamentals/{ticker}", timeout=20)
+        r.raise_for_status(); return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
