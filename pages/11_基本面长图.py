@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from api_client import fetch_fundamentals_manifest, fetch_fundamentals
 
 st.set_page_config(page_title="基本面长图", layout="wide", page_icon="📈")
-st.title("📈 基本面长图（ROIC / Rule40 / 利润率 / EPS / FCF / 营收 vs 股价）")
+st.title("📈 基本面长图（ROIC / Rule40 / 利润率 / 股东总回报率 / EPS / PE / FCF / 营收 vs 股价）")
 st.caption("数据源：Sharadar SF1 (ART/TTM, PIT datekey) + SEP closeadj。仅含已 push 的关注股。")
 
 with st.sidebar:
@@ -28,22 +28,24 @@ if not resp.get("success"):
 d = resp["data"]; f = d["fundamentals"]; px = d["price"]
 fi = pd.to_datetime(f["datekey"]); pdt = pd.to_datetime(px["date"])
 
-# 可叠加到主图的序列。pct 类挂左轴(指标值 %)，dollar 类各挂独立右轴(量纲差异大)。
+# 可叠加到主图的序列。pct 类挂左轴(指标值 %)，dollar/ratio 类各挂独立右轴(量纲差异大)。
 OVERLAYS = [
-    ("ROIC %",        "roic_pct",    "#1f6fb4", "pct"),
-    ("Rule of 40 %",  "rule40",      "#d62728", "pct"),
-    ("净利率 %",      "net_margin",  "#2ca02c", "pct"),
-    ("毛利率 %",      "gross_margin","#9467bd", "pct"),
-    ("EPS (TTM,$)",  "eps_ttm",     "#ff7f0e", "dollar"),
-    ("FCF ($)",      "fcf_usd",     "#17becf", "dollar"),
-    ("营收 (TTM,$)", "revenue_usd", "#e377c2", "dollar"),
+    ("ROIC %",        "roic_pct",         "#1f6fb4", "pct"),
+    ("Rule of 40 %",  "rule40",           "#d62728", "pct"),
+    ("净利率 %",      "net_margin",       "#2ca02c", "pct"),
+    ("毛利率 %",      "gross_margin",     "#9467bd", "pct"),
+    ("股东总回报率 %","shareholder_yield","#bcbd22", "pct"),
+    ("EPS (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar"),
+    ("PE (TTM)",     "pe",               "#8c564b", "ratio"),
+    ("FCF ($)",      "fcf_usd",          "#17becf", "dollar"),
+    ("营收 (TTM,$)", "revenue_usd",      "#e377c2", "dollar"),
 ]
 sel_overlays = st.multiselect(
     "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=["ROIC %", "Rule of 40 %"],
-    help="ROIC/Rule40/净利率/毛利率挂左侧 % 轴；EPS/FCF/营收 各挂独立右侧 $ 轴",
+    help="ROIC/Rule40/净利率/毛利率/股东总回报率挂左侧 % 轴；EPS/PE/FCF/营收 各挂独立右侧轴",
 )
 
-dollar_sel = [o for o in OVERLAYS if o[3] == "dollar" and o[0] in sel_overlays]
+dollar_sel = [o for o in OVERLAYS if o[3] != "pct" and o[0] in sel_overlays]
 # 右侧轴：第 0 条永远是复权价，其余是被勾选的 $ 序列，依次向右排开
 step = 0.055
 plot_right = max(0.55, 1.0 - step * len(dollar_sel))
@@ -73,7 +75,7 @@ fig.add_hline(y=20, line_dash="dash", line_color="#1f6fb4", opacity=0.4)
 
 pct_vals = []
 for label, key, _, kind in OVERLAYS:
-    if kind == "pct" and label in sel_overlays:
+    if kind == "pct" and label in sel_overlays and f.get(key) is not None:
         pct_vals += [v for v in f[key] if v is not None]
 vals = np.array(pct_vals, dtype=float)
 yrange = None
