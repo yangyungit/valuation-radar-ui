@@ -52,7 +52,9 @@ def render_group(
         return
 
     g_score = score_m[cols]
-    g_rs = rs_m[cols]
+    # score_m / rs_m 来自不同数据源（动量走日线缓存、RS 走后端），月份网格和 ticker 集合都可能对不上。
+    # 对齐到 score 的索引/列，缺的填 NaN，避免后面 hover 里 _rs_yx.loc[tk, d] 撞 KeyError。
+    g_rs = rs_m.reindex(index=g_score.index, columns=cols)
     rank_m = g_score.rank(axis=1, ascending=False, method="min")
     tier = pd.DataFrame(0, index=rank_m.index, columns=rank_m.columns, dtype=int)
     tier[rank_m <= 2] = 2
