@@ -30,11 +30,15 @@ def render_group(
     score_fmt: str = "{:+.2f}",
     default_k: float = 1.0,
     sweep_score_m: pd.DataFrame = None,
+    n_hold: int = 2,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
     score_m 决定排名；rs_m 只用于金牌 RS > 0 门槛（不变）。
+    n_hold = 同时持有几个仓位：2 = 金+银两仓 50/50（默认，回购页用）；
+             1 = 只持 Top1 一仓满仓（科技/行业龙头页用）。
     """
+    n_hold = max(1, int(n_hold))
     cols = [c for c in cols if c in score_m.columns]
     if not cols:
         st.info(f"{group_label}：无可用标的")
@@ -163,14 +167,24 @@ def render_group(
     st.markdown("#### 🏅 奖牌榜(按累计金牌 → 银牌排序)")
     st.dataframe(_medal_df, use_container_width=True, hide_index=True)
 
-    st.markdown(f"### 📈 持有金 + 银两仓(等权)· 净值 vs SPY")
-    st.caption(
-        f"每月末按 {score_label} 选组内 Top2，顺延 1 月执行(去 look-ahead) · "
-        "**进场门槛**：新进场须当月在组内前 2(金/银) **且最近 6 月内 ≥2 次进 Top2**(滤掉只闪现一个月的生面孔) · "
-        "**没够格不硬上**：凑不满 2 仓的槽位持现金(年化 4%，至少不亏本) · "
-        "**守擂死区**：在任票的分数距 Top2 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
-        "左右两列各等权，合成线 = 50/50 · 周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
-    )
+    if n_hold < 2:
+        st.markdown(f"### 📈 满仓持有 Top1 一仓 · 净值 vs SPY")
+        st.caption(
+            f"每月末按 {score_label} 选组内 Top1，顺延 1 月执行(去 look-ahead) · "
+            "**进场门槛**：新进场须当月组内 Top1 **且最近 6 月内 ≥2 次进 Top2**(滤掉只闪现一个月的生面孔) · "
+            "**没够格不硬上**：没合格 Top1 就持现金(年化 4%，至少不亏本) · "
+            "**守擂死区**：在任票的分数距 Top1 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
+            "满仓单票，无 50/50 · 周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
+        )
+    else:
+        st.markdown(f"### 📈 持有金 + 银两仓(等权)· 净值 vs SPY")
+        st.caption(
+            f"每月末按 {score_label} 选组内 Top2，顺延 1 月执行(去 look-ahead) · "
+            "**进场门槛**：新进场须当月在组内前 2(金/银) **且最近 6 月内 ≥2 次进 Top2**(滤掉只闪现一个月的生面孔) · "
+            "**没够格不硬上**：凑不满 2 仓的槽位持现金(年化 4%，至少不亏本) · "
+            "**守擂死区**：在任票的分数距 Top2 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
+            "左右两列各等权，合成线 = 50/50 · 周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
+        )
     _k = float(st.number_input(
         "守擂死区 δ(×当月横截面标准差,越大越不换仓; 0=掉出 Top2 立刻换)",
         min_value=0.0, max_value=3.0, value=float(default_k), step=0.25, key=f"{kp}_dk",
@@ -195,29 +209,29 @@ def render_group(
             if _r.empty:
                 continue
             _order = _r.index.tolist()
-            _t2 = _order[:2]
+            _t2 = _order[:n_hold]
             _sc = score_src.loc[_ts].dropna()
             # 守擂死区：留任阈值建在「分数」上，而非排名位置——排名会被旁边股票挤动，
-            # 分差只看在任票自身离 Top2 门槛多远，不被第三只股票污染。
-            _cut2 = float(_sc.sort_values(ascending=False).iloc[1]) if len(_sc) >= 2 else (
+            # 分差只看在任票自身离第 n_hold 名门槛多远，不被后面的股票污染。
+            _cut2 = float(_sc.sort_values(ascending=False).iloc[n_hold - 1]) if len(_sc) >= n_hold else (
                 float(_sc.iloc[0]) if len(_sc) else float("nan"))
             _delta = kval * (float(_sc.std()) if len(_sc) >= 2 else 0.0)
             _tnow = ten6_src.loc[_ts]
             # 在任票：分数仍在死区内就留任，不受进场门槛约束（已经进来的不赶）。
             _hold = [t for t in _prev_h
-                     if t != "CASH" and t in _sc.index and _sc[t] >= _cut2 - _delta][:2] if _prev_h else []
-            # 新进场门槛：当月 Top2 且最近 6 月内 ≥ _ENTRY_MIN_TOP2_HITS 次进过 Top2，
+                     if t != "CASH" and t in _sc.index and _sc[t] >= _cut2 - _delta][:n_hold] if _prev_h else []
+            # 新进场门槛：当月排名 ≤ n_hold 且最近 6 月内 ≥ _ENTRY_MIN_TOP2_HITS 次进过 Top2，
             # 滤掉只闪现一个月的生面孔。
             _elig = [t for t in _order
-                     if _r[t] <= 2 and float(_tnow.get(t, 0)) >= _ENTRY_MIN_TOP2_HITS]
+                     if _r[t] <= n_hold and float(_tnow.get(t, 0)) >= _ENTRY_MIN_TOP2_HITS]
             _elig_t = sorted(_elig, key=lambda t: (-float(_tnow.get(t, 0)), _r[t]))
             for t in _elig_t:
-                if len(_hold) >= 2:
+                if len(_hold) >= n_hold:
                     break
                 if t not in _hold:
                     _hold.append(t)
-            # 没机会不硬上：凑不满 2 仓的槽位持现金（年化 4%，至少不亏本）。
-            _hold = (_hold + ["CASH", "CASH"])[:2]
+            # 没机会不硬上：凑不满 n_hold 仓的槽位持现金（年化 4%，至少不亏本）。
+            _hold = (_hold + ["CASH"] * n_hold)[:n_hold]
             _exec_m = hv.next_month_key(_ts.strftime("%Y-%m"), 1)
             _mh[_exec_m] = _hold
             _mh_raw[_exec_m] = _t2
@@ -230,8 +244,11 @@ def render_group(
             return None
         _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
         _seg_l = hv.build_slot_segments(_slots, 0, _exec_months)
-        _seg_r = hv.build_slot_segments(_slots, 1, _exec_months)
         _nav_l = hv.calc_slot_stats(_seg_l, price_cache, spy_wk, 0.04)[2]
+        if n_hold < 2:
+            # 单仓：满仓 Top1，净值 = 左列，不掺现金、不做 50/50。
+            return _exec_months, _slots, _seg_l, [], _nav_l, pd.Series(dtype=float), _nav_l.copy()
+        _seg_r = hv.build_slot_segments(_slots, 1, _exec_months)
         _nav_r = hv.calc_slot_stats(_seg_r, price_cache, spy_wk, 0.04)[2]
         _navc = pd.Series(dtype=float)
         if not _nav_l.empty and not _nav_r.empty:
@@ -368,18 +385,28 @@ def render_group(
     c5.metric("Sortino", _fmt(_kpi.get("sortino", float("nan"))))
     c6.metric("logR²", _fmt(_kpi.get("r2", float("nan"))))
 
-    st.plotly_chart(
-        hv.build_combined_fig(_nav_l, _nav_r, _navc, spy_wk, f"{group_label} Top2 — 左右两列 50/50 合成 vs SPY"),
-        use_container_width=True, key=f"{kp}_nav_combined",
-    )
-    st.plotly_chart(
-        hv.build_stitched_fig(_seg_l, f"{group_label}接力 左列 (Slot 0)", spy_wk, price_cache, name_map, grade_map),
-        use_container_width=True, key=f"{kp}_nav_l",
-    )
-    st.plotly_chart(
-        hv.build_stitched_fig(_seg_r, f"{group_label}接力 右列 (Slot 1)", spy_wk, price_cache, name_map, grade_map),
-        use_container_width=True, key=f"{kp}_nav_r",
-    )
+    if n_hold < 2:
+        st.plotly_chart(
+            hv.build_basket_fig(_navc, spy_wk, f"{group_label} Top1 满仓 — 净值 vs SPY"),
+            use_container_width=True, key=f"{kp}_nav_combined",
+        )
+        st.plotly_chart(
+            hv.build_stitched_fig(_seg_l, f"{group_label}接力 持仓段", spy_wk, price_cache, name_map, grade_map),
+            use_container_width=True, key=f"{kp}_nav_l",
+        )
+    else:
+        st.plotly_chart(
+            hv.build_combined_fig(_nav_l, _nav_r, _navc, spy_wk, f"{group_label} Top2 — 左右两列 50/50 合成 vs SPY"),
+            use_container_width=True, key=f"{kp}_nav_combined",
+        )
+        st.plotly_chart(
+            hv.build_stitched_fig(_seg_l, f"{group_label}接力 左列 (Slot 0)", spy_wk, price_cache, name_map, grade_map),
+            use_container_width=True, key=f"{kp}_nav_l",
+        )
+        st.plotly_chart(
+            hv.build_stitched_fig(_seg_r, f"{group_label}接力 右列 (Slot 1)", spy_wk, price_cache, name_map, grade_map),
+            use_container_width=True, key=f"{kp}_nav_r",
+        )
 
     def _nm(t):
         return t if (t and t != "CASH") else "—"
@@ -394,15 +421,23 @@ def render_group(
     for _em in _exec_months:
         _sa = _slots.get(_em, ["—", "—"])
         _raw = _mh_raw.get(_em, [])
-        _held = {t for t in _sa if t and t != "CASH"}
+        _held = {t for t in _sa[:n_hold] if t and t != "CASH"}
         _kept = bool(_raw) and _held != set(_raw)
-        _pick_rows.append({
-            "来源月 Top1(金)": _nmg(_raw[0] if len(_raw) > 0 else None),
-            "来源月 Top2(银)": _nmg(_raw[1] if len(_raw) > 1 else None),
-            "执行月": _em,
-            "左列实际持有": _nmg(_sa[0]),
-            "右列实际持有": _nmg(_sa[1]),
-            "守擂留任": "是" if _kept else "",
-        })
+        if n_hold < 2:
+            _pick_rows.append({
+                "来源月 Top1": _nmg(_raw[0] if len(_raw) > 0 else None),
+                "执行月": _em,
+                "实际持有": _nmg(_sa[0]),
+                "守擂留任": "是" if _kept else "",
+            })
+        else:
+            _pick_rows.append({
+                "来源月 Top1(金)": _nmg(_raw[0] if len(_raw) > 0 else None),
+                "来源月 Top2(银)": _nmg(_raw[1] if len(_raw) > 1 else None),
+                "执行月": _em,
+                "左列实际持有": _nmg(_sa[0]),
+                "右列实际持有": _nmg(_sa[1]),
+                "守擂留任": "是" if _kept else "",
+            })
     st.markdown("**每月实际持仓**(对照上方接力图核对；执行月 = 来源月 + 1)")
     st.dataframe(pd.DataFrame(_pick_rows).iloc[::-1], use_container_width=True, hide_index=True)

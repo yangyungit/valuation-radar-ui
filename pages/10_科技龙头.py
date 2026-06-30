@@ -15,14 +15,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🚀 科技龙头接力图 (Tech Leader Relay)")
+st.title("🏆 行业龙头接力图 (Sector Leader Relay)")
 st.caption(
-    "**池子**:美股 + 美股 ADR 的科技龙头(半导体/软件云/平台/硬件支付),**不要求真回购**,含 NVDA / SaaS / 成长股。"
-    "与「回购进攻」页独立,不混池(回购管防御腿、本页看进攻腿)。"
+    "**池子**:标普 500 按 11 个 GICS 行业(= 11 只 SPDR 板块 ETF 覆盖的成分股),每行业取大市值龙头 ~15 只,合计 ~165 只。"
     "**排名**:按 **king_score = Z(RS_210d)** 纯动量横截面排名(窗口 210 日)。"
     "(注:营收增速慢变量门槛已撤——全样本回测显示任何门槛都跑不赢纯动量、收紧反而放大回撤,营收数据仅作 hover 参考。)"
     "**🥇 金牌 = 当月 Top1 且 RS_210d > 0(跑赢 SPY,否则降灰)/🥈 银牌 = Top2**。"
-    "下方持有**金+银两个仓位等权**,月末选仓、顺延 1 月执行(去 look-ahead)。"
+    "下方**满仓持有 Top1 一个仓位**,月末选仓、顺延 1 月执行(去 look-ahead)。"
 )
 
 with st.sidebar:
@@ -108,22 +107,23 @@ def _long_king_m():
 king_m_long = _long_king_m()
 
 _all_cols = list(king_m.columns)
-_SECTORS = ["半导体", "软件云", "平台", "硬件支付"]
+_SECTORS = ["科技", "金融", "医疗", "可选", "必选", "能源",
+            "工业", "材料", "地产", "公用", "通讯"]
 _view = st.radio(
-    "看哪一组(横截面排名母体)", ["全科技龙头"] + _SECTORS,
+    "看哪一组(横截面排名母体)", ["全行业龙头"] + _SECTORS,
     index=0, horizontal=True, key="tl_view",
 )
-if _view == "全科技龙头":
+if _view == "全行业龙头":
     _cols = _all_cols
-    _label = "全科技龙头"
+    _label = "全行业龙头"
 else:
     _cols = [c for c in _all_cols if grade_map.get(c) == _view]
     _label = _view
 
-st.markdown(f"## 🚀 {_label}组（{len(_cols)} 只）")
-st.caption("切换上方分组 = 换横截面排名母体：全池 = 47 只一起排 Top2；单赛道 = 只在该赛道内排 Top2。")
+st.markdown(f"## 🏆 {_label}组（{len(_cols)} 只）")
+st.caption(f"切换上方分组 = 换横截面排名母体：全池 = {len(_all_cols)} 只一起排 Top1；单行业 = 只在该行业内排 Top1。")
 
 render_group(_label, _cols, "tl_main",
              score_m=king_m, sweep_score_m=king_m_long,
              score_label="king_score", score_fmt="{:+.2f}",
-             default_k=0.75, **_COMMON)
+             default_k=0.75, n_hold=1, **_COMMON)
