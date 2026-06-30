@@ -31,6 +31,13 @@ def render_group(
     default_k: float = 1.0,
     sweep_score_m: pd.DataFrame = None,
     n_hold: int = 2,
+    entry_min_top2_hits: int = 2,
+    show_medal_table: bool = True,
+    only_medaled_in_heatmap: bool = False,
+    nav_engine: str = "weekly",
+    daily_price_cache: dict = None,
+    spy_daily: pd.DataFrame = None,
+    cost_bps: float = 0.0,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -57,6 +64,12 @@ def render_group(
     _gold_cnt = (_confirmed == 3).sum(axis=0)
     _silver_cnt = (_confirmed == 2).sum(axis=0)
     _ordered = (_gold_cnt * 10000 + _silver_cnt).sort_values(ascending=False).index.tolist()
+
+    if only_medaled_in_heatmap:
+        _ordered = [tk for tk in _ordered
+                    if (int(_gold_cnt.get(tk, 0)) + int(_silver_cnt.get(tk, 0))) > 0]
+        if not _ordered:
+            _ordered = (_gold_cnt * 10000 + _silver_cnt).sort_values(ascending=False).index.tolist()[:1]
 
     _tier_yx = tier[_ordered].T
     _rank_yx = rank_m[_ordered].T
@@ -164,8 +177,9 @@ def render_group(
             "最近戴金月": gdates.max().strftime("%Y-%m") if len(gdates) else "—",
         })
     _medal_df = pd.DataFrame(_medal_rows)
-    st.markdown("#### 🏅 奖牌榜(按累计金牌 → 银牌排序)")
-    st.dataframe(_medal_df, use_container_width=True, hide_index=True)
+    if show_medal_table:
+        st.markdown("#### 🏅 奖牌榜(按累计金牌 → 银牌排序)")
+        st.dataframe(_medal_df, use_container_width=True, hide_index=True)
 
     if n_hold < 2:
         st.markdown(f"### 📈 满仓持有 Top1 一仓 · 净值 vs SPY")
@@ -223,7 +237,7 @@ def render_group(
             # 新进场门槛：当月排名 ≤ n_hold 且最近 6 月内 ≥ _ENTRY_MIN_TOP2_HITS 次进过 Top2，
             # 滤掉只闪现一个月的生面孔。
             _elig = [t for t in _order
-                     if _r[t] <= n_hold and float(_tnow.get(t, 0)) >= _ENTRY_MIN_TOP2_HITS]
+                     if _r[t] <= n_hold and float(_tnow.get(t, 0)) >= entry_min_top2_hits]
             _elig_t = sorted(_elig, key=lambda t: (-float(_tnow.get(t, 0)), _r[t]))
             for t in _elig_t:
                 if len(_hold) >= n_hold:
@@ -240,7 +254,18 @@ def render_group(
 
     def _build_nav(_mh):
         _exec_months = sorted(_mh)
-        if not price_cache or not _exec_months:
+        if not _exec_months:
+            return None
+        if nav_engine == "daily":
+            _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
+            _seg_l = hv.build_slot_segments(_slots, 0, _exec_months)
+            _r = hv.build_nav_from_holdings(
+                _mh, daily_price_cache or {}, spy_daily,
+                top_n=n_hold, cash_rate=0.04, cost_bps=cost_bps,
+            )
+            _navc = _r["nav"]
+            return _exec_months, _slots, _seg_l, [], _navc, pd.Series(dtype=float), _navc
+        if not price_cache:
             return None
         _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
         _seg_l = hv.build_slot_segments(_slots, 0, _exec_months)
@@ -366,7 +391,8 @@ def render_group(
     _ret_c = (float(_navc.iloc[-1]) / float(_navc.iloc[0]) - 1) * 100
     _peak = _navc.cummax()
     _dd_c = float(((_peak - _navc) / _peak.replace(0, float("nan"))).max()) * 100
-    _kpi = hv.compute_nav_kpi(_navc)
+    _nav_for_kpi = _navc.resample("W-FRI").last().dropna() if nav_engine == "daily" else _navc
+    _kpi = hv.compute_nav_kpi(_nav_for_kpi)
 
     def _fmt(v, f=".2f"):
         try:

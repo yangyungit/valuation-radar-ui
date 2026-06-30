@@ -639,6 +639,78 @@ def build_basket_nav(
     }
 
 
+def build_nav_from_holdings(
+    monthly_holdings: dict,
+    price_cache_daily: dict,
+    spy_daily: pd.DataFrame,
+    top_n: int = 1,
+    cash_rate: float = 0.04,
+    cost_bps: float = 10.0,
+) -> dict:
+    """日线净值：每个执行月首个交易日 Open 买入、持有到月末 Close，按换手只数扣单边 cost_bps。
+    持仓直接吃 monthly_holdings（外部已带 δ 守擂 + 进场门槛选好），内部不再选仓。
+    返回 {"nav"(日线 Series), "nav_wk"(周线 Series 供 KPI), "total_ret", "max_dd"}。
+    """
+    months = sorted(monthly_holdings)
+    empty = {"nav": pd.Series(dtype=float), "nav_wk": pd.Series(dtype=float),
+             "total_ret": 0.0, "max_dd": 0.0}
+    if not months or spy_daily is None or spy_daily.empty:
+        return empty
+    cal = spy_daily.index
+    running_nav = 1.0
+    nav_parts: list = []
+    prev: list = []
+    for m in months:
+        basket = [t for t in monthly_holdings.get(m, []) if t and t != "CASH"]
+        sd = pd.Timestamp(f"{m}-01")
+        ed = sd + pd.offsets.MonthEnd(1)
+        day_idx = cal[(cal >= sd) & (cal <= ed)]
+        traded = len(set(prev) ^ set(basket))
+        if cost_bps and traded and top_n > 0 and len(day_idx) >= 1:
+            running_nav *= max(0.0, 1.0 - (traded / top_n) * cost_bps / 10000.0)
+        prev = basket
+        if not basket or len(day_idx) < 1:
+            if len(day_idx) >= 1:
+                days = (day_idx - day_idx[0]).days.to_numpy()
+                part = pd.Series(running_nav * (1.0 + cash_rate) ** (days / 365.0),
+                                 index=day_idx, dtype=float)
+                nav_parts.append(part)
+                running_nav = float(part.iloc[-1])
+            continue
+        valid_paths: list = []
+        for tk in basket:
+            d = price_cache_daily.get(tk)
+            if d is None or d.empty:
+                continue
+            win = d[(d.index >= sd) & (d.index <= ed)]
+            if len(win) < 2:
+                continue
+            entry = float(win["Open"].iloc[0])
+            if entry <= 0:
+                continue
+            path = (win["Close"].astype(float) / entry).reindex(day_idx, method="ffill").bfill()
+            valid_paths.append(path)
+        if not valid_paths:
+            days = (day_idx - day_idx[0]).days.to_numpy()
+            part = pd.Series(running_nav * (1.0 + cash_rate) ** (days / 365.0),
+                             index=day_idx, dtype=float)
+            nav_parts.append(part)
+            running_nav = float(part.iloc[-1])
+            continue
+        seg = pd.concat(valid_paths, axis=1).mean(axis=1) * running_nav
+        running_nav = float(seg.iloc[-1])
+        nav_parts.append(seg)
+    if not nav_parts:
+        return empty
+    nav = pd.concat(nav_parts).sort_index()
+    nav = nav[~nav.index.duplicated(keep="last")]
+    nav_wk = nav.resample("W-FRI").last().dropna()
+    total_ret = (float(nav.iloc[-1]) / float(nav.iloc[0]) - 1) * 100
+    peak = nav.cummax()
+    max_dd = float(((peak - nav) / peak.replace(0, float("nan"))).max()) * 100
+    return {"nav": nav, "nav_wk": nav_wk, "total_ret": total_ret, "max_dd": max_dd}
+
+
 def build_combined_fig(
     nav_l: pd.Series,
     nav_r: pd.Series,
