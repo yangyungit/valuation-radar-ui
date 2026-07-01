@@ -101,7 +101,8 @@ def daily_to_weekly(d: pd.DataFrame) -> pd.DataFrame:
 
 
 def next_month_key(m: str, k: int = 1) -> str:
-    """'2026-05' + k 个月 → '2026-06'。去 look-ahead 用：决策月顺延执行。"""
+    """'2026-05' + k 个月 → '2026-06'。去 look-ahead 用：M 月末信号落到 M+k 月桶，
+    该桶首个交易日（即信号日的次交易日）开盘执行。"""
     y, mm = int(m[:4]), int(m[5:7])
     mm += k
     y += (mm - 1) // 12
@@ -151,9 +152,9 @@ def build_slot_assignments(
     gate_closed:      [(month, reason), ...]
     逻辑与 page5 525-596 完全一致。
 
-    shift_months：决策月顺延 N 月执行，去 look-ahead（月 M 的持仓在 M+N 才进场，
-    因为 M 的排名是用截至 M 月末的数据算的）。slot_assignments / gate_closed 的 key
-    随之顺延，下游窗口（月初→月末）自然落在执行月。
+    shift_months：M 月末信号落到 M+N 月桶执行，去 look-ahead（M 的排名用截至 M 月末
+    数据算，只能在 M 月末的次交易日进场，正好是 M+N 月桶的首个交易日）。
+    slot_assignments / gate_closed 的 key 随之顺延，下游窗口（月初→月末）自然落在执行月。
     """
     months = sorted(k for k in history if not k.startswith("_"))
     hold_map: dict = {}
@@ -537,9 +538,9 @@ def build_basket_nav(
     rebalance_step: int = 1,
     shift_months: int = 1,
 ) -> dict:
-    """等权 top_n 篮子，日1开盘买入 + 顺延执行（去 look-ahead）。
+    """等权 top_n 篮子，次交易日开盘买入（去 look-ahead）。
 
-    决策月 M 的篮子（用截至 M 月末数据算的排名）在 M+shift_months 月才进场，
+    决策月 M 的篮子（用截至 M 月末数据算的排名）在 M+shift_months 月桶进场，
     每 rebalance_step 个月调一次仓（1=月度，3=季度）。进场=执行段首个交易日开盘价，
     持有到段末交易日收盘，按日线走净值，卖出一日卖在调仓点。
     返回的 nav 已降采样到周线，供 compute_nav_kpi（√52 年化）消费。

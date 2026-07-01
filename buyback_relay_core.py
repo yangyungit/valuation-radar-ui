@@ -192,7 +192,7 @@ def render_group(
     if n_hold < 2:
         st.markdown(f"### 📈 满仓持有 Top1 一仓 · 净值 vs SPY")
         st.caption(
-            f"每月末按 {score_label} 选组内 Top1，顺延 1 月执行(去 look-ahead) · "
+            f"每月末按 {score_label} 选组内 Top1，次交易日开盘执行(去 look-ahead) · "
             "**进场门槛**：新进场须当月组内 Top1 **且最近 6 月内 ≥2 次进 Top2**(滤掉只闪现一个月的生面孔) · "
             "**没够格不硬上**：没合格 Top1 就持现金(年化 4%，至少不亏本) · "
             "**守擂死区**：在任票的分数距 Top1 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
@@ -201,7 +201,7 @@ def render_group(
     else:
         st.markdown(f"### 📈 持有金 + 银两仓(等权)· 净值 vs SPY")
         st.caption(
-            f"每月末按 {score_label} 选组内 Top2，顺延 1 月执行(去 look-ahead) · "
+            f"每月末按 {score_label} 选组内 Top2，次交易日开盘执行(去 look-ahead) · "
             "**进场门槛**：新进场须当月在组内前 2(金/银) **且最近 6 月内 ≥2 次进 Top2**(滤掉只闪现一个月的生面孔) · "
             "**没够格不硬上**：凑不满 2 仓的槽位持现金(年化 4%，至少不亏本) · "
             "**守擂死区**：在任票的分数距 Top2 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
