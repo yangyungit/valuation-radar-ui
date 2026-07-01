@@ -991,16 +991,23 @@ def fetch_sector_leader_history(
 def fetch_dynasty_double_dragon(
     window: str = "5Y",
     signal: str = "12m",
-    k: int = 30,
+    k: int = 0,
+    delta_k: float = -1.0,
     risk_protect: bool = True,
     rebalance: bool = False,
     cost_bps: float = 10.0,
-    n_holdings: int = 2,
+    n_holdings: int = 3,
 ) -> dict:
     """从后端获取 C 组双龙持仓回测（研究原型），供 Page 0「📈 C组双龙持仓」TAB 用。
 
-    每月按动量(signal)选最强 N 只（2~5，默认 2）持有，守擂缓冲 K 压换手，扣成本，
-    返回净值曲线 / 持仓时间线 / 统计卡 / 换手-收益取舍图(frontier)。
+    返回三条可比策略曲线：
+    1) C组戴金板块 -> 板块内王朝龙头 Top2 -> 下月执行。
+    2) 当前 S&P500 股票池 -> 12M 动量 + MA200 -> TopN/K 守擂。
+    3) 当前 S&P500 股票池 -> 12M 动量 + MA200 -> TopN/分差 δ 防抖守擂。
+    signal 选择主策略；n_holdings 驱动两条动量策略，k<=0 时后端自动选择旧排名守擂 K。
+    delta_k<0 时后端按 3Y/5Y/10Y 稳健平台自动选择防抖强度。
+    戴金龙头策略固定两仓。
+    返回净值曲线 / 当前持仓解释 / 持仓时间线 / 统计卡 / selection_timeline / frontier。
     诚实定位：信号无前视、次日成交、扣成本；但池含生存者偏差，非真实业绩。
     首次加载较慢（~500 股 + 预热 + BIL/RSP），Render 冷启动 502/504 自动重试一次。
     失败返回 {"success": False, "error": ...}。
@@ -1015,6 +1022,7 @@ def fetch_dynasty_double_dragon(
                 f"{API_BASE_URL}/api/v1/macro/dynasty/double_dragon",
                 params={
                     "window": window, "signal": signal, "k": k,
+                    "delta_k": delta_k,
                     "risk_protect": risk_protect, "rebalance": rebalance,
                     "cost_bps": cost_bps, "n_holdings": n_holdings,
                 },
