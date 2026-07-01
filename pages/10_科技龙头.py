@@ -105,7 +105,7 @@ st.markdown(f"## 🏆 全行业龙头组（{len(_cols)} 只）")
 render_group(_label, _cols, "tl_main",
              score_m=king_m, sweep_score_m=king_m_long,
              score_label="12M动量", score_fmt="{:+.1%}",
-             default_k=0.75, n_hold=1,
+             default_k=0.75, n_hold=2,
              entry_min_top2_hits=2,
              gold_needs_rs=False,
              sweep_horizons=[("3Y", 3), ("5Y", 5), ("9Y", 9)],
