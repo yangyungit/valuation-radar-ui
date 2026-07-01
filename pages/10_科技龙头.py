@@ -22,7 +22,8 @@ st.caption(
     "**排名**:按 **raw 12M 绝对涨幅**（月末价/12 个月前月末价 − 1）横截面排名。"
     "**🥇 金牌 = 当月 Top1 / 🥈 银牌 = Top2**（已删 RS 门槛，只看排名）。"
     "**净值口径**:日线、执行月首个交易日 Open 买入、持有到月末 Close、扣单边 10bps；"
-    "新进场须最近 6 月内 ≥2 次进 Top2(滤掉闪现一月的生面孔)，只持 Top1 单仓，空仓现金年化 4%。"
+    "满仓单票、进出场按 Top2 判定：新进场须当月 Top2 且最近 6 月内 ≥2 次进 Top2(滤掉闪现一月的生面孔)，"
+    "在任票没掉出 Top2 就继续拿，空仓现金年化 4%。"
 )
 
 with st.sidebar:
@@ -126,7 +127,7 @@ st.markdown(f"## 🏆 标普500组（{len(_cols)} 只）")
 render_group(_label, _cols, "tl_main",
              score_m=king_m, sweep_score_m=king_m_long,
              score_label="12M动量", score_fmt="{:+.1%}",
-             default_k=0.75, n_hold=1,
+             default_k=0.75, n_hold=1, hold_band=2,
              entry_min_top2_hits=2,
              gold_needs_rs=False,
              sweep_horizons=[("3Y", 3), ("5Y", 5), ("9Y", 9)],

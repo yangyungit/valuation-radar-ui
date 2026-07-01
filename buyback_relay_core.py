@@ -31,6 +31,7 @@ def render_group(
     default_k: float = 1.0,
     sweep_score_m: pd.DataFrame = None,
     n_hold: int = 2,
+    hold_band: int = None,
     entry_min_top2_hits: int = 2,
     show_medal_table: bool = True,
     only_medaled_in_heatmap: bool = False,
@@ -47,15 +48,20 @@ def render_group(
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
     score_m 决定排名；rs_m 只用于金牌 RS > 0 门槛（不变）。
     n_hold = 同时持有几个仓位：2 = 金+银两仓 50/50（默认，回购页用）；
-             1 = 只持 Top1 一仓满仓。
+             1 = 只持一仓满仓。
+    hold_band = 进出场的排名带（rank ≤ band 才算在带内）。默认 = n_hold。
+             设 hold_band=2 而 n_hold=1，即满仓单票但进场/守擂都按 Top2 判定：
+             进场须当月 Top2，在任票没掉出 Top2(+δ) 就继续拿，换手比盯 Top1 更低。
     dynamic_n_hold = True 时，每月在 Top1-TopN 里按进场持续性动态持有 1-N 仓。
     """
     n_hold = max(1, int(n_hold))
     max_n_hold = max(1, int(max_n_hold))
     if dynamic_n_hold:
         max_n_hold = max(n_hold, max_n_hold)
+        _band = max_n_hold
     else:
         max_n_hold = n_hold
+        _band = max(n_hold, int(hold_band)) if hold_band else n_hold
     cols = [c for c in cols if c in score_m.columns]
     if not cols:
         st.info(f"{group_label}：无可用标的")
@@ -219,12 +225,12 @@ def render_group(
             "组合按当月实际持仓等权 · 日线 NAV，执行月首个交易日 Open 买入，扣单边成本。"
         )
     elif n_hold < 2:
-        st.markdown(f"### 📈 满仓持有 Top1 一仓 · 净值 vs SPY")
+        st.markdown(f"### 📈 满仓单票 · 进出场按 Top{_band} 判定 · 净值 vs SPY")
         st.caption(
-            f"每月末按 {score_label} 选组内 Top1，次交易日开盘执行(去 look-ahead) · "
-            "**进场门槛**：新进场须当月组内 Top1 **且最近 6 月内 ≥2 次进 Top2**(滤掉只闪现一个月的生面孔) · "
-            "**没够格不硬上**：没合格 Top1 就持现金(年化 4%，至少不亏本) · "
-            "**守擂死区**：在任票的分数距 Top1 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
+            f"每月末按 {score_label} 看组内 Top{_band}，次交易日开盘执行(去 look-ahead) · "
+            f"**进场门槛**：新进场须当月组内 Top{_band} **且最近 6 月内 ≥{entry_min_top2_hits} 次进 Top{_band}**(滤掉只闪现一个月的生面孔) · "
+            f"**没够格不硬上**：没合格 Top{_band} 就持现金(年化 4%，至少不亏本) · "
+            f"**守擂死区**：在任票只要没掉出 Top{_band} 就不换，掉出且分差超过 δ 才替换(δ = k × 当月横截面标准差) · "
             "满仓单票，无 50/50 · 周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
         )
     else:
@@ -237,11 +243,11 @@ def render_group(
             "左右两列各等权，合成线 = 50/50 · 周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
         )
     _k = float(st.number_input(
-        f"守擂死区 δ(×当月横截面标准差,越大越不换仓; 0=掉出 Top{max_n_hold if dynamic_n_hold else n_hold} 立刻换)",
+        f"守擂死区 δ(×当月横截面标准差,越大越不换仓; 0=掉出 Top{_band} 立刻换)",
         min_value=0.0, max_value=3.0, value=float(default_k), step=0.25, key=f"{kp}_dk",
     ))
 
-    _entry_rank_limit = max_n_hold if dynamic_n_hold else 2
+    _entry_rank_limit = _band
     _ten6 = (rank_m <= _entry_rank_limit).astype(int).rolling(6, min_periods=1).sum()
 
     # δ 敏感性扫描专用的「最长历史」源：用 10Y 时序，才能切出尾部 3/5/10Y 三段。
@@ -272,12 +278,15 @@ def render_group(
                 _elig_rank_limit = max_n_hold
             else:
                 _n_cur = n_hold
-                _raw = _order[:n_hold]
-                _elig_rank_limit = n_hold
+                _raw = _order[:_band]
+                _elig_rank_limit = _band
             _sc = score_src.loc[_ts].dropna()
             # 守擂死区：留任阈值建在「分数」上，而非排名位置——排名会被旁边股票挤动，
-            # 分差只看在任票自身离目标仓位门槛多远，不被后面的股票污染。
-            _cut2 = float(_sc.sort_values(ascending=False).iloc[_n_cur - 1]) if len(_sc) >= _n_cur else (
+            # 分差只看在任票自身离门槛多远，不被后面的股票污染。
+            # 非动态时门槛建在 band 档（Top{band}）的分数上：满仓单票但 band=2 时，
+            # 在任票没掉出 Top2 就留任，换手比盯 Top1 更低。
+            _cut_rank = _n_cur if dynamic_n_hold else _band
+            _cut2 = float(_sc.sort_values(ascending=False).iloc[_cut_rank - 1]) if len(_sc) >= _cut_rank else (
                 float(_sc.iloc[0]) if len(_sc) else float("nan"))
             _delta = kval * (float(_sc.std()) if len(_sc) >= 2 else 0.0)
             # 在任票：分数仍在死区内就留任，不受进场门槛约束（已经进来的不赶）。
@@ -533,17 +542,18 @@ def render_group(
                 "守擂留任": "是" if _kept else "",
             })
         elif n_hold < 2:
-            _held = {t for t in _sa[:n_hold] if t and t != "CASH"}
-            _kept = bool(_raw) and _held != set(_raw)
+            _hticker = _sa[0] if (_sa[0] and _sa[0] != "CASH") else None
+            _kept = _hticker is not None and _hticker != (_raw[0] if _raw else None)
             _pick_rows.append({
                 "来源月 Top1": _nmg(_raw[0] if len(_raw) > 0 else None),
+                "来源月 Top2": _nmg(_raw[1] if len(_raw) > 1 else None),
                 "执行月": _em,
                 "实际持有": _nmg(_sa[0]),
-                "守擂留任": "是" if _kept else "",
+                "守擂留任(非当月Top1)": "是" if _kept else "",
             })
         else:
             _held = {t for t in _sa[:n_hold] if t and t != "CASH"}
-            _kept = bool(_raw) and _held != set(_raw)
+            _kept = bool(_raw) and _held != set(_raw[:n_hold])
             _pick_rows.append({
                 "来源月 Top1(金)": _nmg(_raw[0] if len(_raw) > 0 else None),
                 "来源月 Top2(银)": _nmg(_raw[1] if len(_raw) > 1 else None),
