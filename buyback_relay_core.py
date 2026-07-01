@@ -267,12 +267,25 @@ def render_group(
         if nav_engine == "daily":
             _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
             _seg_l = hv.build_slot_segments(_slots, 0, _exec_months)
+            _seg_r = hv.build_slot_segments(_slots, 1, _exec_months) if n_hold >= 2 else []
             _r = hv.build_nav_from_holdings(
                 _mh, daily_price_cache or {}, spy_daily,
                 top_n=n_hold, cash_rate=0.04, cost_bps=cost_bps,
             )
             _navc = _r["nav"]
-            return _exec_months, _slots, _seg_l, [], _navc, pd.Series(dtype=float), _navc
+            if n_hold < 2:
+                return _exec_months, _slots, _seg_l, [], _navc, pd.Series(dtype=float), _navc
+            _mh_l = {m: [_slots.get(m, ["CASH", "CASH"])[0]] for m in _exec_months}
+            _mh_r = {m: [_slots.get(m, ["CASH", "CASH"])[1]] for m in _exec_months}
+            _nav_l = hv.build_nav_from_holdings(
+                _mh_l, daily_price_cache or {}, spy_daily,
+                top_n=1, cash_rate=0.04, cost_bps=cost_bps,
+            )["nav"]
+            _nav_r = hv.build_nav_from_holdings(
+                _mh_r, daily_price_cache or {}, spy_daily,
+                top_n=1, cash_rate=0.04, cost_bps=cost_bps,
+            )["nav"]
+            return _exec_months, _slots, _seg_l, _seg_r, _nav_l, _nav_r, _navc
         if not price_cache:
             return None
         _slots = hv.build_basket_slot_assignments(_mh, _exec_months)

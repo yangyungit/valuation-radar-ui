@@ -662,7 +662,9 @@ def build_nav_from_holdings(
     nav_parts: list = []
     prev: list = []
     for m in months:
-        basket = [t for t in monthly_holdings.get(m, []) if t and t != "CASH"]
+        raw_basket = [t for t in monthly_holdings.get(m, []) if t]
+        slots = (raw_basket + ["CASH"] * max(top_n - len(raw_basket), 0))[:top_n]
+        basket = [t for t in slots if t != "CASH"]
         sd = pd.Timestamp(f"{m}-01")
         ed = sd + pd.offsets.MonthEnd(1)
         day_idx = cal[(cal >= sd) & (cal <= ed)]
@@ -679,15 +681,23 @@ def build_nav_from_holdings(
                 running_nav = float(part.iloc[-1])
             continue
         valid_paths: list = []
-        for tk in basket:
+        days = (day_idx - day_idx[0]).days.to_numpy()
+        cash_path = pd.Series((1.0 + cash_rate) ** (days / 365.0), index=day_idx, dtype=float)
+        for tk in slots:
+            if tk == "CASH":
+                valid_paths.append(cash_path)
+                continue
             d = price_cache_daily.get(tk)
             if d is None or d.empty:
+                valid_paths.append(cash_path)
                 continue
             win = d[(d.index >= sd) & (d.index <= ed)]
             if len(win) < 2:
+                valid_paths.append(cash_path)
                 continue
             entry = float(win["Open"].iloc[0])
             if entry <= 0:
+                valid_paths.append(cash_path)
                 continue
             path = (win["Close"].astype(float) / entry).reindex(day_idx, method="ffill").bfill()
             valid_paths.append(path)
