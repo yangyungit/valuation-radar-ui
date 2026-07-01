@@ -19,9 +19,10 @@ st.markdown("""
 st.title("🏆 行业龙头接力图 (Sector Leader Relay)")
 st.caption(
     "**池子**:标普 500 按 11 个 GICS 行业大市值龙头 ~165 只。"
-    "**排名**:按 **raw 12M 绝对涨幅**（月末价/12 个月前月末价 − 1）横截面排名，已删进场门槛。"
-    "**🥇 金牌 = 当月 Top1 且 RS_210d > 0(跑赢 SPY)/🥈 银牌 = Top2**。"
-    "**净值口径**:日线、执行月首个交易日 Open 买入、持有到月末 Close、扣单边 10bps；无进场持续性门槛，空仓现金年化 4%。"
+    "**排名**:按 **raw 12M 绝对涨幅**（月末价/12 个月前月末价 − 1）横截面排名。"
+    "**🥇 金牌 = 当月 Top1 / 🥈 银牌 = Top2**（已删 RS 门槛，金银同口径只看排名）。"
+    "**净值口径**:日线、执行月首个交易日 Open 买入、持有到月末 Close、扣单边 10bps；"
+    "新进场须最近 6 月内 ≥2 次进 Top2(滤掉闪现一月的生面孔)，空仓现金年化 4%。"
 )
 
 with st.sidebar:
@@ -29,7 +30,7 @@ with st.sidebar:
         fetch_tech_leader_relay_timeseries.clear()
         st.rerun()
 
-_WINDOWS = ["3Y", "5Y", "10Y"]
+_WINDOWS = ["3Y", "5Y", "9Y"]
 window = st.radio("时间跨度", _WINDOWS, index=1, horizontal=True, key="tl_window")
 
 with st.spinner("📊 加载科技龙头接力数据..."):
@@ -105,7 +106,9 @@ render_group(_label, _cols, "tl_main",
              score_m=king_m, sweep_score_m=king_m_long,
              score_label="12M动量", score_fmt="{:+.1%}",
              default_k=0.75, n_hold=1,
-             entry_min_top2_hits=0,
+             entry_min_top2_hits=2,
+             gold_needs_rs=False,
+             sweep_horizons=[("3Y", 3), ("5Y", 5), ("9Y", 9)],
              show_medal_table=False,
              only_medaled_in_heatmap=True,
              nav_engine="daily",

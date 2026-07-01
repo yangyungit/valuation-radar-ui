@@ -38,6 +38,8 @@ def render_group(
     daily_price_cache: dict = None,
     spy_daily: pd.DataFrame = None,
     cost_bps: float = 0.0,
+    gold_needs_rs: bool = True,
+    sweep_horizons: list = None,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -58,8 +60,12 @@ def render_group(
     rank_m = g_score.rank(axis=1, ascending=False, method="min")
     tier = pd.DataFrame(0, index=rank_m.index, columns=rank_m.columns, dtype=int)
     tier[rank_m <= 2] = 2
-    tier = tier.mask((rank_m == 1) & (g_rs > 0), 3)
-    tier = tier.mask((rank_m == 1) & (g_rs <= 0), 0)
+    if gold_needs_rs:
+        tier = tier.mask((rank_m == 1) & (g_rs > 0), 3)
+        tier = tier.mask((rank_m == 1) & (g_rs <= 0), 0)
+    else:
+        # 已删 RS 门槛：金牌 = Top1、银牌 = Top2，金银同口径只看排名。
+        tier = tier.mask(rank_m == 1, 3)
 
     _confirmed = tier.iloc[:-1] if month_in_progress else tier
 
@@ -290,7 +296,7 @@ def render_group(
     # ── δ 跨 3/5/10Y 稳健性扫描：用最长历史建净值，按尾部 3/5/10Y 各算总收益。
     #    单段峰值 = 过拟合（短窗口噪声最大）；找三段都不差的 δ（plateau 重叠）才稳健。──
     _k_grid = [round(x * 0.25, 2) for x in range(13)]  # 0.00 → 3.00 步长 0.25
-    _HZ = [("3Y", 3), ("5Y", 5), ("10Y", 10)]
+    _HZ = sweep_horizons or [("3Y", 3), ("5Y", 5), ("10Y", 10)]
 
     def _trail_ret(_nav_s, _yrs):
         # 长度不够这段窗口就返回 NaN，不拿短历史冒充长窗口
@@ -335,14 +341,14 @@ def render_group(
         _cand.sort(key=lambda i: (_spread[i] if _spread[i] == _spread[i] else 9e9, -_k_grid[i]))
         _rec_k = _k_grid[_cand[0]]
 
-    _COLOR = {"3Y": "#5DADE2", "5Y": "#FFD700", "10Y": "#E67E22"}
+    _COLOR = {"3Y": "#5DADE2", "5Y": "#FFD700", "9Y": "#E67E22", "10Y": "#E67E22"}
     _sweep_fig = go.Figure()
     for lbl, _ in _HZ:
         if pd.Series(_curves[lbl]).notna().sum() < 2:
             continue
         _sweep_fig.add_trace(go.Scatter(
             x=_k_grid, y=list(_norm[lbl]), mode="lines+markers", name=lbl,
-            line=dict(color=_COLOR[lbl], width=2), marker=dict(size=5),
+            line=dict(color=_COLOR.get(lbl, "#E67E22"), width=2), marker=dict(size=5),
             customdata=_curves[lbl],
             hovertemplate=f"{lbl} δ=%{{x}} → 总收益 %{{customdata:.1f}}%<extra></extra>",
         ))
@@ -359,7 +365,7 @@ def render_group(
         xaxis=dict(title="δ (×横截面标准差)", showgrid=True, gridcolor="#222", dtick=0.25),
         yaxis=dict(title="各段归一化收益 (÷自身峰值)", showgrid=True, gridcolor="#222"),
         title=dict(
-            text="δ 稳健性 · 尾部 3/5/10Y 总收益（各自归一化；三线齐高处=稳健 δ；灰点线=当前 δ）",
+            text=f"δ 稳健性 · 尾部 {'/'.join(l for l, _ in _HZ)} 总收益（各自归一化；三线齐高处=稳健 δ；灰点线=当前 δ）",
             font=dict(size=13), x=0.01, xanchor="left",
         ),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
@@ -377,7 +383,7 @@ def render_group(
             f"对照各段单独最优：{_peaks}——单段峰值各不相同正是过拟合的症状，别照搬，按 δ\\* 钉死。"
         )
     else:
-        st.caption("⚠️ 净值历史不足，无法跨 3/5/10Y 比较 δ（多为长窗口数据未就绪）。")
+        st.caption(f"⚠️ 净值历史不足，无法跨 {'/'.join(l for l, _ in _HZ)} 比较 δ（多为长窗口数据未就绪）。")
 
     _mh, _mh_raw = _holdings_for_k(_k)
     _nav = _build_nav(_mh)
