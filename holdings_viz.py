@@ -131,7 +131,8 @@ def build_slot_segments(slot_assignments: dict, slot_idx: int, months: list) -> 
     segs: list = []
     cur_tk, cur_s, cur_e = None, None, None
     for m in months:
-        tk = slot_assignments.get(m, [None, None])[slot_idx]
+        slots = slot_assignments.get(m, [])
+        tk = slots[slot_idx] if slot_idx < len(slots) else None
         if tk == cur_tk:
             cur_e = m
         else:
@@ -225,33 +226,34 @@ def build_slot_assignments(
 
 
 def build_basket_slot_assignments(monthly_holdings: dict, months: list) -> dict:
-    """把篮子月度持仓 {month: [top1, top2]} 拆成两槽分配，供拼接图用。
+    """把篮子月度持仓 {month: [top1, top2, ...]} 拆成槽位分配，供拼接图用。
     无守擂缓冲，但保持槽位连续：上月在该槽的标的若本月仍持有就留原槽，
-    避免同两只股票顺序变化时左右列来回跳。空仓月填 CASH。
+    避免同一篮子顺序变化时左右列来回跳。空仓月填 CASH。
     """
     slot_assignments: dict = {}
-    prev_slots: list = [None, None]
+    max_slots = max(2, max((len([t for t in monthly_holdings.get(m, []) if t]) for m in months), default=0))
+    prev_slots: list = [None] * max_slots
     for m in months:
         basket = [t for t in monthly_holdings.get(m, []) if t]
         if not basket:
-            slot_assignments[m] = ["CASH", "CASH"]
-            prev_slots = [None, None]
+            slot_assignments[m] = ["CASH"] * max_slots
+            prev_slots = [None] * max_slots
             continue
-        new_slots: list = [None, None]
+        new_slots: list = [None] * max_slots
         assigned: set = set()
-        for si in range(2):
+        for si in range(max_slots):
             if prev_slots[si] and prev_slots[si] in basket:
                 new_slots[si] = prev_slots[si]
                 assigned.add(prev_slots[si])
         for t in basket:
             if t in assigned:
                 continue
-            for si in range(2):
+            for si in range(max_slots):
                 if new_slots[si] is None:
                     new_slots[si] = t
                     assigned.add(t)
                     break
-        slot_assignments[m] = new_slots
+        slot_assignments[m] = [t if t else "CASH" for t in new_slots]
         prev_slots = new_slots
     return slot_assignments
 
@@ -644,7 +646,7 @@ def build_nav_from_holdings(
     monthly_holdings: dict,
     price_cache_daily: dict,
     spy_daily: pd.DataFrame,
-    top_n: int = 1,
+    top_n: int | None = 1,
     cash_rate: float = 0.04,
     cost_bps: float = 10.0,
 ) -> dict:
@@ -661,17 +663,25 @@ def build_nav_from_holdings(
     running_nav = 1.0
     nav_parts: list = []
     prev: list = []
+    prev_slot_count = 0
     for m in months:
         raw_basket = [t for t in monthly_holdings.get(m, []) if t]
-        slots = (raw_basket + ["CASH"] * max(top_n - len(raw_basket), 0))[:top_n]
+        if top_n is None:
+            slots = raw_basket or ["CASH"]
+            slot_count = max(1, len(slots))
+        else:
+            slot_count = max(1, int(top_n))
+            slots = (raw_basket + ["CASH"] * max(slot_count - len(raw_basket), 0))[:slot_count]
         basket = [t for t in slots if t != "CASH"]
         sd = pd.Timestamp(f"{m}-01")
         ed = sd + pd.offsets.MonthEnd(1)
         day_idx = cal[(cal >= sd) & (cal <= ed)]
         traded = len(set(prev) ^ set(basket))
-        if cost_bps and traded and top_n > 0 and len(day_idx) >= 1:
-            running_nav *= max(0.0, 1.0 - (traded / top_n) * cost_bps / 10000.0)
+        cost_denom = max(prev_slot_count, slot_count, 1)
+        if cost_bps and traded and len(day_idx) >= 1:
+            running_nav *= max(0.0, 1.0 - (traded / cost_denom) * cost_bps / 10000.0)
         prev = basket
+        prev_slot_count = slot_count
         if not basket or len(day_idx) < 1:
             if len(day_idx) >= 1:
                 days = (day_idx - day_idx[0]).days.to_numpy()
