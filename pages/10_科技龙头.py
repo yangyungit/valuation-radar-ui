@@ -33,9 +33,9 @@ st.title("🏆 科技龙头接力图 (Tech Leader Relay)")
 st.caption(
     "**池子**:按《科技龙头公司》笔记收缩后的科技龙头清单；页面使用后端当前可用 ticker 的交集。"
     "**排名**:按 **raw 12M 绝对涨幅**（月末价/12 个月前月末价 − 1）横截面排名。"
-    "**🥇 金牌 = 当月 Top1 / 🥈 银牌 = Top2 / 🥉 铜牌 = Top3**（已删 RS 门槛，只看排名）。"
+    "**🥇 金牌 = 当月 Top1 / 🥈 银牌 = Top2**（已删 RS 门槛，只看排名）。"
     "**净值口径**:日线、执行月首个交易日 Open 买入、持有到月末 Close、扣单边 10bps；"
-    "新进场须最近 6 月内 ≥2 次进 Top3(滤掉闪现一月的生面孔)，动态持有 1-3 仓，空仓现金年化 4%。"
+    "新进场须最近 6 月内 ≥2 次进 Top2(滤掉闪现一月的生面孔)，固定双持仓，空仓现金年化 4%。"
 )
 
 with st.sidebar:
@@ -124,7 +124,7 @@ st.markdown(f"## 🏆 科技龙头组（{len(_cols)} 只）")
 render_group(_label, _cols, "tl_main",
              score_m=king_m, sweep_score_m=king_m_long,
              score_label="12M动量", score_fmt="{:+.1%}",
-             default_k=0.75, n_hold=1,
+             default_k=0.75, n_hold=2,
              entry_min_top2_hits=2,
              gold_needs_rs=False,
              sweep_horizons=[("3Y", 3), ("5Y", 5), ("9Y", 9)],
@@ -134,6 +134,4 @@ render_group(_label, _cols, "tl_main",
              daily_price_cache=price_cache_daily,
              spy_daily=spy_daily,
              cost_bps=10.0,
-             dynamic_n_hold=True,
-             max_n_hold=3,
              **_COMMON)
