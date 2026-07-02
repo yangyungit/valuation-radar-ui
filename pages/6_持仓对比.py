@@ -262,7 +262,7 @@ def _render_basket(
     _rebalance_step: int = 1,
 ) -> None:
     _freq_cn = "季度" if _rebalance_step == 3 else "月度"
-    st.markdown(f"**GBDT · 等权 top-2 篮子（{_freq_cn}调仓，日1开盘买，已顺延1月去 look-ahead）**")
+    st.markdown(f"**GBDT · 等权 top-2 篮子（{_freq_cn}调仓，次交易日开盘买，去 look-ahead）**")
     months = sorted(k for k in gbdt if not k.startswith("_"))
     if len(months) < 2:
         st.info("数据不足（月份 < 2）")

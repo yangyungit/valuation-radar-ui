@@ -101,7 +101,8 @@ def daily_to_weekly(d: pd.DataFrame) -> pd.DataFrame:
 
 
 def next_month_key(m: str, k: int = 1) -> str:
-    """'2026-05' + k 个月 → '2026-06'。去 look-ahead 用：决策月顺延执行。"""
+    """'2026-05' + k 个月 → '2026-06'。去 look-ahead 用：M 月末信号落到 M+k 月桶，
+    该桶首个交易日（即信号日的次交易日）开盘执行。"""
     y, mm = int(m[:4]), int(m[5:7])
     mm += k
     y += (mm - 1) // 12
@@ -130,7 +131,8 @@ def build_slot_segments(slot_assignments: dict, slot_idx: int, months: list) -> 
     segs: list = []
     cur_tk, cur_s, cur_e = None, None, None
     for m in months:
-        tk = slot_assignments.get(m, [None, None])[slot_idx]
+        slots = slot_assignments.get(m, [])
+        tk = slots[slot_idx] if slot_idx < len(slots) else None
         if tk == cur_tk:
             cur_e = m
         else:
@@ -151,9 +153,9 @@ def build_slot_assignments(
     gate_closed:      [(month, reason), ...]
     逻辑与 page5 525-596 完全一致。
 
-    shift_months：决策月顺延 N 月执行，去 look-ahead（月 M 的持仓在 M+N 才进场，
-    因为 M 的排名是用截至 M 月末的数据算的）。slot_assignments / gate_closed 的 key
-    随之顺延，下游窗口（月初→月末）自然落在执行月。
+    shift_months：M 月末信号落到 M+N 月桶执行，去 look-ahead（M 的排名用截至 M 月末
+    数据算，只能在 M 月末的次交易日进场，正好是 M+N 月桶的首个交易日）。
+    slot_assignments / gate_closed 的 key 随之顺延，下游窗口（月初→月末）自然落在执行月。
     """
     months = sorted(k for k in history if not k.startswith("_"))
     hold_map: dict = {}
@@ -224,33 +226,34 @@ def build_slot_assignments(
 
 
 def build_basket_slot_assignments(monthly_holdings: dict, months: list) -> dict:
-    """把篮子月度持仓 {month: [top1, top2]} 拆成两槽分配，供拼接图用。
+    """把篮子月度持仓 {month: [top1, top2, ...]} 拆成槽位分配，供拼接图用。
     无守擂缓冲，但保持槽位连续：上月在该槽的标的若本月仍持有就留原槽，
-    避免同两只股票顺序变化时左右列来回跳。空仓月填 CASH。
+    避免同一篮子顺序变化时左右列来回跳。空仓月填 CASH。
     """
     slot_assignments: dict = {}
-    prev_slots: list = [None, None]
+    max_slots = max(2, max((len([t for t in monthly_holdings.get(m, []) if t]) for m in months), default=0))
+    prev_slots: list = [None] * max_slots
     for m in months:
         basket = [t for t in monthly_holdings.get(m, []) if t]
         if not basket:
-            slot_assignments[m] = ["CASH", "CASH"]
-            prev_slots = [None, None]
+            slot_assignments[m] = ["CASH"] * max_slots
+            prev_slots = [None] * max_slots
             continue
-        new_slots: list = [None, None]
+        new_slots: list = [None] * max_slots
         assigned: set = set()
-        for si in range(2):
+        for si in range(max_slots):
             if prev_slots[si] and prev_slots[si] in basket:
                 new_slots[si] = prev_slots[si]
                 assigned.add(prev_slots[si])
         for t in basket:
             if t in assigned:
                 continue
-            for si in range(2):
+            for si in range(max_slots):
                 if new_slots[si] is None:
                     new_slots[si] = t
                     assigned.add(t)
                     break
-        slot_assignments[m] = new_slots
+        slot_assignments[m] = [t if t else "CASH" for t in new_slots]
         prev_slots = new_slots
     return slot_assignments
 
@@ -291,7 +294,7 @@ def build_stitched_fig(
                     n = len(cash_idx)
                     x_vals = list(range(x_offset, x_offset + n))
                     fig.add_trace(go.Scatter(
-                        x=x_vals, y=[running_return] * n,
+                        x=x_vals, y=[max(0.001, 1.0 + running_return / 100)] * n,
                         mode="lines",
                         line=dict(color="#bbbbbb", width=2, dash="dot"),
                         name=f"💰 空仓（{s_m}→{e_m}）",
@@ -316,7 +319,7 @@ def build_stitched_fig(
                             for si, sdt in enumerate(cash_idx):
                                 if sdt in spy_seg.index:
                                     spy_x_all.append(x_offset + si)
-                                    spy_y_all.append(float(spy_cum.loc[sdt]))
+                                    spy_y_all.append(max(0.001, 1.0 + float(spy_cum.loc[sdt]) / 100))
                             spy_running_return = float(spy_cum.iloc[-1])
                     x_offset += n
             continue
@@ -338,7 +341,7 @@ def build_stitched_fig(
         seg_cum = running_return + seg_pct
 
         fig.add_trace(go.Scatter(
-            x=x_vals, y=seg_cum.values, mode="lines",
+            x=x_vals, y=[max(0.001, 1.0 + v / 100) for v in seg_cum], mode="lines",
             line=dict(color=color, width=2),
             name=f"{tk}（{s_m}→{e_m}）",
             showlegend=False,
@@ -353,7 +356,7 @@ def build_stitched_fig(
                 for si, sdt in enumerate(closes.index):
                     if sdt in spy_seg.index:
                         spy_x_all.append(x_offset + si)
-                        spy_y_all.append(float(spy_cum.loc[sdt]))
+                        spy_y_all.append(max(0.001, 1.0 + float(spy_cum.loc[sdt]) / 100))
                 spy_running_return = float(spy_cum.iloc[-1])
 
         tick_vals.append(x_offset + n // 2)
@@ -391,7 +394,10 @@ def build_stitched_fig(
             gridcolor="rgba(100,100,100,0.3)",
         ),
         yaxis=dict(
-            title="累计收益率 (%)", ticksuffix="%",
+            title="NAV（对数，1.0 = 起始）",
+            type="log",
+            tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
+            ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
             gridcolor="rgba(100,100,100,0.3)",
         ),
         annotations=name_annotations,
@@ -534,9 +540,9 @@ def build_basket_nav(
     rebalance_step: int = 1,
     shift_months: int = 1,
 ) -> dict:
-    """等权 top_n 篮子，日1开盘买入 + 顺延执行（去 look-ahead）。
+    """等权 top_n 篮子，次交易日开盘买入（去 look-ahead）。
 
-    决策月 M 的篮子（用截至 M 月末数据算的排名）在 M+shift_months 月才进场，
+    决策月 M 的篮子（用截至 M 月末数据算的排名）在 M+shift_months 月桶进场，
     每 rebalance_step 个月调一次仓（1=月度，3=季度）。进场=执行段首个交易日开盘价，
     持有到段末交易日收盘，按日线走净值，卖出一日卖在调仓点。
     返回的 nav 已降采样到周线，供 compute_nav_kpi（√52 年化）消费。
@@ -636,6 +642,96 @@ def build_basket_nav(
     }
 
 
+def build_nav_from_holdings(
+    monthly_holdings: dict,
+    price_cache_daily: dict,
+    spy_daily: pd.DataFrame,
+    top_n: int | None = 1,
+    cash_rate: float = 0.04,
+    cost_bps: float = 10.0,
+) -> dict:
+    """日线净值：每个执行月首个交易日 Open 买入、持有到月末 Close，按换手只数扣单边 cost_bps。
+    持仓直接吃 monthly_holdings（外部已带 δ 守擂 + 进场门槛选好），内部不再选仓。
+    返回 {"nav"(日线 Series), "nav_wk"(周线 Series 供 KPI), "total_ret", "max_dd"}。
+    """
+    months = sorted(monthly_holdings)
+    empty = {"nav": pd.Series(dtype=float), "nav_wk": pd.Series(dtype=float),
+             "total_ret": 0.0, "max_dd": 0.0}
+    if not months or spy_daily is None or spy_daily.empty:
+        return empty
+    cal = spy_daily.index
+    running_nav = 1.0
+    nav_parts: list = []
+    prev: list = []
+    prev_slot_count = 0
+    for m in months:
+        raw_basket = [t for t in monthly_holdings.get(m, []) if t]
+        if top_n is None:
+            slots = raw_basket or ["CASH"]
+            slot_count = max(1, len(slots))
+        else:
+            slot_count = max(1, int(top_n))
+            slots = (raw_basket + ["CASH"] * max(slot_count - len(raw_basket), 0))[:slot_count]
+        basket = [t for t in slots if t != "CASH"]
+        sd = pd.Timestamp(f"{m}-01")
+        ed = sd + pd.offsets.MonthEnd(1)
+        day_idx = cal[(cal >= sd) & (cal <= ed)]
+        traded = len(set(prev) ^ set(basket))
+        cost_denom = max(prev_slot_count, slot_count, 1)
+        if cost_bps and traded and len(day_idx) >= 1:
+            running_nav *= max(0.0, 1.0 - (traded / cost_denom) * cost_bps / 10000.0)
+        prev = basket
+        prev_slot_count = slot_count
+        if not basket or len(day_idx) < 1:
+            if len(day_idx) >= 1:
+                days = (day_idx - day_idx[0]).days.to_numpy()
+                part = pd.Series(running_nav * (1.0 + cash_rate) ** (days / 365.0),
+                                 index=day_idx, dtype=float)
+                nav_parts.append(part)
+                running_nav = float(part.iloc[-1])
+            continue
+        valid_paths: list = []
+        days = (day_idx - day_idx[0]).days.to_numpy()
+        cash_path = pd.Series((1.0 + cash_rate) ** (days / 365.0), index=day_idx, dtype=float)
+        for tk in slots:
+            if tk == "CASH":
+                valid_paths.append(cash_path)
+                continue
+            d = price_cache_daily.get(tk)
+            if d is None or d.empty:
+                valid_paths.append(cash_path)
+                continue
+            win = d[(d.index >= sd) & (d.index <= ed)]
+            if len(win) < 2:
+                valid_paths.append(cash_path)
+                continue
+            entry = float(win["Open"].iloc[0])
+            if entry <= 0:
+                valid_paths.append(cash_path)
+                continue
+            path = (win["Close"].astype(float) / entry).reindex(day_idx, method="ffill").bfill()
+            valid_paths.append(path)
+        if not valid_paths:
+            days = (day_idx - day_idx[0]).days.to_numpy()
+            part = pd.Series(running_nav * (1.0 + cash_rate) ** (days / 365.0),
+                             index=day_idx, dtype=float)
+            nav_parts.append(part)
+            running_nav = float(part.iloc[-1])
+            continue
+        seg = pd.concat(valid_paths, axis=1).mean(axis=1) * running_nav
+        running_nav = float(seg.iloc[-1])
+        nav_parts.append(seg)
+    if not nav_parts:
+        return empty
+    nav = pd.concat(nav_parts).sort_index()
+    nav = nav[~nav.index.duplicated(keep="last")]
+    nav_wk = nav.resample("W-FRI").last().dropna()
+    total_ret = (float(nav.iloc[-1]) / float(nav.iloc[0]) - 1) * 100
+    peak = nav.cummax()
+    max_dd = float(((peak - nav) / peak.replace(0, float("nan"))).max()) * 100
+    return {"nav": nav, "nav_wk": nav_wk, "total_ret": total_ret, "max_dd": max_dd}
+
+
 def build_combined_fig(
     nav_l: pd.Series,
     nav_r: pd.Series,
@@ -651,9 +747,9 @@ def build_combined_fig(
     if nav_combined.empty:
         return fig
 
-    def _pct(s: pd.Series) -> pd.Series:
+    def _nav_rel(s: pd.Series) -> pd.Series:
         s = s.astype(float).dropna()
-        return (s / float(s.iloc[0]) - 1) * 100 if not s.empty else s
+        return s / float(s.iloc[0]) if not s.empty else s
 
     # SPY 对齐到合成曲线的时间区间（最底层）
     if spy_wk is not None and not spy_wk.empty:
@@ -661,32 +757,32 @@ def build_combined_fig(
         spy_seg = spy_wk[(spy_wk.index >= sd) & (spy_wk.index <= ed)]["Close"]
         spy_seg = spy_seg.astype(float).dropna()
         if len(spy_seg) >= 2:
-            spy_pct = (spy_seg / float(spy_seg.iloc[0]) - 1) * 100
+            spy_nav = spy_seg / float(spy_seg.iloc[0])
             fig.add_trace(go.Scatter(
-                x=spy_pct.index, y=spy_pct.values, mode="lines",
-                name=f"SPY {float(spy_pct.iloc[-1]):+.1f}%",
+                x=spy_nav.index, y=spy_nav.values, mode="lines",
+                name=f"SPY {(float(spy_nav.iloc[-1]) - 1) * 100:+.1f}%",
                 line=dict(color="rgba(170,170,170,0.45)", width=1.5, dash="dot"),
             ))
 
     if not nav_l.empty:
-        l_pct = _pct(nav_l)
+        l_nav = _nav_rel(nav_l)
         fig.add_trace(go.Scatter(
-            x=l_pct.index, y=l_pct.values, mode="lines",
-            name=f"左列 Slot 0 {float(l_pct.iloc[-1]):+.1f}%",
+            x=l_nav.index, y=l_nav.values, mode="lines",
+            name=f"左列 Slot 0 {(float(l_nav.iloc[-1]) - 1) * 100:+.1f}%",
             line=dict(color="rgba(46,204,113,0.7)", width=1.5),
         ))
     if not nav_r.empty:
-        r_pct = _pct(nav_r)
+        r_nav = _nav_rel(nav_r)
         fig.add_trace(go.Scatter(
-            x=r_pct.index, y=r_pct.values, mode="lines",
-            name=f"右列 Slot 1 {float(r_pct.iloc[-1]):+.1f}%",
+            x=r_nav.index, y=r_nav.values, mode="lines",
+            name=f"右列 Slot 1 {(float(r_nav.iloc[-1]) - 1) * 100:+.1f}%",
             line=dict(color="rgba(52,152,219,0.7)", width=1.5),
         ))
 
-    a_pct = _pct(nav_combined)
+    a_nav = _nav_rel(nav_combined)
     fig.add_trace(go.Scatter(
-        x=a_pct.index, y=a_pct.values, mode="lines",
-        name=f"A 曲线（50/50 合成） {float(a_pct.iloc[-1]):+.1f}%",
+        x=a_nav.index, y=a_nav.values, mode="lines",
+        name=f"A 曲线（50/50 合成） {(float(a_nav.iloc[-1]) - 1) * 100:+.1f}%",
         line=dict(color="#F1C40F", width=3),
     ))
 
@@ -694,7 +790,10 @@ def build_combined_fig(
         title=title,
         xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
         yaxis=dict(
-            title="累计收益率 (%)", ticksuffix="%",
+            title="NAV（对数，1.0 = 起始）",
+            type="log",
+            tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
+            ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
             gridcolor="rgba(100,100,100,0.3)",
         ),
         height=480, margin=dict(l=10, r=10, t=44, b=60),
