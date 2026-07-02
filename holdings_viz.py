@@ -809,27 +809,30 @@ def build_basket_fig(nav: pd.Series, spy_wk: pd.DataFrame, title: str) -> go.Fig
     fig = go.Figure()
     if nav.empty:
         return fig
-    nav_pct = (nav / float(nav.iloc[0]) - 1) * 100
+    nav_rel = nav.astype(float) / float(nav.iloc[0])
     fig.add_trace(go.Scatter(
-        x=nav_pct.index, y=nav_pct.values,
-        mode="lines", name=title,
+        x=nav_rel.index, y=nav_rel.values,
+        mode="lines", name=f"{title} {(float(nav_rel.iloc[-1]) - 1) * 100:+.1f}%",
         line=dict(color="#F1C40F", width=2),
     ))
     if spy_wk is not None and not spy_wk.empty:
         spy_mask = (spy_wk.index >= nav.index[0]) & (spy_wk.index <= nav.index[-1])
         spy_seg = spy_wk[spy_mask]["Close"].astype(float).dropna()
         if len(spy_seg) >= 2:
-            spy_pct = (spy_seg / float(spy_seg.iloc[0]) - 1) * 100
+            spy_rel = spy_seg / float(spy_seg.iloc[0])
             fig.add_trace(go.Scatter(
-                x=spy_pct.index, y=spy_pct.values,
-                mode="lines", name="SPY",
+                x=spy_rel.index, y=spy_rel.values,
+                mode="lines", name=f"SPY {(float(spy_rel.iloc[-1]) - 1) * 100:+.1f}%",
                 line=dict(color="#888", width=1.5, dash="dot"),
             ))
     fig.update_layout(
         title=title,
         xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
         yaxis=dict(
-            title="累计收益率 (%)", ticksuffix="%",
+            title="NAV（对数，1.0 = 起始）",
+            type="log",
+            tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
+            ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
             gridcolor="rgba(100,100,100,0.3)",
         ),
         height=480, margin=dict(l=10, r=10, t=44, b=60),

@@ -2775,7 +2775,7 @@ def fetch_gbdt_oos_prices(tickers: tuple) -> dict:
         r = requests.post(
             f"{API_BASE_URL}/api/v1/gbdt/oos_prices",
             json={"tickers": list(tickers)},
-            timeout=60,
+            timeout=180,
         )
         r.raise_for_status()
         return r.json().get("prices", {}) or {}

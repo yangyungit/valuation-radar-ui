@@ -29,6 +29,7 @@ st.caption(
 with st.sidebar:
     if st.button("🔄 强制刷新标普500接力数据"):
         fetch_sp500_pit_relay_timeseries.clear()
+        fetch_gbdt_oos_prices.clear()
         st.rerun()
 
 _WINDOWS = ["3Y", "5Y", "10Y"]
