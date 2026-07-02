@@ -96,13 +96,13 @@ def render_slot_segment_returns(dd: dict) -> bool:
         for cell in row.get("slots", []):
             all_labels.append(_holding_label(cell))
     color_map = _ticker_color_map(all_labels)
-    strategy_total = _pct_series((dd.get("equity") or {}).get("strategy", []), dates)
-    spy = _pct_series((dd.get("equity") or {}).get("spy", []), dates)
+    strategy_total = _norm_series((dd.get("equity") or {}).get("strategy", []), dates)
+    spy = _norm_series((dd.get("equity") or {}).get("spy", []), dates)
 
     for slot_row in slot_equity:
         slot_i = int(slot_row.get("slot", 0))
         slot_name = _SLOT_LABELS[slot_i] if slot_i < len(_SLOT_LABELS) else f"槽{slot_i + 1}"
-        slot_s = _pct_series(slot_row.get("equity", []), dates)
+        slot_s = _norm_series(slot_row.get("equity", []), dates)
         if slot_s.empty:
             continue
         segments = _build_slot_segments(timeline, slot_i)
@@ -132,7 +132,7 @@ def render_slot_segment_returns(dd: dict) -> bool:
                 name=lab,
                 line=dict(color=color_map.get(lab, "#BDC3C7"), width=2.3 if lab != "BIL" else 1.6),
                 showlegend=lab not in shown_labels,
-                hovertemplate=f"{slot_name}｜{lab}<br>%{{x|%Y-%m-%d}}<br>累计收益 %{{y:.1f}}%<extra></extra>",
+                hovertemplate=f"{slot_name}｜{lab}<br>%{{x|%Y-%m-%d}}<br>净值 %{{y:.3f}}<extra></extra>",
             ))
             shown_labels.add(lab)
             if annotate and lab != "BIL" and len(seg_s) >= 5:
@@ -141,24 +141,12 @@ def render_slot_segment_returns(dd: dict) -> bool:
                     showarrow=False, yshift=12,
                     font=dict(size=12, color=color_map.get(lab, "#BDC3C7")),
                 )
-        range_parts = [slot_s]
-        if not strategy_total.empty:
-            range_parts.append(strategy_total)
-        if not spy.empty:
-            range_parts.append(spy)
-        range_values = pd.concat(range_parts).dropna()
-        if not range_values.empty:
-            y_min = float(range_values.min())
-            y_max = float(range_values.max())
-            y_span = max(y_max - y_min, 10.0)
-            y_range = [min(0.0, y_min - y_span * 0.06), y_max + y_span * 0.18]
-            fig.update_yaxes(range=y_range)
-
         fig.update_layout(
             height=420, hovermode="x unified", template="plotly_dark",
             margin=dict(l=10, r=10, t=52, b=12),
             legend=dict(orientation="h", y=1.1),
-            yaxis_title="累计收益率(%)",
+            yaxis_title="净值（对数轴）",
+            yaxis_type="log",
             title=f"{slot_name} — 分段收益 vs 组合总收益",
         )
         st.plotly_chart(fig, use_container_width=True, key=f"dd_slot_segment_{slot_i}")
@@ -404,7 +392,9 @@ if _dd.get("success"):
     _fig_eq.update_layout(
         height=420, hovermode="x unified", template="plotly_dark",
         margin=dict(l=10, r=10, t=30, b=10),
-        legend=dict(orientation="h", y=1.08), yaxis_title="净值",
+        legend=dict(orientation="h", y=1.08),
+        yaxis_title="净值（对数轴）",
+        yaxis_type="log",
     )
     st.plotly_chart(_fig_eq, use_container_width=True)
     st.caption("当前组合主图保留戴金Top2、动量TopN/K、防抖TopN/δ和SPY；点图例可展开 RSP / 11行业ETF等权")
