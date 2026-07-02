@@ -109,6 +109,17 @@ def _mask_by_membership(df: pd.DataFrame) -> pd.DataFrame:
 
 king_m = _mask_by_membership(king_m)
 
+# king_m 来自日线价格缓存（永远全历史），与 radio 的 window 无关。
+# 展示用的热力图/NAV 走 score_m=king_m，必须按选中跨度裁剪，否则选 5Y 也画 10Y。
+# king_m_long 保留全历史，供 δ 稳健性扫描切尾部 3/5/10Y。
+king_m_long = king_m
+_WIN_YEARS = {"3Y": 3, "5Y": 5, "10Y": 10}
+_win_start = king_m.index[-1] - pd.DateOffset(years=_WIN_YEARS.get(window, 10))
+king_m = king_m[king_m.index >= _win_start]
+if king_m.empty or len(king_m) < 2:
+    st.warning("⚠️ 选中窗口内月末快照数据不足")
+    st.stop()
+
 _last_month = king_m.index[-1]
 _month_in_progress = bool(pd.notna(asof) and _last_month.to_period("M").end_time.normalize() > asof.normalize())
 
@@ -118,8 +129,6 @@ _COMMON = dict(
     price_cache=price_cache, spy_wk=spy_wk,
 )
 
-
-king_m_long = king_m
 
 _cols = list(king_m.columns)
 _label = "标普500"
