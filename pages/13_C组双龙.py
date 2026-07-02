@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+import holdings_viz as hv
 from api_client import fetch_dynasty_double_dragon
 
 st.set_page_config(page_title="C组双龙", layout="wide")
@@ -18,25 +19,11 @@ _DYNASTY_TAB_WINDOWS = ["3Y", "5Y", "10Y"]
 _SLOT_LABELS = ["槽A", "槽B", "槽C", "槽D", "槽E"]
 _DD_MOMENTUM_STRATEGY = "sp500_12m_ma200_k_guard"
 _DD_DELTA_STRATEGY = "sp500_12m_ma200_delta_guard"
-_DD_PALETTE = (
-    px.colors.qualitative.Dark24
-    + px.colors.qualitative.Light24
-    + px.colors.qualitative.Alphabet
-)
-
-
 def _norm_series(values, dates) -> pd.Series:
     if not values or len(values) != len(dates):
         return pd.Series(dtype=float)
     s = pd.Series(values, index=dates).astype(float).dropna()
     return s
-
-
-def _pct_series(values, dates) -> pd.Series:
-    s = _norm_series(values, dates)
-    if s.empty:
-        return s
-    return (s - 1.0) * 100.0
 
 
 def _holding_label(cell: dict | None) -> str:
@@ -47,18 +34,13 @@ def _holding_label(cell: dict | None) -> str:
     return str(cell.get("ticker", "—") or "—")
 
 
-def _ticker_color_map(labels: list[str]) -> dict[str, str]:
-    colors = {"BIL": "#7f8c8d", "—": "#7f8c8d"}
-    real_labels = [lab for lab in labels if lab not in colors]
-    for i, lab in enumerate(dict.fromkeys(real_labels)):
-        colors[lab] = _DD_PALETTE[i % len(_DD_PALETTE)]
-    return colors
-
-
-def _build_slot_segments(timeline: list[dict], slot_i: int) -> list[dict]:
-    rows = []
+def _slot_month_segments(timeline: list[dict], slot_i: int) -> list[tuple]:
+    """把某个槽的月度持仓压成 [(ticker_or_CASH, 起始月, 结束月), ...]，BIL/空档折成 CASH，
+    喂给 holdings_viz.build_stitched_fig（与 10_科技龙头 同一套接力段渲染）。"""
+    segs: list[tuple] = []
     prev = None
-    start = None
+    s_m = None
+    last_m = None
     for h in timeline:
         month = str(h.get("month", ""))
         if not month:
@@ -66,22 +48,16 @@ def _build_slot_segments(timeline: list[dict], slot_i: int) -> list[dict]:
         slots = h.get("slots", [])
         cell = slots[slot_i] if slot_i < len(slots) else None
         lab = _holding_label(cell)
+        lab = "CASH" if lab in ("BIL", "—") else lab
         if lab != prev:
-            if prev is not None and prev != "—":
-                rows.append({
-                    "label": prev,
-                    "start": start,
-                    "finish": pd.Timestamp(month + "-01"),
-                })
+            if prev is not None:
+                segs.append((prev, s_m, last_m))
             prev = lab
-            start = pd.Timestamp(month + "-01")
-    if prev is not None and prev != "—" and timeline:
-        rows.append({
-            "label": prev,
-            "start": start,
-            "finish": pd.Timestamp(str(timeline[-1]["month"]) + "-01") + pd.offsets.MonthBegin(1),
-        })
-    return rows
+            s_m = month
+        last_m = month
+    if prev is not None:
+        segs.append((prev, s_m, last_m))
+    return segs
 
 
 def render_slot_segment_returns(dd: dict) -> bool:
@@ -91,13 +67,8 @@ def render_slot_segment_returns(dd: dict) -> bool:
     if not slot_equity or not timeline or len(dates) == 0:
         return False
 
-    all_labels = []
-    for row in timeline:
-        for cell in row.get("slots", []):
-            all_labels.append(_holding_label(cell))
-    color_map = _ticker_color_map(all_labels)
-    strategy_total = _norm_series((dd.get("equity") or {}).get("strategy", []), dates)
     spy = _norm_series((dd.get("equity") or {}).get("spy", []), dates)
+    spy_wk = pd.DataFrame({"Close": spy}) if not spy.empty else pd.DataFrame()
 
     for slot_row in slot_equity:
         slot_i = int(slot_row.get("slot", 0))
@@ -105,49 +76,13 @@ def render_slot_segment_returns(dd: dict) -> bool:
         slot_s = _norm_series(slot_row.get("equity", []), dates)
         if slot_s.empty:
             continue
-        segments = _build_slot_segments(timeline, slot_i)
-        fig = go.Figure()
-        if not spy.empty:
-            fig.add_trace(go.Scatter(
-                x=spy.index, y=spy.values, name="SPY",
-                line=dict(color="#95A5A6", width=1.3, dash="dot"),
-            ))
-        if not strategy_total.empty:
-            fig.add_trace(go.Scatter(
-                x=strategy_total.index, y=strategy_total.values, name="组合总收益",
-                line=dict(color="#B8C0CC", width=1.7, dash="dash"),
-                opacity=0.78,
-            ))
-
-        shown_labels = set()
-        annotate = len(segments) <= 22
-        for seg in segments:
-            mask = (slot_s.index >= seg["start"]) & (slot_s.index < seg["finish"])
-            seg_s = slot_s.loc[mask]
-            if seg_s.empty:
-                continue
-            lab = seg["label"]
-            fig.add_trace(go.Scatter(
-                x=seg_s.index, y=seg_s.values,
-                name=lab,
-                line=dict(color=color_map.get(lab, "#BDC3C7"), width=2.3 if lab != "BIL" else 1.6),
-                showlegend=lab not in shown_labels,
-                hovertemplate=f"{slot_name}｜{lab}<br>%{{x|%Y-%m-%d}}<br>净值 %{{y:.3f}}<extra></extra>",
-            ))
-            shown_labels.add(lab)
-            if annotate and lab != "BIL" and len(seg_s) >= 5:
-                fig.add_annotation(
-                    x=seg_s.index[0], y=seg_s.iloc[0], text=lab,
-                    showarrow=False, yshift=12,
-                    font=dict(size=12, color=color_map.get(lab, "#BDC3C7")),
-                )
-        fig.update_layout(
-            height=420, hovermode="x unified", template="plotly_dark",
-            margin=dict(l=10, r=10, t=52, b=12),
-            legend=dict(orientation="h", y=1.1),
-            yaxis_title="净值（对数轴）",
-            yaxis_type="log",
-            title=f"{slot_name} — 分段收益 vs 组合总收益",
+        segs = _slot_month_segments(timeline, slot_i)
+        if not segs:
+            continue
+        # 槽净值本身就是该槽持仓的连续净值，按段切片即得每段真实涨跌，无需逐票拉价。
+        price_cache = {tk: pd.DataFrame({"Close": slot_s}) for tk, _, _ in segs if tk != "CASH"}
+        fig = hv.build_stitched_fig(
+            segs, f"{slot_name}接力 持仓段", spy_wk, price_cache, {}, {},
         )
         st.plotly_chart(fig, use_container_width=True, key=f"dd_slot_segment_{slot_i}")
     return True
