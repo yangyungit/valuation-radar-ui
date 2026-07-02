@@ -31,7 +31,7 @@ with st.sidebar:
         fetch_sp500_pit_relay_timeseries.clear()
         st.rerun()
 
-_WINDOWS = ["3Y", "5Y", "9Y"]
+_WINDOWS = ["3Y", "5Y", "10Y"]
 window = st.radio("时间跨度", _WINDOWS, index=1, horizontal=True, key="tl_window")
 
 with st.spinner("📊 加载标普500 PIT 接力数据..."):
@@ -130,7 +130,7 @@ render_group(_label, _cols, "tl_main",
              default_k=0.75, n_hold=1, hold_band=2,
              entry_min_top2_hits=2,
              gold_needs_rs=False,
-             sweep_horizons=[("3Y", 3), ("5Y", 5), ("9Y", 9)],
+             sweep_horizons=[("3Y", 3), ("5Y", 5), ("10Y", 10)],
              show_medal_table=False,
              only_medaled_in_heatmap=True,
              nav_engine="daily",

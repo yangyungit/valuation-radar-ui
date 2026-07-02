@@ -110,8 +110,8 @@ st.caption(
     f"**主线A**：C组王朝接力图戴金板块 → 板块内王朝龙头区间超额 Top{_dd_n_cur} → 下月执行。"
     "**主线B**：当前标普500股票池 → 12M 动量 + MA200 → TopN/K 守擂 → 下月执行。"
     "**主线C**：同一套 12M 动量候选池 → TopN/分差 δ 防抖守擂 → 下月执行。"
-    "**诚实声明**：信号**不看未来**、可执行规则模拟；但股票池=**当前**标普500成分，"
-    "**含生存者偏差**（缺历史上被剔除/退市/收购的公司），结果偏乐观 → **研究原型，非真实业绩**。"
+    "**诚实声明**：信号**不看未来**、可执行规则模拟；股票池=**逐月真实标普500成分**"
+    "（PIT，Sharadar 数据含当年被剔除/退市/收购的公司），**已去生存者偏差**。"
 )
 
 _strategy_options = {
@@ -219,8 +219,8 @@ if _dd.get("success"):
         _dd_delta_display.metric("自动防抖强度", _delta_k_txt)
 
     _notes = []
-    if not _meta.get("legacy_date_added_used"):
-        _notes.append("旧动量策略未启用入指数日过滤（date_added 不可靠）")
+    if _meta.get("pit_membership_gated"):
+        _notes.append("已按逐月真实成分选股（PIT，含退市，去生存者偏差）")
     if not _meta.get("bil_available"):
         _notes.append("BIL 历史缺失，BIL 持有段按现金 0 收益")
     if not _meta.get("rsp_available"):
