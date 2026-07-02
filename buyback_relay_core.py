@@ -433,9 +433,10 @@ def render_group(
     for lbl, _ in _HZ:
         if pd.Series(_curves[lbl]).notna().sum() < 2:
             continue
+        _lw = 4 if lbl == "3Y" else 2  # 3Y 加粗，避免和 5Y 归一化曲线重合时被金线整条盖住
         _sweep_fig.add_trace(go.Scatter(
             x=_k_grid, y=list(_norm[lbl]), mode="lines+markers", name=lbl,
-            line=dict(color=_COLOR.get(lbl, "#E67E22"), width=2), marker=dict(size=5),
+            line=dict(color=_COLOR.get(lbl, "#E67E22"), width=_lw), marker=dict(size=5),
             customdata=_curves[lbl],
             hovertemplate=f"{lbl} δ=%{{x}} → 总收益 %{{customdata:.1f}}%<extra></extra>",
         ))
