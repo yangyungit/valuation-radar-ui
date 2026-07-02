@@ -67,16 +67,34 @@ def render_slot_segment_returns(dd: dict) -> bool:
     if not slot_equity or not timeline or len(dates) == 0:
         return False
 
+    # 时间窗口：拖动后裁到窗口内的段，build_stitched_fig 会把窗口最左端归一为 1、
+    # SPY 同样从窗口起点对齐；y 轴对数自适应。方便看清早期段（如 2018 单票 -64% 回撤）。
+    _valid = dates.dropna()
+    win_lo, win_hi = _valid.min(), _valid.max()
+    if pd.notna(win_lo) and pd.notna(win_hi) and win_lo < win_hi:
+        _lo_py, _hi_py = win_lo.to_pydatetime(), win_hi.to_pydatetime()
+        _sel = st.slider(
+            "分段图时间窗口（拖动重设起点，各段与 SPY 在窗口最左端对齐归一）",
+            min_value=_lo_py, max_value=_hi_py, value=(_lo_py, _hi_py),
+            format="YYYY-MM", key="dd_slot_window",
+        )
+        win_lo, win_hi = pd.Timestamp(_sel[0]), pd.Timestamp(_sel[1])
+    lo_m, hi_m = win_lo.strftime("%Y-%m"), win_hi.strftime("%Y-%m")
+
     spy = _norm_series((dd.get("equity") or {}).get("spy", []), dates)
+    spy = spy[(spy.index >= win_lo) & (spy.index <= win_hi)]
     spy_wk = pd.DataFrame({"Close": spy}) if not spy.empty else pd.DataFrame()
 
     for slot_row in slot_equity:
         slot_i = int(slot_row.get("slot", 0))
         slot_name = _SLOT_LABELS[slot_i] if slot_i < len(_SLOT_LABELS) else f"槽{slot_i + 1}"
         slot_s = _norm_series(slot_row.get("equity", []), dates)
+        slot_s = slot_s[(slot_s.index >= win_lo) & (slot_s.index <= win_hi)]
         if slot_s.empty:
             continue
         segs = _slot_month_segments(timeline, slot_i)
+        # 只留与窗口月份有交集的段；build_stitched_fig 按窗口内实际数据把首点归一为 1。
+        segs = [s for s in segs if not (s[2] < lo_m or s[1] > hi_m)]
         if not segs:
             continue
         # 槽净值本身就是该槽持仓的连续净值，按段切片即得每段真实涨跌，无需逐票拉价。
@@ -300,7 +318,7 @@ if _dd.get("success"):
             st.markdown(_slot_html, unsafe_allow_html=True)
 
     # ── 净值曲线
-    st.markdown("##### 选中版本组合收益（窗口起点归一为 1）")
+    st.markdown("##### 选中版本组合收益（起点归一为 1）")
     _eq = _dd.get("equity", {})
     _dd_dates = pd.to_datetime(_dd.get("dates", []), errors="coerce")
     _series_cfg = [
@@ -311,32 +329,14 @@ if _dd.get("success"):
         ("rsp", "RSP 等权标普", "#9B59B6", False),
         ("eqw11", "11行业ETF等权", "#16A085", False),
     ]
-
-    # 时间窗口：拖动后把所有曲线在窗口最左端重新归一为 1、y 轴自适应，方便看清早期段（如 2018 回撤）
-    _win_lo, _win_hi = _dd_dates.min(), _dd_dates.max()
-    if pd.notna(_win_lo) and pd.notna(_win_hi) and _win_lo < _win_hi:
-        _lo_py, _hi_py = _win_lo.to_pydatetime(), _win_hi.to_pydatetime()
-        _sel = st.slider(
-            "净值窗口（拖动重设起点，所有曲线在窗口最左端对齐归一）",
-            min_value=_lo_py, max_value=_hi_py, value=(_lo_py, _hi_py),
-            format="YYYY-MM", key="dd_eq_window",
-        )
-        _sel_lo, _sel_hi = pd.Timestamp(_sel[0]), pd.Timestamp(_sel[1])
-    else:
-        _sel_lo, _sel_hi = _win_lo, _win_hi
-
     _fig_eq = go.Figure()
     for _key, _name, _color, _vis_default in _series_cfg:
         _vals = _eq.get(_key, []) or []
         if not _vals:
             continue
         _s = pd.Series(_vals, index=_dd_dates).astype(float).dropna()
-        _s = _s[(_s.index >= _sel_lo) & (_s.index <= _sel_hi)]
         if _s.empty:
             continue
-        _base = _s.iloc[0]
-        if _base and _base > 0:
-            _s = _s / _base
         _fig_eq.add_trace(go.Scatter(
             x=_s.index, y=_s.values, name=_name,
             line=dict(color=_color, width=2 if _vis_default else 1.4),
@@ -346,10 +346,11 @@ if _dd.get("success"):
         height=420, hovermode="x unified", template="plotly_dark",
         margin=dict(l=10, r=10, t=30, b=10),
         legend=dict(orientation="h", y=1.08),
-        yaxis=dict(title="净值（窗口起点=1，对数轴）", type="log", autorange=True),
+        yaxis_title="净值（对数轴）",
+        yaxis_type="log",
     )
     st.plotly_chart(_fig_eq, use_container_width=True)
-    st.caption("拖上方滑杆选时间段，所有曲线（含 SPY）在窗口最左端重新归一为 1、y 轴自适应；点图例可展开 RSP / 11行业ETF等权")
+    st.caption("当前组合主图保留戴金Top2、动量TopN/K、防抖TopN/δ和SPY；点图例可展开 RSP / 11行业ETF等权")
 
     # ── 统计卡
     st.markdown("##### 统计卡")
