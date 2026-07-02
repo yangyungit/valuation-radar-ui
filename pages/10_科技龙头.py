@@ -147,4 +147,5 @@ render_group(_label, _cols, "tl_main",
              daily_price_cache=price_cache_daily,
              spy_daily=spy_daily,
              cost_bps=10.0,
+             segment_window_slider=True,
              **_COMMON)

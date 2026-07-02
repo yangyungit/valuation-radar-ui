@@ -11,6 +11,28 @@ _BADGE = {0: "⚪ 灰", 1: "🥉 铜", 2: "🥈 银", 3: "🥇 金"}
 _ENTRY_MIN_TOP2_HITS = 2
 
 
+def _crop_segments_by_slider(segs: list, spy_wk: pd.DataFrame, key: str):
+    """在接力持仓段上方放一个时间窗口拉杆（同 13_C组双龙）。拖动后只留与窗口有交集的段，
+    build_stitched_fig 会把窗口最左端归一为 1、SPY 同样从窗口起点对齐，方便看清早期段。"""
+    _months = [pd.Timestamp(f"{s}-01") for _, s, _ in segs] + [pd.Timestamp(f"{e}-01") for _, _, e in segs]
+    win_lo, win_hi = min(_months), max(_months)
+    if win_lo < win_hi:
+        _lo_py, _hi_py = win_lo.to_pydatetime(), win_hi.to_pydatetime()
+        _sel = st.slider(
+            "分段图时间窗口（拖动重设起点，各段与 SPY 在窗口最左端对齐归一）",
+            min_value=_lo_py, max_value=_hi_py, value=(_lo_py, _hi_py),
+            format="YYYY-MM", key=f"{key}_seg_window",
+        )
+        win_lo, win_hi = pd.Timestamp(_sel[0]), pd.Timestamp(_sel[1])
+    lo_m, hi_m = win_lo.strftime("%Y-%m"), win_hi.strftime("%Y-%m")
+    _segs = [s for s in segs if not (s[2] < lo_m or s[1] > hi_m)]
+    _spy = spy_wk
+    if spy_wk is not None and not spy_wk.empty:
+        _hi_end = win_hi + pd.offsets.MonthEnd(1)
+        _spy = spy_wk[(spy_wk.index >= win_lo) & (spy_wk.index <= _hi_end)]
+    return _segs, _spy
+
+
 def render_group(
     group_label: str,
     cols: list,
@@ -43,6 +65,7 @@ def render_group(
     sweep_horizons: list = None,
     dynamic_n_hold: bool = False,
     max_n_hold: int = 3,
+    segment_window_slider: bool = False,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -498,8 +521,11 @@ def render_group(
             hv.build_basket_fig(_navc, spy_wk, f"{group_label} Top1 满仓 — 净值 vs SPY"),
             use_container_width=True, key=f"{kp}_nav_combined",
         )
+        _seg0, _spy_seg = _slot_segs[0], spy_wk
+        if segment_window_slider and _seg0:
+            _seg0, _spy_seg = _crop_segments_by_slider(_seg0, spy_wk, kp)
         st.plotly_chart(
-            hv.build_stitched_fig(_slot_segs[0], f"{group_label}接力 持仓段", spy_wk, price_cache, name_map, grade_map),
+            hv.build_stitched_fig(_seg0, f"{group_label}接力 持仓段", _spy_seg, price_cache, name_map, grade_map),
             use_container_width=True, key=f"{kp}_nav_l",
         )
     else:
