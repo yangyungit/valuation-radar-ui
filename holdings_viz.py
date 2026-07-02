@@ -274,7 +274,7 @@ def build_stitched_fig(
     tick_texts: list = []
     boundary_xs: list = []
     name_annotations: list = []
-    running_return = 0.0
+    running_nav = 1.0
     spy_close = (
         spy_wk["Close"].astype(float).dropna()
         if spy_wk is not None and not spy_wk.empty
@@ -282,7 +282,7 @@ def build_stitched_fig(
     )
     spy_x_all: list = []
     spy_y_all: list = []
-    spy_running_return = 0.0
+    spy_running_nav = 1.0
 
     for ci, (tk, s_m, e_m) in enumerate(segs):
         if tk == "CASH":
@@ -294,7 +294,7 @@ def build_stitched_fig(
                     n = len(cash_idx)
                     x_vals = list(range(x_offset, x_offset + n))
                     fig.add_trace(go.Scatter(
-                        x=x_vals, y=[max(0.001, 1.0 + running_return / 100)] * n,
+                        x=x_vals, y=[max(0.001, running_nav)] * n,
                         mode="lines",
                         line=dict(color="#bbbbbb", width=2, dash="dot"),
                         name=f"💰 空仓（{s_m}→{e_m}）",
@@ -314,13 +314,12 @@ def build_stitched_fig(
                     if spy_close is not None:
                         spy_seg = spy_close.reindex(cash_idx, method="ffill").bfill().dropna()
                         if len(spy_seg) >= 2:
-                            spy_pct = (spy_seg / float(spy_seg.iloc[0]) - 1) * 100
-                            spy_cum = spy_running_return + spy_pct
+                            spy_nav = (spy_seg / float(spy_seg.iloc[0])) * spy_running_nav
                             for si, sdt in enumerate(cash_idx):
                                 if sdt in spy_seg.index:
                                     spy_x_all.append(x_offset + si)
-                                    spy_y_all.append(max(0.001, 1.0 + float(spy_cum.loc[sdt]) / 100))
-                            spy_running_return = float(spy_cum.iloc[-1])
+                                    spy_y_all.append(max(0.001, float(spy_nav.loc[sdt])))
+                            spy_running_nav = float(spy_nav.iloc[-1])
                     x_offset += n
             continue
 
@@ -337,27 +336,25 @@ def build_stitched_fig(
         n = len(closes)
         x_vals = list(range(x_offset, x_offset + n))
         color = SLOT_COLORS[ci % len(SLOT_COLORS)]
-        seg_pct = (closes / float(closes.iloc[0]) - 1) * 100
-        seg_cum = running_return + seg_pct
+        seg_nav = (closes / float(closes.iloc[0])) * running_nav
 
         fig.add_trace(go.Scatter(
-            x=x_vals, y=[max(0.001, 1.0 + v / 100) for v in seg_cum], mode="lines",
+            x=x_vals, y=[max(0.001, v) for v in seg_nav], mode="lines",
             line=dict(color=color, width=2),
             name=f"{tk}（{s_m}→{e_m}）",
             showlegend=False,
         ))
-        running_return = float(seg_cum.iloc[-1])
+        running_nav = float(seg_nav.iloc[-1])
 
         if spy_close is not None:
             spy_seg = spy_close.reindex(closes.index, method="ffill").bfill().dropna()
             if len(spy_seg) >= 2:
-                spy_pct = (spy_seg / float(spy_seg.iloc[0]) - 1) * 100
-                spy_cum = spy_running_return + spy_pct
+                spy_nav = (spy_seg / float(spy_seg.iloc[0])) * spy_running_nav
                 for si, sdt in enumerate(closes.index):
                     if sdt in spy_seg.index:
                         spy_x_all.append(x_offset + si)
-                        spy_y_all.append(max(0.001, 1.0 + float(spy_cum.loc[sdt]) / 100))
-                spy_running_return = float(spy_cum.iloc[-1])
+                        spy_y_all.append(max(0.001, float(spy_nav.loc[sdt])))
+                spy_running_nav = float(spy_nav.iloc[-1])
 
         tick_vals.append(x_offset + n // 2)
         tick_texts.append(f"{s_m}→{e_m}")
@@ -382,7 +379,7 @@ def build_stitched_fig(
         fig.add_trace(go.Scatter(
             x=spy_x_all, y=spy_y_all, mode="lines",
             line=dict(color="rgba(180,180,180,0.4)", width=2, dash="dot"),
-            name=f"SPY 同期 {spy_running_return:+.1f}%",
+            name=f"SPY 同期 {(spy_running_nav - 1) * 100:+.1f}%",
         ))
         fig.data = fig.data[-1:] + fig.data[:-1]
 
