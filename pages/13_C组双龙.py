@@ -72,10 +72,12 @@ def render_slot_segment_returns(dd: dict) -> bool:
     win_lo, win_hi = _valid.min(), _valid.max()
     if pd.notna(win_lo) and pd.notna(win_hi) and win_lo < win_hi:
         _lo_py, _hi_py = win_lo.to_pydatetime(), win_hi.to_pydatetime()
+        # key 绑定数据实际起止：切 3Y/5Y/10Y 后 dates 变了，slider 换新 key 重置为满窗口。
+        # 否则 Streamlit 会保留上一个窗口的选值（如 5Y 起点），10Y 也只画 5Y。
         _sel = st.slider(
             "分段图时间窗口（拖动重设起点，各段与 SPY 在窗口最左端对齐归一）",
             min_value=_lo_py, max_value=_hi_py, value=(_lo_py, _hi_py),
-            format="YYYY-MM", key="dd_slot_window",
+            format="YYYY-MM", key=f"dd_slot_window_{_lo_py:%Y%m}_{_hi_py:%Y%m}",
         )
         win_lo, win_hi = pd.Timestamp(_sel[0]), pd.Timestamp(_sel[1])
     lo_m, hi_m = win_lo.strftime("%Y-%m"), win_hi.strftime("%Y-%m")

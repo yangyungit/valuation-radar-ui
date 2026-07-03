@@ -18,10 +18,11 @@ def _crop_segments_by_slider(segs: list, spy_wk: pd.DataFrame, key: str):
     win_lo, win_hi = min(_months), max(_months)
     if win_lo < win_hi:
         _lo_py, _hi_py = win_lo.to_pydatetime(), win_hi.to_pydatetime()
+        # key 绑定段起止：切窗口后段变了就换新 key 重置为满窗口，否则保留上一窗口选值画短段。
         _sel = st.slider(
             "分段图时间窗口（拖动重设起点，各段与 SPY 在窗口最左端对齐归一）",
             min_value=_lo_py, max_value=_hi_py, value=(_lo_py, _hi_py),
-            format="YYYY-MM", key=f"{key}_seg_window",
+            format="YYYY-MM", key=f"{key}_seg_window_{_lo_py:%Y%m}_{_hi_py:%Y%m}",
         )
         win_lo, win_hi = pd.Timestamp(_sel[0]), pd.Timestamp(_sel[1])
     lo_m, hi_m = win_lo.strftime("%Y-%m"), win_hi.strftime("%Y-%m")
