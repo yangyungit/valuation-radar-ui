@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 
 import holdings_viz as hv
@@ -416,51 +415,60 @@ if _dd.get("success"):
     st.markdown("##### Slot 分段收益")
     _has_slot_returns = render_slot_segment_returns(_dd)
     if not _has_slot_returns:
-        st.caption("后端暂未返回 slot_equity，已保留下方持仓时间带用于审计换仓。")
+        st.caption("后端暂未返回 slot_equity。")
 
-    # ── 持仓时间带
-    st.markdown("##### 持仓时间带（换仓审计）")
-    _tl = _dd.get("holdings_timeline", [])
-    _band_rows = []
-    _n_track = _dd.get("n_holdings", 2)
-    for _slot_i in range(_n_track):
-        _track = _SLOT_LABELS[_slot_i] if _slot_i < len(_SLOT_LABELS) else f"槽{_slot_i+1}"
-        _prev = None
-        _start = None
-        for _h in _tl:
-            _m = _h["month"]
-            _slots_list = _h.get("slots", [])
-            _cell = _slots_list[_slot_i] if _slot_i < len(_slots_list) else None
-            if not _cell:
-                _lab = "—"
-            elif _cell.get("bil"):
-                _lab = "BIL"
-            else:
-                _lab = _cell.get("ticker", "—")
-            if _lab != _prev:
-                if _prev is not None and _prev != "—":
-                    _band_rows.append({
-                        "Track": _track, "持仓": _prev,
-                        "Start": _start, "Finish": pd.Timestamp(_m + "-01"),
-                    })
-                _prev = _lab
-                _start = pd.Timestamp(_m + "-01")
-        if _prev is not None and _prev != "—" and _tl:
-            _band_rows.append({
-                "Track": _track, "持仓": _prev, "Start": _start,
-                "Finish": pd.Timestamp(_tl[-1]["month"] + "-01") + pd.offsets.MonthBegin(1),
-            })
-    if _band_rows:
-        _df_band = pd.DataFrame(_band_rows)
-        _fig_band = px.timeline(
-            _df_band, x_start="Start", x_end="Finish", y="Track",
-            color="持仓", color_discrete_map={"BIL": "#7f8c8d"},
+    # ── 防抖守擂 δ 稳健性（尾部 3Y/5Y/10Y，仿 10_科技龙头）
+    _sweep = (_delta_params.get("selection", {}) or {}).get("sweep_grid", {}) or {}
+    if _sweep:
+        st.markdown("##### 防抖守擂 δ 稳健性（尾部 3Y/5Y/10Y）")
+        _HZ = ["3Y", "5Y", "10Y"]
+        _dk_grid = sorted(_sweep.keys(), key=lambda s: float(s))
+        _x = [float(s) for s in _dk_grid]
+        _curves = {hz: [float(_sweep[s].get(hz, float("nan"))) * 100 for s in _dk_grid] for hz in _HZ}
+        _norm = {}
+        for hz in _HZ:
+            _c = pd.Series(_curves[hz])
+            _mx = _c.max()
+            _norm[hz] = (_c / _mx) if (_mx == _mx and _mx > 0) else _c * float("nan")
+        _COLOR = {"3Y": "#5DADE2", "5Y": "#FFD700", "10Y": "#E67E22"}
+        _fig_sweep = go.Figure()
+        for hz in _HZ:
+            if pd.Series(_curves[hz]).notna().sum() < 2:
+                continue
+            _lw = 4 if hz == "3Y" else 2
+            _fig_sweep.add_trace(go.Scatter(
+                x=_x, y=list(_norm[hz]), mode="lines+markers", name=hz,
+                line=dict(color=_COLOR.get(hz, "#E67E22"), width=_lw), marker=dict(size=5),
+                customdata=_curves[hz],
+                hovertemplate=f"{hz} δ=%{{x}} → 总收益 %{{customdata:.1f}}%<extra></extra>",
+            ))
+        if _delta_k_val is not None:
+            _fig_sweep.add_vline(x=_delta_k_val, line=dict(color="#2ECC71", width=2, dash="dash"))
+            _fig_sweep.add_annotation(
+                x=_delta_k_val, y=1.02, yref="paper", text=f"推荐 δ*={_delta_k_val:.2f}",
+                showarrow=False, font=dict(color="#2ECC71", size=12), bgcolor="#111", xanchor="left",
+            )
+        _fig_sweep.update_layout(
+            height=300, margin=dict(l=20, r=20, t=46, b=20),
+            plot_bgcolor="#111111", paper_bgcolor="#111111", font=dict(color="#ddd"),
+            xaxis=dict(title="δ (×横截面标准差)", showgrid=True, gridcolor="#222", dtick=0.25),
+            yaxis=dict(title="各段归一化收益 (÷自身峰值)", showgrid=True, gridcolor="#222"),
+            title=dict(
+                text="δ 稳健性 · 尾部 3Y/5Y/10Y 总收益（各自归一化；三线齐高处=稳健 δ）",
+                font=dict(size=13), x=0.01, xanchor="left",
+            ),
+            legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
         )
-        _fig_band.update_yaxes(autorange="reversed", title="")
-        _fig_band.update_layout(
-            height=max(220, 80 + 42 * int(_n_track)), template="plotly_dark",
-            margin=dict(l=10, r=10, t=10, b=10),
-            legend=dict(orientation="h", y=-0.25),
+        st.plotly_chart(_fig_sweep, use_container_width=True, key="dd_delta_sweep")
+
+        def _argmax_delta(hz):
+            _c = pd.Series(_curves[hz])
+            return _dk_grid[int(_c.idxmax())] if _c.notna().any() else None
+        _peaks = " · ".join(
+            f"{hz} 单峰 δ={_argmax_delta(hz)}" for hz in _HZ if _argmax_delta(hz) is not None
         )
-        st.plotly_chart(_fig_band, use_container_width=True)
-        st.caption("每只票一色，BIL 灰色；hover 看持有区间")
+        if _delta_k_val is not None:
+            st.caption(
+                f"✅ **推荐 δ\\* = {_delta_k_val:.2f}**（三段都不差的重叠平台，跨窗口稳健）。"
+                f"对照各段单独最优：{_peaks}——单段峰值各不相同正是过拟合的症状，别照搬。"
+            )
