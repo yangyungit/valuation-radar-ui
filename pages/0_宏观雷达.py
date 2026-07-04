@@ -951,10 +951,17 @@ if _danger is not None and bool(_danger.any()):
             x0=_s0, x1=_s1, y0=_BAND_Y0, y1=1,
             fillcolor="rgba(231,76,60,0.55)", line_width=0, layer="below",
         )
-        # 每个危险段起始日期标注（条带下方，红色小字倾斜）
+        # 每个危险段起止日期标注（条带下方，红色小字倾斜；起点左对齐、终点右对齐）
         _rib.add_annotation(
             x=_s0, y=_BAND_Y0 - 0.06, xref="x", yref="paper",
             text=_s0.strftime("%y/%m/%d"),
+            showarrow=False, textangle=45,
+            xanchor="right", yanchor="top",
+            font=dict(size=9, color="#E67E73"),
+        )
+        _rib.add_annotation(
+            x=_s1, y=_BAND_Y0 - 0.06, xref="x", yref="paper",
+            text=_s1.strftime("%y/%m/%d"),
             showarrow=False, textangle=45,
             xanchor="left", yanchor="top",
             font=dict(size=9, color="#E67E73"),
