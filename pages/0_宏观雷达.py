@@ -937,17 +937,27 @@ if _danger is not None and bool(_danger.any()):
         if bool(_grp.iloc[0]):
             _segs.append((_grp.index[0], _grp.index[-1]))
 
+    # 条带占上半部(y 0.42~1)，下半部留给逐段日期标注
+    _BAND_Y0 = 0.42
     _rib = go.Figure()
     _rib.add_shape(
         type="rect", xref="x", yref="paper",
-        x0=_cal[0], x1=_cal[-1], y0=0, y1=1,
+        x0=_cal[0], x1=_cal[-1], y0=_BAND_Y0, y1=1,
         fillcolor="rgba(46,204,113,0.10)", line_width=0, layer="below",
     )
     for _s0, _s1 in _segs:
         _rib.add_shape(
             type="rect", xref="x", yref="paper",
-            x0=_s0, x1=_s1, y0=0, y1=1,
+            x0=_s0, x1=_s1, y0=_BAND_Y0, y1=1,
             fillcolor="rgba(231,76,60,0.55)", line_width=0, layer="below",
+        )
+        # 每个危险段起始日期标注（条带下方，红色小字倾斜）
+        _rib.add_annotation(
+            x=_s0, y=_BAND_Y0 - 0.06, xref="x", yref="paper",
+            text=_s0.strftime("%y/%m/%d"),
+            showarrow=False, textangle=45,
+            xanchor="left", yanchor="top",
+            font=dict(size=9, color="#E67E73"),
         )
     # 透明散点：撑起 x 轴日期范围（shape 本身不建立坐标）
     _rib.add_trace(go.Scatter(
@@ -955,12 +965,18 @@ if _danger is not None and bool(_danger.any()):
         marker=dict(opacity=0), showlegend=False, hoverinfo="skip",
     ))
     _rib.update_layout(
-        height=90,
-        margin=dict(l=20, r=20, t=10, b=24),
+        height=130,
+        margin=dict(l=20, r=20, t=10, b=28),
         plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
         font=dict(color="#ddd"),
         showlegend=False,
-        xaxis=dict(showgrid=False, range=[_cal[0], _cal[-1]]),
+        xaxis=dict(
+            showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+            range=[_cal[0], _cal[-1]],
+            tickformat="%Y", dtick="M12",
+            showticklabels=True, ticks="outside",
+            tickfont=dict(size=11, color="#999"),
+        ),
         yaxis=dict(visible=False, range=[0, 1]),
     )
     st.plotly_chart(_rib, use_container_width=True)
