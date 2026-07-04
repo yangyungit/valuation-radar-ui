@@ -255,7 +255,7 @@ def render_group(
     elif n_hold < 2:
         st.markdown(f"### 📈 满仓单票 · 进出场按 Top{_band} 判定 · 净值 vs SPY")
         _hold_rule = (
-            "**趋势留任(MA)**：在任票只要月末价 > 自己的 10 月均线就一直拿，不管别人排第几；"
+            "**趋势留任(MA)**：在任票只要月末价 > 自己的 4 月均线就一直拿，不管别人排第几；"
             "跌破均线才腾位 · "
         ) if retention_mask is not None else (
             f"**守擂死区**：在任票只要没掉出 Top{_band} 就不换，掉出且分差超过 δ 才替换(δ = k × 当月横截面标准差) · "
