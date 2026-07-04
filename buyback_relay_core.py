@@ -34,6 +34,61 @@ def _crop_segments_by_slider(segs: list, spy_wk: pd.DataFrame, key: str):
     return _segs, _spy
 
 
+def _plot_param_sweep(grid, curves, HZ, current_val, *, axis_title, rec_sym, title_text, key, dtick=None):
+    """通用参数扫描图：各段收益各自÷峰值归一化，三线齐高处 = 跨窗口稳健的取值。
+    返回推荐值：稳健分（三段百分位取最小）最高；并列先挑跨段离散最小，再挑更大取值（换手更低）。"""
+    _valid = [lbl for lbl, _ in HZ if pd.Series(curves[lbl]).notna().sum() >= 2]
+    _robust = pd.Series([float("nan")] * len(grid))
+    if _valid:
+        _robust = pd.concat([pd.Series(curves[l]).rank(pct=True) for l in _valid], axis=1).min(axis=1)
+    _norm = {}
+    for lbl, _ in HZ:
+        _c = pd.Series(curves[lbl])
+        _mx = _c.max()
+        _norm[lbl] = (_c / _mx) if (_mx == _mx and _mx > 0) else _c * float("nan")
+    _rec = None
+    if _robust.notna().any() and _valid:
+        _spread = pd.concat([_norm[l] for l in _valid], axis=1)
+        _spread = _spread.max(axis=1) - _spread.min(axis=1)
+        _best = _robust.max()
+        _cand = [i for i in range(len(grid)) if _robust[i] == _robust[i] and _robust[i] >= _best - 1e-9]
+        _cand.sort(key=lambda i: (_spread[i] if _spread[i] == _spread[i] else 9e9, -grid[i]))
+        _rec = grid[_cand[0]]
+    _COLOR = {"3Y": "#5DADE2", "5Y": "#FFD700", "9Y": "#E67E22", "10Y": "#E67E22"}
+    _fig = go.Figure()
+    for lbl, _ in HZ:
+        if pd.Series(curves[lbl]).notna().sum() < 2:
+            continue
+        _lw = 4 if lbl == "3Y" else 2  # 3Y 加粗，避免和 5Y 归一化曲线重合时被金线整条盖住
+        _fig.add_trace(go.Scatter(
+            x=grid, y=list(_norm[lbl]), mode="lines+markers", name=lbl,
+            line=dict(color=_COLOR.get(lbl, "#E67E22"), width=_lw), marker=dict(size=5),
+            customdata=curves[lbl],
+            hovertemplate=f"{lbl} {rec_sym}=%{{x}} → 总收益 %{{customdata:.1f}}%<extra></extra>",
+        ))
+    if _rec is not None:
+        _fig.add_vline(x=_rec, line=dict(color="#2ECC71", width=2, dash="dash"))
+        _fig.add_annotation(
+            x=_rec, y=1.02, yref="paper", text=f"推荐 {rec_sym}*={_rec}", showarrow=False,
+            font=dict(color="#2ECC71", size=12), bgcolor="#111", xanchor="left",
+        )
+    if current_val is not None:
+        _fig.add_vline(x=current_val, line=dict(color="#888", width=1, dash="dot"))
+    _xaxis = dict(title=axis_title, showgrid=True, gridcolor="#222")
+    if dtick is not None:
+        _xaxis["dtick"] = dtick
+    _fig.update_layout(
+        height=300, margin=dict(l=20, r=20, t=46, b=20),
+        plot_bgcolor="#111111", paper_bgcolor="#111111", font=dict(color="#ddd"),
+        xaxis=_xaxis,
+        yaxis=dict(title="各段归一化收益 (÷自身峰值)", showgrid=True, gridcolor="#222"),
+        title=dict(text=title_text, font=dict(size=13), x=0.01, xanchor="left"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
+    )
+    st.plotly_chart(_fig, use_container_width=True, key=key)
+    return _rec
+
+
 def render_group(
     group_label: str,
     cols: list,
@@ -68,6 +123,8 @@ def render_group(
     max_n_hold: int = 3,
     segment_window_slider: bool = False,
     retention_mask: pd.DataFrame = None,
+    retention_price_m: pd.DataFrame = None,
+    retention_ma_window: int = None,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -312,7 +369,8 @@ def render_group(
     else:
         _gscore_L, _rank_L, _ten6_L, _streak_L = g_score, rank_m, _ten6, _streak
 
-    def _holdings_for_k(kval, rank_src=rank_m, score_src=g_score, ten6_src=_ten6, streak_src=_streak):
+    def _holdings_for_k(kval, rank_src=rank_m, score_src=g_score, ten6_src=_ten6, streak_src=_streak,
+                        mask_src=retention_mask):
         _mh, _mh_raw, _prev_h = {}, {}, []
         for _ts, _row in rank_src.iterrows():
             _r = _row.dropna().sort_values()
@@ -334,12 +392,12 @@ def render_group(
                 _raw = _order[:_band]
                 _elig_rank_limit = _band
             _sc = score_src.loc[_ts].dropna()
-            if retention_mask is not None:
+            if mask_src is not None:
                 # MA 趋势留任：在任票只看自己趋势没坏（月末价 > 自己 MA），不跟别人比名次，
                 # 也不受进场门槛约束。跌破 MA 或掉出当月成分（分数变 NaN）才腾位。
                 _hold = [t for t in _prev_h
-                         if t != "CASH" and t in _sc.index and t in retention_mask.columns
-                         and _ts in retention_mask.index and bool(retention_mask.at[_ts, t])][:_n_cur] if _prev_h else []
+                         if t != "CASH" and t in _sc.index and t in mask_src.columns
+                         and _ts in mask_src.index and bool(mask_src.at[_ts, t])][:_n_cur] if _prev_h else []
             else:
                 # 守擂死区：留任阈值建在「分数」上，而非排名位置——排名会被旁边股票挤动，
                 # 分差只看在任票自身离门槛多远，不被后面的股票污染。
@@ -513,6 +571,43 @@ def render_group(
             )
         else:
             st.caption(f"⚠️ 净值历史不足，无法跨 {'/'.join(l for l, _ in _HZ)} 比较 δ（多为长窗口数据未就绪）。")
+
+    # ── MA 窗口跨 3/5/10Y 稳健性扫描：MA 趋势留任模式下 δ 无意义，改扫「几月均线」。
+    #    在任票 月末价 > 自己 MA-X 才留：X 太小卖太勤（早期动量段吃不满）、X 太大守太久（回撤更深）。
+    #    用最长历史对每个 X 重建净值，按尾部 3/5/10Y 各算总收益，找三段都不差的 X。──
+    _ma_grid = list(range(2, 16)) if (retention_mask is not None and retention_price_m is not None) else []
+    if _ma_grid:
+        _px_L = retention_price_m
+        _ma_curves = {lbl: [] for lbl, _ in _HZ}
+        for _xw in _ma_grid:
+            _mask_x = _px_L > _px_L.rolling(_xw).mean()
+            _mh_x = _holdings_for_k(_k, _rank_L, _gscore_L, _ten6_L, _streak_L, mask_src=_mask_x)[0]
+            _nav_x = _build_nav(_mh_x)
+            _nav_xs = _nav_x[5] if _nav_x is not None else None
+            for lbl, yrs in _HZ:
+                _ma_curves[lbl].append(_trail_ret(_nav_xs, yrs))
+        _cur_ma = int(retention_ma_window) if retention_ma_window else None
+        _rec_x = _plot_param_sweep(
+            _ma_grid, _ma_curves, _HZ, _cur_ma,
+            axis_title="MA 窗口 X（月）", rec_sym="MA", dtick=1, key=f"{kp}_ma_sweep",
+            title_text=(
+                f"MA 窗口稳健性 · 尾部 {'/'.join(l for l, _ in _HZ)} 总收益"
+                f"（各自归一化；三线齐高处=稳健 X；灰点线=当前 MA{_cur_ma if _cur_ma else ''}）"
+            ),
+        )
+
+        def _argmax_x(lbl):
+            _c = pd.Series(_ma_curves[lbl])
+            return _ma_grid[int(_c.idxmax())] if _c.notna().any() else None
+
+        _peaks = " · ".join(f"{lbl} 单峰 MA{_argmax_x(lbl)}" for lbl, _ in _HZ if _argmax_x(lbl) is not None)
+        if _rec_x is not None:
+            st.caption(
+                f"✅ **推荐 MA\\* = {_rec_x} 月**（三段都不差的重叠平台，跨窗口稳健；当前 MA{_cur_ma}）。"
+                f"对照各段单独最优：{_peaks}——单段峰值各不相同正是过拟合的症状，别照搬。"
+            )
+        else:
+            st.caption(f"⚠️ 净值历史不足，无法跨 {'/'.join(l for l, _ in _HZ)} 比较 MA 窗口（多为长窗口数据未就绪）。")
 
     _mh, _mh_raw = _holdings_for_k(_k)
     _nav = _build_nav(_mh)

@@ -154,4 +154,6 @@ render_group(_label, _cols, "ndx_main",
              cost_bps=10.0,
              segment_window_slider=True,
              retention_mask=_ret_mask,
+             retention_price_m=_close_me,
+             retention_ma_window=4,
              **_COMMON)
