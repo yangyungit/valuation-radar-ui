@@ -68,6 +68,7 @@ def render_group(
     max_n_hold: int = 3,
     segment_window_slider: bool = False,
     retention_mask: pd.DataFrame = None,
+    gold_streak_override: int = 0,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -254,9 +255,13 @@ def render_group(
         )
     elif n_hold < 2:
         st.markdown(f"### 📈 满仓单票 · 进出场按 Top{_band} 判定 · 净值 vs SPY")
+        _override_rule = (
+            f"**金牌霸榜换仓**：若有票连续 {gold_streak_override} 个月拿当月 Top1，强制换成它；"
+            if gold_streak_override and gold_streak_override > 0 else ""
+        )
         _hold_rule = (
             "**趋势留任(MA)**：在任票只要月末价 > 自己的 10 月均线就一直拿，不管别人排第几；"
-            "跌破均线才腾位 · "
+            f"跌破均线才腾位 · {_override_rule}"
         ) if retention_mask is not None else (
             f"**守擂死区**：在任票只要没掉出 Top{_band} 就不换，掉出且分差超过 δ 才替换(δ = k × 当月横截面标准差) · "
         )
@@ -314,6 +319,9 @@ def render_group(
 
     def _holdings_for_k(kval, rank_src=rank_m, score_src=g_score, ten6_src=_ten6, streak_src=_streak):
         _mh, _mh_raw, _prev_h = {}, {}, []
+        # 金牌连续月数：某票连续几个月都是当月 Top1(rank==1)，断一次清零。
+        # 用于「连续 N 月金牌的挑战者出现 → 强制换过去」。
+        _gold_streak = _inband_streak(rank_src, 1) if gold_streak_override and gold_streak_override > 0 else None
         for _ts, _row in rank_src.iterrows():
             _r = _row.dropna().sort_values()
             if _r.empty:
@@ -352,6 +360,14 @@ def render_group(
                 # 在任票：分数仍在死区内就留任，不受进场门槛约束（已经进来的不赶）。
                 _hold = [t for t in _prev_h
                          if t != "CASH" and t in _sc.index and _sc[t] >= _cut2 - _delta][:_n_cur] if _prev_h else []
+            # 连续 N 月金牌的挑战者(≠在任票)出现 → 强制让位换过去：
+            # 场上没有月月同一个标的霸榜金牌时才按上面的留任规则按兵不动；
+            # 一旦有票连续 N 个月拿当月 Top1，显然是更强选择，主动腾 top slot 换成它。
+            if _gold_streak is not None:
+                _gs = _gold_streak.loc[_ts]
+                _champ = next((t for t in _order if float(_gs.get(t, 0)) >= gold_streak_override), None)
+                if _champ is not None and _champ not in _hold:
+                    _hold = ([_champ] + [t for t in _hold if t != _champ])[:_n_cur]
             # 新进场门槛：当月排名进入目标区间且最近 6 月内 ≥ _ENTRY_MIN_TOP2_HITS 次进过观察区间，
             # 滤掉只闪现一个月的生面孔。
             _elig = [t for t in _order

@@ -25,6 +25,7 @@ st.caption(
     "满仓单票、进场按 Top2 判定：新进场须当月 Top2 且最近 6 月内 ≥2 次进 Top2(滤掉闪现一月的生面孔)，"
     "多票并列时优先连续在榜月数最长的(更连贯新鲜)、打平看当月排名，"
     "**留任按趋势**:在任票只要月末价 > 自己的 10 月均线(≈MA200 日线)就一直拿、不管别人排第几，跌破均线才换，"
+    "**但若有票连续 3 个月拿当月金牌(Top1)则强制换成它**(月月霸榜显然更强、主动让位),"
     "空仓现金年化 4%。"
 )
 
@@ -153,4 +154,5 @@ render_group(_label, _cols, "ndx_main",
              cost_bps=10.0,
              segment_window_slider=True,
              retention_mask=_ret_mask,
+             gold_streak_override=3,
              **_COMMON)
