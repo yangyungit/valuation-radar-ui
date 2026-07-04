@@ -246,6 +246,7 @@ def render_group(
         st.caption(
             f"每月末按 {score_label} 看组内 Top{max_n_hold}，次交易日开盘执行(去 look-ahead) · "
             f"**动态仓位**：最近 6 月内 ≥{entry_min_top2_hits} 次进 Top{max_n_hold} 的候选数决定目标仓位，最少 1 仓、最多 {max_n_hold} 仓 · "
+            f"**多票并列优先连续在榜月数最长的**(更连贯新鲜)，打平看当月排名 · "
             f"**没够格不硬上**：当月没有合格新票时持现金(年化 4%) · "
             f"**守擂死区**：在任票的分数距目标仓位门槛在 δ 以内就不换，差得更多才替换 · "
             "组合按当月实际持仓等权 · 日线 NAV，执行月首个交易日 Open 买入，扣单边成本。"
@@ -255,6 +256,7 @@ def render_group(
         st.caption(
             f"每月末按 {score_label} 看组内 Top{_band}，次交易日开盘执行(去 look-ahead) · "
             f"**进场门槛**：新进场须当月组内 Top{_band} **且最近 6 月内 ≥{entry_min_top2_hits} 次进 Top{_band}**(滤掉只闪现一个月的生面孔) · "
+            f"**多票并列**：优先连续在榜月数最长的(更连贯新鲜)，打平再看当月排名 · "
             f"**没够格不硬上**：没合格 Top{_band} 就持现金(年化 4%，至少不亏本) · "
             f"**守擂死区**：在任票只要没掉出 Top{_band} 就不换，掉出且分差超过 δ 才替换(δ = k × 当月横截面标准差) · "
             "满仓单票，无 50/50 · 周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
@@ -264,6 +266,7 @@ def render_group(
         st.caption(
             f"每月末按 {score_label} 选组内 Top2，次交易日开盘执行(去 look-ahead) · "
             "**进场门槛**：新进场须当月在组内前 2(金/银) **且最近 6 月内 ≥2 次进 Top2**(滤掉只闪现一个月的生面孔) · "
+            "**多票并列**：优先连续在榜月数最长的(更连贯新鲜)，打平再看当月排名 · "
             "**没够格不硬上**：凑不满 2 仓的槽位持现金(年化 4%，至少不亏本) · "
             "**守擂死区**：在任票的分数距 Top2 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
             "左右两列各等权，合成线 = 50/50 · 周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
@@ -276,6 +279,17 @@ def render_group(
     _entry_rank_limit = _band
     _ten6 = (rank_m <= _entry_rank_limit).astype(int).rolling(6, min_periods=1).sum()
 
+    def _inband_streak(rank_df, limit):
+        # 每月「连续在榜」月数：本月在 Top{limit} 则 = 上月 streak + 1，否则清零。
+        # 用来给新进场候选按「连贯度」排序：连续在榜越久优先级越高（更新鲜、更连贯）。
+        _ib = (rank_df <= limit).to_numpy()
+        _arr = _ib.astype(int)
+        for _i in range(1, _arr.shape[0]):
+            _arr[_i] = (_arr[_i - 1] + 1) * _ib[_i]
+        return pd.DataFrame(_arr, index=rank_df.index, columns=rank_df.columns)
+
+    _streak = _inband_streak(rank_m, _entry_rank_limit)
+
     # δ 敏感性扫描专用的「最长历史」源：用 10Y 时序，才能切出尾部 3/5/10Y 三段。
     # 展示用的 NAV/热力图仍走当前 radio 窗口（rank_m/g_score/_ten6），二者互不污染。
     if sweep_score_m is not None and not sweep_score_m.empty:
@@ -283,10 +297,11 @@ def render_group(
         _gscore_L = sweep_score_m[_cols_L]
         _rank_L = _gscore_L.rank(axis=1, ascending=False, method="min")
         _ten6_L = (_rank_L <= _entry_rank_limit).astype(int).rolling(6, min_periods=1).sum()
+        _streak_L = _inband_streak(_rank_L, _entry_rank_limit)
     else:
-        _gscore_L, _rank_L, _ten6_L = g_score, rank_m, _ten6
+        _gscore_L, _rank_L, _ten6_L, _streak_L = g_score, rank_m, _ten6, _streak
 
-    def _holdings_for_k(kval, rank_src=rank_m, score_src=g_score, ten6_src=_ten6):
+    def _holdings_for_k(kval, rank_src=rank_m, score_src=g_score, ten6_src=_ten6, streak_src=_streak):
         _mh, _mh_raw, _prev_h = {}, {}, []
         for _ts, _row in rank_src.iterrows():
             _r = _row.dropna().sort_values()
@@ -294,6 +309,7 @@ def render_group(
                 continue
             _order = _r.index.tolist()
             _tnow = ten6_src.loc[_ts]
+            _snow = streak_src.loc[_ts]
             if dynamic_n_hold:
                 _eligible_top = [
                     t for t in _order
@@ -322,7 +338,9 @@ def render_group(
             # 滤掉只闪现一个月的生面孔。
             _elig = [t for t in _order
                      if _r[t] <= _elig_rank_limit and float(_tnow.get(t, 0)) >= entry_min_top2_hits]
-            _elig_t = sorted(_elig, key=lambda t: (-float(_tnow.get(t, 0)), _r[t]))
+            # 多个合格新票时，优先「连续在榜月数」最长的（更连贯、更新鲜），
+            # 连贯度打平再看当月排名。避免 6 月内凑够 2 次的陈旧散点盖过当月冲上来的连续新票。
+            _elig_t = sorted(_elig, key=lambda t: (-float(_snow.get(t, 0)), _r[t]))
             for t in _elig_t:
                 if len(_hold) >= _n_cur:
                     break
@@ -402,7 +420,7 @@ def render_group(
 
     _curves = {lbl: [] for lbl, _ in _HZ}
     for _kv in _k_grid:
-        _rk = _build_nav(_holdings_for_k(_kv, _rank_L, _gscore_L, _ten6_L)[0])
+        _rk = _build_nav(_holdings_for_k(_kv, _rank_L, _gscore_L, _ten6_L, _streak_L)[0])
         _nav_kv = _rk[5] if (_rk is not None) else None
         for lbl, yrs in _HZ:
             _curves[lbl].append(_trail_ret(_nav_kv, yrs))
