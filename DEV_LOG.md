@@ -1,3 +1,21 @@
+## 2026-07-04 | 修复标普500接力页选 10Y 仍显示 5Y
+
+**范围**：`pages/10_科技龙头.py` 排名数据源与日线拉取范围。不改策略/口径/成本。
+
+**根因**：前端为算 12M 动量拉全池 750 只完整日线（111MB），在 Streamlit Cloud 免费档上悄悄失败（被 `try/except` 吞掉）→ `holdings_viz.fetch_daily_ohlcv` 每只票回退 yfinance `start="2021-06-01"`（只 5 年）→ `king_m` 只有 5 年，10Y 切片切不出更早数据，3Y/5Y/10Y 长一个样。指纹：X 轴恰好从 2021 起、61 个月。之前修的「按 window 裁 king_m」是对的、数据也传了后台，缺的是前端**根本没成功把深历史拉下来**。
+
+**改动**：
+
+- `king_m` 改用后端面板新增的 `close_me`（全历史月末收盘）算：`_close_me = DataFrame(ts["close_me"], index=ts["close_me_dates"])`；`king_m = _close_me / _close_me.shift(12) - 1`。免拉全池日线。
+- 日线只拉「历史上任一月进过 Top2 的票」+ SPY 做净值：`_rank_long = king_m_long.rank(...)`；`_shortlist = [c for c in ... if (_rank_long[c] <= 2).any()]`。68 只，111MB→~10MB。
+- 顺手删掉没人用的 `adv`/`adv_m`。
+
+**契约依赖**：后端 commit `50c2770`（timeseries 新增 `close_me` + `close_me_dates`）。`fetch_sp500_pit_relay_timeseries` 有 `@st.cache_data(ttl=4h)`，Render/Streamlit 部署重启会自动清；旧 cache 命中期内点侧栏「强制刷新」。
+
+**规律沉淀**：`obsidian_notes/99_Human_Zone/数据工程前后台.md`。
+
+---
+
 ## 2026-06-11 | C组双龙持仓数量 N 可调（2~5）
 
 **范围**：前端 Page0 Tab3 「📈 C组双龙持仓」UI 联动后端 N 可调改动，N=2 默认回归兼容。
