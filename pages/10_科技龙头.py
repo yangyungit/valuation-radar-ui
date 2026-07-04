@@ -1,11 +1,15 @@
 import streamlit as st
 import pandas as pd
 
-from api_client import fetch_sp500_pit_relay_timeseries, fetch_gbdt_oos_prices
+from api_client import (
+    fetch_sp500_pit_relay_timeseries,
+    fetch_ndx100_pit_relay_timeseries,
+    fetch_gbdt_oos_prices,
+)
 from buyback_relay_core import render_group
 import holdings_viz as hv
 
-st.set_page_config(page_title="标普500 PIT 接力", layout="wide")
+st.set_page_config(page_title="标普500+纳指100 PIT 接力", layout="wide")
 
 st.markdown("""
 <style>
@@ -16,9 +20,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 标普500 PIT 接力图")
+st.title("📊 标普500 + 纳指100 合并池 PIT 接力图")
 st.caption(
-    "**池子**:S&P500 每月真实历史成分（含退市，2016 起），每月只在当月成分内横截面排名。"
+    "**池子**:S&P500 ∪ NASDAQ-100 每月真实历史成分并集（含退市，2016 起），每月只在合并成分内横截面排名。"
     "**排名**:按 **raw 12M 绝对涨幅**（月末价/12 个月前月末价 − 1）横截面排名。"
     "**🥇 金牌 = 当月 Top1 / 🥈 银牌 = Top2**（已删 RS 门槛，只看排名）。"
     "**净值口径**:日线、执行月首个交易日 Open 买入、持有到月末 Close、扣单边 10bps；"
@@ -29,20 +33,56 @@ st.caption(
 )
 
 with st.sidebar:
-    if st.button("🔄 强制刷新标普500接力数据"):
+    if st.button("🔄 强制刷新合并池接力数据"):
         fetch_sp500_pit_relay_timeseries.clear()
+        fetch_ndx100_pit_relay_timeseries.clear()
         fetch_gbdt_oos_prices.clear()
         st.rerun()
 
 _WINDOWS = ["3Y", "5Y", "10Y"]
 window = st.radio("时间跨度", _WINDOWS, index=1, horizontal=True, key="tl_window")
 
-with st.spinner("📊 加载标普500 PIT 接力数据..."):
-    ts = fetch_sp500_pit_relay_timeseries(window)
 
-if not ts.get("success"):
-    st.error(f"⚠️ 标普500 PIT 接力数据暂不可用:{ts.get('error', '未知错误')}")
+def _merge_relay_ts(a: dict, b: dict) -> dict:
+    """把标普500 与纳指100 两套 PIT 接力时序 union 成合并池。以 a(标普500) 为底表。
+    - tickers(含 rs 等)、dates 两池同轴，直接 dict 合并（重叠票以 a 为准）。
+    - close_me 两池月末日期轴可能不同(build 时点不同)，各带自己 close_me_dates 对齐后 combine_first。
+    - membership 按月取并集。
+    排名仍是 raw 12M 绝对涨幅在合并池内横截面 rank，口径不变。
+    """
+    out = dict(a)
+    out["tickers"] = {**b.get("tickers", {}), **a.get("tickers", {})}
+
+    ai = pd.to_datetime(a.get("close_me_dates", []) or [], errors="coerce")
+    bi = pd.to_datetime(b.get("close_me_dates", []) or [], errors="coerce")
+    da = pd.DataFrame(a.get("close_me", {}) or {}, index=ai).astype(float)
+    db = pd.DataFrame(b.get("close_me", {}) or {}, index=bi).astype(float)
+    cme = da.combine_first(db).sort_index() if not db.empty else da.sort_index()
+    out["close_me_dates"] = [d.strftime("%Y-%m-%d") for d in cme.index]
+    out["close_me"] = {c: cme[c].where(pd.notna(cme[c]), None).tolist() for c in cme.columns}
+
+    memb_a = a.get("sp500_membership", {}) or {}
+    memb_b = b.get("ndx100_membership", {}) or {}
+    merged = {}
+    for ym in set(memb_a) | set(memb_b):
+        merged[ym] = sorted(set(memb_a.get(ym, [])) | set(memb_b.get(ym, [])))
+    out["pool_membership"] = merged
+    return out
+
+
+with st.spinner("📊 加载标普500 + 纳指100 合并池接力数据..."):
+    ts_sp = fetch_sp500_pit_relay_timeseries(window)
+    ts_ndx = fetch_ndx100_pit_relay_timeseries(window)
+
+if not ts_sp.get("success"):
+    st.error(f"⚠️ 标普500 PIT 接力数据暂不可用:{ts_sp.get('error', '未知错误')}")
     st.stop()
+if not ts_ndx.get("success"):
+    st.warning(f"⚠️ 纳指100 数据暂不可用（回退纯标普500）:{ts_ndx.get('error', '未知错误')}")
+    ts = dict(ts_sp)
+    ts["pool_membership"] = ts_sp.get("sp500_membership", {}) or {}
+else:
+    ts = _merge_relay_ts(ts_sp, ts_ndx)
 
 _all_tickers = ts.get("tickers", {}) or {}
 _tickers = _all_tickers
@@ -50,7 +90,7 @@ _dates = ts.get("dates", []) or []
 if not _tickers or not _dates:
     st.warning("⚠️ 标普500 PIT 母体数据为空")
     st.stop()
-st.caption(f"股池：S&P500 PIT 历史成分并集，当前后端命中 {len(_tickers)} 只。")
+st.caption(f"股池：S&P500 ∪ NASDAQ-100 PIT 历史成分并集，当前后端命中 {len(_tickers)} 只。")
 
 _idx = pd.to_datetime(_dates, errors="coerce")
 rs = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
@@ -73,7 +113,7 @@ king_m = (_close_me / _close_me.shift(12) - 1.0)
 # MA4 = 尾部 3Y/5Y 总收益全面压过原 MA10（2-3 倍），10Y 打平；卖得更快、早期动量段吃得更满。
 _ret_mask = _close_me > _close_me.rolling(4).mean()
 
-_memb = ts.get("sp500_membership", {}) or {}
+_memb = ts.get("pool_membership", {}) or {}
 
 
 def _mask_by_membership(df: pd.DataFrame) -> pd.DataFrame:
@@ -137,8 +177,8 @@ _COMMON = dict(
 
 
 _cols = list(king_m.columns)
-_label = "标普500"
-st.markdown(f"## 🏆 标普500组（{len(_cols)} 只）")
+_label = "标普500+纳指100"
+st.markdown(f"## 🏆 标普500 + 纳指100 合并池（{len(_cols)} 只）")
 
 render_group(_label, _cols, "tl_main",
              score_m=king_m, sweep_score_m=king_m_long,
