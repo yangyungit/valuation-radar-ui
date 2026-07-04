@@ -115,8 +115,10 @@ def render_group(
     _ordered = (_gold_cnt * 10000 + _silver_cnt * 100 + _bronze_cnt).sort_values(ascending=False).index.tolist()
 
     if only_medaled_in_heatmap:
-        _ordered = [tk for tk in _ordered
-                    if (int(_gold_cnt.get(tk, 0)) + int(_silver_cnt.get(tk, 0)) + int(_bronze_cnt.get(tk, 0))) > 0]
+        # 只留曾够格建仓的票：用和进场门槛一致的口径（最近 6 月内进 Top_band ≥ entry_min_top2_hits 次），
+        # 滤掉只闪现一次、净值里根本没买过的生面孔，避免热力图误导。
+        _entry_ok = (rank_m <= _band).astype(int).rolling(6, min_periods=1).sum().max(axis=0) >= entry_min_top2_hits
+        _ordered = [tk for tk in _ordered if bool(_entry_ok.get(tk, False))]
         if not _ordered:
             _ordered = (_gold_cnt * 10000 + _silver_cnt * 100 + _bronze_cnt).sort_values(ascending=False).index.tolist()[:1]
 
