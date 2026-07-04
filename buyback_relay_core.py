@@ -34,8 +34,9 @@ def _crop_segments_by_slider(segs: list, spy_wk: pd.DataFrame, key: str):
     return _segs, _spy
 
 
-def _plot_param_sweep(grid, curves, HZ, current_val, *, axis_title, rec_sym, title_text, key, dtick=None):
-    """通用参数扫描图：各段收益各自÷峰值归一化，三线齐高处 = 跨窗口稳健的取值。
+def _plot_param_sweep(grid, curves, HZ, current_val, *, axis_title, rec_sym, title_text, key, dtick=None,
+                      metric_name="总收益", val_fmt=".1f", unit="%", yaxis_title="各段归一化收益 (÷自身峰值)"):
+    """通用参数扫描图：各段指标各自÷峰值归一化，三线齐高处 = 跨窗口稳健的取值。
     返回推荐值：稳健分（三段百分位取最小）最高；并列先挑跨段离散最小，再挑更大取值（换手更低）。"""
     _valid = [lbl for lbl, _ in HZ if pd.Series(curves[lbl]).notna().sum() >= 2]
     _robust = pd.Series([float("nan")] * len(grid))
@@ -64,7 +65,7 @@ def _plot_param_sweep(grid, curves, HZ, current_val, *, axis_title, rec_sym, tit
             x=grid, y=list(_norm[lbl]), mode="lines+markers", name=lbl,
             line=dict(color=_COLOR.get(lbl, "#E67E22"), width=_lw), marker=dict(size=5),
             customdata=curves[lbl],
-            hovertemplate=f"{lbl} {rec_sym}=%{{x}} → 总收益 %{{customdata:.1f}}%<extra></extra>",
+            hovertemplate=f"{lbl} {rec_sym}=%{{x}} → {metric_name} %{{customdata:{val_fmt}}}{unit}<extra></extra>",
         ))
     if _rec is not None:
         _fig.add_vline(x=_rec, line=dict(color="#2ECC71", width=2, dash="dash"))
@@ -81,7 +82,7 @@ def _plot_param_sweep(grid, curves, HZ, current_val, *, axis_title, rec_sym, tit
         height=300, margin=dict(l=20, r=20, t=46, b=20),
         plot_bgcolor="#111111", paper_bgcolor="#111111", font=dict(color="#ddd"),
         xaxis=_xaxis,
-        yaxis=dict(title="各段归一化收益 (÷自身峰值)", showgrid=True, gridcolor="#222"),
+        yaxis=dict(title=yaxis_title, showgrid=True, gridcolor="#222"),
         title=dict(text=title_text, font=dict(size=13), x=0.01, xanchor="left"),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
     )
@@ -495,6 +496,20 @@ def render_group(
             return float("nan")
         return (float(_seg.iloc[-1]) / float(_seg.iloc[0]) - 1) * 100
 
+    def _trail_calmar(_nav_s, _yrs):
+        # 尾部这段窗口的 Calmar = 段内 CAGR / 段内最大回撤（周线口径，同统计卡）。
+        # 高换手 X 收益高但回撤深 → Calmar 反而低，直接把回撤计入择优目标。
+        if _nav_s is None or _nav_s.empty:
+            return float("nan")
+        _end = _nav_s.index[-1]
+        if (_end - _nav_s.index[0]).days < _yrs * 365.25 * 0.9:
+            return float("nan")
+        _seg = _nav_s[_nav_s.index >= _end - pd.DateOffset(years=_yrs)]
+        _wk = _seg.resample("W-FRI").last().dropna() if nav_engine == "daily" else _seg
+        if len(_wk) < 8:
+            return float("nan")
+        return hv.compute_nav_kpi(_wk).get("calmar", float("nan"))
+
     _curves = {lbl: [] for lbl, _ in _HZ}
     for _kv in _k_grid:
         _rk = _build_nav(_holdings_for_k(_kv, _rank_L, _gscore_L, _ten6_L, _streak_L)[0])
@@ -573,8 +588,9 @@ def render_group(
             st.caption(f"⚠️ 净值历史不足，无法跨 {'/'.join(l for l, _ in _HZ)} 比较 δ（多为长窗口数据未就绪）。")
 
     # ── MA 窗口跨 3/5/10Y 稳健性扫描：MA 趋势留任模式下 δ 无意义，改扫「几月均线」。
-    #    在任票 月末价 > 自己 MA-X 才留：X 太小卖太勤（早期动量段吃不满）、X 太大守太久（回撤更深）。
-    #    用最长历史对每个 X 重建净值，按尾部 3/5/10Y 各算总收益，找三段都不差的 X。──
+    #    在任票 月末价 > 自己 MA-X 才留：X 太小卖太勤（换手高、收益高但回撤深）、X 太大守太久。
+    #    择优目标用 Calmar（段内 CAGR / 最大回撤）而非纯收益——纯收益只会挑最高换手、最深回撤的
+    #    MA2；Calmar 把回撤计入分母，回撤太深自动被压下去。用最长历史对每个 X 重建净值。──
     _ma_grid = list(range(2, 16)) if (retention_mask is not None and retention_price_m is not None) else []
     if _ma_grid:
         _px_L = retention_price_m
@@ -585,13 +601,15 @@ def render_group(
             _nav_x = _build_nav(_mh_x)
             _nav_xs = _nav_x[5] if _nav_x is not None else None
             for lbl, yrs in _HZ:
-                _ma_curves[lbl].append(_trail_ret(_nav_xs, yrs))
+                _ma_curves[lbl].append(_trail_calmar(_nav_xs, yrs))
         _cur_ma = int(retention_ma_window) if retention_ma_window else None
         _rec_x = _plot_param_sweep(
             _ma_grid, _ma_curves, _HZ, _cur_ma,
             axis_title="MA 窗口 X（月）", rec_sym="MA", dtick=1, key=f"{kp}_ma_sweep",
+            metric_name="Calmar", val_fmt=".2f", unit="",
+            yaxis_title="各段归一化 Calmar (÷自身峰值)",
             title_text=(
-                f"MA 窗口稳健性 · 尾部 {'/'.join(l for l, _ in _HZ)} 总收益"
+                f"MA 窗口稳健性 · 尾部 {'/'.join(l for l, _ in _HZ)} Calmar（收益/回撤）"
                 f"（各自归一化；三线齐高处=稳健 X；灰点线=当前 MA{_cur_ma if _cur_ma else ''}）"
             ),
         )
@@ -603,11 +621,11 @@ def render_group(
         _peaks = " · ".join(f"{lbl} 单峰 MA{_argmax_x(lbl)}" for lbl, _ in _HZ if _argmax_x(lbl) is not None)
         if _rec_x is not None:
             st.caption(
-                f"✅ **推荐 MA\\* = {_rec_x} 月**（三段都不差的重叠平台，跨窗口稳健；当前 MA{_cur_ma}）。"
-                f"对照各段单独最优：{_peaks}——单段峰值各不相同正是过拟合的症状，别照搬。"
+                f"✅ **推荐 MA\\* = {_rec_x} 月**（按 Calmar=收益/回撤 择优，三段都不差的重叠平台；当前 MA{_cur_ma}）。"
+                f"对照各段单独最优 Calmar：{_peaks}——纯收益会挑最高换手、最深回撤的 MA2，Calmar 已把回撤计入。"
             )
         else:
-            st.caption(f"⚠️ 净值历史不足，无法跨 {'/'.join(l for l, _ in _HZ)} 比较 MA 窗口（多为长窗口数据未就绪）。")
+            st.caption(f"⚠️ 净值历史不足，无法跨 {'/'.join(l for l, _ in _HZ)} 比较 MA 窗口 Calmar（多为长窗口数据未就绪）。")
 
     _mh, _mh_raw = _holdings_for_k(_k)
     _nav = _build_nav(_mh)
