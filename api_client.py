@@ -904,6 +904,24 @@ def fetch_sp500_pit_relay_timeseries(window: str = "5Y") -> dict:
 
 
 @st.cache_data(ttl=3600 * 4)
+def fetch_ndx100_pit_relay_timeseries(window: str = "5Y") -> dict:
+    """纳指100 PIT 动态池接力图时序：母体 = NASDAQ-100 每月真实历史成分（含退市，2016-01 起，
+    Wikipedia 逆推），每月只在当月成分内横截面排名。返回含 ndx100_membership 供前端按月 mask king_m。
+    供「纳指100 接力」页调用。失败返回 {"success": False, "error": ...}。
+    """
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/ndx100_pit_relay/timeseries",
+            params={"window": window},
+            timeout=180,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "dates": [], "tickers": {}}
+
+
+@st.cache_data(ttl=3600 * 4)
 def fetch_factor_relay_timeseries(window: str = "5Y") -> dict:
     """因子 ETF 轮动接力图时序（横截面母体 = 因子 ETF 池，返回原始 rs / adv_63d，
     前端按滑块自调容量权重重算 king_score）。供「因子轮动」页调用。
