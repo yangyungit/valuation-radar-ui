@@ -52,47 +52,19 @@ st.caption(f"股池：S&P500 PIT 历史成分并集，当前后端命中 {len(_t
 
 _idx = pd.to_datetime(_dates, errors="coerce")
 rs = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
-adv = pd.DataFrame({tk: p.get("adv_63d", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
 name_map = {tk: p.get("name", tk) for tk, p in _tickers.items()}
 grade_map = {tk: p.get("group", "") for tk, p in _tickers.items()}
 asof = pd.to_datetime(ts.get("asof"), errors="coerce")
-
 rs_m = rs.resample("ME").last()
-adv_m = adv.resample("ME").last()
 
-_pool = list(_tickers.keys())
-price_cache_daily: dict = {}
-price_cache: dict = {}
-spy_daily = pd.DataFrame()
-spy_wk = pd.DataFrame()
-with st.spinner("📊 加载日线价格（首次较慢）..."):
-    try:
-        hv.prime_sharadar_prices(fetch_gbdt_oos_prices(tuple(sorted(_pool + ["SPY"]))))
-    except Exception:
-        pass
-    spy_daily = hv.fetch_daily_ohlcv("SPY")
-    spy_wk = hv.daily_to_weekly(spy_daily)
-    for _tk in _pool:
-        try:
-            _d = hv.fetch_daily_ohlcv(_tk)
-            if not _d.empty:
-                price_cache_daily[_tk] = _d
-                price_cache[_tk] = hv.daily_to_weekly(_d)
-        except Exception:
-            pass
-
-if not price_cache_daily:
-    st.warning("⚠️ 股池价格数据为空")
+# 排名/热力图用 12M 动量，月末收盘直接取后端面板 close_me（全历史、免拉 750 只日线）。
+# close_me 走全历史（后端不随 window 裁），保证 shift(12) 回看和 δ 稳健性切尾部 10Y。
+_cme_idx = pd.to_datetime(ts.get("close_me_dates", []) or [], errors="coerce")
+_close_me = pd.DataFrame(ts.get("close_me", {}) or {}, index=_cme_idx).astype(float)
+if _close_me.empty or len(_close_me) < 13:
+    st.warning("⚠️ 后端 close_me 面板为空（需先跑 build_sp500_pit_relay_panel 并上传）")
     st.stop()
-
-_px_me = pd.concat(
-    {tk: price_cache_daily[tk]["Close"] for tk in price_cache_daily}, axis=1
-).resample("ME").last()
-king_m = (_px_me / _px_me.shift(12) - 1.0)
-
-if king_m.empty or len(king_m) < 2:
-    st.warning("⚠️ 月末快照数据不足")
-    st.stop()
+king_m = (_close_me / _close_me.shift(12) - 1.0)
 
 _memb = ts.get("sp500_membership", {}) or {}
 
@@ -109,15 +81,42 @@ def _mask_by_membership(df: pd.DataFrame) -> pd.DataFrame:
 
 king_m = _mask_by_membership(king_m)
 
-# king_m 来自日线价格缓存（永远全历史），与 radio 的 window 无关。
-# 展示用的热力图/NAV 走 score_m=king_m，必须按选中跨度裁剪，否则选 5Y 也画 10Y。
-# king_m_long 保留全历史，供 δ 稳健性扫描切尾部 3/5/10Y。
+# close_me 是全历史；king_m_long 保留全历史供 δ 稳健性扫描切尾部 3/5/10Y，
+# 展示用 king_m 按选中跨度裁剪，否则选 5Y 也画 10Y。
 king_m_long = king_m
 _WIN_YEARS = {"3Y": 3, "5Y": 5, "10Y": 10}
 _win_start = king_m.index[-1] - pd.DateOffset(years=_WIN_YEARS.get(window, 10))
 king_m = king_m[king_m.index >= _win_start]
 if king_m.empty or len(king_m) < 2:
     st.warning("⚠️ 选中窗口内月末快照数据不足")
+    st.stop()
+
+# 净值只需历史上进过 Top2 的票的日线，免拉全池 750 只（曾达 111MB，
+# 在 Streamlit Cloud 免费档上悄悄失败 → 回退 5 年 yfinance，导致选 10Y 也只有 5 年）。
+_rank_long = king_m_long.rank(axis=1, ascending=False, method="min")
+_shortlist = [c for c in king_m_long.columns if bool((_rank_long[c] <= 2).any())]
+price_cache_daily: dict = {}
+price_cache: dict = {}
+spy_daily = pd.DataFrame()
+spy_wk = pd.DataFrame()
+with st.spinner("📊 加载持仓票日线价格..."):
+    try:
+        hv.prime_sharadar_prices(fetch_gbdt_oos_prices(tuple(sorted(set(_shortlist) | {"SPY"}))))
+    except Exception:
+        pass
+    spy_daily = hv.fetch_daily_ohlcv("SPY")
+    spy_wk = hv.daily_to_weekly(spy_daily)
+    for _tk in _shortlist:
+        try:
+            _d = hv.fetch_daily_ohlcv(_tk)
+            if not _d.empty:
+                price_cache_daily[_tk] = _d
+                price_cache[_tk] = hv.daily_to_weekly(_d)
+        except Exception:
+            pass
+
+if not price_cache_daily:
+    st.warning("⚠️ 持仓票价格数据为空")
     st.stop()
 
 _last_month = king_m.index[-1]
