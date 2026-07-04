@@ -22,9 +22,10 @@ st.caption(
     "**排名**:按 **raw 12M 绝对涨幅**（月末价/12 个月前月末价 − 1）横截面排名。"
     "**🥇 金牌 = 当月 Top1 / 🥈 银牌 = Top2**（已删 RS 门槛，只看排名）。"
     "**净值口径**:日线、执行月首个交易日 Open 买入、持有到月末 Close、扣单边 10bps；"
-    "满仓单票、进出场按 Top2 判定：新进场须当月 Top2 且最近 6 月内 ≥2 次进 Top2(滤掉闪现一月的生面孔)，"
+    "满仓单票、进场按 Top2 判定：新进场须当月 Top2 且最近 6 月内 ≥2 次进 Top2(滤掉闪现一月的生面孔)，"
     "多票并列时优先连续在榜月数最长的(更连贯新鲜)、打平看当月排名，"
-    "在任票没掉出 Top2 就继续拿，空仓现金年化 4%。"
+    "**留任按趋势**:在任票只要月末价 > 自己的 10 月均线(≈MA200 日线)就一直拿、不管别人排第几，跌破均线才换，"
+    "空仓现金年化 4%。"
 )
 
 with st.sidebar:
@@ -66,6 +67,10 @@ if _close_me.empty or len(_close_me) < 13:
     st.warning("⚠️ 后端 close_me 面板为空（需先跑 build_sp500_pit_relay_panel 并上传）")
     st.stop()
 king_m = (_close_me / _close_me.shift(12) - 1.0)
+
+# 趋势留任掩码：在任票月末价 > 自己 10 月均线才留（≈ MA200 日线）。全历史算，
+# 保证 MA10 在展示窗口起点就有效；render_group 里按在任票逐月查此表决定守不守。
+_ret_mask = _close_me > _close_me.rolling(10).mean()
 
 _memb = ts.get("sp500_membership", {}) or {}
 
@@ -148,4 +153,5 @@ render_group(_label, _cols, "tl_main",
              spy_daily=spy_daily,
              cost_bps=10.0,
              segment_window_slider=True,
+             retention_mask=_ret_mask,
              **_COMMON)

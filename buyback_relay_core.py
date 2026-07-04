@@ -67,6 +67,7 @@ def render_group(
     dynamic_n_hold: bool = False,
     max_n_hold: int = 3,
     segment_window_slider: bool = False,
+    retention_mask: pd.DataFrame = None,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -253,12 +254,18 @@ def render_group(
         )
     elif n_hold < 2:
         st.markdown(f"### 📈 满仓单票 · 进出场按 Top{_band} 判定 · 净值 vs SPY")
+        _hold_rule = (
+            "**趋势留任(MA)**：在任票只要月末价 > 自己的 10 月均线就一直拿，不管别人排第几；"
+            "跌破均线才腾位 · "
+        ) if retention_mask is not None else (
+            f"**守擂死区**：在任票只要没掉出 Top{_band} 就不换，掉出且分差超过 δ 才替换(δ = k × 当月横截面标准差) · "
+        )
         st.caption(
             f"每月末按 {score_label} 看组内 Top{_band}，次交易日开盘执行(去 look-ahead) · "
             f"**进场门槛**：新进场须当月组内 Top{_band} **且最近 6 月内 ≥{entry_min_top2_hits} 次进 Top{_band}**(滤掉只闪现一个月的生面孔) · "
             f"**多票并列**：优先连续在榜月数最长的(更连贯新鲜)，打平再看当月排名 · "
             f"**没够格不硬上**：没合格 Top{_band} 就持现金(年化 4%，至少不亏本) · "
-            f"**守擂死区**：在任票只要没掉出 Top{_band} 就不换，掉出且分差超过 δ 才替换(δ = k × 当月横截面标准差) · "
+            f"{_hold_rule}"
             "满仓单票，无 50/50 · 周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
         )
     else:
@@ -271,10 +278,14 @@ def render_group(
             "**守擂死区**：在任票的分数距 Top2 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
             "左右两列各等权，合成线 = 50/50 · 周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
         )
-    _k = float(st.number_input(
-        f"守擂死区 δ(×当月横截面标准差,越大越不换仓; 0=掉出 Top{_band} 立刻换)",
-        min_value=0.0, max_value=3.0, value=float(default_k), step=0.25, key=f"{kp}_dk",
-    ))
+    if retention_mask is not None:
+        # MA 趋势留任：留任判据不含 k，δ 死区滑块无意义，直接取默认值占位。
+        _k = float(default_k)
+    else:
+        _k = float(st.number_input(
+            f"守擂死区 δ(×当月横截面标准差,越大越不换仓; 0=掉出 Top{_band} 立刻换)",
+            min_value=0.0, max_value=3.0, value=float(default_k), step=0.25, key=f"{kp}_dk",
+        ))
 
     _entry_rank_limit = _band
     _ten6 = (rank_m <= _entry_rank_limit).astype(int).rolling(6, min_periods=1).sum()
@@ -323,17 +334,24 @@ def render_group(
                 _raw = _order[:_band]
                 _elig_rank_limit = _band
             _sc = score_src.loc[_ts].dropna()
-            # 守擂死区：留任阈值建在「分数」上，而非排名位置——排名会被旁边股票挤动，
-            # 分差只看在任票自身离门槛多远，不被后面的股票污染。
-            # 非动态时门槛建在 band 档（Top{band}）的分数上：满仓单票但 band=2 时，
-            # 在任票没掉出 Top2 就留任，换手比盯 Top1 更低。
-            _cut_rank = _n_cur if dynamic_n_hold else _band
-            _cut2 = float(_sc.sort_values(ascending=False).iloc[_cut_rank - 1]) if len(_sc) >= _cut_rank else (
-                float(_sc.iloc[0]) if len(_sc) else float("nan"))
-            _delta = kval * (float(_sc.std()) if len(_sc) >= 2 else 0.0)
-            # 在任票：分数仍在死区内就留任，不受进场门槛约束（已经进来的不赶）。
-            _hold = [t for t in _prev_h
-                     if t != "CASH" and t in _sc.index and _sc[t] >= _cut2 - _delta][:_n_cur] if _prev_h else []
+            if retention_mask is not None:
+                # MA 趋势留任：在任票只看自己趋势没坏（月末价 > 自己 MA），不跟别人比名次，
+                # 也不受进场门槛约束。跌破 MA 或掉出当月成分（分数变 NaN）才腾位。
+                _hold = [t for t in _prev_h
+                         if t != "CASH" and t in _sc.index and t in retention_mask.columns
+                         and _ts in retention_mask.index and bool(retention_mask.at[_ts, t])][:_n_cur] if _prev_h else []
+            else:
+                # 守擂死区：留任阈值建在「分数」上，而非排名位置——排名会被旁边股票挤动，
+                # 分差只看在任票自身离门槛多远，不被后面的股票污染。
+                # 非动态时门槛建在 band 档（Top{band}）的分数上：满仓单票但 band=2 时，
+                # 在任票没掉出 Top2 就留任，换手比盯 Top1 更低。
+                _cut_rank = _n_cur if dynamic_n_hold else _band
+                _cut2 = float(_sc.sort_values(ascending=False).iloc[_cut_rank - 1]) if len(_sc) >= _cut_rank else (
+                    float(_sc.iloc[0]) if len(_sc) else float("nan"))
+                _delta = kval * (float(_sc.std()) if len(_sc) >= 2 else 0.0)
+                # 在任票：分数仍在死区内就留任，不受进场门槛约束（已经进来的不赶）。
+                _hold = [t for t in _prev_h
+                         if t != "CASH" and t in _sc.index and _sc[t] >= _cut2 - _delta][:_n_cur] if _prev_h else []
             # 新进场门槛：当月排名进入目标区间且最近 6 月内 ≥ _ENTRY_MIN_TOP2_HITS 次进过观察区间，
             # 滤掉只闪现一个月的生面孔。
             _elig = [t for t in _order
@@ -403,7 +421,8 @@ def render_group(
 
     # ── δ 跨 3/5/10Y 稳健性扫描：用最长历史建净值，按尾部 3/5/10Y 各算总收益。
     #    单段峰值 = 过拟合（短窗口噪声最大）；找三段都不差的 δ（plateau 重叠）才稳健。──
-    _k_grid = [round(x * 0.25, 2) for x in range(13)]  # 0.00 → 3.00 步长 0.25
+    # MA 趋势留任模式下留任判据不含 k，扫描无意义 → 空网格跳过，后面不渲染扫描图。
+    _k_grid = [] if retention_mask is not None else [round(x * 0.25, 2) for x in range(13)]
     _HZ = sweep_horizons or [("3Y", 3), ("5Y", 5), ("10Y", 10)]
 
     def _trail_ret(_nav_s, _yrs):
@@ -479,20 +498,21 @@ def render_group(
         ),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
     )
-    st.plotly_chart(_sweep_fig, use_container_width=True, key=f"{kp}_dk_sweep")
+    if retention_mask is None:
+        st.plotly_chart(_sweep_fig, use_container_width=True, key=f"{kp}_dk_sweep")
 
-    def _argmax_k(lbl):
-        _c = pd.Series(_curves[lbl])
-        return _k_grid[int(_c.idxmax())] if _c.notna().any() else None
+        def _argmax_k(lbl):
+            _c = pd.Series(_curves[lbl])
+            return _k_grid[int(_c.idxmax())] if _c.notna().any() else None
 
-    _peaks = " · ".join(f"{lbl} 单峰 δ={_argmax_k(lbl)}" for lbl, _ in _HZ if _argmax_k(lbl) is not None)
-    if _rec_k is not None:
-        st.caption(
-            f"✅ **推荐 δ\\* = {_rec_k}**（三段都不差的重叠平台，跨窗口稳健；当前 δ={_k}）。"
-            f"对照各段单独最优：{_peaks}——单段峰值各不相同正是过拟合的症状，别照搬，按 δ\\* 钉死。"
-        )
-    else:
-        st.caption(f"⚠️ 净值历史不足，无法跨 {'/'.join(l for l, _ in _HZ)} 比较 δ（多为长窗口数据未就绪）。")
+        _peaks = " · ".join(f"{lbl} 单峰 δ={_argmax_k(lbl)}" for lbl, _ in _HZ if _argmax_k(lbl) is not None)
+        if _rec_k is not None:
+            st.caption(
+                f"✅ **推荐 δ\\* = {_rec_k}**（三段都不差的重叠平台，跨窗口稳健；当前 δ={_k}）。"
+                f"对照各段单独最优：{_peaks}——单段峰值各不相同正是过拟合的症状，别照搬，按 δ\\* 钉死。"
+            )
+        else:
+            st.caption(f"⚠️ 净值历史不足，无法跨 {'/'.join(l for l, _ in _HZ)} 比较 δ（多为长窗口数据未就绪）。")
 
     _mh, _mh_raw = _holdings_for_k(_k)
     _nav = _build_nav(_mh)
