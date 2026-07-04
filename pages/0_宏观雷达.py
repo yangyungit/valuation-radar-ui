@@ -876,6 +876,109 @@ if (not _df_lead25.empty
                 _alert25 = "早期信号"
 
 # ============================================================
+# Section 2.5-pre: 危险区域时间条带 (Danger Zone Ribbon)
+# chaos 红背景(月频) ∪ GBDT 卖出信号后 20 交易日 → 统一危险区域
+# ============================================================
+_DANGER_FWD_DAYS = 20  # GBDT 碎信号向后延伸的交易日数
+
+_danger = None
+try:
+    if df_prices is not None and not df_prices.empty:
+        _cal = pd.DatetimeIndex(df_prices.index).sort_values()
+        _danger = pd.Series(False, index=_cal)
+
+        # (1) GBDT 每个触发日 + 后 N 个交易日
+        _dz_trig_raw = (_chain_regime or {}).get("horsemen_daily_chaos_trigger", {}) or {}
+        _dz_trig_dates = pd.to_datetime(
+            [k for k, v in _dz_trig_raw.items() if v], errors="coerce"
+        ).dropna()
+        for _td in _dz_trig_dates:
+            _pos = int(_cal.searchsorted(_td))
+            if _pos < len(_cal):
+                _danger.iloc[_pos:_pos + _DANGER_FWD_DAYS + 1] = True
+
+        # (2) chaos 红背景：月频 chaos_gbdt_trigger → ffill 到日
+        _dz_hmp = (_current_regime or {}).get("horsemen_monthly_probs", {}) or {}
+        _dz_recs = []
+        for _m_str, _probs in _dz_hmp.items():
+            if not isinstance(_probs, dict):
+                continue
+            try:
+                _m_ts = pd.Timestamp(str(_m_str) + "-01")
+            except Exception:
+                continue
+            _dz_recs.append((_m_ts, bool(_probs.get("chaos_gbdt_trigger", False))))
+        if _dz_recs:
+            _dz_mdf = (
+                pd.DataFrame(_dz_recs, columns=["date", "chaos"])
+                .set_index("date").sort_index()
+            )
+            _dz_chaos_daily = (
+                _dz_mdf["chaos"].reindex(_cal, method="ffill")
+                .fillna(False).astype(bool)
+            )
+            _danger = _danger | _dz_chaos_daily
+except Exception:
+    _danger = None
+
+if _danger is not None and bool(_danger.any()):
+    st.markdown("---")
+    st.markdown(
+        "#### ⚠️ 危险区域条带 "
+        "<span style='font-size:13px; color:#888; font-weight:normal;'>"
+        "(chaos 红背景 ∪ GBDT 卖出信号后 20 交易日)</span>",
+        unsafe_allow_html=True,
+    )
+
+    # 危险=True 的连续段 → 红色矩形
+    _flip = _danger.ne(_danger.shift()).cumsum()
+    _segs = []
+    for _gid, _grp in _danger.groupby(_flip):
+        if bool(_grp.iloc[0]):
+            _segs.append((_grp.index[0], _grp.index[-1]))
+
+    _rib = go.Figure()
+    _rib.add_shape(
+        type="rect", xref="x", yref="paper",
+        x0=_cal[0], x1=_cal[-1], y0=0, y1=1,
+        fillcolor="rgba(46,204,113,0.10)", line_width=0, layer="below",
+    )
+    for _s0, _s1 in _segs:
+        _rib.add_shape(
+            type="rect", xref="x", yref="paper",
+            x0=_s0, x1=_s1, y0=0, y1=1,
+            fillcolor="rgba(231,76,60,0.55)", line_width=0, layer="below",
+        )
+    # 透明散点：撑起 x 轴日期范围（shape 本身不建立坐标）
+    _rib.add_trace(go.Scatter(
+        x=[_cal[0], _cal[-1]], y=[0.5, 0.5], mode="markers",
+        marker=dict(opacity=0), showlegend=False, hoverinfo="skip",
+    ))
+    _rib.update_layout(
+        height=90,
+        margin=dict(l=20, r=20, t=10, b=24),
+        plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
+        font=dict(color="#ddd"),
+        showlegend=False,
+        xaxis=dict(showgrid=False, range=[_cal[0], _cal[-1]]),
+        yaxis=dict(visible=False, range=[0, 1]),
+    )
+    st.plotly_chart(_rib, use_container_width=True)
+
+    _dz_now = bool(_danger.iloc[-1])
+    _dz_days_1y = int(_danger.iloc[-252:].sum()) if len(_danger) >= 1 else 0
+    _dz_status_txt = (
+        "<span style='color:#E74C3C; font-weight:bold;'>危险区域内</span>"
+        if _dz_now else
+        "<span style='color:#2ECC71; font-weight:bold;'>安全</span>"
+    )
+    st.caption(
+        f"当前：{_dz_status_txt} · 近一年危险交易日 {_dz_days_1y} / "
+        f"{min(len(_danger), 252)} 天 · 红=危险 绿=安全",
+        unsafe_allow_html=True,
+    )
+
+# ============================================================
 # Section 2.5: 风格传导链 (Style Transmission Chain)
 # ============================================================
 st.markdown("---")
@@ -1806,63 +1909,6 @@ else:
             ),
         )
         st.plotly_chart(fig_sr, use_container_width=True)
-
-    # ── 11 板块 RS 历史热力图（6 年）──
-    # 前端直接复现后端 _compute_sector_rs_multi 的加权 RS（20D 0.25 + 60D 0.5 + 120D 0.25），
-    # 保证和 §"当前 11 板块 RS 排名表"列出来的 RS 60D 同一口径。
-    _SECTORS_11_HM = ["XLK", "XLF", "XLV", "XLY", "XLP", "XLE",
-                      "XLI", "XLB", "XLU", "XLRE", "XLC"]
-    _sectors_avail_hm = [
-        t for t in _SECTORS_11_HM
-        if df_prices is not None and t in df_prices.columns
-    ]
-    _spy_ok_hm = (
-        df_prices is not None and "SPY" in df_prices.columns
-        and len(df_prices) >= 200
-    )
-    if len(_sectors_avail_hm) >= 8 and _spy_ok_hm:
-        _RS_HM_LOOKBACKS = {20: 0.25, 60: 0.50, 120: 0.25}
-        _spy_pct_hm = {L: df_prices["SPY"].pct_change(L) for L in _RS_HM_LOOKBACKS}
-        _hm_dict = {}
-        for _t in _sectors_avail_hm:
-            _rs_w = None
-            for _L, _w in _RS_HM_LOOKBACKS.items():
-                _r = df_prices[_t].pct_change(_L) - _spy_pct_hm[_L]
-                _rs_w = _r * _w if _rs_w is None else _rs_w + _r * _w
-            _hm_dict[_t] = _rs_w
-        _df_hm_rs = pd.DataFrame(_hm_dict).dropna(how="all")
-        if len(_df_hm_rs) > 1500:
-            _df_hm_rs = _df_hm_rs.iloc[-1500:]
-
-        # y 轴按当前 rank 从强到弱排（rank=1 在顶部）
-        _y_order_hm = sorted(_sectors_avail_hm,
-                             key=lambda t: int(_sr_ranks.get(t, 9999)))
-        _z_hm = _df_hm_rs[_y_order_hm].T.values.astype(float)
-
-        st.markdown("**🌡️ 11 板块 RS 加权历史热力图（6 年；y 轴按当前排名从强到弱）**")
-        fig_hm = go.Figure(data=go.Heatmap(
-            z=_z_hm,
-            x=_df_hm_rs.index,
-            y=_y_order_hm,
-            colorscale="RdYlGn",
-            zmid=0.0, zmin=-0.15, zmax=0.15,
-            colorbar=dict(title="RS", thickness=12, tickformat=".0%"),
-            hovertemplate=("日期: %{x|%Y-%m-%d}<br>板块: %{y}"
-                           "<br>加权 RS: %{z:+.2%}<extra></extra>"),
-        ))
-        fig_hm.update_layout(
-            height=380,
-            margin=dict(l=20, r=20, t=40, b=20),
-            plot_bgcolor="#111111", paper_bgcolor="#111111",
-            font=dict(color="#ddd"),
-            title=dict(
-                text="绿 = 跑赢 SPY，红 = 跑输 SPY · 横看每板块的持续走强/走弱时段",
-                font=dict(size=13), x=0.01, xanchor="left",
-            ),
-            yaxis=dict(autorange="reversed"),
-            xaxis=dict(showgrid=False),
-        )
-        st.plotly_chart(fig_hm, use_container_width=True)
 
     # ── 当前 11 板块 RS 排名表 ──
     if _sr_ranks:
