@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from api_client import (
     fetch_sp500_pit_relay_timeseries,
     fetch_ndx100_pit_relay_timeseries,
+    fetch_alt_assets_pit_relay_timeseries,
     fetch_gbdt_oos_prices,
     fetch_macro_radar_timeseries,
     get_global_data,
@@ -14,7 +15,7 @@ from api_client import (
 from buyback_relay_core import render_group
 import holdings_viz as hv
 
-st.set_page_config(page_title="标普500+纳指100 PIT 接力", layout="wide")
+st.set_page_config(page_title="标普500+纳指100+另类资产 PIT 接力", layout="wide")
 
 st.markdown("""
 <style>
@@ -25,9 +26,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 标普500 + 纳指100 合并池 PIT 接力图")
+st.title("📊 标普500 + 纳指100 + 另类资产 合并池 PIT 接力图")
 st.caption(
-    "**池子**:S&P500 ∪ NASDAQ-100 每月真实历史成分并集（含退市，2016 起），每月只在合并成分内横截面排名。"
+    "**池子**:S&P500 ∪ NASDAQ-100 每月真实历史成分并集（含退市，2016 起）"
+    " **∪ 另类资产池**（加密/贵金属/大宗/矿股 33 只，每月常驻）,每月只在合并成分内横截面排名。"
+    "另类资产让接力变全天候:牛市拿科技/加密,股票熊市自动切能源商品接棒（2022 加息熊市 Top1/Top2 即被 UGA/USO/UNG 占据）。"
     "**排名**:按 **raw 10M 绝对涨幅**（月末价/10 个月前月末价 − 1）横截面排名。"
     "**🥇 金牌 = 当月 Top1 / 🥈 银牌 = Top2**（已删 RS 门槛，只看排名）。"
     "**净值口径**:日线、执行月首个交易日 Open 买入、持有到月末 Close、扣单边 10bps；"
@@ -172,6 +175,7 @@ with st.sidebar:
     if st.button("🔄 强制刷新合并池接力数据"):
         fetch_sp500_pit_relay_timeseries.clear()
         fetch_ndx100_pit_relay_timeseries.clear()
+        fetch_alt_assets_pit_relay_timeseries.clear()
         fetch_gbdt_oos_prices.clear()
         st.rerun()
 
@@ -234,9 +238,37 @@ def _merge_relay_ts(a: dict, b: dict) -> dict:
     return out
 
 
-with st.spinner("📊 加载标普500 + 纳指100 合并池接力数据..."):
+def _merge_alt(base: dict, alt: dict) -> dict:
+    """把另类资产池（第三池）并进已合并的 sp500∪ndx100 合并池。
+    - tickers(含 rs/name/group)、close_me 直接 union（重叠票以 base 为准）。
+    - alt_membership 每月全含 33 只 → 逐月并进 pool_membership，使另类资产每月都参与排名。
+    alt 不成功（后端未部署/面板缺失）时原样返回 base，页面照旧只跑 sp500∪ndx100。
+    """
+    if not alt or not alt.get("success"):
+        return base
+    out = dict(base)
+    out["tickers"] = {**alt.get("tickers", {}), **base.get("tickers", {})}
+
+    bi = pd.to_datetime(base.get("close_me_dates", []) or [], errors="coerce")
+    ai = pd.to_datetime(alt.get("close_me_dates", []) or [], errors="coerce")
+    db = pd.DataFrame(base.get("close_me", {}) or {}, index=bi).astype(float)
+    da = pd.DataFrame(alt.get("close_me", {}) or {}, index=ai).astype(float)
+    cme = db.combine_first(da).sort_index() if not da.empty else db.sort_index()
+    out["close_me_dates"] = [d.strftime("%Y-%m-%d") for d in cme.index]
+    out["close_me"] = {c: cme[c].where(pd.notna(cme[c]), None).tolist() for c in cme.columns}
+
+    alt_memb = alt.get("alt_membership", {}) or {}
+    merged = dict(base.get("pool_membership", {}) or {})
+    for ym, tks in alt_memb.items():
+        merged[ym] = sorted(set(merged.get(ym, [])) | set(tks))
+    out["pool_membership"] = merged
+    return out
+
+
+with st.spinner("📊 加载标普500 + 纳指100 + 另类资产 合并池接力数据..."):
     ts_sp = fetch_sp500_pit_relay_timeseries(window)
     ts_ndx = fetch_ndx100_pit_relay_timeseries(window)
+    ts_alt = fetch_alt_assets_pit_relay_timeseries(window)
 
 if not ts_sp.get("success"):
     st.error(f"⚠️ 标普500 PIT 接力数据暂不可用:{ts_sp.get('error', '未知错误')}")
@@ -248,13 +280,18 @@ if not ts_ndx.get("success"):
 else:
     ts = _merge_relay_ts(ts_sp, ts_ndx)
 
+if ts_alt.get("success"):
+    ts = _merge_alt(ts, ts_alt)
+else:
+    st.info(f"另类资产池暂不可用（回退纯 S&P500∪NDX100）:{ts_alt.get('error', '未知错误')}")
+
 _all_tickers = ts.get("tickers", {}) or {}
 _tickers = _all_tickers
 _dates = ts.get("dates", []) or []
 if not _tickers or not _dates:
     st.warning("⚠️ 标普500 PIT 母体数据为空")
     st.stop()
-st.caption(f"股池：S&P500 ∪ NASDAQ-100 PIT 历史成分并集，当前后端命中 {len(_tickers)} 只。")
+st.caption(f"股池：S&P500 ∪ NASDAQ-100 PIT 历史成分并集 ∪ 另类资产池（加密/贵金属/大宗/矿股），当前后端命中 {len(_tickers)} 只。")
 
 _idx = pd.to_datetime(_dates, errors="coerce")
 rs = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
@@ -343,8 +380,8 @@ _COMMON = dict(
 
 
 _cols = list(king_m.columns)
-_label = "标普500+纳指100"
-st.markdown(f"## 🏆 标普500 + 纳指100 合并池（{len(_cols)} 只）")
+_label = "标普500+纳指100+另类资产"
+st.markdown(f"## 🏆 标普500 + 纳指100 + 另类资产 合并池（{len(_cols)} 只）")
 
 render_group(_label, _cols, "tl_main",
              score_m=king_m, sweep_score_m=king_m_long,

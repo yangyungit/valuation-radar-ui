@@ -1,3 +1,19 @@
+## 2026-07-05 | 科技龙头页并入另类资产第三池（加密/贵金属/大宗/矿股）
+
+**范围**：`api_client.py` 加 `fetch_alt_assets_pit_relay_timeseries`；`pages/10_科技龙头.py` 加 `_merge_alt` 三池合并 + 标题/文案更新。不改排名/接力/成本口径。
+
+**起因**：主理人想把黄金/白银/大宗/比特币放进科技龙头合并池。后端已建另类资产第三池（33 标的，membership 每月常驻），前端只需 union 进现有 S&P500∪NDX100 合并池。
+
+**改动**：
+
+- `_merge_alt(base, alt)`：另类资产 tickers/close_me union 进合并池，`alt_membership`（每月全含 33 只）逐月并进 `pool_membership`，使另类资产每月都参与 10M 动量横截面排名。alt 后端不可用时原样回退纯 S&P500∪NDX100。
+- 比特币是合成 `BTCX`（GBTC[2020+]拼 IBIT，规避早期信托折溢价）。侧栏刷新按钮同步清 alt 缓存。
+- 端到端验证（对线上 Render）：合并池 826 票（797+33−4 重叠）；2021-11 WULF+241% 拿 Top1、2024-11 MSTR+673% Top2（另类资产真参与排名）；2022 能源月标普能源股先上。
+
+**后端契约**：`valuation-radar` commit `288c483`/`6743a40`（endpoint + 面板 + 白名单）。
+
+---
+
 ## 2026-07-05 | 戴金龙头从 C组双龙拆出单独成页
 
 **范围**：新增 `pages/15_戴金龙头.py`、`api_client.py`；`pages/13_C组双龙.py` 改名为 `pages/13_动量双龙.py` 并去掉戴金。不改策略口径/成本。
