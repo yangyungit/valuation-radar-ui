@@ -24,7 +24,7 @@ st.markdown("""
 st.title("📊 标普500 + 纳指100 合并池 PIT 接力图")
 st.caption(
     "**池子**:S&P500 ∪ NASDAQ-100 每月真实历史成分并集（含退市，2016 起），每月只在合并成分内横截面排名。"
-    "**排名**:按 **raw 12M 绝对涨幅**（月末价/12 个月前月末价 − 1）横截面排名。"
+    "**排名**:按 **raw 10M 绝对涨幅**（月末价/10 个月前月末价 − 1）横截面排名。"
     "**🥇 金牌 = 当月 Top1 / 🥈 银牌 = Top2**（已删 RS 门槛，只看排名）。"
     "**净值口径**:日线、执行月首个交易日 Open 买入、持有到月末 Close、扣单边 10bps；"
     "满仓单票、进场按 Top2 判定：新进场须当月 Top2 且最近 6 月内 ≥2 次进 Top2(滤掉闪现一月的生面孔)，"
@@ -77,7 +77,7 @@ def _merge_relay_ts(a: dict, b: dict) -> dict:
     - tickers(含 rs 等)、dates 两池同轴，直接 dict 合并（重叠票以 a 为准）。
     - close_me 两池月末日期轴可能不同(build 时点不同)，各带自己 close_me_dates 对齐后 combine_first。
     - membership 按月取并集。
-    排名仍是 raw 12M 绝对涨幅在合并池内横截面 rank，口径不变。
+    排名仍是 raw 10M 绝对涨幅在合并池内横截面 rank，口径不变。
     """
     out = dict(a)
     out["tickers"] = {**b.get("tickers", {}), **a.get("tickers", {})}
@@ -128,14 +128,16 @@ grade_map = {tk: p.get("group", "") for tk, p in _tickers.items()}
 asof = pd.to_datetime(ts.get("asof"), errors="coerce")
 rs_m = rs.resample("ME").last()
 
-# 排名/热力图用 12M 动量，月末收盘直接取后端面板 close_me（全历史、免拉 750 只日线）。
-# close_me 走全历史（后端不随 window 裁），保证 shift(12) 回看和 δ 稳健性切尾部 10Y。
+# 排名/热力图用 10M 动量，月末收盘直接取后端面板 close_me（全历史、免拉 750 只日线）。
+# 回看窗口 L 稳健性扫描（离线跑 L=6..15 三段 Calmar）：甜区 9-12M，≤8M 追一月脉冲、
+# ≥13M 太滞后都变差；10M 落在平台正中，离两侧悬崖各一步，比原 12M 抗甜区漂移。
+# close_me 走全历史（后端不随 window 裁），保证 shift(10) 回看和 δ 稳健性切尾部 10Y。
 _cme_idx = pd.to_datetime(ts.get("close_me_dates", []) or [], errors="coerce")
 _close_me = pd.DataFrame(ts.get("close_me", {}) or {}, index=_cme_idx).astype(float)
-if _close_me.empty or len(_close_me) < 13:
+if _close_me.empty or len(_close_me) < 11:
     st.warning("⚠️ 后端 close_me 面板为空（需先跑 build_sp500_pit_relay_panel 并上传）")
     st.stop()
-king_m = (_close_me / _close_me.shift(12) - 1.0)
+king_m = (_close_me / _close_me.shift(10) - 1.0)
 
 # 趋势留任掩码：在任票月末价 > 自己 4 月均线才留（≈ MA80 日线）。全历史算，
 # 保证 MA4 在展示窗口起点就有效；render_group 里按在任票逐月查此表决定守不守。
@@ -211,7 +213,7 @@ st.markdown(f"## 🏆 标普500 + 纳指100 合并池（{len(_cols)} 只）")
 
 render_group(_label, _cols, "tl_main",
              score_m=king_m, sweep_score_m=king_m_long,
-             score_label="12M动量", score_fmt="{:+.1%}",
+             score_label="10M动量", score_fmt="{:+.1%}",
              default_k=0.75, n_hold=1, hold_band=2,
              entry_min_top2_hits=2,
              gold_needs_rs=False,
