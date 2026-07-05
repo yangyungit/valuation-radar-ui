@@ -1,11 +1,15 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 
 from api_client import (
     fetch_sp500_pit_relay_timeseries,
     fetch_ndx100_pit_relay_timeseries,
     fetch_gbdt_oos_prices,
     fetch_macro_radar_timeseries,
+    get_global_data,
+    fetch_current_regime,
+    compute_macro_regime_api,
 )
 from buyback_relay_core import render_group
 import holdings_viz as hv
@@ -32,6 +36,137 @@ st.caption(
     "**留任按趋势**:在任票只要月末价 > 自己的 4 月均线(≈MA80 日线)就一直拿、不管别人排第几，跌破均线才换，"
     "空仓现金年化 4%。"
 )
+
+# ============================================================
+# 危险区域时间条带 (Danger Zone Ribbon) —— 与「宏观雷达」页同源
+# chaos 红背景(月频) ∪ GBDT 卖出信号后 20 交易日 → 统一危险区域
+# ============================================================
+with st.spinner("📊 加载危险区域条带..."):
+    df_prices       = get_global_data(["SPY"], years=10)
+    _current_regime = fetch_current_regime()
+    _chain_regime   = compute_macro_regime_api(z_window=750)
+
+_DANGER_FWD_DAYS = 20  # GBDT 碎信号向后延伸的交易日数
+
+_danger = None
+try:
+    if df_prices is not None and not df_prices.empty:
+        _cal = pd.DatetimeIndex(df_prices.index).sort_values()
+        _danger = pd.Series(False, index=_cal)
+
+        # (1) GBDT 每个触发日 + 后 N 个交易日
+        _dz_trig_raw = (_chain_regime or {}).get("horsemen_daily_chaos_trigger", {}) or {}
+        _dz_trig_dates = pd.to_datetime(
+            [k for k, v in _dz_trig_raw.items() if v], errors="coerce"
+        ).dropna()
+        for _td in _dz_trig_dates:
+            _pos = int(_cal.searchsorted(_td))
+            if _pos < len(_cal):
+                _danger.iloc[_pos:_pos + _DANGER_FWD_DAYS + 1] = True
+
+        # (2) chaos 红背景：月频 chaos_gbdt_trigger → ffill 到日
+        _dz_hmp = (_current_regime or {}).get("horsemen_monthly_probs", {}) or {}
+        _dz_recs = []
+        for _m_str, _probs in _dz_hmp.items():
+            if not isinstance(_probs, dict):
+                continue
+            try:
+                _m_ts = pd.Timestamp(str(_m_str) + "-01")
+            except Exception:
+                continue
+            _dz_recs.append((_m_ts, bool(_probs.get("chaos_gbdt_trigger", False))))
+        if _dz_recs:
+            _dz_mdf = (
+                pd.DataFrame(_dz_recs, columns=["date", "chaos"])
+                .set_index("date").sort_index()
+            )
+            _dz_chaos_daily = (
+                _dz_mdf["chaos"].reindex(_cal, method="ffill")
+                .fillna(False).astype(bool)
+            )
+            _danger = _danger | _dz_chaos_daily
+except Exception:
+    _danger = None
+
+if _danger is not None and bool(_danger.any()):
+    st.markdown(
+        "#### ⚠️ 危险区域条带 "
+        "<span style='font-size:13px; color:#888; font-weight:normal;'>"
+        "(chaos 红背景 ∪ GBDT 卖出信号后 20 交易日)</span>",
+        unsafe_allow_html=True,
+    )
+
+    # 危险=True 的连续段 → 红色矩形
+    _flip = _danger.ne(_danger.shift()).cumsum()
+    _segs = []
+    for _gid, _grp in _danger.groupby(_flip):
+        if bool(_grp.iloc[0]):
+            _segs.append((_grp.index[0], _grp.index[-1]))
+
+    # 条带占上半部(y 0.42~1)，下半部留给逐段日期标注
+    _BAND_Y0 = 0.42
+    _rib = go.Figure()
+    _rib.add_shape(
+        type="rect", xref="x", yref="paper",
+        x0=_cal[0], x1=_cal[-1], y0=_BAND_Y0, y1=1,
+        fillcolor="rgba(46,204,113,0.10)", line_width=0, layer="below",
+    )
+    for _s0, _s1 in _segs:
+        _rib.add_shape(
+            type="rect", xref="x", yref="paper",
+            x0=_s0, x1=_s1, y0=_BAND_Y0, y1=1,
+            fillcolor="rgba(231,76,60,0.55)", line_width=0, layer="below",
+        )
+        # 每个危险段起止日期标注（条带下方，红色小字倾斜；起点左对齐、终点右对齐）
+        _rib.add_annotation(
+            x=_s0, y=_BAND_Y0 - 0.06, xref="x", yref="paper",
+            text=_s0.strftime("%y/%m/%d"),
+            showarrow=False, textangle=45,
+            xanchor="right", yanchor="top",
+            font=dict(size=9, color="#E67E73"),
+        )
+        _rib.add_annotation(
+            x=_s1, y=_BAND_Y0 - 0.06, xref="x", yref="paper",
+            text=_s1.strftime("%y/%m/%d"),
+            showarrow=False, textangle=45,
+            xanchor="left", yanchor="top",
+            font=dict(size=9, color="#E67E73"),
+        )
+    # 透明散点：撑起 x 轴日期范围（shape 本身不建立坐标）
+    _rib.add_trace(go.Scatter(
+        x=[_cal[0], _cal[-1]], y=[0.5, 0.5], mode="markers",
+        marker=dict(opacity=0), showlegend=False, hoverinfo="skip",
+    ))
+    _rib.update_layout(
+        height=130,
+        margin=dict(l=20, r=20, t=10, b=28),
+        plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
+        font=dict(color="#ddd"),
+        showlegend=False,
+        xaxis=dict(
+            showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+            range=[_cal[0], _cal[-1]],
+            tickformat="%Y", dtick="M12",
+            showticklabels=True, ticks="outside",
+            tickfont=dict(size=11, color="#999"),
+        ),
+        yaxis=dict(visible=False, range=[0, 1]),
+    )
+    st.plotly_chart(_rib, use_container_width=True, key="tl_danger_ribbon")
+
+    _dz_now = bool(_danger.iloc[-1])
+    _dz_days_1y = int(_danger.iloc[-252:].sum()) if len(_danger) >= 1 else 0
+    _dz_status_txt = (
+        "<span style='color:#E74C3C; font-weight:bold;'>危险区域内</span>"
+        if _dz_now else
+        "<span style='color:#2ECC71; font-weight:bold;'>安全</span>"
+    )
+    st.caption(
+        f"当前：{_dz_status_txt} · 近一年危险交易日 {_dz_days_1y} / "
+        f"{min(len(_danger), 252)} 天 · 红=危险 绿=安全",
+        unsafe_allow_html=True,
+    )
+    st.markdown("---")
 
 with st.sidebar:
     if st.button("🔄 强制刷新合并池接力数据"):
