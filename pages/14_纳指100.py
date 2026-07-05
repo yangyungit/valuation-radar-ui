@@ -1,11 +1,30 @@
 import streamlit as st
 import pandas as pd
 
-from api_client import fetch_ndx100_pit_relay_timeseries, fetch_gbdt_oos_prices
+from api_client import (
+    fetch_ndx100_pit_relay_timeseries,
+    fetch_sp500_pit_relay_timeseries,
+    fetch_gbdt_oos_prices,
+)
 from buyback_relay_core import render_group
 import holdings_viz as hv
 
-st.set_page_config(page_title="纳指100 PIT 接力", layout="wide")
+st.set_page_config(page_title="纳指100 + S&P100 PIT 接力", layout="wide")
+
+# S&P100(OEX) 当前成分静态列表。后端无 S&P100 PIT 接口，只能用「当前成分」筛 S&P500 PIT 数据近似
+# 历史月份的 S&P100 成分（非逐月 PIT，有轻微成分幸存偏差）。要精确得后端补 sp100_pit_membership.json。
+_SP100 = {
+    "AAPL", "ABBV", "ABT", "ACN", "ADBE", "AMAT", "AMD", "AMGN", "AMT", "AMZN",
+    "AVGO", "AXP", "BA", "BAC", "BK", "BKNG", "BLK", "BMY", "BRK.B", "BRK-B",
+    "C", "CAT", "CL", "CMCSA", "COF", "COP", "COST", "CRM", "CSCO", "CVS", "CVX",
+    "DE", "DHR", "DIS", "DUK", "EMR", "FDX", "GD", "GE", "GEV", "GILD", "GM",
+    "GOOG", "GOOGL", "GS", "HD", "HON", "IBM", "INTC", "INTU", "ISRG", "JNJ",
+    "JPM", "KO", "LIN", "LLY", "LMT", "LOW", "LRCX", "MA", "MCD", "MDLZ", "MDT",
+    "META", "MMM", "MO", "MRK", "MS", "MSFT", "MU", "NEE", "NFLX", "NKE", "NOW",
+    "NVDA", "ORCL", "PEP", "PFE", "PG", "PLTR", "PM", "QCOM", "RTX", "SBUX",
+    "SCHW", "SO", "SPG", "T", "TMO", "TMUS", "TSLA", "TXN", "UBER", "UNH", "UNP",
+    "UPS", "USB", "V", "VZ", "WFC", "WMT", "XOM",
+}
 
 st.markdown("""
 <style>
@@ -16,9 +35,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 纳指100 PIT 接力图")
+st.title("📊 纳指100 + S&P100 合并池 PIT 接力图")
 st.caption(
-    "**池子**:NASDAQ-100 每月真实历史成分（含退市，2016 起，Wikipedia 逆推），每月只在当月成分内横截面排名。"
+    "**池子**:NASDAQ-100 ∪ S&P100(OEX) 每月历史成分并集（含退市，2016 起）。"
+    "纳指100 逐月 PIT；S&P100 后端无接口，用**当前成分**筛 S&P500 PIT 近似（非逐月，轻微成分幸存偏差）。"
+    "每月只在合并成分内横截面排名。"
     "**排名**:按 **raw 12M 绝对涨幅**（月末价/12 个月前月末价 − 1）横截面排名。"
     "**🥇 金牌 = 当月 Top1 / 🥈 银牌 = Top2**（已删 RS 门槛，只看排名）。"
     "**净值口径**:日线、执行月首个交易日 Open 买入、持有到月末 Close、扣单边 10bps；"
@@ -29,20 +50,56 @@ st.caption(
 )
 
 with st.sidebar:
-    if st.button("🔄 强制刷新纳指100接力数据"):
+    if st.button("🔄 强制刷新合并池接力数据"):
         fetch_ndx100_pit_relay_timeseries.clear()
+        fetch_sp500_pit_relay_timeseries.clear()
         fetch_gbdt_oos_prices.clear()
         st.rerun()
 
 _WINDOWS = ["3Y", "5Y", "10Y"]
 window = st.radio("时间跨度", _WINDOWS, index=1, horizontal=True, key="ndx_window")
 
-with st.spinner("📊 加载纳指100 PIT 接力数据..."):
-    ts = fetch_ndx100_pit_relay_timeseries(window)
 
-if not ts.get("success"):
-    st.error(f"⚠️ 纳指100 PIT 接力数据暂不可用:{ts.get('error', '未知错误')}")
+def _merge_ndx_sp100(ndx: dict, sp: dict) -> dict:
+    """纳指100 ∪ S&P100 合并池，以 ndx 为底表（沿用 10_科技龙头.py 的合并模式）。
+    - S&P100 成分：后端无 PIT 接口，用 _SP100 当前成分筛 sp500_membership 近似。
+    - close_me 两池月末轴可能不同，combine_first 对齐；membership 按月取并集。
+    排名仍是 12M 绝对涨幅在合并池内横截面 rank，口径不变。
+    """
+    out = dict(ndx)
+    out["tickers"] = {**sp.get("tickers", {}), **ndx.get("tickers", {})}
+
+    ai = pd.to_datetime(ndx.get("close_me_dates", []) or [], errors="coerce")
+    bi = pd.to_datetime(sp.get("close_me_dates", []) or [], errors="coerce")
+    da = pd.DataFrame(ndx.get("close_me", {}) or {}, index=ai).astype(float)
+    db = pd.DataFrame(sp.get("close_me", {}) or {}, index=bi).astype(float)
+    cme = da.combine_first(db).sort_index() if not db.empty else da.sort_index()
+    out["close_me_dates"] = [d.strftime("%Y-%m-%d") for d in cme.index]
+    out["close_me"] = {c: cme[c].where(pd.notna(cme[c]), None).tolist() for c in cme.columns}
+
+    memb_ndx = ndx.get("ndx100_membership", {}) or {}
+    memb_sp500 = sp.get("sp500_membership", {}) or {}
+    merged = {}
+    for ym in set(memb_ndx) | set(memb_sp500):
+        sp100_m = [t for t in memb_sp500.get(ym, []) if t in _SP100]
+        merged[ym] = sorted(set(memb_ndx.get(ym, [])) | set(sp100_m))
+    out["pool_membership"] = merged
+    return out
+
+
+with st.spinner("📊 加载纳指100 + S&P100 合并池接力数据..."):
+    ts_ndx = fetch_ndx100_pit_relay_timeseries(window)
+    ts_sp = fetch_sp500_pit_relay_timeseries(window)
+
+if not ts_ndx.get("success"):
+    st.error(f"⚠️ 纳指100 PIT 接力数据暂不可用:{ts_ndx.get('error', '未知错误')}")
     st.stop()
+if not ts_sp.get("success"):
+    st.warning(f"⚠️ S&P100（来自 S&P500 PIT）暂不可用（回退纯纳指100）:{ts_sp.get('error', '未知错误')}")
+    ts = dict(ts_ndx)
+    ts["pool_membership"] = ts_ndx.get("ndx100_membership", {}) or {}
+else:
+    ts = _merge_ndx_sp100(ts_ndx, ts_sp)
 
 _all_tickers = ts.get("tickers", {}) or {}
 _tickers = _all_tickers
@@ -50,7 +107,7 @@ _dates = ts.get("dates", []) or []
 if not _tickers or not _dates:
     st.warning("⚠️ 纳指100 PIT 母体数据为空")
     st.stop()
-st.caption(f"股池：NASDAQ-100 PIT 历史成分并集，当前后端命中 {len(_tickers)} 只。")
+st.caption(f"股池：NASDAQ-100 ∪ S&P100 历史成分并集，当前后端命中 {len(_tickers)} 只。")
 
 _idx = pd.to_datetime(_dates, errors="coerce")
 rs = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
@@ -73,7 +130,7 @@ king_m = (_close_me / _close_me.shift(12) - 1.0)
 # MA4 = 尾部 3Y/5Y 总收益全面压过原 MA10（2-3 倍），10Y 打平；卖得更快、早期动量段吃得更满。
 _ret_mask = _close_me > _close_me.rolling(4).mean()
 
-_memb = ts.get("ndx100_membership", {}) or {}
+_memb = ts.get("pool_membership", {}) or {}
 
 
 def _mask_by_membership(df: pd.DataFrame) -> pd.DataFrame:
@@ -136,8 +193,8 @@ _COMMON = dict(
 
 
 _cols = list(king_m.columns)
-_label = "纳指100"
-st.markdown(f"## 🏆 纳指100组（{len(_cols)} 只）")
+_label = "纳指100+S&P100"
+st.markdown(f"## 🏆 纳指100 + S&P100 合并池（{len(_cols)} 只）")
 
 render_group(_label, _cols, "ndx_main",
              score_m=king_m, sweep_score_m=king_m_long,
