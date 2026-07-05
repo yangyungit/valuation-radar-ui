@@ -838,16 +838,23 @@ def fetch_macro_radar_timeseries(window: str = "1Y", profile: str = "waveform") 
     返回 {"success": True, "profile": ..., "window": ..., "rs_window": N, "z_window": N,
          "asof": "YYYY-MM-DD", "dates": [...], "tickers": {ticker: {...}}}。
     """
-    try:
-        r = requests.get(
-            f"{API_BASE_URL}/api/v1/macro/radar/timeseries",
-            params={"window": window, "profile": profile},
-            timeout=120,
-        )
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        return {"success": False, "error": str(e), "dates": [], "tickers": {}}
+    # 后端冷启动时 502/超时时有发生（worker OOM 或重启），重试一次即可自愈
+    _last_err = None
+    for _attempt in range(2):
+        try:
+            r = requests.get(
+                f"{API_BASE_URL}/api/v1/macro/radar/timeseries",
+                params={"window": window, "profile": profile},
+                timeout=120,
+            )
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            _last_err = e
+            if _attempt == 0:
+                import time
+                time.sleep(3)
+    return {"success": False, "error": str(_last_err), "dates": [], "tickers": {}}
 
 
 @st.cache_data(ttl=3600 * 4)
