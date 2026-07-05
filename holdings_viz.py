@@ -364,7 +364,14 @@ def build_relay_gantt(
         tickvals=[1.0, 0.0], ticktext=["左列 · 龙头", "右列 · 次龙头"],
         range=[-0.6, 1.6], showgrid=False, zeroline=False,
     )
-    fig.update_xaxes(type="date", showgrid=True, gridcolor="#222")
+    if exec_months:
+        x0 = pd.Timestamp(f"{exec_months[0]}-01")
+        x1 = pd.Timestamp(f"{exec_months[-1]}-01") + pd.offsets.MonthEnd(1)
+        fig.update_xaxes(
+            type="date", range=[x0, x1], showgrid=True, gridcolor="#222",
+        )
+    else:
+        fig.update_xaxes(type="date", showgrid=True, gridcolor="#222")
     return fig
 
 
