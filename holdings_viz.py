@@ -258,6 +258,116 @@ def build_basket_slot_assignments(monthly_holdings: dict, months: list) -> dict:
     return slot_assignments
 
 
+def dynasty_relay_slots(dyn_ts: dict, groups: list = None, buffer_n: int = 4):
+    """从 dynasty 时序算王朝接力「左列/右列」每月实际持仓，与板块王朝页 king_score
+    接力完全同源（月末 king_score 横截面 rank → 进前 3 才够格 → 资历排序 → 守擂缓冲
+    → 顺延 1 月执行）。返回 (slot_assignments, name_map, exec_months)。
+    slot_assignments: {exec_month: [左列ticker, 右列ticker]}（空槽为 'CASH'）。
+    """
+    tickers = dyn_ts.get("tickers", {}) or {}
+    dates = dyn_ts.get("dates", []) or []
+    if groups:
+        picked = {tk: p for tk, p in tickers.items() if p.get("group", "") in groups}
+    else:
+        picked = dict(tickers)
+    if not picked or not dates:
+        return {}, {}, []
+    idx = pd.to_datetime(dates, errors="coerce")
+    king = pd.DataFrame(
+        {tk: p.get("king_score", []) for tk, p in picked.items()}, index=idx
+    ).astype(float)
+    name_map = {tk: p.get("name", tk) for tk, p in picked.items()}
+    king_m = king.resample("ME").last()
+    if king_m.empty or len(king_m) < 2:
+        return {}, name_map, []
+
+    rank_m = king_m.rank(axis=1, ascending=False, method="min")
+    ten6 = (rank_m <= 3).astype(int).rolling(6, min_periods=1).sum()
+    mh: dict = {}
+    prev_h: list = []
+    for ts, row in rank_m.iterrows():
+        r = row.dropna().sort_values()
+        if r.empty:
+            continue
+        order = r.index.tolist()
+        tN = set(order[:buffer_n])
+        tnow = ten6.loc[ts]
+        elig = [t for t in order if r[t] <= 3]
+        elig_t = sorted(elig, key=lambda t: (-float(tnow.get(t, 0)), r[t]))
+        hold = [t for t in prev_h if t in tN][:2] if prev_h else []
+        for t in elig_t:
+            if len(hold) >= 2:
+                break
+            if t not in hold:
+                hold.append(t)
+        if len(hold) < 2:
+            for t in order:
+                if len(hold) >= 2:
+                    break
+                if t not in hold:
+                    hold.append(t)
+        exec_m = next_month_key(ts.strftime("%Y-%m"), 1)
+        mh[exec_m] = hold
+        prev_h = hold
+    exec_months = sorted(mh)
+    if not exec_months:
+        return {}, name_map, []
+    slots = build_basket_slot_assignments(mh, exec_months)
+    return slots, name_map, exec_months
+
+
+def build_relay_gantt(
+    slot_assignments: dict, exec_months: list, name_map: dict = None,
+    title: str = "王朝接力左右列时间条带",
+) -> go.Figure:
+    """把左右列每月持仓画成甘特时间条带：两条轨道（左列/右列），每段连续持有同一板块
+    = 一个色带，带上标中文名 + 代码。"""
+    nm = name_map if name_map is not None else {}
+    fig = go.Figure()
+
+    tks: list = []
+    for m in exec_months:
+        for t in slot_assignments.get(m, []):
+            if t and t != "CASH" and t not in tks:
+                tks.append(t)
+    color_map = {t: SLOT_COLORS[i % len(SLOT_COLORS)] for i, t in enumerate(tks)}
+
+    tracks = [(0, 1.0), (1, 0.0)]
+    for slot_idx, yc in tracks:
+        for tk, s_m, e_m in build_slot_segments(slot_assignments, slot_idx, exec_months):
+            x0 = pd.Timestamp(f"{s_m}-01")
+            x1 = pd.Timestamp(f"{e_m}-01") + pd.offsets.MonthEnd(1)
+            if not tk or tk == "CASH":
+                fillc, label = "#2a2a2a", "空仓"
+            else:
+                fillc = color_map.get(tk, "#888")
+                label = f"{nm.get(tk, tk)}<br>{tk}"
+            fig.add_shape(
+                type="rect", x0=x0, x1=x1, y0=yc - 0.4, y1=yc + 0.4,
+                fillcolor=fillc, opacity=0.9, line=dict(width=1, color="#111"),
+                layer="below",
+            )
+            xmid = x0 + (x1 - x0) / 2
+            fig.add_annotation(
+                x=xmid, y=yc, text=label, showarrow=False,
+                font=dict(size=10, color="#fff"),
+            )
+    fig.update_layout(
+        height=240,
+        margin=dict(l=80, r=20, t=44, b=24),
+        plot_bgcolor="#111111", paper_bgcolor="#111111",
+        font=dict(color="#ddd"),
+        title=dict(text=title, font=dict(size=14), x=0.01, xanchor="left"),
+        showlegend=False,
+    )
+    fig.update_yaxes(
+        tickvals=[1.0, 0.0], ticktext=["左列 · 龙头", "右列 · 次龙头"],
+        range=[-0.6, 1.6], showgrid=False, zeroline=False,
+    )
+    fig.update_xaxes(type="date", showgrid=True, gridcolor="#222")
+    return fig
+
+
 def build_stitched_fig(
     segs: list, slot_name: str,
     spy_wk: pd.DataFrame = None,

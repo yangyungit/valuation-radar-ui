@@ -5,6 +5,7 @@ from api_client import (
     fetch_sp500_pit_relay_timeseries,
     fetch_ndx100_pit_relay_timeseries,
     fetch_gbdt_oos_prices,
+    fetch_macro_radar_timeseries,
 )
 from buyback_relay_core import render_group
 import holdings_viz as hv
@@ -41,6 +42,34 @@ with st.sidebar:
 
 _WINDOWS = ["3Y", "5Y", "10Y"]
 window = st.radio("时间跨度", _WINDOWS, index=1, horizontal=True, key="tl_window")
+
+# ── 顶部对照：板块王朝接力左右列甘特条带（与「板块王朝」页 king_score 接力同源）
+# 用途：把「最火板块」的时间轴摆在科技龙头之上，肉眼核对当月选出的龙头股是否落在同期最热板块里。
+_DYN_GROUPS = ["C: 核心板块 (Level 1 Sectors)", "D: 细分赛道 (Level 2/Themes)"]
+with st.spinner("📊 加载板块王朝接力条带..."):
+    _dyn_ts = fetch_macro_radar_timeseries(window=window, profile="dynasty")
+if not _dyn_ts.get("success"):
+    st.info(f"板块王朝条带暂不可用：{_dyn_ts.get('error', '未知错误')}")
+else:
+    _dyn_slots, _dyn_name_map, _dyn_exec_months = hv.dynasty_relay_slots(
+        _dyn_ts, groups=_DYN_GROUPS, buffer_n=4,
+    )
+    if _dyn_slots:
+        st.markdown("### 🔥 板块王朝接力（最火板块时间条带）")
+        st.caption(
+            "两条轨道 = 王朝接力左列（龙头板块）/ 右列（次龙头板块），每段色带 = 一段连续持有的板块，"
+            f"带上标中文名 + ETF 代码。与「板块王朝」页 {window} king_score 接力同源。"
+            "对照下方选出的科技龙头个股：看当月龙头是否正好落在同期最热板块里（互相命中）。"
+        )
+        st.plotly_chart(
+            hv.build_relay_gantt(
+                _dyn_slots, _dyn_exec_months, _dyn_name_map,
+                title=f"{window} 王朝接力左右列 · 板块时间条带",
+            ),
+            use_container_width=True,
+            key="tl_dynasty_gantt",
+        )
+        st.markdown("---")
 
 
 def _merge_relay_ts(a: dict, b: dict) -> dict:
