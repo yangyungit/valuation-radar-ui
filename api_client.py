@@ -1100,6 +1100,44 @@ def fetch_dynasty_double_dragon(
     return {"success": False, "error": str(last_exc)}
 
 
+@st.cache_data(ttl=3600 * 4)
+def fetch_dynasty_gold_leader(
+    window: str = "5Y",
+    rebalance: bool = False,
+    cost_bps: float = 10.0,
+) -> dict:
+    """从后端获取戴金龙头 Top2 独立回测（研究原型），供「🏅 戴金龙头」页用。
+
+    戴金龙头 = C 组戴金板块 → 板块内王朝龙头 Top2 → 下月执行，与 12M 动量守擂不是一套
+    方法，已从 C组双龙 拆出。后端只跑戴金 1 次模拟（不扫动量守擂/防抖网格），比 double_dragon
+    快数百倍，不再 502。返回净值曲线 / 当前持仓 / 持仓时间线 / Slot 分段 / 统计卡。
+    诚实定位：信号无前视、次日成交、扣成本；但池含生存者偏差，非真实业绩。
+    Render 冷启动 502/504 自动重试一次。失败返回 {"success": False, "error": ...}。
+    """
+    import time as _time
+    last_exc = None
+    for attempt in range(2):
+        try:
+            if attempt > 0:
+                _time.sleep(15)
+            r = requests.get(
+                f"{API_BASE_URL}/api/v1/macro/dynasty/gold_leader",
+                params={
+                    "window": window, "rebalance": rebalance, "cost_bps": cost_bps,
+                },
+                timeout=180,
+            )
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_exc = e
+            err = str(e)
+            if attempt == 0 and any(c in err for c in ("502", "504", "Connection")):
+                continue
+            break
+    return {"success": False, "error": str(last_exc)}
+
+
 @st.cache_data(ttl=6 * 3600)
 def fetch_theme_holdings_status() -> dict:
     """从后端获取 14 个主题 ETF 的 holdings 数据源状态（source/provider/as_of_date/is_fallback/is_stale）。

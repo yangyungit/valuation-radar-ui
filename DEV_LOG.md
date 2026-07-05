@@ -1,3 +1,19 @@
+## 2026-07-05 | 戴金龙头从 C组双龙拆出单独成页
+
+**范围**：新增 `pages/15_戴金龙头.py`、`api_client.py`；`pages/13_C组双龙.py` 改名为 `pages/13_动量双龙.py` 并去掉戴金。不改策略口径/成本。
+
+**起因**：C组双龙点戴金龙头报 502——后端 `double_dragon` 每次都扫 N=1..5 × K(n..60)/δ 几百次模拟 + 另载 10Y 面板，在 Render 上超时。戴金龙头本身只是 1 次模拟，且和 12M 动量守擂不是一套方法，混在一页既慢又乱。
+
+**改动**：
+
+- `api_client.py`：新增 `fetch_dynasty_gold_leader(window, rebalance, cost_bps)`，调后端轻量接口 `/api/v1/macro/dynasty/gold_leader`，502/504 自动重试一次，`@st.cache_data(ttl=4h)`。
+- `pages/15_戴金龙头.py`：只渲染戴金 Top2 的当前持仓卡（板块/龙头名次/区间超额）、净值图（戴金 vs SPY，可展开 RSP/11行业等权）、统计卡、Slot 分段收益。再平衡开关 + 成本滑杆。
+- `pages/13_动量双龙.py`（原 `13_C组双龙.py`）：去掉「戴金龙头Top2」策略选项、戴金设置分支、主图戴金曲线、持仓卡/统计卡的戴金分支；标题改「12M动量双龙」，caption 指向新戴金页。双龙 = K守擂 + δ防抖两条。
+
+**契约依赖**：后端 commit `4c15d77`（新增 `compute_gold_leader_backtest` + `/dynasty/gold_leader` 路由）。两接口共用同一份缓存面板，互相预热。
+
+---
+
 ## 2026-07-04 | 修复标普500接力页选 10Y 仍显示 5Y
 
 **范围**：`pages/10_科技龙头.py` 排名数据源与日线拉取范围。不改策略/口径/成本。

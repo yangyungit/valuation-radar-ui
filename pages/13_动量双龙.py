@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import holdings_viz as hv
 from api_client import fetch_dynasty_double_dragon
 
-st.set_page_config(page_title="C组双龙", layout="wide")
+st.set_page_config(page_title="12M动量双龙", layout="wide")
 
 st.markdown("""
 <style>
@@ -111,8 +111,8 @@ with st.sidebar:
         fetch_dynasty_double_dragon.clear()
         st.rerun()
 
-st.title("📈 C组双龙 (Double Dragon)")
-st.caption("C组戴金板块龙头策略 · 标普500动量K守擂 · 标普500动量防抖守擂 · 三策略对照")
+st.title("📈 12M动量双龙 (Momentum Guard)")
+st.caption("标普500动量K守擂 · 标普500动量防抖守擂 · 两策略对照。戴金龙头已拆到「🏅 戴金龙头」单独一页。")
 
 _dynasty_window = st.radio(
     "时间跨度",
@@ -123,18 +123,15 @@ _dynasty_window = st.radio(
     help="月末快照：3Y/5Y/10Y 约对应 36/60/120 个格子",
 )
 
-st.markdown("#### 📈 C组双龙持仓 — 三策略对照")
-_dd_n_cur = 2
+st.markdown("#### 📈 12M动量双龙持仓 — 两策略对照")
 st.caption(
-    f"**主线A**：C组王朝接力图戴金板块 → 板块内王朝龙头区间超额 Top{_dd_n_cur} → 下月执行。"
-    "**主线B**：当前标普500股票池 → 12M 动量 + MA200 → TopN/K 守擂 → 下月执行。"
-    "**主线C**：同一套 12M 动量候选池 → TopN/分差 δ 防抖守擂 → 下月执行。"
+    "**主线A**：当前标普500股票池 → 12M 动量 + MA200 → TopN/K 守擂 → 下月执行。"
+    "**主线B**：同一套 12M 动量候选池 → TopN/分差 δ 防抖守擂 → 下月执行。"
     "**诚实声明**：信号**不看未来**、可执行规则模拟；股票池=**逐月真实标普500成分**"
     "（PIT，Sharadar 数据含当年被剔除/退市/收购的公司），**已去生存者偏差**。"
 )
 
 _strategy_options = {
-    "戴金龙头Top2": "c_gold_dynasty_leader_top2",
     "12M动量K守擂": "sp500_12m_ma200_k_guard",
     "12M动量防抖守擂": _DD_DELTA_STRATEGY,
 }
@@ -145,7 +142,7 @@ _dd_strategy_label = st.radio(
     index=0,
     horizontal=True,
     key="dd_strategy",
-    help="决定当前持仓卡、统计卡、Slot分段收益和时间带展示哪条策略；组合收益图仍保留三条策略曲线作参考。",
+    help="决定当前持仓卡、统计卡、Slot分段收益和时间带展示哪条策略；组合收益图保留两条策略曲线作参考。",
 )
 _dd_signal = _strategy_options[_dd_strategy_label]
 
@@ -156,51 +153,35 @@ _dd_delta_k = -1.0
 _dd_k_display = None
 _dd_delta_display = None
 
-if _dd_signal in {_DD_MOMENTUM_STRATEGY, _DD_DELTA_STRATEGY}:
-    st.markdown("##### 12M动量守擂设置")
-    _mom_c1, _mom_c2 = st.columns([1.1, 1.2])
-    with _mom_c1:
-        _dd_legacy_n = st.selectbox(
-            "持仓数量 TopN",
-            [1, 2, 3, 4, 5],
-            index=[1, 2, 3, 4, 5].index(_dd_legacy_n) if _dd_legacy_n in [1, 2, 3, 4, 5] else 1,
-            key="dd_legacy_n",
-            help="只作用于两条 12M 动量守擂策略；戴金龙头策略固定 Top2。",
-        )
-    with _mom_c2:
-        if _dd_signal == _DD_MOMENTUM_STRATEGY:
-            _dd_k_display = st.empty()
-            _dd_k_display.caption("自动守擂K：加载后显示")
-        else:
-            _dd_delta_display = st.empty()
-            _dd_delta_display.caption("自动防抖强度：加载后显示")
+st.markdown("##### 12M动量守擂设置")
+_mom_c1, _mom_c2 = st.columns([1.1, 1.2])
+with _mom_c1:
+    _dd_legacy_n = st.selectbox(
+        "持仓数量 TopN",
+        [1, 2, 3, 4, 5],
+        index=[1, 2, 3, 4, 5].index(_dd_legacy_n) if _dd_legacy_n in [1, 2, 3, 4, 5] else 1,
+        key="dd_legacy_n",
+        help="作用于两条 12M 动量守擂策略。",
+    )
+with _mom_c2:
     if _dd_signal == _DD_MOMENTUM_STRATEGY:
-        st.caption(
-            "固定不再平衡：每个槽位独立复利，持仓仍在前 K 就留任，跌出前 K 才换；"
-            "不做月度等权拉回，避免额外卖强买弱和模糊守擂语义。"
-        )
+        _dd_k_display = st.empty()
+        _dd_k_display.caption("自动守擂K：加载后显示")
     else:
-        st.caption(
-            "固定不再平衡：每个槽位独立复利；在任票只要 12M 动量分数距 TopN 门槛在 δ 内就留任。"
-            "δ = kδ × 当月横截面 12M 动量标准差，用来减少排名挤动造成的无意义换仓，不承诺收益更高。"
-        )
+        _dd_delta_display = st.empty()
+        _dd_delta_display.caption("自动防抖强度：加载后显示")
+if _dd_signal == _DD_MOMENTUM_STRATEGY:
+    st.caption(
+        "固定不再平衡：每个槽位独立复利，持仓仍在前 K 就留任，跌出前 K 才换；"
+        "不做月度等权拉回，避免额外卖强买弱和模糊守擂语义。"
+    )
 else:
-    st.markdown("##### 戴金龙头Top2设置")
-    _gold_c1, _gold_c2 = st.columns([1.1, 2.0])
-    with _gold_c1:
-        _dd_rebal = st.toggle(
-            "月度等权再平衡",
-            value=False,
-            key="dd_rebal",
-            help="只作用于戴金龙头Top2：每月把两个槽位重新拉回50/50；关闭时各槽位独立复利。",
-        )
-    with _gold_c2:
-        st.caption(
-            "固定持有 Top2；再平衡=每月卖一点涨多的槽位、补一点涨少的槽位，"
-            "重新回到两个槽位各 50%。"
-        )
+    st.caption(
+        "固定不再平衡：每个槽位独立复利；在任票只要 12M 动量分数距 TopN 门槛在 δ 内就留任。"
+        "δ = kδ × 当月横截面 12M 动量标准差，用来减少排名挤动造成的无意义换仓，不承诺收益更高。"
+    )
 
-with st.expander("交易假设（作用于三条策略）"):
+with st.expander("交易假设（作用于两条策略）"):
     _dd_cost = st.slider(
         "单边成本 (bps)", 0, 50, 10, key="dd_cost",
         help="买/卖各算一次，扣在成交名义额上；会影响三条策略的回测净值和统计。",
@@ -217,7 +198,7 @@ if not _dd.get("success"):
         _dd_k_display.metric("自动守擂K", "—")
     if _dd_delta_display is not None:
         _dd_delta_display.metric("自动防抖强度", "—")
-    st.warning(f"⚠️ C组双龙回测暂不可用：{_dd.get('error', '未知错误')}")
+    st.warning(f"⚠️ 12M动量双龙回测暂不可用：{_dd.get('error', '未知错误')}")
 
 if _dd.get("success"):
     _meta = _dd.get("meta", {})
@@ -265,12 +246,10 @@ if _dd.get("success"):
     # ── 当前持仓卡
     _signal_as_of = str(_meta.get("signal_as_of", "") or "")
     _signal_month = _signal_as_of[:7] if _signal_as_of else "最近信号"
-    if _primary_strategy == _DD_MOMENTUM_STRATEGY:
-        _strategy_title = "12M动量K守擂"
-    elif _primary_strategy == _DD_DELTA_STRATEGY:
+    if _primary_strategy == _DD_DELTA_STRATEGY:
         _strategy_title = "12M动量防抖守擂"
     else:
-        _strategy_title = "戴金龙头Top2"
+        _strategy_title = "12M动量K守擂"
     st.markdown(f"##### 截至 {_signal_month} 信号的模拟持仓｜{_strategy_title}")
     _cur = _dd.get("current_holdings", {})
     _cur_slots = _cur.get("slots", [])
@@ -280,36 +259,19 @@ if _dd.get("success"):
         _sdata = _cur_slots[_si] or {}
         with _hold_cols[_si]:
             if not _sdata or _sdata.get("bil"):
-                _bil_msg = (
-                    "BIL（无满足 12M 动量 + MA200 的合格股票）"
-                    if _primary_strategy in {_DD_MOMENTUM_STRATEGY, _DD_DELTA_STRATEGY}
-                    else "BIL（当月无 C 组戴金板块或无足够龙头候选）"
-                )
                 _slot_html = (
                     f"<div class='insight-box'><div class='insight-title'>{_slabel}</div>"
                     "<div style='font-size:15px;color:#bbb;'>"
-                    f"{_bil_msg}</div></div>"
+                    "BIL（无满足 12M 动量 + MA200 的合格股票）</div></div>"
                 )
             else:
-                if _primary_strategy in {_DD_MOMENTUM_STRATEGY, _DD_DELTA_STRATEGY}:
-                    _mom_val = _sdata.get("momentum_12m_pct")
-                    _mom_txt = f"{_mom_val:+.1f}%" if isinstance(_mom_val, (int, float)) else "—"
-                    _slot_detail = (
-                        f"12M排名 第 {_sdata.get('rank', '—')}｜12M涨幅 {_mom_txt}"
-                        f"｜MA200上方 {'是' if _sdata.get('above_ma200') else '—'}"
-                        f"<br>首次持有 {_sdata.get('since', '—')}｜已持有 {_sdata.get('held_months', '—')} 月"
-                    )
-                else:
-                    _sector_txt = (
-                        f"{_sdata.get('sector_name', _sdata.get('sector_etf', '—'))}"
-                        f"({_sdata.get('sector_etf', '—')})"
-                    )
-                    _excess_val = _sdata.get("excess_pct")
-                    _excess_txt = f"{_excess_val:+.1f}%" if isinstance(_excess_val, (int, float)) else "—"
-                    _slot_detail = (
-                        f"戴金板块 {_sector_txt}｜龙头第 {_sdata.get('leader_rank', '—')}｜区间超额 {_excess_txt}"
-                        f"<br>首次持有 {_sdata.get('since', '—')}｜已持有 {_sdata.get('held_months', '—')} 月"
-                    )
+                _mom_val = _sdata.get("momentum_12m_pct")
+                _mom_txt = f"{_mom_val:+.1f}%" if isinstance(_mom_val, (int, float)) else "—"
+                _slot_detail = (
+                    f"12M排名 第 {_sdata.get('rank', '—')}｜12M涨幅 {_mom_txt}"
+                    f"｜MA200上方 {'是' if _sdata.get('above_ma200') else '—'}"
+                    f"<br>首次持有 {_sdata.get('since', '—')}｜已持有 {_sdata.get('held_months', '—')} 月"
+                )
                 _slot_html = (
                     f"<div class='insight-box'><div class='insight-title'>{_slabel}</div>"
                     f"<div style='font-size:16px;color:#fff;font-weight:bold;'>"
@@ -323,7 +285,6 @@ if _dd.get("success"):
     _eq = _dd.get("equity", {})
     _dd_dates = pd.to_datetime(_dd.get("dates", []), errors="coerce")
     _series_cfg = [
-        ("gold_leader_top2", "戴金龙头Top2", "#E74C3C", True),
         ("momentum_k_guard", f"12M动量守擂 Top{_legacy_n_val}/{_legacy_k_txt}", "#F39C12", True),
         ("momentum_delta_guard", f"12M动量防抖 Top{_legacy_n_val}/{_delta_k_txt}", "#2ECC71", True),
         ("spy", "SPY", "#3498DB", True),
@@ -351,7 +312,7 @@ if _dd.get("success"):
         yaxis_type="log",
     )
     st.plotly_chart(_fig_eq, use_container_width=True)
-    st.caption("当前组合主图保留戴金Top2、动量TopN/K、防抖TopN/δ和SPY；点图例可展开 RSP / 11行业ETF等权")
+    st.caption("当前组合主图保留动量TopN/K、防抖TopN/δ和SPY；点图例可展开 RSP / 11行业ETF等权")
 
     # ── 统计卡
     st.markdown("##### 统计卡")
@@ -397,10 +358,6 @@ if _dd.get("success"):
         st.caption(
             f"当前统计卡为 12M 动量防抖守擂 Top{_legacy_n_val}/{_delta_k_txt}；"
             f"{_delta_note}；已有持仓距 TopN 门槛在 δ 内就留任，差得更多才换。该策略固定不再平衡。"
-        )
-    else:
-        st.caption(
-            "当前统计卡为戴金龙头 Top2；该口径无 K 守擂，换手由 C 组戴金板块切换和板块内 Top2 变化决定。"
         )
     if _primary_strategy == _DD_MOMENTUM_STRATEGY and _legacy_k_val is not None:
         st.caption(
