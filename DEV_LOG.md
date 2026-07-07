@@ -1,3 +1,18 @@
+## 2026-07-07 | 另类资产从科技龙头合并池拆出单独成页
+
+**范围**：新增 `pages/16_另类资产.py`；`pages/10_科技龙头.py` 去掉 `_merge_alt` 第三池合并 + 标题/文案回退。不改排名/接力/成本口径。
+
+**起因**：主理人发现另类资产（加密/贵金属/大宗/矿股）在 S&P500∪NDX100 合并池里长期排不进前列，却把股票的接力秩序冲得更碎。故从科技龙头页拆走单独成页。
+
+**改动**：
+
+- `pages/10_科技龙头.py`：删 `fetch_alt_assets_pit_relay_timeseries` import、`_merge_alt` 函数、alt 拉取与合并分支、侧栏 alt 缓存清理；标题/caption/label 回退为纯「标普500+纳指100」。页面重回 S&P500∪NDX100 两池、10M 动量口径不变。
+- `pages/16_另类资产.py`：只跑 alt 池（`alt_membership` 每月全含直接当 `pool_membership`），10M 动量横截面排名，MA4 趋势留任，render_group 参数与科技龙头页对齐（default_k=0.75/单持/hold_band=2/日线净值/单边 10bps）。含合成 BTCX。
+
+**后端契约**：无改动，沿用既有 `/api/v1/macro/alt_assets_pit_relay/timeseries`。
+
+---
+
 ## 2026-07-05 | 科技龙头页并入另类资产第三池（加密/贵金属/大宗/矿股）
 
 **范围**：`api_client.py` 加 `fetch_alt_assets_pit_relay_timeseries`；`pages/10_科技龙头.py` 加 `_merge_alt` 三池合并 + 标题/文案更新。不改排名/接力/成本口径。
