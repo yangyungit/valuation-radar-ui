@@ -65,7 +65,12 @@ try:
                 _danger.iloc[_pos:_pos + _DANGER_FWD_DAYS + 1] = True
 
         # (2) chaos 红背景：月频 chaos_gbdt_trigger → ffill 到日
-        _dz_hmp = (_current_regime or {}).get("horsemen_monthly_probs", {}) or {}
+        # 优先取 compute 自带的月频 probs（120 月满档）；持久化 current-regime 那份常年空，仅作兜底
+        _dz_hmp = (
+            ((_chain_regime or {}).get("data", {}) or {}).get("horsemen_monthly_probs", {})
+            or (_current_regime or {}).get("horsemen_monthly_probs", {})
+            or {}
+        )
         _dz_recs = []
         for _m_str, _probs in _dz_hmp.items():
             if not isinstance(_probs, dict):
