@@ -686,6 +686,7 @@ def render_group(
             f"（规避 {_dd_raw - _dd_c:+.1f}pp）；总收益 满仓 {_ret_raw:+.1f}% → 空仓 {_ret_c:+.1f}%。"
         )
 
+    _dg_seg = danger_daily if _bear_on else None
     if dynamic_n_hold:
         st.plotly_chart(
             hv.build_basket_fig(_navc, spy_wk, f"{group_label} 动态 Top1-Top{max_n_hold} — 净值 vs SPY"),
@@ -693,7 +694,7 @@ def render_group(
         )
         for _i, _seg in enumerate(_slot_segs[:max_n_hold]):
             st.plotly_chart(
-                hv.build_stitched_fig(_seg, f"{group_label}接力 槽{_i + 1}", spy_wk, price_cache, name_map, grade_map),
+                hv.build_stitched_fig(_seg, f"{group_label}接力 槽{_i + 1}", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg),
                 use_container_width=True, key=f"{kp}_nav_slot_{_i}",
             )
     elif n_hold < 2:
@@ -705,7 +706,7 @@ def render_group(
         if segment_window_slider and _seg0:
             _seg0, _spy_seg = _crop_segments_by_slider(_seg0, spy_wk, kp)
         st.plotly_chart(
-            hv.build_stitched_fig(_seg0, f"{group_label}接力 持仓段", _spy_seg, price_cache, name_map, grade_map),
+            hv.build_stitched_fig(_seg0, f"{group_label}接力 持仓段", _spy_seg, price_cache, name_map, grade_map, danger_daily=_dg_seg),
             use_container_width=True, key=f"{kp}_nav_l",
         )
     else:
@@ -714,11 +715,11 @@ def render_group(
             use_container_width=True, key=f"{kp}_nav_combined",
         )
         st.plotly_chart(
-            hv.build_stitched_fig(_slot_segs[0], f"{group_label}接力 左列 (Slot 0)", spy_wk, price_cache, name_map, grade_map),
+            hv.build_stitched_fig(_slot_segs[0], f"{group_label}接力 左列 (Slot 0)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg),
             use_container_width=True, key=f"{kp}_nav_l",
         )
         st.plotly_chart(
-            hv.build_stitched_fig(_slot_segs[1], f"{group_label}接力 右列 (Slot 1)", spy_wk, price_cache, name_map, grade_map),
+            hv.build_stitched_fig(_slot_segs[1], f"{group_label}接力 右列 (Slot 1)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg),
             use_container_width=True, key=f"{kp}_nav_r",
         )
 

@@ -381,6 +381,7 @@ def build_stitched_fig(
     price_cache: dict = None,
     name_map: dict = None,
     grade_map: dict = None,
+    danger_daily: pd.Series = None,
 ) -> go.Figure:
     pc = price_cache if price_cache is not None else {}
     nm = name_map if name_map is not None else {}
@@ -453,7 +454,15 @@ def build_stitched_fig(
         n = len(closes)
         x_vals = list(range(x_offset, x_offset + n))
         color = SLOT_COLORS[ci % len(SLOT_COLORS)]
-        seg_nav = (closes / float(closes.iloc[0])) * running_nav
+        if danger_daily is not None:
+            # 熊市空仓：段内落在危险区域的那几根 bar 收益换成现金(年化4%)，净值走平，
+            # 其余 bar 照旧跟随个股。cumprod(pct_change) 起点等于 running_nav，与原口径一致。
+            _dg = danger_daily.reindex(closes.index, method="ffill").fillna(False).astype(bool)
+            _cash_wr = 1.04 ** (1.0 / 52) - 1.0
+            _seg_ret = closes.pct_change().where(~_dg, _cash_wr).fillna(0.0)
+            seg_nav = running_nav * (1.0 + _seg_ret).cumprod()
+        else:
+            seg_nav = (closes / float(closes.iloc[0])) * running_nav
 
         fig.add_trace(go.Scatter(
             x=x_vals, y=[max(0.001, v) for v in seg_nav], mode="lines",
