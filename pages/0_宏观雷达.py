@@ -566,9 +566,14 @@ else:
         "混沌期": "rgba(231,76,60,0.15)",
     }
 
-    # universe.db 只持久化 horsemen_monthly_probs(10 年月度概率含 chaos_gbdt_trigger),
-    # 在前端用月度数据 ffill 成日度作为背景染色。chaos 月份覆盖为"混沌期"。
-    _hmp = (_current_regime or {}).get("horsemen_monthly_probs", {}) or {}
+    # 月度概率(含 chaos_gbdt_trigger)优先取 compute 端点自带的 120 月满档；
+    # 持久化的 current-regime 那份常年空，仅作兜底。用月度 ffill 成日度作背景染色，
+    # chaos 月份覆盖为"混沌期"。
+    _hmp = (
+        ((_chain_regime or {}).get("data", {}) or {}).get("horsemen_monthly_probs", {})
+        or (_current_regime or {}).get("horsemen_monthly_probs", {})
+        or {}
+    )
     _EN_TO_CN = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
     _monthly_recs = []
     for _m_str, _probs in _hmp.items():
@@ -1595,7 +1600,11 @@ else:
             )
 
             # ── 上图：SPY × horsemen winner 染色 ──
-            _hmp_sr27 = (_current_regime or {}).get("horsemen_monthly_probs", {}) or {}
+            _hmp_sr27 = (
+                ((_chain_regime or {}).get("data", {}) or {}).get("horsemen_monthly_probs", {})
+                or (_current_regime or {}).get("horsemen_monthly_probs", {})
+                or {}
+            )
             _en_to_cn_sr27 = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
             _hm_recs_sr27 = []
             for _m_str, _probs in _hmp_sr27.items():
