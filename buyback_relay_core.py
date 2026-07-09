@@ -126,6 +126,7 @@ def render_group(
     retention_mask: pd.DataFrame = None,
     retention_price_m: pd.DataFrame = None,
     retention_ma_window: int = None,
+    danger_daily: pd.Series = None,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -638,6 +639,21 @@ def render_group(
         st.info("价格窗口内无足够数据生成净值曲线。")
         return
 
+    # 熊市空仓开关：危险区域条带覆盖的交易日改持现金（年化 4%），其余日照旧满仓，
+    # 用来量化「危险区域内空仓」能规避多少回撤。开关放在总收益等指标上方。
+    _navc_raw = _navc
+    _bear_on = False
+    if danger_daily is not None and not _navc.empty:
+        _bear_on = st.toggle(
+            "🐻 熊市空仓（危险区域条带内改持现金 · 年化 4%）",
+            value=False, key=f"{kp}_bear_cash",
+        )
+    if _bear_on:
+        _dg = danger_daily.reindex(_navc.index, method="ffill").fillna(False).astype(bool)
+        _cash_dr = 1.04 ** (1.0 / 252) - 1.0
+        _ret_d = _navc.pct_change().fillna(0.0).where(~_dg, _cash_dr)
+        _navc = (1.0 + _ret_d).cumprod() * float(_navc.iloc[0])
+
     _ret_c = (float(_navc.iloc[-1]) / float(_navc.iloc[0]) - 1) * 100
     _peak = _navc.cummax()
     _dd_c = float(((_peak - _navc) / _peak.replace(0, float("nan"))).max()) * 100
@@ -660,6 +676,15 @@ def render_group(
     c4.metric("Calmar", _fmt(_kpi.get("calmar", float("nan"))))
     c5.metric("Sortino", _fmt(_kpi.get("sortino", float("nan"))))
     c6.metric("logR²", _fmt(_kpi.get("r2", float("nan"))))
+
+    if _bear_on:
+        _peak_raw = _navc_raw.cummax()
+        _dd_raw = float(((_peak_raw - _navc_raw) / _peak_raw.replace(0, float("nan"))).max()) * 100
+        _ret_raw = (float(_navc_raw.iloc[-1]) / float(_navc_raw.iloc[0]) - 1) * 100
+        st.caption(
+            f"🐻 熊市空仓对照：最大回撤 满仓 -{_dd_raw:.1f}% → 空仓 -{_dd_c:.1f}%"
+            f"（规避 {_dd_raw - _dd_c:+.1f}pp）；总收益 满仓 {_ret_raw:+.1f}% → 空仓 {_ret_c:+.1f}%。"
+        )
 
     if dynamic_n_hold:
         st.plotly_chart(

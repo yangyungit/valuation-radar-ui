@@ -368,4 +368,5 @@ render_group(_label, _cols, "tl_main",
              retention_mask=_ret_mask,
              retention_price_m=_close_me,
              retention_ma_window=4,
+             danger_daily=_danger,
              **_COMMON)
