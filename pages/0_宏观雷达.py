@@ -533,7 +533,7 @@ else:
 # ============================================================
 st.markdown("---")
 st.header("📊 大盘趋势状态机 (Market Trend Matrix)")
-st.caption("基于 Close / MA60 / MA200 的四象限绝对强弱切割 · 背景色按剧本裁决（亮红 = GBDT 触发日，橙红 = 旧闸门 chaos_share > 0.40 月）")
+st.caption("基于 Close / MA60 / MA200 的四象限绝对强弱切割 · 背景色按剧本裁决（亮红 = GBDT 卖出信号后 20 交易日，橙红 = 旧闸门 chaos_share > 0.40 月）")
 
 if df_prices is None or df_prices.empty or len(df_prices) < 200:
     st.warning("⚠️ 价格数据不足（需至少 200 个交易日），无法计算 MA200")
@@ -566,10 +566,11 @@ else:
         "混沌期(GBDT)":   "rgba(231,76,60,0.15)",
         "混沌期(旧闸门)": "rgba(230,126,34,0.18)",
     }
+    _MTM_DANGER_FWD_DAYS = 20  # GBDT 触发日向后延伸的交易日数（与科技龙头页清仓口径对齐）
 
-    # 月度概率(含 chaos_gbdt_trigger / chaos_share)优先取 compute 端点自带的 120 月满档；
-    # 持久化的 current-regime 那份常年空，仅作兜底。用月度 ffill 成日度作背景染色。
-    # 双闸门分开染色：GBDT 触发月亮红，旧闸门 chaos_share > 0.40 月橙红，同月都触发时 GBDT 优先。
+    # 月度概率(含 chaos_share)优先取 compute 端点自带的 120 月满档；
+    # 持久化的 current-regime 那份常年空，仅作兜底。旧闸门用月度 ffill 成日度染色。
+    # 双闸门分开染色：GBDT 卖出信号后 20 交易日亮红（日频），旧闸门 chaos_share > 0.40 月橙红；重叠时 GBDT 优先。
     _hmp = (
         ((_chain_regime or {}).get("data", {}) or {}).get("horsemen_monthly_probs", {})
         or (_current_regime or {}).get("horsemen_monthly_probs", {})
@@ -609,11 +610,17 @@ else:
         )
         _daily_idx = pd.date_range(_df_mhp.index.min(), pd.Timestamp.now().normalize(), freq="D")
         _verdict_daily = _df_mhp["verdict"].reindex(_daily_idx, method="ffill")
-        # 日频触发：交易日 True 用 ffill 延续到相邻非交易日，红块与触发日精确贴合
+        # GBDT 清仓口径与科技龙头页对齐：每个日频触发日 + 后 20 交易日 → 混沌红
+        _chaos_daily = pd.Series(False, index=_daily_idx)
         if not _chaos_trig_s.empty:
-            _chaos_daily = _chaos_trig_s.reindex(_daily_idx, method="ffill").fillna(False).astype(bool)
-        else:
-            _chaos_daily = pd.Series(False, index=_daily_idx)
+            _trig_true = _chaos_trig_s[_chaos_trig_s].index
+            _trade_cal = pd.DatetimeIndex(df_prices.index).sort_values()
+            _danger_trade = pd.Series(False, index=_trade_cal)
+            for _td in _trig_true:
+                _pos = int(_trade_cal.searchsorted(_td))
+                if _pos < len(_trade_cal):
+                    _danger_trade.iloc[_pos:_pos + _MTM_DANGER_FWD_DAYS + 1] = True
+            _chaos_daily = _danger_trade.reindex(_daily_idx, method="ffill").fillna(False).astype(bool)
         _chaos_old_daily = _df_mhp["chaos_old"].reindex(_daily_idx, method="ffill").fillna(False).astype(bool)
         _horsemen_daily_mtm = _verdict_daily.copy()
         _horsemen_daily_mtm_display = _verdict_daily.copy()
