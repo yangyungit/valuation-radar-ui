@@ -193,7 +193,7 @@ with st.sidebar:
         st.rerun()
 
 _WINDOWS = ["3Y", "5Y", "10Y"]
-window = st.radio("时间跨度", _WINDOWS, index=1, horizontal=True, key="tl_window")
+window = st.radio("时间跨度", _WINDOWS, index=2, horizontal=True, key="tl_window")
 
 # ── 顶部对照：板块王朝接力左右列甘特条带（与「板块王朝」页 king_score 接力同源）
 # 用途：把「最火板块」的时间轴摆在科技龙头之上，肉眼核对当月选出的龙头股是否落在同期最热板块里。
@@ -382,4 +382,5 @@ render_group(_label, _cols, "tl_main",
              retention_ma_window=4,
              danger_daily=_danger_full,
              danger_half_daily=_danger_half,
+             bear_default=True,
              **_COMMON)

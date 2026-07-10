@@ -128,6 +128,7 @@ def render_group(
     retention_ma_window: int = None,
     danger_daily: pd.Series = None,
     danger_half_daily: pd.Series = None,
+    bear_default: bool = False,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -647,7 +648,7 @@ def render_group(
     if danger_daily is not None and not _navc.empty:
         _bear_on = st.toggle(
             "🐻 熊市防御（红段 GBDT 清仓持现金 · 橙段旧闸门减仓一半 · 现金年化 4%）",
-            value=False, key=f"{kp}_bear_cash",
+            value=bear_default, key=f"{kp}_bear_cash",
         )
     if _bear_on:
         _dg = danger_daily.reindex(_navc.index, method="ffill").fillna(False).astype(bool)
