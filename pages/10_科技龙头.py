@@ -39,7 +39,7 @@ st.caption(
 
 # ============================================================
 # 危险区域时间条带 (Danger Zone Ribbon) —— 与「宏观雷达」页同源
-# 红 = GBDT（日频卖出信号后 20 交易日 ∪ 月频触发月）→ 清仓
+# 红 = GBDT 日频卖出信号后 20 交易日 → 清仓（月中触发即空仓，不等月末）
 # 橙 = 旧闸门 chaos_share>0.40 月 → 减仓一半；重叠时 GBDT 清仓优先
 # ============================================================
 with st.spinner("📊 加载危险区域条带..."):
@@ -57,7 +57,7 @@ try:
         _danger_full = pd.Series(False, index=_cal)
         _danger_half = pd.Series(False, index=_cal)
 
-        # (1) GBDT 每个触发日 + 后 N 个交易日 → 清仓
+        # (1) GBDT 每个触发日 + 后 N 个交易日 → 清仓（纯日频，月中触发即空仓，不依赖月末）
         _dz_trig_raw = (_chain_regime or {}).get("horsemen_daily_chaos_trigger", {}) or {}
         _dz_trig_dates = pd.to_datetime(
             [k for k, v in _dz_trig_raw.items() if v], errors="coerce"
@@ -67,7 +67,7 @@ try:
             if _pos < len(_cal):
                 _danger_full.iloc[_pos:_pos + _DANGER_FWD_DAYS + 1] = True
 
-        # (2) 月频：GBDT 触发月 → 清仓；旧闸门 chaos_share>0.40 月 → 减仓一半
+        # (2) 旧闸门 chaos_share>0.40 月 → 减仓一半（月频概念，保留月频）
         # 优先取 compute 自带的月频 probs（120 月满档）；持久化 current-regime 那份常年空，仅作兜底
         _dz_hmp = (
             ((_chain_regime or {}).get("data", {}) or {}).get("horsemen_monthly_probs", {})
@@ -84,16 +84,12 @@ try:
                 continue
             _dz_recs.append((
                 _m_ts,
-                bool(_probs.get("chaos_gbdt_trigger", False)),
                 float(_probs.get("chaos_share", 0.0) or 0.0) > 0.40,
             ))
         if _dz_recs:
             _dz_mdf = (
-                pd.DataFrame(_dz_recs, columns=["date", "gbdt", "old_gate"])
+                pd.DataFrame(_dz_recs, columns=["date", "old_gate"])
                 .set_index("date").sort_index()
-            )
-            _danger_full = _danger_full | (
-                _dz_mdf["gbdt"].reindex(_cal, method="ffill").fillna(False).astype(bool)
             )
             _danger_half = (
                 _dz_mdf["old_gate"].reindex(_cal, method="ffill").fillna(False).astype(bool)
@@ -107,7 +103,7 @@ if _danger_full is not None and bool((_danger_full | _danger_half).any()):
     st.markdown(
         "#### ⚠️ 危险区域条带 "
         "<span style='font-size:13px; color:#888; font-weight:normal;'>"
-        "(红 = GBDT 清仓：卖出信号后 20 交易日 ∪ 触发月；橙 = 旧闸门 chaos_share&gt;0.40 月，减仓一半)</span>",
+        "(红 = GBDT 清仓：卖出信号后 20 交易日；橙 = 旧闸门 chaos_share&gt;0.40 月，减仓一半)</span>",
         unsafe_allow_html=True,
     )
 
