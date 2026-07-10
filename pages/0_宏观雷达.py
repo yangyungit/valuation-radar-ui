@@ -533,7 +533,7 @@ else:
 # ============================================================
 st.markdown("---")
 st.header("📊 大盘趋势状态机 (Market Trend Matrix)")
-st.caption("基于 Close / MA60 / MA200 的四象限绝对强弱切割 · 背景色按月度剧本裁决（chaos 月份显示红色）")
+st.caption("基于 Close / MA60 / MA200 的四象限绝对强弱切割 · 背景色按月度剧本裁决（亮红 = GBDT 触发月，橙红 = 旧闸门 chaos_share > 0.40 月）")
 
 if df_prices is None or df_prices.empty or len(df_prices) < 200:
     st.warning("⚠️ 价格数据不足（需至少 200 个交易日），无法计算 MA200")
@@ -563,12 +563,13 @@ else:
         "再通胀": "rgba(22,160,133,0.15)",
         "滞胀":   "rgba(241,196,15,0.15)",
         "衰退":   "rgba(197,216,109,0.15)",
-        "混沌期": "rgba(231,76,60,0.15)",
+        "混沌期(GBDT)":   "rgba(231,76,60,0.15)",
+        "混沌期(旧闸门)": "rgba(230,126,34,0.18)",
     }
 
-    # 月度概率(含 chaos_gbdt_trigger)优先取 compute 端点自带的 120 月满档；
-    # 持久化的 current-regime 那份常年空，仅作兜底。用月度 ffill 成日度作背景染色，
-    # chaos 月份覆盖为"混沌期"。
+    # 月度概率(含 chaos_gbdt_trigger / chaos_share)优先取 compute 端点自带的 120 月满档；
+    # 持久化的 current-regime 那份常年空，仅作兜底。用月度 ffill 成日度作背景染色。
+    # 双闸门分开染色：GBDT 触发月亮红，旧闸门 chaos_share > 0.40 月橙红，同月都触发时 GBDT 优先。
     _hmp = (
         ((_chain_regime or {}).get("data", {}) or {}).get("horsemen_monthly_probs", {})
         or (_current_regime or {}).get("horsemen_monthly_probs", {})
@@ -587,19 +588,22 @@ else:
         _winner_en = max(_cands, key=lambda k: _cands[k])
         _winner_cn = _EN_TO_CN.get(_winner_en, "软着陆")
         _chaos = bool(_probs.get("chaos_gbdt_trigger", False))
-        _monthly_recs.append((_m_ts, _winner_cn, _chaos))
+        _chaos_old = float(_probs.get("chaos_share", 0.0) or 0.0) > 0.40
+        _monthly_recs.append((_m_ts, _winner_cn, _chaos, _chaos_old))
 
     if _monthly_recs:
         _df_mhp = (
-            pd.DataFrame(_monthly_recs, columns=["date", "verdict", "chaos"])
+            pd.DataFrame(_monthly_recs, columns=["date", "verdict", "chaos", "chaos_old"])
             .set_index("date").sort_index()
         )
         _daily_idx = pd.date_range(_df_mhp.index.min(), pd.Timestamp.now().normalize(), freq="D")
         _verdict_daily = _df_mhp["verdict"].reindex(_daily_idx, method="ffill")
         _chaos_daily = _df_mhp["chaos"].reindex(_daily_idx, method="ffill").fillna(False).astype(bool)
+        _chaos_old_daily = _df_mhp["chaos_old"].reindex(_daily_idx, method="ffill").fillna(False).astype(bool)
         _horsemen_daily_mtm = _verdict_daily.copy()
         _horsemen_daily_mtm_display = _verdict_daily.copy()
-        _horsemen_daily_mtm_display.loc[_chaos_daily] = "混沌期"
+        _horsemen_daily_mtm_display.loc[_chaos_old_daily] = "混沌期(旧闸门)"
+        _horsemen_daily_mtm_display.loc[_chaos_daily] = "混沌期(GBDT)"
     else:
         _horsemen_daily_mtm = pd.Series(dtype=str)
         _horsemen_daily_mtm_display = pd.Series(dtype=str)
@@ -1190,22 +1194,47 @@ if _regime_switch_date:
     )
 st.markdown(_chain_row_html(_curr_regime_color, "① Regime", _row1_body), unsafe_allow_html=True)
 
-# Row 2: 风险信号 (Chaos prob 进度条)
+# Row 2: 风险信号 (双闸门：GBDT 概率进度条 + 旧闸门当月 chaos_share)
 _chaos_color = (
     "#E74C3C" if _chaos_prob_curr >= 0.50
     else ("#F1C40F" if _chaos_prob_curr >= 0.30 else "#2ECC71")
 )
+_chaos_share_curr = 0.0
+_hmp_row2 = (
+    ((_chain_regime or {}).get("data", {}) or {}).get("horsemen_monthly_probs", {})
+    or (_current_regime or {}).get("horsemen_monthly_probs", {})
+    or {}
+)
+if _hmp_row2:
+    _last_month_key = max(_hmp_row2.keys())
+    _last_row = _hmp_row2.get(_last_month_key) or {}
+    if isinstance(_last_row, dict):
+        _chaos_share_curr = float(_last_row.get("chaos_share", 0.0) or 0.0)
+_chaos_share_color = "#E67E22" if _chaos_share_curr > 0.40 else "#2ECC71"
 _row2_body = (
-    f"<b style='color:{_chaos_color}; font-size:15px;'>Chaos prob {_chaos_prob_curr:.2f}</b>"
+    f"<b style='color:{_chaos_color}; font-size:15px;'>GBDT prob {_chaos_prob_curr:.2f}</b>"
     f"&nbsp;<span style='color:#888; font-size:13px;'>(阈值 0.50)</span>"
+    f"&nbsp;&nbsp;<b style='color:{_chaos_share_color}; font-size:15px;'>"
+    f"旧闸门 chaos_share {_chaos_share_curr:.2f}</b>"
+    f"&nbsp;<span style='color:#888; font-size:13px;'>(阈值 0.40，当月 chaos 天占比)</span>"
     f"<div style='background:#0a0a0a; height:8px; border-radius:4px; "
     f"margin-top:6px; position:relative;'>"
     f"<div style='background:{_chaos_color}; width:{min(_chaos_prob_curr * 100.0, 100.0):.1f}%; "
     f"height:100%; border-radius:4px;'></div>"
     f"<div style='position:absolute; left:50%; top:-3px; height:14px; width:1px; background:#aaa;'></div>"
     f"</div>"
+    f"<div style='background:#0a0a0a; height:8px; border-radius:4px; "
+    f"margin-top:4px; position:relative;'>"
+    f"<div style='background:{_chaos_share_color}; width:{min(_chaos_share_curr * 100.0, 100.0):.1f}%; "
+    f"height:100%; border-radius:4px;'></div>"
+    f"<div style='position:absolute; left:40%; top:-3px; height:14px; width:1px; background:#aaa;'></div>"
+    f"</div>"
 )
-st.markdown(_chain_row_html(_chaos_color, "② 风险信号", _row2_body), unsafe_allow_html=True)
+_row2_color = (
+    "#E74C3C" if _chaos_prob_curr >= 0.50
+    else ("#E67E22" if _chaos_share_curr > 0.40 else _chaos_color)
+)
+st.markdown(_chain_row_html(_row2_color, "② 风险信号", _row2_body), unsafe_allow_html=True)
 
 # Row 3: 因子风格切换警报
 _ALERT_COLOR = {"未触发": "#2ECC71", "早期信号": "#F1C40F", "已切换": "#E74C3C"}
@@ -1576,14 +1605,16 @@ else:
             "再通胀": "rgba(22,160,133,0.18)",
             "滞胀":   "rgba(241,196,15,0.18)",
             "衰退":   "rgba(197,216,109,0.18)",
-            "混沌期": "rgba(231,76,60,0.20)",
+            "混沌期(GBDT)":   "rgba(231,76,60,0.20)",
+            "混沌期(旧闸门)": "rgba(230,126,34,0.22)",
         }
         _hm_legend_color = {
             "软着陆": "#2ECC71",
             "再通胀": "#16A085",
             "滞胀":   "#F1C40F",
             "衰退":   "#C5D86D",
-            "混沌期": "#E74C3C",
+            "混沌期(GBDT)":   "#E74C3C",
+            "混沌期(旧闸门)": "#E67E22",
         }
         if (
             df_prices is not None
@@ -1618,17 +1649,20 @@ else:
                 _winner_en_27 = max(_cands, key=lambda k: _cands[k])
                 _winner_cn_27 = _en_to_cn_sr27.get(_winner_en_27, "软着陆")
                 _chaos_27 = bool(_probs.get("chaos_gbdt_trigger", False))
-                _hm_recs_sr27.append((_m_ts, _winner_cn_27, _chaos_27))
+                _chaos_old_27 = float(_probs.get("chaos_share", 0.0) or 0.0) > 0.40
+                _hm_recs_sr27.append((_m_ts, _winner_cn_27, _chaos_27, _chaos_old_27))
 
             if _hm_recs_sr27 and not _spy_sr.empty:
                 _df_hm_sr27 = (
-                    pd.DataFrame(_hm_recs_sr27, columns=["date", "verdict", "chaos"])
+                    pd.DataFrame(_hm_recs_sr27, columns=["date", "verdict", "chaos", "chaos_old"])
                     .set_index("date").sort_index()
                 )
                 _hm_daily_27 = _df_hm_sr27["verdict"].reindex(_spy_sr.index, method="ffill")
                 _hm_chaos_27 = _df_hm_sr27["chaos"].reindex(_spy_sr.index, method="ffill").fillna(False).astype(bool)
+                _hm_chaos_old_27 = _df_hm_sr27["chaos_old"].reindex(_spy_sr.index, method="ffill").fillna(False).astype(bool)
                 _hm_disp_27 = _hm_daily_27.copy()
-                _hm_disp_27.loc[_hm_chaos_27] = "混沌期"
+                _hm_disp_27.loc[_hm_chaos_old_27] = "混沌期(旧闸门)"
+                _hm_disp_27.loc[_hm_chaos_27] = "混沌期(GBDT)"
                 _hm_disp_27 = _hm_disp_27.dropna()
 
                 _hm_bg_shapes = []
@@ -1660,7 +1694,7 @@ else:
                     line=dict(color="#FFFFFF", width=1.6),
                     hovertemplate="%{x|%Y-%m-%d}<br>SPY: $%{y:.2f}<extra></extra>",
                 ))
-                for _k in ["软着陆", "再通胀", "滞胀", "衰退", "混沌期"]:
+                for _k in ["软着陆", "再通胀", "滞胀", "衰退", "混沌期(GBDT)", "混沌期(旧闸门)"]:
                     _fig_spy_hm.add_trace(go.Scatter(
                         x=[None], y=[None], mode="markers",
                         marker=dict(size=12, color=_hm_legend_color.get(_k, "#888"), symbol="square"),
