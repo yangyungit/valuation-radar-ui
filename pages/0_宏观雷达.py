@@ -1960,16 +1960,23 @@ else:
         rsp_base = df_disp['RSP'].dropna().iloc[0]
         df_disp['SPY_Norm'] = (df_disp['SPY'] / spy_base - 1) * 100
         df_disp['RSP_Norm'] = (df_disp['RSP'] / rsp_base - 1) * 100
+        df_disp['Herding_Gap'] = df_disp['SPY_Norm'] - df_disp['RSP_Norm']
         df_disp['Dispersion'] = df_disp[sector_disp_cols].pct_change().std(axis=1) * 100
         df_disp['Dispersion_MA20'] = df_disp['Dispersion'].rolling(20).mean()
 
         c_d1, c_d2 = st.columns(2)
         with c_d1:
-            st.markdown("**🛠️ 抱团指数：市值加权(红) vs 等权(蓝)**")
+            st.markdown("**🛠️ 抱团差：市值加权 − 等权（↑ 少数大票扛盘 / ↓ 普涨）**")
             fig_d1 = go.Figure()
-            fig_d1.add_trace(go.Scatter(x=df_disp.index, y=df_disp['SPY_Norm'], name="SPY (市值) %", line=dict(color='#E74C3C', width=2)))
-            fig_d1.add_trace(go.Scatter(x=df_disp.index, y=df_disp['RSP_Norm'], name="RSP (等权) %", line=dict(color='#3498DB', width=2), fill='tonexty'))
-            fig_d1.update_layout(height=350, hovermode="x unified", legend=dict(orientation="h", y=1.1), plot_bgcolor='#111111', paper_bgcolor='#111111', font=dict(color='#ddd'))
+            fig_d1.add_trace(go.Scatter(x=df_disp.index, y=df_disp['SPY_Norm'], name="SPY (市值) %", line=dict(color='#555', width=1), yaxis='y'))
+            fig_d1.add_trace(go.Scatter(x=df_disp.index, y=df_disp['RSP_Norm'], name="RSP (等权) %", line=dict(color='#888', width=1), yaxis='y'))
+            fig_d1.add_trace(go.Scatter(x=df_disp.index, y=df_disp['Herding_Gap'], name="抱团差 (SPY−RSP) %", line=dict(color='#F39C12', width=2.5), fill='tozeroy', fillcolor='rgba(243,156,18,0.18)', yaxis='y2'))
+            fig_d1.update_layout(
+                height=350, hovermode="x unified", legend=dict(orientation="h", y=1.15),
+                plot_bgcolor='#111111', paper_bgcolor='#111111', font=dict(color='#ddd'),
+                yaxis=dict(title="累计涨幅 %", showgrid=False),
+                yaxis2=dict(title="抱团差 %", overlaying='y', side='right', showgrid=False, zeroline=True, zerolinecolor='#666'),
+            )
             st.plotly_chart(fig_d1, use_container_width=True)
         with c_d2:
             st.markdown("**🌊 板块离散度 (Dispersion)**")
