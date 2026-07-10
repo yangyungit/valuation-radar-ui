@@ -39,7 +39,8 @@ st.caption(
 
 # ============================================================
 # 危险区域时间条带 (Danger Zone Ribbon) —— 与「宏观雷达」页同源
-# chaos 红背景(月频) ∪ GBDT 卖出信号后 20 交易日 → 统一危险区域
+# GBDT 卖出信号后 20 交易日 ∪ GBDT 月频触发 ∪ 旧闸门 chaos_share>0.40 月
+# 与实盘清仓 BIL 的双闸门 OR 口径一致
 # ============================================================
 with st.spinner("📊 加载危险区域条带..."):
     df_prices       = get_global_data(["SPY"], years=10)
@@ -64,7 +65,7 @@ try:
             if _pos < len(_cal):
                 _danger.iloc[_pos:_pos + _DANGER_FWD_DAYS + 1] = True
 
-        # (2) chaos 红背景：月频 chaos_gbdt_trigger → ffill 到日
+        # (2) 月频双闸门：GBDT 触发 OR 旧闸门 chaos_share>0.40 → ffill 到日
         # 优先取 compute 自带的月频 probs（120 月满档）；持久化 current-regime 那份常年空，仅作兜底
         _dz_hmp = (
             ((_chain_regime or {}).get("data", {}) or {}).get("horsemen_monthly_probs", {})
@@ -79,7 +80,11 @@ try:
                 _m_ts = pd.Timestamp(str(_m_str) + "-01")
             except Exception:
                 continue
-            _dz_recs.append((_m_ts, bool(_probs.get("chaos_gbdt_trigger", False))))
+            _dz_hit = (
+                bool(_probs.get("chaos_gbdt_trigger", False))
+                or float(_probs.get("chaos_share", 0.0) or 0.0) > 0.40
+            )
+            _dz_recs.append((_m_ts, _dz_hit))
         if _dz_recs:
             _dz_mdf = (
                 pd.DataFrame(_dz_recs, columns=["date", "chaos"])
@@ -97,7 +102,7 @@ if _danger is not None and bool(_danger.any()):
     st.markdown(
         "#### ⚠️ 危险区域条带 "
         "<span style='font-size:13px; color:#888; font-weight:normal;'>"
-        "(chaos 红背景 ∪ GBDT 卖出信号后 20 交易日)</span>",
+        "(GBDT 卖出信号后 20 交易日 ∪ GBDT 触发月 ∪ 旧闸门 chaos_share&gt;0.40 月，与实盘双闸门 OR 同口径)</span>",
         unsafe_allow_html=True,
     )
 
