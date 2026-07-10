@@ -382,6 +382,7 @@ def build_stitched_fig(
     name_map: dict = None,
     grade_map: dict = None,
     danger_daily: pd.Series = None,
+    danger_half_daily: pd.Series = None,
 ) -> go.Figure:
     pc = price_cache if price_cache is not None else {}
     nm = name_map if name_map is not None else {}
@@ -454,22 +455,56 @@ def build_stitched_fig(
         n = len(closes)
         x_vals = list(range(x_offset, x_offset + n))
         color = SLOT_COLORS[ci % len(SLOT_COLORS)]
-        if danger_daily is not None:
-            # 熊市空仓：段内落在危险区域的那几根 bar 收益换成现金(年化4%)，净值走平，
-            # 其余 bar 照旧跟随个股。cumprod(pct_change) 起点等于 running_nav，与原口径一致。
-            _dg = danger_daily.reindex(closes.index, method="ffill").fillna(False).astype(bool)
+        # 熊市防御：清仓 bar 收益换现金(年化4%)净值走平，减半 bar 换 0.5×个股+0.5×现金，
+        # 其余 bar 照旧跟随个股。cumprod(pct_change) 起点等于 running_nav，与原口径一致。
+        _state = None  # 0=满仓 1=减仓一半 2=清仓
+        if danger_daily is not None or danger_half_daily is not None:
             _cash_wr = 1.04 ** (1.0 / 52) - 1.0
-            _seg_ret = closes.pct_change().where(~_dg, _cash_wr).fillna(0.0)
+            _dg = (danger_daily.reindex(closes.index, method="ffill").fillna(False).astype(bool)
+                   if danger_daily is not None else pd.Series(False, index=closes.index))
+            _dh = (danger_half_daily.reindex(closes.index, method="ffill").fillna(False).astype(bool)
+                   if danger_half_daily is not None else pd.Series(False, index=closes.index))
+            _dh = _dh & ~_dg
+            _seg_ret = closes.pct_change()
+            _seg_ret = _seg_ret.where(~_dh, 0.5 * _seg_ret + 0.5 * _cash_wr)
+            _seg_ret = _seg_ret.where(~_dg, _cash_wr).fillna(0.0)
             seg_nav = running_nav * (1.0 + _seg_ret).cumprod()
+            _state = pd.Series(0, index=closes.index)
+            _state[_dh] = 1
+            _state[_dg] = 2
         else:
             seg_nav = (closes / float(closes.iloc[0])) * running_nav
 
-        fig.add_trace(go.Scatter(
-            x=x_vals, y=[max(0.001, v) for v in seg_nav], mode="lines",
-            line=dict(color=color, width=2),
-            name=f"{tk}（{s_m}→{e_m}）",
-            showlegend=False,
-        ))
+        _y_vals = [max(0.001, v) for v in seg_nav]
+        if _state is not None and int((_state != 0).sum()) > 0:
+            # 按防御状态切成连续小段：满仓 = 槽色实线，减仓一半 = 白实线，清仓 = 白虚线。
+            # 每小段起点接前一个点，保持线条连续。
+            _runs = []
+            _run_start = 0
+            for _i in range(1, n + 1):
+                if _i == n or int(_state.iloc[_i]) != int(_state.iloc[_run_start]):
+                    _runs.append((_run_start, _i, int(_state.iloc[_run_start])))
+                    _run_start = _i
+            _LINE_BY_STATE = {
+                0: dict(color=color, width=2),
+                1: dict(color="#FFFFFF", width=2),
+                2: dict(color="#FFFFFF", width=2, dash="dash"),
+            }
+            for _rs, _re, _stv in _runs:
+                _lo = max(0, _rs - 1)
+                fig.add_trace(go.Scatter(
+                    x=x_vals[_lo:_re], y=_y_vals[_lo:_re], mode="lines",
+                    line=_LINE_BY_STATE[_stv],
+                    name=f"{tk}（{s_m}→{e_m}）",
+                    showlegend=False,
+                ))
+        else:
+            fig.add_trace(go.Scatter(
+                x=x_vals, y=_y_vals, mode="lines",
+                line=dict(color=color, width=2),
+                name=f"{tk}（{s_m}→{e_m}）",
+                showlegend=False,
+            ))
         running_nav = float(seg_nav.iloc[-1])
 
         if spy_close is not None:

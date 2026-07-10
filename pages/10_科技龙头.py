@@ -39,8 +39,8 @@ st.caption(
 
 # ============================================================
 # 危险区域时间条带 (Danger Zone Ribbon) —— 与「宏观雷达」页同源
-# GBDT 卖出信号后 20 交易日 ∪ GBDT 月频触发 ∪ 旧闸门 chaos_share>0.40 月
-# 与实盘清仓 BIL 的双闸门 OR 口径一致
+# 红 = GBDT（日频卖出信号后 20 交易日 ∪ 月频触发月）→ 清仓
+# 橙 = 旧闸门 chaos_share>0.40 月 → 减仓一半；重叠时 GBDT 清仓优先
 # ============================================================
 with st.spinner("📊 加载危险区域条带..."):
     df_prices       = get_global_data(["SPY"], years=10)
@@ -49,13 +49,15 @@ with st.spinner("📊 加载危险区域条带..."):
 
 _DANGER_FWD_DAYS = 20  # GBDT 碎信号向后延伸的交易日数
 
-_danger = None
+_danger_full = None  # GBDT → 清仓
+_danger_half = None  # 旧闸门 → 减仓一半
 try:
     if df_prices is not None and not df_prices.empty:
         _cal = pd.DatetimeIndex(df_prices.index).sort_values()
-        _danger = pd.Series(False, index=_cal)
+        _danger_full = pd.Series(False, index=_cal)
+        _danger_half = pd.Series(False, index=_cal)
 
-        # (1) GBDT 每个触发日 + 后 N 个交易日
+        # (1) GBDT 每个触发日 + 后 N 个交易日 → 清仓
         _dz_trig_raw = (_chain_regime or {}).get("horsemen_daily_chaos_trigger", {}) or {}
         _dz_trig_dates = pd.to_datetime(
             [k for k, v in _dz_trig_raw.items() if v], errors="coerce"
@@ -63,9 +65,9 @@ try:
         for _td in _dz_trig_dates:
             _pos = int(_cal.searchsorted(_td))
             if _pos < len(_cal):
-                _danger.iloc[_pos:_pos + _DANGER_FWD_DAYS + 1] = True
+                _danger_full.iloc[_pos:_pos + _DANGER_FWD_DAYS + 1] = True
 
-        # (2) 月频双闸门：GBDT 触发 OR 旧闸门 chaos_share>0.40 → ffill 到日
+        # (2) 月频：GBDT 触发月 → 清仓；旧闸门 chaos_share>0.40 月 → 减仓一半
         # 优先取 compute 自带的月频 probs（120 月满档）；持久化 current-regime 那份常年空，仅作兜底
         _dz_hmp = (
             ((_chain_regime or {}).get("data", {}) or {}).get("horsemen_monthly_probs", {})
@@ -80,38 +82,42 @@ try:
                 _m_ts = pd.Timestamp(str(_m_str) + "-01")
             except Exception:
                 continue
-            _dz_hit = (
-                bool(_probs.get("chaos_gbdt_trigger", False))
-                or float(_probs.get("chaos_share", 0.0) or 0.0) > 0.40
-            )
-            _dz_recs.append((_m_ts, _dz_hit))
+            _dz_recs.append((
+                _m_ts,
+                bool(_probs.get("chaos_gbdt_trigger", False)),
+                float(_probs.get("chaos_share", 0.0) or 0.0) > 0.40,
+            ))
         if _dz_recs:
             _dz_mdf = (
-                pd.DataFrame(_dz_recs, columns=["date", "chaos"])
+                pd.DataFrame(_dz_recs, columns=["date", "gbdt", "old_gate"])
                 .set_index("date").sort_index()
             )
-            _dz_chaos_daily = (
-                _dz_mdf["chaos"].reindex(_cal, method="ffill")
-                .fillna(False).astype(bool)
+            _danger_full = _danger_full | (
+                _dz_mdf["gbdt"].reindex(_cal, method="ffill").fillna(False).astype(bool)
             )
-            _danger = _danger | _dz_chaos_daily
+            _danger_half = (
+                _dz_mdf["old_gate"].reindex(_cal, method="ffill").fillna(False).astype(bool)
+            )
+        _danger_half = _danger_half & ~_danger_full
 except Exception:
-    _danger = None
+    _danger_full = None
+    _danger_half = None
 
-if _danger is not None and bool(_danger.any()):
+if _danger_full is not None and bool((_danger_full | _danger_half).any()):
     st.markdown(
         "#### ⚠️ 危险区域条带 "
         "<span style='font-size:13px; color:#888; font-weight:normal;'>"
-        "(GBDT 卖出信号后 20 交易日 ∪ GBDT 触发月 ∪ 旧闸门 chaos_share&gt;0.40 月，与实盘双闸门 OR 同口径)</span>",
+        "(红 = GBDT 清仓：卖出信号后 20 交易日 ∪ 触发月；橙 = 旧闸门 chaos_share&gt;0.40 月，减仓一半)</span>",
         unsafe_allow_html=True,
     )
 
-    # 危险=True 的连续段 → 红色矩形
-    _flip = _danger.ne(_danger.shift()).cumsum()
-    _segs = []
-    for _gid, _grp in _danger.groupby(_flip):
-        if bool(_grp.iloc[0]):
-            _segs.append((_grp.index[0], _grp.index[-1]))
+    def _bool_segs(s: pd.Series) -> list:
+        _flip = s.ne(s.shift()).cumsum()
+        return [
+            (_grp.index[0], _grp.index[-1])
+            for _gid, _grp in s.groupby(_flip)
+            if bool(_grp.iloc[0])
+        ]
 
     # 条带占上半部(y 0.42~1)，下半部留给逐段日期标注
     _BAND_Y0 = 0.42
@@ -121,27 +127,31 @@ if _danger is not None and bool(_danger.any()):
         x0=_cal[0], x1=_cal[-1], y0=_BAND_Y0, y1=1,
         fillcolor="rgba(46,204,113,0.10)", line_width=0, layer="below",
     )
-    for _s0, _s1 in _segs:
-        _rib.add_shape(
-            type="rect", xref="x", yref="paper",
-            x0=_s0, x1=_s1, y0=_BAND_Y0, y1=1,
-            fillcolor="rgba(231,76,60,0.55)", line_width=0, layer="below",
-        )
-        # 每个危险段起止日期标注（条带下方，红色小字倾斜；起点左对齐、终点右对齐）
-        _rib.add_annotation(
-            x=_s0, y=_BAND_Y0 - 0.06, xref="x", yref="paper",
-            text=_s0.strftime("%y/%m/%d"),
-            showarrow=False, textangle=45,
-            xanchor="right", yanchor="top",
-            font=dict(size=9, color="#E67E73"),
-        )
-        _rib.add_annotation(
-            x=_s1, y=_BAND_Y0 - 0.06, xref="x", yref="paper",
-            text=_s1.strftime("%y/%m/%d"),
-            showarrow=False, textangle=45,
-            xanchor="left", yanchor="top",
-            font=dict(size=9, color="#E67E73"),
-        )
+    for _seg_list, _fill, _txt_color in [
+        (_bool_segs(_danger_half), "rgba(230,126,34,0.55)", "#E67E22"),
+        (_bool_segs(_danger_full), "rgba(231,76,60,0.55)", "#E67E73"),
+    ]:
+        for _s0, _s1 in _seg_list:
+            _rib.add_shape(
+                type="rect", xref="x", yref="paper",
+                x0=_s0, x1=_s1, y0=_BAND_Y0, y1=1,
+                fillcolor=_fill, line_width=0, layer="below",
+            )
+            # 每段起止日期标注（条带下方，小字倾斜；起点左对齐、终点右对齐）
+            _rib.add_annotation(
+                x=_s0, y=_BAND_Y0 - 0.06, xref="x", yref="paper",
+                text=_s0.strftime("%y/%m/%d"),
+                showarrow=False, textangle=45,
+                xanchor="right", yanchor="top",
+                font=dict(size=9, color=_txt_color),
+            )
+            _rib.add_annotation(
+                x=_s1, y=_BAND_Y0 - 0.06, xref="x", yref="paper",
+                text=_s1.strftime("%y/%m/%d"),
+                showarrow=False, textangle=45,
+                xanchor="left", yanchor="top",
+                font=dict(size=9, color=_txt_color),
+            )
     # 透明散点：撑起 x 轴日期范围（shape 本身不建立坐标）
     _rib.add_trace(go.Scatter(
         x=[_cal[0], _cal[-1]], y=[0.5, 0.5], mode="markers",
@@ -164,16 +174,17 @@ if _danger is not None and bool(_danger.any()):
     )
     st.plotly_chart(_rib, use_container_width=True, key="tl_danger_ribbon")
 
-    _dz_now = bool(_danger.iloc[-1])
-    _dz_days_1y = int(_danger.iloc[-252:].sum()) if len(_danger) >= 1 else 0
-    _dz_status_txt = (
-        "<span style='color:#E74C3C; font-weight:bold;'>危险区域内</span>"
-        if _dz_now else
-        "<span style='color:#2ECC71; font-weight:bold;'>安全</span>"
-    )
+    if bool(_danger_full.iloc[-1]):
+        _dz_status_txt = "<span style='color:#E74C3C; font-weight:bold;'>清仓区（GBDT）</span>"
+    elif bool(_danger_half.iloc[-1]):
+        _dz_status_txt = "<span style='color:#E67E22; font-weight:bold;'>减仓区（旧闸门）</span>"
+    else:
+        _dz_status_txt = "<span style='color:#2ECC71; font-weight:bold;'>安全</span>"
+    _dz_full_1y = int(_danger_full.iloc[-252:].sum())
+    _dz_half_1y = int(_danger_half.iloc[-252:].sum())
     st.caption(
-        f"当前：{_dz_status_txt} · 近一年危险交易日 {_dz_days_1y} / "
-        f"{min(len(_danger), 252)} 天 · 红=危险 绿=安全",
+        f"当前：{_dz_status_txt} · 近一年 红(清仓) {_dz_full_1y} 天 / 橙(减半) {_dz_half_1y} 天 / "
+        f"共 {min(len(_danger_full), 252)} 天 · 绿=安全",
         unsafe_allow_html=True,
     )
     st.markdown("---")
@@ -373,5 +384,6 @@ render_group(_label, _cols, "tl_main",
              retention_mask=_ret_mask,
              retention_price_m=_close_me,
              retention_ma_window=4,
-             danger_daily=_danger,
+             danger_daily=_danger_full,
+             danger_half_daily=_danger_half,
              **_COMMON)

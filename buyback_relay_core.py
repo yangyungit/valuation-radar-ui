@@ -127,6 +127,7 @@ def render_group(
     retention_price_m: pd.DataFrame = None,
     retention_ma_window: int = None,
     danger_daily: pd.Series = None,
+    danger_half_daily: pd.Series = None,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -639,19 +640,24 @@ def render_group(
         st.info("价格窗口内无足够数据生成净值曲线。")
         return
 
-    # 熊市空仓开关：危险区域条带覆盖的交易日改持现金（年化 4%），其余日照旧满仓，
-    # 用来量化「危险区域内空仓」能规避多少回撤。开关放在总收益等指标上方。
+    # 熊市防御开关：红段(GBDT)清仓改持现金（年化 4%），橙段(旧闸门)减仓一半
+    # （0.5×持仓收益 + 0.5×现金），其余日照旧满仓。用来量化防御能规避多少回撤。
     _navc_raw = _navc
     _bear_on = False
     if danger_daily is not None and not _navc.empty:
         _bear_on = st.toggle(
-            "🐻 熊市空仓（危险区域条带内改持现金 · 年化 4%）",
+            "🐻 熊市防御（红段 GBDT 清仓持现金 · 橙段旧闸门减仓一半 · 现金年化 4%）",
             value=False, key=f"{kp}_bear_cash",
         )
     if _bear_on:
         _dg = danger_daily.reindex(_navc.index, method="ffill").fillna(False).astype(bool)
         _cash_dr = 1.04 ** (1.0 / 252) - 1.0
-        _ret_d = _navc.pct_change().fillna(0.0).where(~_dg, _cash_dr)
+        _ret_d = _navc.pct_change().fillna(0.0)
+        if danger_half_daily is not None:
+            _dh = (danger_half_daily.reindex(_navc.index, method="ffill")
+                   .fillna(False).astype(bool) & ~_dg)
+            _ret_d = _ret_d.where(~_dh, 0.5 * _ret_d + 0.5 * _cash_dr)
+        _ret_d = _ret_d.where(~_dg, _cash_dr)
         _navc = (1.0 + _ret_d).cumprod() * float(_navc.iloc[0])
 
     _ret_c = (float(_navc.iloc[-1]) / float(_navc.iloc[0]) - 1) * 100
@@ -682,11 +688,12 @@ def render_group(
         _dd_raw = float(((_peak_raw - _navc_raw) / _peak_raw.replace(0, float("nan"))).max()) * 100
         _ret_raw = (float(_navc_raw.iloc[-1]) / float(_navc_raw.iloc[0]) - 1) * 100
         st.caption(
-            f"🐻 熊市空仓对照：最大回撤 满仓 -{_dd_raw:.1f}% → 空仓 -{_dd_c:.1f}%"
-            f"（规避 {_dd_raw - _dd_c:+.1f}pp）；总收益 满仓 {_ret_raw:+.1f}% → 空仓 {_ret_c:+.1f}%。"
+            f"🐻 熊市防御对照：最大回撤 满仓 -{_dd_raw:.1f}% → 防御 -{_dd_c:.1f}%"
+            f"（规避 {_dd_raw - _dd_c:+.1f}pp）；总收益 满仓 {_ret_raw:+.1f}% → 防御 {_ret_c:+.1f}%。"
         )
 
     _dg_seg = danger_daily if _bear_on else None
+    _dh_seg = danger_half_daily if _bear_on else None
     if dynamic_n_hold:
         st.plotly_chart(
             hv.build_basket_fig(_navc, spy_wk, f"{group_label} 动态 Top1-Top{max_n_hold} — 净值 vs SPY"),
@@ -694,7 +701,7 @@ def render_group(
         )
         for _i, _seg in enumerate(_slot_segs[:max_n_hold]):
             st.plotly_chart(
-                hv.build_stitched_fig(_seg, f"{group_label}接力 槽{_i + 1}", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg),
+                hv.build_stitched_fig(_seg, f"{group_label}接力 槽{_i + 1}", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg),
                 use_container_width=True, key=f"{kp}_nav_slot_{_i}",
             )
     elif n_hold < 2:
@@ -706,7 +713,7 @@ def render_group(
         if segment_window_slider and _seg0:
             _seg0, _spy_seg = _crop_segments_by_slider(_seg0, spy_wk, kp)
         st.plotly_chart(
-            hv.build_stitched_fig(_seg0, f"{group_label}接力 持仓段", _spy_seg, price_cache, name_map, grade_map, danger_daily=_dg_seg),
+            hv.build_stitched_fig(_seg0, f"{group_label}接力 持仓段", _spy_seg, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg),
             use_container_width=True, key=f"{kp}_nav_l",
         )
     else:
@@ -715,11 +722,11 @@ def render_group(
             use_container_width=True, key=f"{kp}_nav_combined",
         )
         st.plotly_chart(
-            hv.build_stitched_fig(_slot_segs[0], f"{group_label}接力 左列 (Slot 0)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg),
+            hv.build_stitched_fig(_slot_segs[0], f"{group_label}接力 左列 (Slot 0)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg),
             use_container_width=True, key=f"{kp}_nav_l",
         )
         st.plotly_chart(
-            hv.build_stitched_fig(_slot_segs[1], f"{group_label}接力 右列 (Slot 1)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg),
+            hv.build_stitched_fig(_slot_segs[1], f"{group_label}接力 右列 (Slot 1)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg),
             use_container_width=True, key=f"{kp}_nav_r",
         )
 
