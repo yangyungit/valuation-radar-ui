@@ -533,7 +533,7 @@ else:
 # ============================================================
 st.markdown("---")
 st.header("📊 大盘趋势状态机 (Market Trend Matrix)")
-st.caption("基于 Close / MA60 / MA200 的四象限绝对强弱切割 · 背景色按月度剧本裁决（亮红 = GBDT 触发月，橙红 = 旧闸门 chaos_share > 0.40 月）")
+st.caption("基于 Close / MA60 / MA200 的四象限绝对强弱切割 · 背景色按剧本裁决（亮红 = GBDT 触发日，橙红 = 旧闸门 chaos_share > 0.40 月）")
 
 if df_prices is None or df_prices.empty or len(df_prices) < 200:
     st.warning("⚠️ 价格数据不足（需至少 200 个交易日），无法计算 MA200")
@@ -591,6 +591,17 @@ else:
         _chaos_old = float(_probs.get("chaos_share", 0.0) or 0.0) > 0.40
         _monthly_recs.append((_m_ts, _winner_cn, _chaos, _chaos_old))
 
+    # GBDT 混沌红背景改用日频触发序列，与真实触发日逐日对齐；
+    # 不再用月度 chaos_gbdt_trigger（后端只取每月最后一日的 trigger，月中触发月末回落会整月漏染）。
+    _chaos_trig_raw_mtm = (_chain_regime or {}).get("horsemen_daily_chaos_trigger", {}) or {}
+    if _chaos_trig_raw_mtm:
+        _chaos_trig_idx = pd.to_datetime(list(_chaos_trig_raw_mtm.keys()), errors="coerce")
+        _chaos_trig_s = pd.Series(
+            list(_chaos_trig_raw_mtm.values()), index=_chaos_trig_idx
+        ).dropna().sort_index().astype(bool)
+    else:
+        _chaos_trig_s = pd.Series(dtype=bool)
+
     if _monthly_recs:
         _df_mhp = (
             pd.DataFrame(_monthly_recs, columns=["date", "verdict", "chaos", "chaos_old"])
@@ -598,7 +609,11 @@ else:
         )
         _daily_idx = pd.date_range(_df_mhp.index.min(), pd.Timestamp.now().normalize(), freq="D")
         _verdict_daily = _df_mhp["verdict"].reindex(_daily_idx, method="ffill")
-        _chaos_daily = _df_mhp["chaos"].reindex(_daily_idx, method="ffill").fillna(False).astype(bool)
+        # 日频触发：交易日 True 用 ffill 延续到相邻非交易日，红块与触发日精确贴合
+        if not _chaos_trig_s.empty:
+            _chaos_daily = _chaos_trig_s.reindex(_daily_idx, method="ffill").fillna(False).astype(bool)
+        else:
+            _chaos_daily = pd.Series(False, index=_daily_idx)
         _chaos_old_daily = _df_mhp["chaos_old"].reindex(_daily_idx, method="ffill").fillna(False).astype(bool)
         _horsemen_daily_mtm = _verdict_daily.copy()
         _horsemen_daily_mtm_display = _verdict_daily.copy()
@@ -607,16 +622,6 @@ else:
     else:
         _horsemen_daily_mtm = pd.Series(dtype=str)
         _horsemen_daily_mtm_display = pd.Series(dtype=str)
-
-    _chaos_trig_raw_mtm = (_chain_regime or {}).get("horsemen_daily_chaos_trigger", {}) or {}
-    if _chaos_trig_raw_mtm:
-        _chaos_trig_idx = pd.to_datetime(list(_chaos_trig_raw_mtm.keys()), errors="coerce")
-        _chaos_trig_s = pd.Series(
-            list(_chaos_trig_raw_mtm.values()), index=_chaos_trig_idx
-        ).dropna().sort_index().astype(bool)
-        _chaos_trig_dates = _chaos_trig_s[_chaos_trig_s].index
-    else:
-        _chaos_trig_dates = pd.DatetimeIndex([])
 
     def _classify_mtm(row):
         c, m60, m200 = row['close'], row['ma60'], row['ma200']
@@ -641,13 +646,6 @@ else:
             if _df.empty:
                 st.warning(f"⚠️ {ticker} 数据不足（需至少 200 个交易日），无法计算 MA200")
                 return
-
-            _show_chaos = st.toggle(
-                "叠加 GBDT 卖出信号",
-                value=True,
-                key=f"mtm_chaos_overlay_{ticker}",
-                help="GBDT chaos 概率 P>0.50 持续 5 个交易日 → 触发清仓 BIL 闸门。算法详见 Page 1 §宏观时钟。",
-            )
 
             _latest    = _df.iloc[-1]
             _phase     = _latest['phase']
@@ -747,28 +745,6 @@ else:
                 mode='lines', name='MA200',
                 line=dict(color='rgba(52,152,219,0.5)', width=1, dash='dash'),
             ))
-
-            if _show_chaos and len(_chaos_trig_dates) > 0:
-                _trig_in_range = _chaos_trig_dates.intersection(_df.index)
-                if len(_trig_in_range) > 0:
-                    _trig_close = _df.loc[_trig_in_range, 'close'].astype(float)
-                    _fig.add_trace(go.Scatter(
-                        x=_trig_in_range,
-                        y=_trig_close.values,
-                        mode='markers',
-                        name='GBDT 卖出信号',
-                        marker=dict(
-                            symbol='triangle-down',
-                            color='#C0392B',
-                            size=12,
-                            line=dict(color='#FFFFFF', width=1),
-                        ),
-                        hovertemplate=(
-                            f"日期: %{{x|%Y-%m-%d}}<br>"
-                            f"{ticker} 收盘: $%{{y:.2f}}<br>"
-                            f"GBDT 触发<extra></extra>"
-                        ),
-                    ))
 
             _fig.update_layout(
                 height=340,
