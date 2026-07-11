@@ -31,7 +31,7 @@ with st.sidebar:
         st.rerun()
 
 _WINDOWS = ["3Y", "5Y", "10Y"]
-window = st.radio("时间跨度", _WINDOWS, index=1, horizontal=True, key="shy_window")
+window = st.radio("时间跨度", _WINDOWS, index=2, horizontal=True, key="shy_window")
 
 with st.spinner("📊 加载回购股数据..."):
     ts = fetch_buyback_relay_timeseries(window)

@@ -57,7 +57,7 @@ with st.sidebar:
         st.rerun()
 
 _WINDOWS = ["3Y", "5Y", "10Y"]
-window = st.radio("时间跨度", _WINDOWS, index=1, horizontal=True, key="ndx_window")
+window = st.radio("时间跨度", _WINDOWS, index=2, horizontal=True, key="ndx_window")
 
 
 def _merge_ndx_sp100(ndx: dict, sp: dict) -> dict:
