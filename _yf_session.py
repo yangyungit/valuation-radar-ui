@@ -10,10 +10,10 @@ Streamlit Cloud 等）全面封禁，默认 `requests.Session()` 会拿到
 若 curl_cffi 未安装或失效，降级为 None（yfinance 内部自建默认 Session，
 行为等价于旧代码）。
 
-2026-07-11 起改为每次调用新建 session（不再用模块级全局单例）：curl_cffi
-的 libcurl 绑定非线程安全，Streamlit 多用户并发共享同一个 session 会触发
-curl handle 内部状态冲突，导致进程 Segmentation fault（见
-https://github.com/lexiforest/curl_cffi/issues/128）。新建开销很小，换线程安全。
+2026-07-11 起改为每次调用新建 session（不再用模块级全局单例），规避
+curl_cffi 潜在的多线程共享风险，虽然当时 Streamlit Cloud 的 Segmentation
+fault 后来查明根因是 pandas 3.0 兼容性问题（见 requirements.txt），
+与本文件无关；per-call 写法本身无副作用，保留。
 
 与后端 valuation-radar/_yf_session.py 保持同构——两仓独立部署但策略一致。
 """
@@ -25,59 +25,3 @@ def new_yf_session():
         return _curl_requests.Session(impersonate="chrome")
     except Exception:
         return None
-
-
-# ── 临时调试：排查 Streamlit Cloud Segmentation fault 触发点，定位到后删除 ──
-def _install_yf_trace():
-    import time
-    import yfinance as _yf
-
-    def _log(msg):
-        print(f"[YF_TRACE {time.strftime('%H:%M:%S')}] {msg}", flush=True)
-
-    _orig_download = _yf.download
-
-    def _traced_download(*args, **kwargs):
-        _tk = args[0] if args else kwargs.get("tickers")
-        _log(f"download START tickers={_tk}")
-        try:
-            r = _orig_download(*args, **kwargs)
-            _log(f"download DONE tickers={_tk}")
-            return r
-        except BaseException as e:
-            _log(f"download EXC tickers={_tk} err={e!r}")
-            raise
-
-    _yf.download = _traced_download
-
-    _TRACE_ATTRS = {"history", "info", "fast_info", "financials", "balance_sheet", "cashflow"}
-    _orig_ticker = _yf.Ticker
-
-    class _TracedTicker(_orig_ticker):
-        def __getattribute__(self, name):
-            if name in _TRACE_ATTRS:
-                _tk = object.__getattribute__(self, "ticker")
-                _log(f"{_tk}.{name} ACCESS_START")
-            attr = super().__getattribute__(name)
-            if name in _TRACE_ATTRS and callable(attr):
-                def _wrapped(*a, **kw):
-                    try:
-                        r = attr(*a, **kw)
-                        _log(f"{self.ticker}.{name} DONE")
-                        return r
-                    except BaseException as e:
-                        _log(f"{self.ticker}.{name} EXC err={e!r}")
-                        raise
-                return _wrapped
-            if name in _TRACE_ATTRS:
-                _log(f"{self.ticker}.{name} ACCESS_DONE")
-            return attr
-
-    _yf.Ticker = _TracedTicker
-    _log("yfinance trace installed")
-
-
-try:
-    _install_yf_trace()
-except Exception as _e:
-    print(f"[YF_TRACE] install failed: {_e!r}", flush=True)
