@@ -16,6 +16,24 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# 纯科技股组的池子里退市成员多，很多是冷门 B2B 软件/半导体公司，热力图/接力净值图上
+# 光看 ticker 认不出是谁——用中文名代替原来占位的 sector("Technology")。查不到的退回 sector。
+_TICKER_CN_NAME = {
+    "AAPL": "苹果", "ADBE": "奥多比", "AKAM": "阿卡迈", "AMAT": "应用材料",
+    "ANSS": "ANSYS(仿真软件)", "APH": "安费诺", "AZPN1": "阿斯本技术",
+    "CDNS": "铿腾电子", "CLGX": "CoreLogic", "CPAY": "Corpay",
+    "CRUS": "凌云逻辑", "CSCO": "思科", "CTXS": "思杰", "DBX": "Dropbox",
+    "FFIV": "F5网络", "FISV": "费哲金融服务", "FLIR": "菲力尔", "FTNT": "飞塔",
+    "GDDY": "戈达迪", "GLW": "康宁", "GOOGL": "谷歌", "INTC": "英特尔",
+    "INTU": "直觉软件", "IT": "高德纳", "JKHY": "杰克亨利", "KEYS": "是德科技",
+    "KLAC": "科磊", "LRCX": "泛林集团", "MANH": "曼哈顿软件", "META": "Meta",
+    "MSFT": "微软", "MXIM": "美信集成", "NTAP": "网存", "NUAN": "纽昂斯通讯",
+    "NVDA": "英伟达", "NXPI": "恩智浦", "ORCL": "甲骨文", "QCOM": "高通",
+    "QRVO": "威讯联合半导体", "RHT": "红帽", "RMBS": "兰博士", "SWKS": "思佳讯",
+    "TDC": "天睿", "TER": "泰瑞达", "TXN": "德州仪器", "UI": "优比快",
+    "VMW": "威睿", "XLNX": "赛灵思",
+}
+
 st.title("👑 回购股接力图 (Buyback Relay)")
 st.caption(
     "**池子**：三判据（近5财年FCF全正增长/股本5年净缩减≥5%且逐年降/回购分红≤FCF）+ 按 **FCF margin 前 40**，"
@@ -54,7 +72,7 @@ king = pd.DataFrame({tk: p.get("king_score", []) for tk, p in _tickers.items()},
 rs = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
 adv = pd.DataFrame({tk: p.get("adv_63d", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
 name_map = {tk: p.get("name", tk) for tk, p in _tickers.items()}
-grade_map = {tk: p.get("group", "") for tk, p in _tickers.items()}
+grade_map = {tk: _TICKER_CN_NAME.get(tk, p.get("group", "")) for tk, p in _tickers.items()}
 asof = pd.to_datetime(ts.get("asof"), errors="coerce")
 
 # ── 月末快照(全池一次算好,两组共享)──
