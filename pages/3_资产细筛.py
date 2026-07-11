@@ -8,7 +8,7 @@ import os
 import requests
 import calendar
 import yfinance as yf
-from _yf_session import YF_SESSION  # curl_cffi 浏览器指纹，绕 Yahoo 401
+from _yf_session import new_yf_session  # curl_cffi 浏览器指纹，绕 Yahoo 401
 from datetime import datetime, timedelta
 from api_client import (fetch_core_data, fetch_active_universe,
                         get_global_data, get_stock_metadata,
@@ -511,7 +511,7 @@ def _fetch_backfill_prices(tickers: tuple) -> tuple:
     end   = datetime.now()
     start = end - timedelta(days=365 * 6)
     try:
-        raw      = yf.download(all_dl, start=start, end=end, progress=False, session=YF_SESSION)
+        raw      = yf.download(all_dl, start=start, end=end, progress=False, session=new_yf_session())
         price_df = raw["Close"].ffill().dropna(how="all")
         vol_df   = raw["Volume"].ffill().fillna(0)
         return price_df, vol_df

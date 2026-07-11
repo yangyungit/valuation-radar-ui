@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from _yf_session import YF_SESSION  # curl_cffi 浏览器指纹，绕 Yahoo 401
+from _yf_session import new_yf_session  # curl_cffi 浏览器指纹，绕 Yahoo 401
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -194,7 +194,7 @@ def get_liquidity_data():
     except Exception:
         df_macro = pd.DataFrame()
     try:
-        df_assets = yf.download(["SPY", "TLT", "GLD", "BTC-USD", "USO"], start=start_date, end=end_date, progress=False, session=YF_SESSION)['Close']
+        df_assets = yf.download(["SPY", "TLT", "GLD", "BTC-USD", "USO"], start=start_date, end=end_date, progress=False, session=new_yf_session())['Close']
         df_assets = df_assets.resample('D').ffill()
     except:
         df_assets = pd.DataFrame()

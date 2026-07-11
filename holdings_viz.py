@@ -6,7 +6,7 @@ import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
 import streamlit as st
-from _yf_session import YF_SESSION
+from _yf_session import new_yf_session
 
 SLOT_COLORS = [
     "#2ECC71", "#3498DB", "#E67E22", "#9B59B6",
@@ -59,7 +59,7 @@ def fetch_daily_ohlcv(ticker: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=3600 * 4, show_spinner=False)
 def _fetch_weekly_yf(ticker: str) -> pd.DataFrame:
-    h = yf.Ticker(ticker, session=YF_SESSION).history(period="5y")
+    h = yf.Ticker(ticker, session=new_yf_session()).history(period="5y")
     if h.empty:
         return pd.DataFrame()
     w = h.resample("W-FRI").agg({
@@ -77,7 +77,7 @@ def _fetch_weekly_yf(ticker: str) -> pd.DataFrame:
 @st.cache_data(ttl=3600 * 4, show_spinner=False)
 def _fetch_daily_yf(ticker: str) -> pd.DataFrame:
     """日线 OHLC（含分红调整）。day1 开盘买必须用日线，周线只有周五。"""
-    h = yf.Ticker(ticker, session=YF_SESSION).history(start="2021-06-01")
+    h = yf.Ticker(ticker, session=new_yf_session()).history(start="2021-06-01")
     if h.empty:
         return pd.DataFrame()
     d = h[["Open", "High", "Low", "Close", "Volume"]].dropna(how="all")

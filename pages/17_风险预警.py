@@ -11,7 +11,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
-from _yf_session import YF_SESSION
+from _yf_session import new_yf_session
 
 st.set_page_config(page_title="风险预警", layout="wide")
 
@@ -48,7 +48,7 @@ _MA_WIN = 4  # 月 MA4（默认）
 def _monthly_close(ticker: str, years: int = 15) -> pd.Series:
     """日线拉取后 resample 到月末收盘。失败返回空 Series。"""
     try:
-        h = yf.Ticker(ticker, session=YF_SESSION).history(
+        h = yf.Ticker(ticker, session=new_yf_session()).history(
             period=f"{years}y", auto_adjust=True,
         )
     except Exception:
