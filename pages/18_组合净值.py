@@ -5,7 +5,9 @@ import plotly.graph_objects as go
 
 from api_client import (
     fetch_buyback_relay_timeseries,
+    fetch_buyback_fcf_relay_timeseries,
     fetch_macro_radar_timeseries,
+    fetch_gbdt_oos_prices,
     get_global_data,
 )
 import holdings_viz as hv
@@ -33,6 +35,7 @@ st.caption(
 with st.sidebar:
     if st.button("🔄 强制刷新数据"):
         fetch_buyback_relay_timeseries.clear()
+        fetch_buyback_fcf_relay_timeseries.clear()
         fetch_macro_radar_timeseries.clear()
         get_global_data.clear()
         st.rerun()
@@ -122,14 +125,14 @@ def _weekly_cache(pool, years=10):
     return price_cache, spy_wk
 
 
-# ── A / C：回购接力（同一后端时序，池子分科技/非科技）──
-with st.spinner("📊 加载回购股时序 + 价格..."):
+# ── A：回购稳定（旧接口，剔除科技子集后的其余组，与 page 8 同源）──
+with st.spinner("📊 加载回购股东回报率时序 + 价格..."):
     bb = fetch_buyback_relay_timeseries(WINDOW)
 
-nav_a = nav_c = pd.Series(dtype=float)
+nav_a = pd.Series(dtype=float)
 spy_wk_bb = pd.DataFrame()
 if not bb.get("success"):
-    st.warning(f"⚠️ 回购股时序不可用：{bb.get('error', '未知错误')}（A / C 曲线缺失）")
+    st.warning(f"⚠️ 回购股东回报率时序不可用：{bb.get('error', '未知错误')}（A 曲线缺失）")
 else:
     _bt = bb.get("tickers", {}) or {}
     _bd = bb.get("dates", []) or []
@@ -141,15 +144,43 @@ else:
             v = list(v or [])
             return v if len(v) == _n else [np.nan] * _n
 
-        king_m = pd.DataFrame({tk: _al(p.get("king_score")) for tk, p in _bt.items()}, index=_bidx).astype(float).resample("ME").last()
         shy_m = pd.DataFrame({tk: _al(p.get("shareholder_yield")) for tk, p in _bt.items()}, index=_bidx).astype(float).resample("ME").last()
-        with st.spinner("📊 加载回购股价格..."):
+        with st.spinner("📊 加载回购稳定价格..."):
             _bb_cache, spy_wk_bb = _weekly_cache(list(_bt.keys()))
-        _all = list(king_m.columns)
-        _rest = [c for c in _all if c not in _TECH_TICKERS]
-        _tech = [c for c in _all if c in _TECH_TICKERS]
+        _rest = [c for c in shy_m.columns if c not in _TECH_TICKERS]
         nav_a = _relay_navc(shy_m, _rest, _bb_cache, spy_wk_bb, _K_STABLE)     # A
-        nav_c = _relay_navc(king_m, _tech, _bb_cache, spy_wk_bb, _K_ATTACK)    # C
+
+# ── C：回购进攻（FCF margin 规则池新接口，is_tech 子集，与 page 7 同源）──
+with st.spinner("📊 加载回购进攻(FCF池)时序 + 价格..."):
+    bbf = fetch_buyback_fcf_relay_timeseries(WINDOW)
+
+nav_c = pd.Series(dtype=float)
+if not bbf.get("success"):
+    st.warning(f"⚠️ 回购进攻(FCF池)时序不可用：{bbf.get('error', '未知错误')}（C 曲线缺失）")
+else:
+    _ft = bbf.get("tickers", {}) or {}
+    _fd = bbf.get("dates", []) or []
+    if _ft and _fd:
+        _fidx = pd.to_datetime(_fd, errors="coerce")
+        _fn = len(_fidx)
+
+        def _alf(v):
+            v = list(v or [])
+            return v if len(v) == _fn else [np.nan] * _fn
+
+        king_m_c = pd.DataFrame({tk: _alf(p.get("king_score")) for tk, p in _ft.items()}, index=_fidx).astype(float).resample("ME").last()
+        _tech_cols = [c for c in king_m_c.columns if (_ft.get(c, {}) or {}).get("is_tech")]
+        with st.spinner("📊 加载回购进攻价格（含退市补全）..."):
+            _fcf_cache, spy_wk_bbf = _weekly_cache(list(_ft.keys()))
+            # yfinance 拉不到的退市票（如 ANSS）从 Sharadar gbdt_oos_prices 补全复权日线，同 page 7
+            _missing = [t for t in _tech_cols if t not in _fcf_cache]
+            if _missing:
+                hv.prime_sharadar_prices(fetch_gbdt_oos_prices(tuple(sorted(_missing))))
+                for _tk in _missing:
+                    _d = hv.fetch_daily_ohlcv(_tk)
+                    if not _d.empty:
+                        _fcf_cache[_tk] = _d["Close"].resample("W-FRI").last().dropna().to_frame(name="Close")
+        nav_c = _relay_navc(king_m_c, _tech_cols, _fcf_cache, spy_wk_bbf, _K_ATTACK)   # C
 
 # ── B：板块王朝外层 ETF 轮动（king_score 接力，C+D 组别，buffer=4）──
 with st.spinner("📊 加载板块王朝时序 + ETF 价格..."):
