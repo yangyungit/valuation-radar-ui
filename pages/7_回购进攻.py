@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from api_client import fetch_buyback_relay_timeseries, get_global_data
+from api_client import fetch_buyback_fcf_relay_timeseries, fetch_gbdt_oos_prices, get_global_data
 from buyback_relay_core import render_group
 
 st.set_page_config(page_title="回购进攻", layout="wide")
@@ -18,24 +18,26 @@ st.markdown("""
 
 st.title("👑 回购股接力图 (Buyback Relay)")
 st.caption(
-    "**池子**:回购股.md 第一、二节(教科书级 + 大型现金流机器,排除陷阱版)里的**纯科技股**(半导体/软件/平台,不含 V/MA)。"
-    "**排名**:king_score = Z(RS_210d) —— 纯动量,动量窗口用 210 日(回测择优)。"
-    "**🥇 金牌 = 当月 Top1 且 RS_210d > 0(跑赢 SPY,否则降灰)/🥈 银牌 = Top2**。"
-    "下方持有**金+银两个仓位等权**,月末选仓、次交易日开盘执行(去 look-ahead)。"
+    "**池子**：三判据（近5财年FCF全正增长/股本5年净缩减≥5%且逐年降/回购分红≤FCF）+ 按 **FCF margin 前 40**，"
+    "每年 12 月末用当时财报 PIT 重构、次年生效（本地 Sharadar 构建上传）。页面只跑**科技子集**（sector=Technology + GOOGL/META），"
+    "退市成员历史价格走 Sharadar。**排名**：king_score = Z(RS_210d)，横截面 = 当年池成员。"
+    "**🥇 金牌 = 当月 Top1 且 RS_210d > 0 / 🥈 银牌 = Top2**，金+银等权，月末选仓次日执行。"
+    "回测见 轻资产暴利股.md：本口径 2017-04→2026-07 = +1410%（SPY +264%）。"
 )
 
 with st.sidebar:
     if st.button("🔄 强制刷新回购股数据"):
-        fetch_buyback_relay_timeseries.clear()
+        fetch_buyback_fcf_relay_timeseries.clear()
+        fetch_gbdt_oos_prices.clear()
         st.rerun()
 
 _WINDOWS = ["3Y", "5Y", "10Y"]
 window = st.radio("时间跨度", _WINDOWS, index=2, horizontal=True, key="bb_window")
 
 with st.spinner("📊 加载回购股接力数据..."):
-    ts = fetch_buyback_relay_timeseries(window)
+    ts = fetch_buyback_fcf_relay_timeseries(window)
     # δ 稳健性扫描要切尾部 3/5/10Y，固定再拉一份最长历史（缓存；选 10Y 时零额外成本）
-    ts_long = ts if window == "10Y" else fetch_buyback_relay_timeseries("10Y")
+    ts_long = ts if window == "10Y" else fetch_buyback_fcf_relay_timeseries("10Y")
 
 if not ts.get("success"):
     st.error(f"⚠️ 回购股接力数据暂不可用:{ts.get('error', '未知错误')}")
@@ -66,9 +68,6 @@ if king_m.empty or len(king_m) < 2:
 _last_month = king_m.index[-1]
 _month_in_progress = bool(pd.notna(asof) and _last_month.to_period("M").end_time.normalize() > asof.normalize())
 
-# 纯科技股:半导体 / 软件 / 平台。支付网络 V/MA 不算,归入「其余」组。
-_TECH_TICKERS = {"AAPL", "MSFT", "GOOGL", "META", "TXN", "AVGO", "ORCL", "CSCO", "ADBE", "QCOM"}
-
 # ── 价格(全池一次拉好,两组共享)──
 with st.spinner("📊 加载价格..."):
     _pool = list(_tickers.keys())
@@ -85,6 +84,16 @@ if _px is not None and not _px.empty:
             _s = _wk[_tk].dropna()
             if len(_s) >= 2:
                 _price_cache[_tk] = _s.to_frame(name="Close")
+
+# yfinance 拉不到的退市票（如 ANSS）从 Sharadar gbdt_oos_prices 补全复权日线
+_missing = [t for t in _pool if t not in _price_cache]
+if _missing:
+    import holdings_viz as hv
+    hv.prime_sharadar_prices(fetch_gbdt_oos_prices(tuple(sorted(_missing))))
+    for _tk in _missing:
+        _d = hv.fetch_daily_ohlcv(_tk)
+        if not _d.empty:
+            _price_cache[_tk] = _d["Close"].resample("W-FRI").last().dropna().to_frame(name="Close")
 
 _COMMON = dict(
     rs_m=rs_m, king_m=king_m, name_map=name_map, grade_map=grade_map,
@@ -112,7 +121,7 @@ def _long_king_m():
 king_m_long = _long_king_m()
 
 _all_cols = list(king_m.columns)
-_tech_cols = [c for c in _all_cols if c in _TECH_TICKERS]
+_tech_cols = [c for c in _all_cols if (_tickers.get(c, {}) or {}).get("is_tech")]
 
 st.markdown("## 💻 纯科技股组")
 render_group("纯科技股", _tech_cols, "bb_tech",

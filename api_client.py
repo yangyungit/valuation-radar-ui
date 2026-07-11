@@ -875,6 +875,24 @@ def fetch_buyback_relay_timeseries(window: str = "5Y") -> dict:
 
 
 @st.cache_data(ttl=3600 * 4)
+def fetch_buyback_fcf_relay_timeseries(window: str = "5Y") -> dict:
+    """回购 FCF margin 规则池接力图时序（king_score = 纯 Z(RS_210d)，年度 PIT 池内横截面排名）。
+    池子 = 三判据 + FCF margin 前 40，年末重构次年生效。供「回购进攻」页调用。
+    失败返回 {"success": False, "error": ...}。
+    """
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/buyback_fcf_relay/timeseries",
+            params={"window": window},
+            timeout=120,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "dates": [], "tickers": {}}
+
+
+@st.cache_data(ttl=3600 * 4)
 def fetch_tech_leader_relay_timeseries(window: str = "5Y") -> dict:
     """科技龙头池接力图时序（king_score = 纯动量 Z(RS_210d)，池内横截面排名）。
     母体 = 美股 + 美股 ADR 的科技龙头，与回购池独立。供「科技龙头」页调用。

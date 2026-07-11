@@ -1,3 +1,23 @@
+## 2026-07-11 | 回购进攻页换 FCF margin 年度 PIT 规则池（Phase 2，前端）
+
+**范围**：`api_client.py` 新增 `fetch_buyback_fcf_relay_timeseries`；`pages/7_回购进攻.py` 数据源、科技子集判定、退市票价格、caption 四处改动。
+
+**起因**：`obsidian_notes/99_Human_Zone/轻资产暴利股.md` 回测证实「三判据 + FCF margin 前 40」年度 PIT 规则池跑赢原手挑 36 只池（+1410% vs +1085%，2017-04→2026-07），且无后见之明。后端已建新端点 `/api/v1/macro/buyback_fcf_relay/timeseries`（`valuation-radar` commit `ba4f265`/`16c4aeb`）。
+
+**改动**：
+
+- 数据源从 `fetch_buyback_relay_timeseries` 换 `fetch_buyback_fcf_relay_timeseries`，侧栏刷新同步清 `fetch_gbdt_oos_prices` 缓存。
+- 删掉写死的 `_TECH_TICKERS` 集合，科技子集改读后端 `is_tech` 字段（`sector == "Technology" or industry == "Internet Content & Information"`）。
+- 价格补全：yfinance 拉不到的池内票（退市，如 ANSS）从 `fetch_gbdt_oos_prices` 取 Sharadar 全复权日线，`holdings_viz.prime_sharadar_prices` 注入后 `fetch_daily_ohlcv` 取用，周线重采样进 `_price_cache`。
+- caption 改为三判据 + FCF margin 前 40 + 年度 PIT 重构说明，标注回测 +1410%。
+- `render_group` 调用参数（`default_k=0.75` 等）不变。
+
+**验证**：curl 线上新端点 `window=10Y` 拿到 174 只票、`is_tech` 字段全覆盖、48 只科技子集含 ANSS；`gbdt_oos_prices` 对 ANSS 返回 2902 行日线（截至退市日 2025-07-17）。
+
+**后端契约**：`valuation-radar` commit `ba4f265`（新端点）/`16c4aeb`（DEV_LOG）。page 8 不受影响（旧端点 `/api/v1/macro/buyback_relay/timeseries` 原样保留）。
+
+---
+
 ## 2026-07-07 | 另类资产从科技龙头合并池拆出单独成页
 
 **范围**：新增 `pages/16_另类资产.py`；`pages/10_科技龙头.py` 去掉 `_merge_alt` 第三池合并 + 标题/文案回退。不改排名/接力/成本口径。
