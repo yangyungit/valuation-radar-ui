@@ -5,7 +5,7 @@
 
 - 标普 SPY 跌破月 MA10：大盘趋势总闸（月频，纯前端 yfinance）。
 - 危险条带（GBDT）：从「科技龙头」页整块复制，红=清仓/橙=减半，依赖后端 API。
-- 其余（BTC、HYG÷LQD、ARKK÷SPY、SMH÷SPY）：月频 MA4 交叉，纯前端 yfinance。
+- 其余（BTC 月 MA10，HYG÷LQD、ARKK÷SPY、SMH÷SPY 月 MA24）：月频 MA 交叉，纯前端 yfinance。
 """
 import pandas as pd
 import plotly.graph_objects as go
@@ -18,7 +18,7 @@ st.set_page_config(page_title="风险预警", layout="wide")
 st.title("⚠️ 风险预警 · 流动性 / 风险偏好条带")
 st.caption(
     "从上到下：**标普 SPY 跌破月 MA10**（大盘趋势总闸）→ **危险条带 GBDT**（后端清仓/减半信号）→ "
-    "**风险偏好内部**（BTC、HYG÷LQD、ARKK÷SPY、SMH÷SPY，跌破自己月 MA4 = 🔴）。绿 = 安全，"
+    "**风险偏好内部**（BTC 跌破自己月 MA10，HYG÷LQD、ARKK÷SPY、SMH÷SPY 跌破自己月 MA24 = 🔴）。绿 = 安全，"
     "哪些破位了自己看，结合自己的判断操作。"
 )
 
@@ -28,10 +28,10 @@ with st.expander("📖 每个指标是什么、公式怎么算（点开）", exp
 | 指标 | 含义 | 公式 | 破红条件 |
 |---|---|---|---|
 | **标普 SPY（月MA10）** | 大盘趋势总闸。SPY 月末收盘跌破自己 10 个月均线 = 大盘中期转弱、risk-off，最宏观的一道闸 | `SPY月末收盘` | `SPY < MA10(SPY)` |
-| **BTC** | 加密资产是全市场风险偏好的最前沿，退潮先从这里开始 | `月末收盘价` | `BTC < MA4(BTC)` |
-| **HYG÷LQD**（信用利差） | HYG=高收益垃圾债，LQD=投资级债。比值下行 = 垃圾债跑输投资级 = 信用利差走阔 = 钱在往安全资产躲。比 BTC 更纯净地反映风险偏好 | `HYG月末收盘 ÷ LQD月末收盘` | `比值 < MA4(比值)` |
-| **ARKK÷SPY**（高 beta 科技 RS） | ARKK=高成长/高 beta 科技篮子。相对 SPY 的强度下行 = 高风险科技开始跑输大盘 = 资金撤离激进仓位 | `ARKK月末收盘 ÷ SPY月末收盘` | `比值 < MA4(比值)` |
-| **SMH÷SPY**（半导体 RS） | SMH=半导体 ETF，全球周期与 AI 资本开支的领先指标。相对 SPY 走弱 = 半导体动能退潮 | `SMH月末收盘 ÷ SPY月末收盘` | `比值 < MA4(比值)` |
+| **BTC** | 加密资产是全市场风险偏好的最前沿，退潮先从这里开始 | `月末收盘价` | `BTC < MA10(BTC)` |
+| **HYG÷LQD**（信用利差） | HYG=高收益垃圾债，LQD=投资级债。比值下行 = 垃圾债跑输投资级 = 信用利差走阔 = 钱在往安全资产躲。比 BTC 更纯净地反映风险偏好 | `HYG月末收盘 ÷ LQD月末收盘` | `比值 < MA24(比值)` |
+| **ARKK÷SPY**（高 beta 科技 RS） | ARKK=高成长/高 beta 科技篮子。相对 SPY 的强度下行 = 高风险科技开始跑输大盘 = 资金撤离激进仓位 | `ARKK月末收盘 ÷ SPY月末收盘` | `比值 < MA24(比值)` |
+| **SMH÷SPY**（半导体 RS） | SMH=半导体 ETF，全球周期与 AI 资本开支的领先指标。相对 SPY 走弱 = 半导体动能退潮 | `SMH月末收盘 ÷ SPY月末收盘` | `比值 < MA24(比值)` |
 
 **MA 交叉通用算法**：日线拉取 → resample 到月末收盘 → 算 N 个月滚动均线 `MA_N`。当月收盘（或比值）< MA_N → 该月标红；MA 未成形的头 N-1 个月记 ⚪（数据不足）。
 
@@ -94,6 +94,44 @@ def _segs(mask: pd.Series) -> list:
     return out
 
 
+def _build_ma_chart(name: str, s: pd.Series, win: int, x_lo, x_hi, key: str):
+    """单指标月线 + MA 折线图，红段（跌破 MA）用背景色标出。"""
+    s = s.dropna()
+    if s.empty:
+        return
+    ma = s.rolling(win).mean()
+    mask = _red_mask(s, "below", win)
+    fig = go.Figure()
+    for _s0, _s1 in _segs(mask):
+        fig.add_vrect(x0=_s0, x1=_s1, fillcolor="rgba(231,76,60,0.18)", line_width=0, layer="below")
+    fig.add_trace(go.Scatter(
+        x=s.index, y=s.values, mode="lines", name=name,
+        line=dict(color="#ddd", width=1.3),
+    ))
+    fig.add_trace(go.Scatter(
+        x=ma.index, y=ma.values, mode="lines", name=f"MA{win}",
+        line=dict(color="#f39c12", width=1.3, dash="dot"),
+    ))
+    fig.update_layout(
+        height=220,
+        margin=dict(l=50, r=20, t=30, b=28),
+        plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
+        font=dict(color="#ddd"),
+        title=dict(text=f"{name} · 月线 & MA{win}", font=dict(size=13, color="#ddd")),
+        legend=dict(orientation="h", y=1.18, x=0, font=dict(size=10)),
+        xaxis=dict(
+            showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+            range=[x_lo, x_hi], tickformat="%Y", dtick="M12",
+            ticks="outside", tickfont=dict(size=10, color="#999"),
+        ),
+        yaxis=dict(
+            showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+            tickfont=dict(size=10, color="#999"),
+        ),
+    )
+    st.plotly_chart(fig, use_container_width=True, key=key)
+
+
 def _build_ribbon(tracks: list, x_lo, x_hi, key: str):
     """多轨红/绿条带图。tracks=[(label, red_mask, desc)]，i=0 在最上。"""
     n = len(tracks)
@@ -148,10 +186,10 @@ with st.spinner("📊 拉取各指标月线..."):
 # (显示名, 月线 series, 方向, MA 窗口, 说明)。direction=below → 跌破 MA 红
 INDICATORS = [
     ("标普SPY(MA10)", spy, "below", 10, "大盘趋势总闸"),
-    ("BTC", btc, "below", 4, "加密风险偏好退潮"),
-    ("HYG÷LQD", _ratio(hyg, lqd), "below", 4, "信用利差走阔"),
-    ("ARKK÷SPY", _ratio(arkk, spy), "below", 4, "高 beta 科技跑输"),
-    ("SMH÷SPY", _ratio(smh, spy), "below", 4, "半导体动能退潮"),
+    ("BTC", btc, "below", 10, "加密风险偏好退潮"),
+    ("HYG÷LQD", _ratio(hyg, lqd), "below", 24, "信用利差走阔"),
+    ("ARKK÷SPY", _ratio(arkk, spy), "below", 24, "高 beta 科技跑输"),
+    ("SMH÷SPY", _ratio(smh, spy), "below", 24, "半导体动能退潮"),
 ]
 
 reds = {name: _red_mask(s, d, w) for name, s, d, w, _ in INDICATORS}
@@ -355,7 +393,7 @@ else:
     st.info("危险条带暂不可用（后端 GBDT 信号未拉到，其余条带不受影响）。")
 
 # ── 第 3 条起：风险偏好内部（BTC / HYG÷LQD / ARKK÷SPY / SMH÷SPY）
-st.markdown("#### 🌡️ 风险偏好内部（月 MA4 交叉）")
+st.markdown("#### 🌡️ 风险偏好内部（BTC 月 MA10 / 其余月 MA24 交叉）")
 _rest = [(name, reds[name], desc) for name, _, _, _, desc in INDICATORS
          if name != _spy_name and _avail[name]]
 if _rest:
@@ -365,3 +403,9 @@ st.caption(
     "读法：红段 = 该指标当月破位（跌破自己的 MA），绿段 = 安全。"
     "各指标独立看，破位了没、结合自己的判断操作。"
 )
+
+# ── 三个比值指标详情图（月线 + MA24），方便肉眼判断走势/破位是否靠谱
+st.markdown("#### 📈 三个比值指标详情（月线 + MA24）")
+for _name, _s, _d, _w, _desc in INDICATORS:
+    if _name in ("HYG÷LQD", "ARKK÷SPY", "SMH÷SPY") and _avail[_name]:
+        _build_ma_chart(_name, _s, _w, _x_lo, _x_hi, key=f"risk_ma_chart_{_name}")
