@@ -25,3 +25,59 @@ def new_yf_session():
         return _curl_requests.Session(impersonate="chrome")
     except Exception:
         return None
+
+
+# ── 临时调试：排查 Streamlit Cloud Segmentation fault 触发点，定位到后删除 ──
+def _install_yf_trace():
+    import time
+    import yfinance as _yf
+
+    def _log(msg):
+        print(f"[YF_TRACE {time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+    _orig_download = _yf.download
+
+    def _traced_download(*args, **kwargs):
+        _tk = args[0] if args else kwargs.get("tickers")
+        _log(f"download START tickers={_tk}")
+        try:
+            r = _orig_download(*args, **kwargs)
+            _log(f"download DONE tickers={_tk}")
+            return r
+        except BaseException as e:
+            _log(f"download EXC tickers={_tk} err={e!r}")
+            raise
+
+    _yf.download = _traced_download
+
+    _TRACE_ATTRS = {"history", "info", "fast_info", "financials", "balance_sheet", "cashflow"}
+    _orig_ticker = _yf.Ticker
+
+    class _TracedTicker(_orig_ticker):
+        def __getattribute__(self, name):
+            if name in _TRACE_ATTRS:
+                _tk = object.__getattribute__(self, "ticker")
+                _log(f"{_tk}.{name} ACCESS_START")
+            attr = super().__getattribute__(name)
+            if name in _TRACE_ATTRS and callable(attr):
+                def _wrapped(*a, **kw):
+                    try:
+                        r = attr(*a, **kw)
+                        _log(f"{self.ticker}.{name} DONE")
+                        return r
+                    except BaseException as e:
+                        _log(f"{self.ticker}.{name} EXC err={e!r}")
+                        raise
+                return _wrapped
+            if name in _TRACE_ATTRS:
+                _log(f"{self.ticker}.{name} ACCESS_DONE")
+            return attr
+
+    _yf.Ticker = _TracedTicker
+    _log("yfinance trace installed")
+
+
+try:
+    _install_yf_trace()
+except Exception as _e:
+    print(f"[YF_TRACE] install failed: {_e!r}", flush=True)
