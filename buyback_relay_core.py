@@ -126,6 +126,8 @@ def render_group(
     retention_mask: pd.DataFrame = None,
     retention_price_m: pd.DataFrame = None,
     retention_ma_window: int = None,
+    entry_mask: pd.DataFrame = None,
+    entry_ma_window: int = None,
     danger_daily: pd.Series = None,
     danger_half_daily: pd.Series = None,
     bear_default: bool = False,
@@ -331,9 +333,13 @@ def render_group(
         )
     else:
         st.markdown(f"### 📈 持有金 + 银两仓(等权)· 净值 vs SPY")
+        _entry_gate_rule = (
+            f"**买回门(MA{int(entry_ma_window or 15)})**：腾位后须月末价收回自己的 "
+            f"{int(entry_ma_window or 15)} 月均线上方才准(重新)进场，堵住「跌破当月被排名原地买回」 · "
+        ) if entry_mask is not None else ""
         _hold_rule2 = (
             f"**趋势留任(MA)**：在任票只要月末价 > 自己的 {int(retention_ma_window or 4)} 月均线就一直拿，"
-            "不管别人排第几；跌破均线才腾位 · "
+            f"不管别人排第几；跌破均线才腾位 · {_entry_gate_rule}"
         ) if retention_mask is not None else (
             "**守擂死区**：在任票的分数距 Top2 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
         )
@@ -380,7 +386,9 @@ def render_group(
         _gscore_L, _rank_L, _ten6_L, _streak_L = g_score, rank_m, _ten6, _streak
 
     def _holdings_for_k(kval, rank_src=rank_m, score_src=g_score, ten6_src=_ten6, streak_src=_streak,
-                        mask_src=retention_mask):
+                        mask_src=retention_mask, entry_mask_src=None):
+        if entry_mask_src is None:
+            entry_mask_src = entry_mask
         _mh, _mh_raw, _prev_h = {}, {}, []
         for _ts, _row in rank_src.iterrows():
             _r = _row.dropna().sort_values()
@@ -424,6 +432,13 @@ def render_group(
             # 滤掉只闪现一个月的生面孔。
             _elig = [t for t in _order
                      if _r[t] <= _elig_rank_limit and float(_tnow.get(t, 0)) >= entry_min_top2_hits]
+            if entry_mask_src is not None:
+                # 买回门：跌破留任 MA 腾位后，须月末价收回自己的长 MA（如 15 月）上方才准
+                # （重新）进场。没有这道门，霸榜票跌破当月就被排名原地买回，留任 MA 形同虚设
+                # （2026-07 BKNG 案例，回测见 backtest_shy_ma_asym.py）。在任票不受此门约束。
+                _elig = [t for t in _elig
+                         if t in entry_mask_src.columns and _ts in entry_mask_src.index
+                         and bool(entry_mask_src.at[_ts, t])]
             # 多个合格新票时，优先「连续在榜月数」最长的（更连贯、更新鲜），
             # 连贯度打平再看当月排名。避免 6 月内凑够 2 次的陈旧散点盖过当月冲上来的连续新票。
             _elig_t = sorted(_elig, key=lambda t: (-float(_snow.get(t, 0)), _r[t]))
@@ -600,25 +615,34 @@ def render_group(
     #    在任票 月末价 > 自己 MA-X 才留：X 太小卖太勤（换手高、收益高但回撤深）、X 太大守太久。
     #    择优目标用 Calmar（段内 CAGR / 最大回撤）而非纯收益——纯收益只会挑最高换手、最深回撤的
     #    MA2；Calmar 把回撤计入分母，回撤太深自动被压下去。用最长历史对每个 X 重建净值。──
-    _ma_grid = list(range(2, 16)) if (retention_mask is not None and retention_price_m is not None) else []
+    # 有买回门时改扫「买回窗口」（留任 MA 固定不动）；否则扫留任窗口本身。
+    _sweep_entry = entry_mask is not None
+    _ma_grid = list(range(2, 17 if _sweep_entry else 16)) \
+        if (retention_mask is not None and retention_price_m is not None) else []
     if _ma_grid:
         _px_L = retention_price_m
         _ma_curves = {lbl: [] for lbl, _ in _HZ}
         for _xw in _ma_grid:
             _mask_x = _px_L > _px_L.rolling(_xw).mean()
-            _mh_x = _holdings_for_k(_k, _rank_L, _gscore_L, _ten6_L, _streak_L, mask_src=_mask_x)[0]
+            if _sweep_entry:
+                _mh_x = _holdings_for_k(_k, _rank_L, _gscore_L, _ten6_L, _streak_L,
+                                        mask_src=retention_mask, entry_mask_src=_mask_x)[0]
+            else:
+                _mh_x = _holdings_for_k(_k, _rank_L, _gscore_L, _ten6_L, _streak_L, mask_src=_mask_x)[0]
             _nav_x = _build_nav(_mh_x)
             _nav_xs = _nav_x[5] if _nav_x is not None else None
             for lbl, yrs in _HZ:
                 _ma_curves[lbl].append(_trail_calmar(_nav_xs, yrs))
-        _cur_ma = int(retention_ma_window) if retention_ma_window else None
+        _cur_ma = int(entry_ma_window or 15) if _sweep_entry else (
+            int(retention_ma_window) if retention_ma_window else None)
+        _sweep_what = "买回门 MA 窗口" if _sweep_entry else "留任 MA 窗口"
         _rec_x = _plot_param_sweep(
             _ma_grid, _ma_curves, _HZ, _cur_ma,
-            axis_title="MA 窗口 X（月）", rec_sym="MA", dtick=1, key=f"{kp}_ma_sweep",
+            axis_title=f"{_sweep_what} X（月）", rec_sym="MA", dtick=1, key=f"{kp}_ma_sweep",
             metric_name="Calmar", val_fmt=".2f", unit="",
             yaxis_title="各段归一化 Calmar (÷自身峰值)",
             title_text=(
-                f"MA 窗口稳健性 · 尾部 {'/'.join(l for l, _ in _HZ)} Calmar（收益/回撤）"
+                f"{_sweep_what}稳健性 · 尾部 {'/'.join(l for l, _ in _HZ)} Calmar（收益/回撤）"
                 f"（各自归一化；三线齐高处=稳健 X；灰点线=当前 MA{_cur_ma if _cur_ma else ''}）"
             ),
         )

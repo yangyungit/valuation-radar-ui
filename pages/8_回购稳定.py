@@ -24,8 +24,10 @@ st.caption(
     "季报变化慢，排名比动量稳——对非科技低波动质量股更适用。"
     "**金牌门槛不变**：当月 Top1 且 RS_210d > 0；银牌 = Top2。与 Page 7 一一对照。"
     "**留任按趋势**：在任票只要月末价 > 自己的 4 月均线就一直拿，跌破才换（对齐 Page 7/10，替代原 δ 死区）。"
-    "回测见 backtest_shy_ma_retention.py：2016-07→2026-06 MA4 版回撤 -30.0%、Calmar 0.60"
-    "（原 δ1.0 版 -40.5%、0.49；总收益 +421% vs +508%，用一段收益换掉 10.5pp 回撤）。"
+    "**买回门 MA15**：跌破腾位后须月末价收回自己的 15 月均线上方才准重新进场——"
+    "没这道门时霸榜票跌破当月就被排名原地买回，留任 MA 形同虚设（BKNG 2019-2020 案例）。"
+    "回测见 backtest_shy_ma_asym.py：2016-07→2026-06 MA4卖/MA15买回 +429%、DD -19.2%、Calmar 0.94"
+    "（旧 MA4 无买回门 +421%、-30.0%、0.60——收益持平，回撤砍 11pp）。"
 )
 
 with st.sidebar:
@@ -88,7 +90,8 @@ _TECH_TICKERS = {"AAPL", "MSFT", "GOOGL", "META", "TXN", "AVGO", "ORCL", "CSCO",
 
 with st.spinner("📊 加载价格..."):
     _pool = list(_tickers.keys())
-    _px = get_global_data(_pool + ["SPY"], years=10)
+    # 12 年而非 10 年：MA15 需要 15 个月 warmup，否则 10Y 窗口开头的买回门全关（进不了场）。
+    _px = get_global_data(_pool + ["SPY"], years=12)
 
 _price_cache: dict = {}
 _close_m_cols: dict = {}
@@ -104,10 +107,12 @@ if _px is not None and not _px.empty:
                 _price_cache[_tk] = _s.to_frame(name="Close")
                 _close_m_cols[_tk] = _px[_tk].dropna().resample("ME").last()
 
-# MA 趋势留任（对齐 page 7/10）：在任票月末价 > 自己 4 月均线才留，跌破才腾位。
-# 回测 backtest_shy_ma_retention.py：MA4 回撤 -30.0% vs δ1.0 版 -40.5%。
+# MA4 留任 + MA15 买回门：在任票月末价 > 自己 4 月均线才留；腾位后须收回 15 月均线
+# 上方才准重新进场。回测 backtest_shy_ma_asym.py：+429% / DD -19.2% / Calmar 0.94，
+# vs 无买回门旧版 +421% / -30.0% / 0.60。
 _close_m = pd.DataFrame(_close_m_cols).sort_index()
 _ret_mask = _close_m > _close_m.rolling(4).mean()
+_entry_mask = _close_m > _close_m.rolling(15).mean()
 
 _COMMON = dict(
     rs_m=rs_m, king_m=king_m, name_map=name_map, grade_map=grade_map,
@@ -147,4 +152,6 @@ render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, sweep_sco
              retention_mask=_ret_mask,
              retention_price_m=_close_m,
              retention_ma_window=4,
+             entry_mask=_entry_mask,
+             entry_ma_window=15,
              **_COMMON)
