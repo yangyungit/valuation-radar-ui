@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from api_client import fetch_buyback_relay_timeseries, get_global_data
+from api_client import fetch_buyback_stable_relay_timeseries, fetch_gbdt_oos_prices, get_global_data
 from buyback_relay_core import render_group
 
 st.set_page_config(page_title="回购稳定", layout="wide")
@@ -16,32 +16,31 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("💰 回购股股东回报率接力 (Shareholder Yield Relay)")
+st.title("💰 回购稳定（FCF+ROIC 规则池 × FCF margin 排名）")
 st.caption(
-    "**池子**：回购股.md 第一、二节里**剔除纯科技股后的其余组**（支付网络 / 消费 / 金融数据 / 工业医疗等）。"
-    "**排名轴换成股东回报率 = 股息率 + 净回购率**（季频 Sharadar SF1 ART，PIT 安全）。"
-    "净回购率 = (t−4Q 股本 / t 股本 − 1) × 100，增发为负（惩罚稀释股东的公司）。"
-    "季报变化慢，排名比动量稳——对非科技低波动质量股更适用。"
-    "**金牌门槛不变**：当月 Top1 且 RS_210d > 0；银牌 = Top2。与 Page 7 一一对照。"
-    "**留任按趋势**：在任票只要月末价 > 自己的 4 月均线就一直拿，跌破才换（对齐 Page 7/10，替代原 δ 死区）。"
-    "**买回门 MA15**：跌破腾位后须月末价收回自己的 15 月均线上方才准重新进场——"
-    "没这道门时霸榜票跌破当月就被排名原地买回，留任 MA 形同虚设（BKNG 2019-2020 案例）。"
-    "回测见 backtest_shy_ma_asym.py：2016-07→2026-06 MA4卖/MA15买回 +429%、DD -19.2%、Calmar 0.94"
-    "（旧 MA4 无买回门 +421%、-30.0%、0.60——收益持平，回撤砍 11pp）。"
+    "**池子**：年度 PIT 规则池——近5财年 FCF 全正增长 / 股本5年净缩减≥5%且逐年降 / ROIC≥10% / 按 FCF margin 前40，"
+    "每年12月末用当时财报重构、次年生效（本地 Sharadar 构建上传）。页面只跑**非科技子集**（is_tech=False）。"
+    "原「回购+分红≤FCF」判据已删——回测证明它把 AZO/MCD 这类适度举债回购的好公司赶走、把 FCF 虚高的放贷公司放进来；"
+    "ROIC 门是放贷/银行/保险（ROIC 0.7~4%）与好生意（≥10%）的分界。"
+    "**排名轴 = FCF margin**（季频 ART PIT，池成员内排名）；股东回报率排名在规则池上失败（+43% vs 本口径 +338%），已弃用。"
+    "**金牌门槛不变**：当月 Top1 且 RS_210d>0；银牌 = Top2。**留任 MA4 卖出 / MA15 买回门**不变。"
+    "回测见 backtest_a_leg_round6.py：2017-04→2026-06 规则池+FCFM +338%、DD -21.6%、Calmar 0.80"
+    "（手挑+股东回报率同引擎 +341%、-23.9%、0.73；SPY +264%）。注意：近5年该腿年化 +4.9% 跑输 SPY，防守属性自行权衡。"
 )
 
 with st.sidebar:
     if st.button("🔄 强制刷新数据"):
-        fetch_buyback_relay_timeseries.clear()
+        fetch_buyback_stable_relay_timeseries.clear()
+        fetch_gbdt_oos_prices.clear()
         st.rerun()
 
 _WINDOWS = ["3Y", "5Y", "10Y"]
 window = st.radio("时间跨度", _WINDOWS, index=2, horizontal=True, key="shy_window")
 
 with st.spinner("📊 加载回购股数据..."):
-    ts = fetch_buyback_relay_timeseries(window)
+    ts = fetch_buyback_stable_relay_timeseries(window)
     # δ 稳健性扫描要切尾部 3/5/10Y，固定再拉一份最长历史（缓存；选 10Y 时零额外成本）
-    ts_long = ts if window == "10Y" else fetch_buyback_relay_timeseries("10Y")
+    ts_long = ts if window == "10Y" else fetch_buyback_stable_relay_timeseries("10Y")
 
 if not ts.get("success"):
     st.error(f"⚠️ 数据暂不可用：{ts.get('error', '未知错误')}")
@@ -62,12 +61,12 @@ def _aligned(vals):
     return vals if len(vals) == _n else [np.nan] * _n
 
 
-shy_raw = pd.DataFrame(
-    {tk: _aligned(p.get("shareholder_yield")) for tk, p in _tickers.items()}, index=_idx
+fcfm_raw = pd.DataFrame(
+    {tk: _aligned(p.get("fcf_margin")) for tk, p in _tickers.items()}, index=_idx
 ).astype(float)
 
-if shy_raw.isnull().all().all():
-    st.warning("⚠️ 股东回报率数据未就绪（buyback_shareholder_yield.json 尚未上传到 Render）")
+if fcfm_raw.isnull().all().all():
+    st.warning("⚠️ FCF margin 数据未就绪（buyback_stable_pool.json 尚未上传到 Render）")
     st.stop()
 
 rs = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
@@ -78,15 +77,13 @@ asof = pd.to_datetime(ts.get("asof"), errors="coerce")
 
 king_m = king.resample("ME").last()
 rs_m = rs.resample("ME").last()
-shy_m = shy_raw.resample("ME").last()
+fcfm_m = fcfm_raw.resample("ME").last()
 if king_m.empty or len(king_m) < 2:
     st.warning("⚠️ 月末快照数据不足")
     st.stop()
 
 _last_month = king_m.index[-1]
 _month_in_progress = bool(pd.notna(asof) and _last_month.to_period("M").end_time.normalize() > asof.normalize())
-
-_TECH_TICKERS = {"AAPL", "MSFT", "GOOGL", "META", "TXN", "AVGO", "ORCL", "CSCO", "ADBE", "QCOM"}
 
 with st.spinner("📊 加载价格..."):
     _pool = list(_tickers.keys())
@@ -107,6 +104,17 @@ if _px is not None and not _px.empty:
                 _price_cache[_tk] = _s.to_frame(name="Close")
                 _close_m_cols[_tk] = _px[_tk].dropna().resample("ME").last()
 
+# yfinance 拉不到的退市票从 Sharadar gbdt_oos_prices 补全复权日线
+_missing = [t for t in _pool if t not in _price_cache]
+if _missing:
+    import holdings_viz as hv
+    hv.prime_sharadar_prices(fetch_gbdt_oos_prices(tuple(sorted(_missing))))
+    for _tk in _missing:
+        _d = hv.fetch_daily_ohlcv(_tk)
+        if not _d.empty:
+            _price_cache[_tk] = _d["Close"].resample("W-FRI").last().dropna().to_frame(name="Close")
+            _close_m_cols[_tk] = _d["Close"].resample("ME").last()
+
 # MA4 留任 + MA15 买回门：在任票月末价 > 自己 4 月均线才留；腾位后须收回 15 月均线
 # 上方才准重新进场。回测 backtest_shy_ma_asym.py：+429% / DD -19.2% / Calmar 0.94，
 # vs 无买回门旧版 +421% / -30.0% / 0.60。
@@ -118,17 +126,17 @@ _COMMON = dict(
     rs_m=rs_m, king_m=king_m, name_map=name_map, grade_map=grade_map,
     window=window, month_in_progress=_month_in_progress, last_month=_last_month,
     price_cache=_price_cache, spy_wk=_spy_wk,
-    score_label="股东回报率%", score_fmt="{:+.1f}",
+    score_label="FCF margin%", score_fmt="{:+.1f}",
 )
 
 _all_cols = list(king_m.columns)
-_rest_cols = [c for c in _all_cols if c not in _TECH_TICKERS]
+_rest_cols = [c for c in _all_cols if not (_tickers.get(c, {}) or {}).get("is_tech")]
 
 
 def _long_score_m():
-    """从 10Y 长历史构造月末股东回报率，供 δ 稳健性扫描切尾部 3/5/10Y。失败返回 None。"""
+    """从 10Y 长历史构造月末 FCF margin，供 δ 稳健性扫描切尾部 3/5/10Y。失败返回 None。"""
     if window == "10Y":
-        return shy_m
+        return fcfm_m
     if not (isinstance(ts_long, dict) and ts_long.get("success")):
         return None
     _tk_l = ts_long.get("tickers", {}) or {}
@@ -138,17 +146,17 @@ def _long_score_m():
     _ix_l = pd.to_datetime(_dt_l, errors="coerce")
     _nl = len(_ix_l)
     _raw_l = pd.DataFrame(
-        {tk: (lambda v: v if len(v) == _nl else [np.nan] * _nl)(list(p.get("shareholder_yield") or []))
+        {tk: (lambda v: v if len(v) == _nl else [np.nan] * _nl)(list(p.get("fcf_margin") or []))
          for tk, p in _tk_l.items()},
         index=_ix_l,
     ).astype(float)
     return _raw_l.resample("ME").last()
 
 
-shy_m_long = _long_score_m()
+fcfm_m_long = _long_score_m()
 
-st.markdown("## 🏛️ 其余组（按股东回报率排名）")
-render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, sweep_score_m=shy_m_long,
+st.markdown("## 🏛️ 非科技组（按 FCF margin 排名）")
+render_group("回购稳定", _rest_cols, "stable_rest", score_m=fcfm_m, sweep_score_m=fcfm_m_long,
              retention_mask=_ret_mask,
              retention_price_m=_close_m,
              retention_ma_window=4,
