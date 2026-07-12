@@ -5,7 +5,7 @@ import numpy as np
 from api_client import fetch_buyback_fcf_relay_timeseries, fetch_gbdt_oos_prices, get_global_data
 from buyback_relay_core import render_group
 
-st.set_page_config(page_title="回购进攻", layout="wide")
+st.set_page_config(page_title="FCF进攻", layout="wide")
 
 st.markdown("""
 <style>

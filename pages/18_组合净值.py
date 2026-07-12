@@ -21,13 +21,13 @@ _TECH_TICKERS = {"AAPL", "MSFT", "GOOGL", "META", "TXN", "AVGO", "ORCL", "CSCO",
 _DYNASTY_GROUPS = ["C: 核心板块 (Level 1 Sectors)", "D: 细分赛道 (Level 2/Themes)"]
 _DYNASTY_BUFFER = 4
 _K_STABLE = 1.0                      # A（回购稳定）δ 默认，同 page 8
-_K_ATTACK = 0.75                     # C（回购进攻）δ 默认，同 page 7
+_K_ATTACK = 0.75                     # C（FCF进攻）δ 默认，同 page 7
 
 st.title("📊 ABC 组合净值")
 st.caption(
     "**A = 回购稳定**（股东回报率排名，金+银 2 仓 50/50，δ=1.0）· "
     "**B = 板块王朝外层 ETF 轮动**（king_score 月末排名接力，左列+右列 50/50，守擂 buffer=4）· "
-    "**C = 回购进攻**（纯科技股 king_score 动量，金+银 2 仓 50/50，δ=0.75）· "
+    "**C = FCF进攻**（纯科技股 king_score 动量，金+银 2 仓 50/50，δ=0.75）· "
     f"三条均 {WINDOW} 周线、与原页同源。合成 = 起始 4:3:3、**每年末再平衡**回此比例。"
     "三条 + 合成 + SPY 统一裁到「三条都有数据」的共同窗口、起点归一为 1。"
 )
@@ -150,13 +150,13 @@ else:
         _rest = [c for c in shy_m.columns if c not in _TECH_TICKERS]
         nav_a = _relay_navc(shy_m, _rest, _bb_cache, spy_wk_bb, _K_STABLE)     # A
 
-# ── C：回购进攻（FCF margin 规则池新接口，is_tech 子集，与 page 7 同源）──
-with st.spinner("📊 加载回购进攻(FCF池)时序 + 价格..."):
+# ── C：FCF进攻（FCF margin 规则池新接口，is_tech 子集，与 page 7 同源）──
+with st.spinner("📊 加载FCF进攻(FCF池)时序 + 价格..."):
     bbf = fetch_buyback_fcf_relay_timeseries(WINDOW)
 
 nav_c = pd.Series(dtype=float)
 if not bbf.get("success"):
-    st.warning(f"⚠️ 回购进攻(FCF池)时序不可用：{bbf.get('error', '未知错误')}（C 曲线缺失）")
+    st.warning(f"⚠️ FCF进攻(FCF池)时序不可用：{bbf.get('error', '未知错误')}（C 曲线缺失）")
 else:
     _ft = bbf.get("tickers", {}) or {}
     _fd = bbf.get("dates", []) or []
@@ -170,7 +170,7 @@ else:
 
         king_m_c = pd.DataFrame({tk: _alf(p.get("king_score")) for tk, p in _ft.items()}, index=_fidx).astype(float).resample("ME").last()
         _tech_cols = [c for c in king_m_c.columns if (_ft.get(c, {}) or {}).get("is_tech")]
-        with st.spinner("📊 加载回购进攻价格（含退市补全）..."):
+        with st.spinner("📊 加载FCF进攻价格（含退市补全）..."):
             _fcf_cache, spy_wk_bbf = _weekly_cache(list(_ft.keys()))
             # yfinance 拉不到的退市票（如 ANSS）从 Sharadar gbdt_oos_prices 补全复权日线，同 page 7
             _missing = [t for t in _tech_cols if t not in _fcf_cache]
@@ -261,7 +261,7 @@ _COLORS = {
     "C": "#E67E22", "SPY": "rgba(170,170,170,0.55)",
 }
 _LABELS = {
-    "合成": "合成 (4:3:3, 年度再平衡)", "A": "A 回购稳定", "B": "B 板块轮动", "C": "C 回购进攻",
+    "合成": "合成 (4:3:3, 年度再平衡)", "A": "A 回购稳定", "B": "B 板块轮动", "C": "C FCF进攻",
 }
 fig = go.Figure()
 for _k in ["SPY", "A", "B", "C", "合成"]:
@@ -317,7 +317,7 @@ def _metrics(nav: pd.Series) -> dict:
 _rows = []
 _series_for_table = {
     "合成 (4:3:3)": combined, "A 回购稳定": _norm["A"], "B 板块轮动": _norm["B"],
-    "C 回购进攻": _norm["C"], "SPY 大盘": spy_norm,
+    "C FCF进攻": _norm["C"], "SPY 大盘": spy_norm,
 }
 for _label, _s in _series_for_table.items():
     if _s is None or _s.empty:
