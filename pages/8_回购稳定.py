@@ -23,6 +23,9 @@ st.caption(
     "净回购率 = (t−4Q 股本 / t 股本 − 1) × 100，增发为负（惩罚稀释股东的公司）。"
     "季报变化慢，排名比动量稳——对非科技低波动质量股更适用。"
     "**金牌门槛不变**：当月 Top1 且 RS_210d > 0；银牌 = Top2。与 Page 7 一一对照。"
+    "**留任按趋势**：在任票只要月末价 > 自己的 4 月均线就一直拿，跌破才换（对齐 Page 7/10，替代原 δ 死区）。"
+    "回测见 backtest_shy_ma_retention.py：2016-07→2026-06 MA4 版回撤 -30.0%、Calmar 0.60"
+    "（原 δ1.0 版 -40.5%、0.49；总收益 +421% vs +508%，用一段收益换掉 10.5pp 回撤）。"
 )
 
 with st.sidebar:
@@ -88,6 +91,7 @@ with st.spinner("📊 加载价格..."):
     _px = get_global_data(_pool + ["SPY"], years=10)
 
 _price_cache: dict = {}
+_close_m_cols: dict = {}
 _spy_wk = pd.DataFrame()
 if _px is not None and not _px.empty:
     _wk = _px.resample("W-FRI").last()
@@ -98,6 +102,12 @@ if _px is not None and not _px.empty:
             _s = _wk[_tk].dropna()
             if len(_s) >= 2:
                 _price_cache[_tk] = _s.to_frame(name="Close")
+                _close_m_cols[_tk] = _px[_tk].dropna().resample("ME").last()
+
+# MA 趋势留任（对齐 page 7/10）：在任票月末价 > 自己 4 月均线才留，跌破才腾位。
+# 回测 backtest_shy_ma_retention.py：MA4 回撤 -30.0% vs δ1.0 版 -40.5%。
+_close_m = pd.DataFrame(_close_m_cols).sort_index()
+_ret_mask = _close_m > _close_m.rolling(4).mean()
 
 _COMMON = dict(
     rs_m=rs_m, king_m=king_m, name_map=name_map, grade_map=grade_map,
@@ -133,4 +143,8 @@ def _long_score_m():
 shy_m_long = _long_score_m()
 
 st.markdown("## 🏛️ 其余组（按股东回报率排名）")
-render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, sweep_score_m=shy_m_long, **_COMMON)
+render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, sweep_score_m=shy_m_long,
+             retention_mask=_ret_mask,
+             retention_price_m=_close_m,
+             retention_ma_window=4,
+             **_COMMON)
