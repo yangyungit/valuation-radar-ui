@@ -40,7 +40,9 @@ st.caption(
     "每年 12 月末用当时财报 PIT 重构、次年生效（本地 Sharadar 构建上传）。页面只跑**科技子集**（sector=Technology + GOOGL/META），"
     "退市成员历史价格走 Sharadar。**排名**：king_score = Z(RS_210d)，横截面 = 当年池成员。"
     "**🥇 金牌 = 当月 Top1 且 RS_210d > 0 / 🥈 银牌 = Top2**，金+银等权，月末选仓次日执行。"
-    "回测见 轻资产暴利股.md：本口径 2017-04→2026-07 = +1410%（SPY +264%）。"
+    "**留任按趋势**：在任票只要月末价 > 自己的 4 月均线就一直拿，跌破才换（对齐科技龙头页，替代原 δ 死区）。"
+    "回测见 backtest_buyback_ma_onehold.py：本口径 2017-04→2026-06 = +1477%、回撤 -35.7%"
+    "（原 δ0.75 版 +1410%、-42.7%；SPY +264%）。"
 )
 
 with st.sidebar:
@@ -92,6 +94,7 @@ with st.spinner("📊 加载价格..."):
     _px = get_global_data(_pool + ["SPY"], years=10)
 
 _price_cache: dict = {}
+_close_m_cols: dict = {}
 _spy_wk = pd.DataFrame()
 if _px is not None and not _px.empty:
     _wk = _px.resample("W-FRI").last()
@@ -102,6 +105,7 @@ if _px is not None and not _px.empty:
             _s = _wk[_tk].dropna()
             if len(_s) >= 2:
                 _price_cache[_tk] = _s.to_frame(name="Close")
+                _close_m_cols[_tk] = _px[_tk].dropna().resample("ME").last()
 
 # yfinance 拉不到的退市票（如 ANSS）从 Sharadar gbdt_oos_prices 补全复权日线
 _missing = [t for t in _pool if t not in _price_cache]
@@ -112,6 +116,7 @@ if _missing:
         _d = hv.fetch_daily_ohlcv(_tk)
         if not _d.empty:
             _price_cache[_tk] = _d["Close"].resample("W-FRI").last().dropna().to_frame(name="Close")
+            _close_m_cols[_tk] = _d["Close"].resample("ME").last()
 
 _COMMON = dict(
     rs_m=rs_m, king_m=king_m, name_map=name_map, grade_map=grade_map,
@@ -138,6 +143,11 @@ def _long_king_m():
 
 king_m_long = _long_king_m()
 
+# MA 趋势留任（对齐 page 10）：在任票月末价 > 自己 4 月均线才留，跌破/掉出当年池才腾位。
+# 月末价走前端已有日线（退市票 Sharadar），全 10 年历史，3Y/5Y 窗口起点 MA4 也有效。
+_close_m = pd.DataFrame(_close_m_cols).sort_index()
+_ret_mask = _close_m > _close_m.rolling(4).mean()
+
 _all_cols = list(king_m.columns)
 _tech_cols = [c for c in _all_cols if (_tickers.get(c, {}) or {}).get("is_tech")]
 
@@ -145,4 +155,8 @@ st.markdown("## 💻 纯科技股组")
 render_group("纯科技股", _tech_cols, "bb_tech",
              score_m=king_m, sweep_score_m=king_m_long,
              score_label="king_score", score_fmt="{:+.2f}",
-             default_k=0.75, **_COMMON)
+             default_k=0.75,
+             retention_mask=_ret_mask,
+             retention_price_m=_close_m,
+             retention_ma_window=4,
+             **_COMMON)

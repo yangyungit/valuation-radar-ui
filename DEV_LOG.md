@@ -1,3 +1,21 @@
+## 2026-07-12 | 回购进攻页留任规则 δ 死区 → MA4 趋势留任（双仓保留）
+
+**范围**：`buyback_relay_core.py`（双仓 caption 分支）、`pages/7_回购进攻.py`（月末收盘价 + MA 留任参数 + caption）。
+
+**起因**：page 10 科技龙头页已用「月末价 > 自己 MA4(月)」留任替代 δ 死区。回测（`valuation-radar/backtest_buyback_ma_onehold.py`）证实 page 7 换 MA4 同样更优：+1477% vs +1410%，DD -35.7% vs -42.7%，Calmar 0.98 vs 0.80（单仓两变体全样本落后，否决，双仓保留）。
+
+**改动**：
+
+- `buyback_relay_core.py` 双仓 caption 分支（约 332-341 行）：守擂死区文案改按 `retention_mask` 条件显示 MA 趋势留任/δ 死区文案，两段式 `_hold_rule2` 复用单仓分支已有写法。其他调用方（pages/8/9/14/16/18）不传 `retention_mask`，caption 零影响。
+- `pages/7_回购进攻.py`：价格段新增 `_close_m_cols` 收集月末收盘（现存票 yfinance 日线 + 退市票 Sharadar `fetch_daily_ohlcv`），拼成 `_close_m` 后算 `_ret_mask = _close_m > _close_m.rolling(4).mean()`；`render_group` 调用加 `retention_mask`/`retention_price_m`/`retention_ma_window=4`；页面 caption 补留任规则说明与新回测数字。
+- 不新增后端端点、不动 Render，月末价全部走前端已有价格管道。
+
+**验证**：`ReadLints` 对两个改动文件无新增错误。
+
+**后端契约**：无改动。page 8/10/18 走各自调用（未传 `retention_mask`），不受影响。
+
+---
+
 ## 2026-07-11 | 回购进攻页换 FCF margin 年度 PIT 规则池（Phase 2，前端）
 
 **范围**：`api_client.py` 新增 `fetch_buyback_fcf_relay_timeseries`；`pages/7_回购进攻.py` 数据源、科技子集判定、退市票价格、caption 四处改动。
