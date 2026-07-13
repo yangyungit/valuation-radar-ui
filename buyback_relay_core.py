@@ -126,6 +126,7 @@ def render_group(
     retention_mask: pd.DataFrame = None,
     retention_price_m: pd.DataFrame = None,
     retention_ma_window: int = None,
+    retention_desc: str = None,
     entry_mask: pd.DataFrame = None,
     entry_ma_window: int = None,
     entry_short_ma: int = None,
@@ -370,9 +371,12 @@ def render_group(
             )
         else:
             _entry_gate_rule = ""
+        _ret_desc = retention_desc or (
+            f"在任票只要月末价 > 自己的 {int(retention_ma_window or 4)} 月均线就一直拿，"
+            f"不管别人排第几；跌破均线才腾位"
+        )
         _hold_rule2 = (
-            f"**趋势留任(MA)**：在任票只要月末价 > 自己的 {int(retention_ma_window or 4)} 月均线就一直拿，"
-            f"不管别人排第几；跌破均线才腾位 · {_entry_gate_rule}"
+            f"**趋势留任**：{_ret_desc} · {_entry_gate_rule}"
         ) if retention_mask is not None else (
             "**守擂死区**：在任票的分数距 Top2 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
         )

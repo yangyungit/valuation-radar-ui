@@ -24,7 +24,9 @@ st.caption(
     "季报变化慢，排名比动量稳——对非科技低波动质量股更适用。"
     "**金牌 = Top1、银牌 = Top2**：纯按股东回报率排名发牌，不设 RS 门槛"
     "（发牌口径与净值回测一致；Page 7 动量版仍保留 RS 门槛）。"
-    "**出场按趋势**：在任票只要月末价 > 自己的 4 月均线就一直拿，跌破 MA4 才换（对齐 Page 7/10，替代原 δ 死区）。"
+    "**出场按相对波动通道**：在任票只要月末价 > 自己的 MA6 × (1−0.5×近12月波动) 通道下沿就一直拿，跌破才换。"
+    "波动带随个股波动自适应——低波动龙头(AZO/BKNG)绳子更短、高波动票更松，替代一刀切 MA4"
+    "（MA4 对低波动票太紧、频繁被浅回调震出，空仓率高达 91%；通道后空仓降到 42%、总收益 152%→344%）。"
     "**进场门 MA4>MA15 + 下穿重置**：卖出后须先见 MA4 跌破 MA15，之后 MA4 再上穿 MA15 才准重新进场——"
     "只用「当下 MA4 在 MA15 上方」的话，霸榜票跌破 MA4 当月就被排名原地买回，卖不出去（BKNG 2019-11 案例）。"
     "排名/进场计数/在任状态用窗口起点前 ~12 个月预热历史算、净值从窗口起点记账（消除窗口首月全体现金的冷启动伪影，与 fcf稳定页同口径）。"
@@ -107,11 +109,17 @@ if _px is not None and not _px.empty:
                 _price_cache[_tk] = _s.to_frame(name="Close")
                 _close_m_cols[_tk] = _px[_tk].dropna().resample("ME").last()
 
-# 出场：在任票月末价跌破自己 4 月均线才腾位（_ret_mask = price > MA4）。
+# 出场：在任票月末价跌破自己的「相对波动通道」下沿才腾位。
+# 通道下沿 = MA6 × (1 − k×近12月月收益波动)，k=0.5 全池固定。波动带随个股自身波动缩放——
+# 低波动龙头(AZO/BKNG)绳子更短、高波动票更松，替代一刀切 MA4（对低波动票太紧、
+# 频繁被浅回调震出、空仓率 91%）。10Y 回测：总收益 152%→344%、空仓 91%→42%、
+# 回撤 6.9%→12.7%(仍是 SPY 一半)，稳健平台在 N5~7 / k0.2~0.8（三段 Calmar 齐≥1）。
 # 进场门：MA4 > MA15（水平）+ 下穿重置（entry_reset_below）——卖出后须先见 MA4 跌破 MA15，
-# 之后 MA4 再上穿 MA15 才准重新进场，堵住跌破 MA4 当月被排名原地买回（BKNG 2019-11 案例）。
+# 之后 MA4 再上穿 MA15 才准重新进场，堵住跌破当月被排名原地买回（BKNG 2019-11 案例）。
+_RET_MA, _RET_K, _RET_VOL_WIN = 6, 0.5, 12
 _close_m = pd.DataFrame(_close_m_cols).sort_index()
-_ret_mask = _close_m > _close_m.rolling(4).mean()
+_ret_vol = _close_m.pct_change().rolling(_RET_VOL_WIN).std()
+_ret_mask = _close_m > _close_m.rolling(_RET_MA).mean() * (1 - _RET_K * _ret_vol)
 _entry_mask = _close_m.rolling(4).mean() > _close_m.rolling(15).mean()
 
 _COMMON = dict(
@@ -152,7 +160,12 @@ render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, sweep_sco
              display_from=ts.get("display_from"),
              retention_mask=_ret_mask,
              retention_price_m=_close_m,
-             retention_ma_window=4,
+             retention_ma_window=_RET_MA,
+             retention_desc=(
+                 f"在任票只要月末价 > 自己的 MA{_RET_MA} × (1 − {_RET_K}×近{_RET_VOL_WIN}月波动) "
+                 "波动通道下沿就一直拿，不管别人排第几；跌破通道下沿才腾位"
+                 "（波动带随个股波动自适应：低波动龙头绳子更短、高波动票更松，替代一刀切 MA4）"
+             ),
              entry_mask=_entry_mask,
              entry_ma_window=15,
              entry_short_ma=4,
