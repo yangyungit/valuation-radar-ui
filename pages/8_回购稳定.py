@@ -22,7 +22,8 @@ st.caption(
     "**排名轴换成股东回报率 = 股息率 + 净回购率**（季频 Sharadar SF1 ART，PIT 安全）。"
     "净回购率 = (t−4Q 股本 / t 股本 − 1) × 100，增发为负（惩罚稀释股东的公司）。"
     "季报变化慢，排名比动量稳——对非科技低波动质量股更适用。"
-    "**金牌门槛不变**：当月 Top1 且 RS_210d > 0；银牌 = Top2。与 Page 7 一一对照。"
+    "**金牌 = Top1、银牌 = Top2**：纯按股东回报率排名发牌，不设 RS 门槛"
+    "（发牌口径与净值回测一致；Page 7 动量版仍保留 RS 门槛）。"
     "**留任按趋势**：在任票只要月末价 > 自己的 4 月均线就一直拿，跌破才换（对齐 Page 7/10，替代原 δ 死区）。"
     "**买回门 MA15**：跌破腾位后须月末价收回自己的 15 月均线上方才准重新进场——"
     "没这道门时霸榜票跌破当月就被排名原地买回，留任 MA 形同虚设（BKNG 2019-2020 案例）。"
@@ -154,4 +155,5 @@ render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, sweep_sco
              retention_ma_window=4,
              entry_mask=_entry_mask,
              entry_ma_window=15,
+             gold_needs_rs=False,
              **_COMMON)
