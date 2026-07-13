@@ -128,6 +128,7 @@ def render_group(
     retention_ma_window: int = None,
     entry_mask: pd.DataFrame = None,
     entry_ma_window: int = None,
+    entry_short_ma: int = None,
     danger_daily: pd.Series = None,
     danger_half_daily: pd.Series = None,
     bear_default: bool = False,
@@ -333,10 +334,19 @@ def render_group(
         )
     else:
         st.markdown(f"### 📈 持有金 + 银两仓(等权)· 净值 vs SPY")
-        _entry_gate_rule = (
-            f"**买回门(MA{int(entry_ma_window or 15)})**：腾位后须月末价收回自己的 "
-            f"{int(entry_ma_window or 15)} 月均线上方才准(重新)进场，堵住「跌破当月被排名原地买回」 · "
-        ) if entry_mask is not None else ""
+        if entry_mask is not None and entry_short_ma:
+            _entry_gate_rule = (
+                f"**进场门(MA{int(entry_short_ma)}>MA{int(entry_ma_window or 15)})**：腾位后须 "
+                f"{int(entry_short_ma)} 月均线上穿 {int(entry_ma_window or 15)} 月均线才准(重新)进场，"
+                f"堵住「跌破当月被排名原地买回」 · "
+            )
+        elif entry_mask is not None:
+            _entry_gate_rule = (
+                f"**买回门(MA{int(entry_ma_window or 15)})**：腾位后须月末价收回自己的 "
+                f"{int(entry_ma_window or 15)} 月均线上方才准(重新)进场，堵住「跌破当月被排名原地买回」 · "
+            )
+        else:
+            _entry_gate_rule = ""
         _hold_rule2 = (
             f"**趋势留任(MA)**：在任票只要月末价 > 自己的 {int(retention_ma_window or 4)} 月均线就一直拿，"
             f"不管别人排第几；跌破均线才腾位 · {_entry_gate_rule}"
@@ -623,7 +633,10 @@ def render_group(
         _px_L = retention_price_m
         _ma_curves = {lbl: [] for lbl, _ in _HZ}
         for _xw in _ma_grid:
-            _mask_x = _px_L > _px_L.rolling(_xw).mean()
+            if _sweep_entry and entry_short_ma:
+                _mask_x = _px_L.rolling(int(entry_short_ma)).mean() > _px_L.rolling(_xw).mean()
+            else:
+                _mask_x = _px_L > _px_L.rolling(_xw).mean()
             if _sweep_entry:
                 _mh_x = _holdings_for_k(_k, _rank_L, _gscore_L, _ten6_L, _streak_L,
                                         mask_src=retention_mask, entry_mask_src=_mask_x)[0]
@@ -635,7 +648,10 @@ def render_group(
                 _ma_curves[lbl].append(_trail_calmar(_nav_xs, yrs))
         _cur_ma = int(entry_ma_window or 15) if _sweep_entry else (
             int(retention_ma_window) if retention_ma_window else None)
-        _sweep_what = "买回门 MA 窗口" if _sweep_entry else "留任 MA 窗口"
+        _sweep_what = (
+            (f"进场门 MA{int(entry_short_ma)}>MA 长窗口" if entry_short_ma else "买回门 MA 窗口")
+            if _sweep_entry else "留任 MA 窗口"
+        )
         _rec_x = _plot_param_sweep(
             _ma_grid, _ma_curves, _HZ, _cur_ma,
             axis_title=f"{_sweep_what} X（月）", rec_sym="MA", dtick=1, key=f"{kp}_ma_sweep",
