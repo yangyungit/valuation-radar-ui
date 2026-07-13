@@ -758,6 +758,34 @@ def render_group(
         _ret_d = _ret_d.where(~_dg, _cash_dr)
         _navc = (1.0 + _ret_d).cumprod() * float(_navc.iloc[0])
 
+    # 波动率目标仓位：仓位 = min(1, 目标波动 ÷ 近20日已实现波动)，缩掉部分持现金（年化 4%）。
+    # 与 GBDT 闸门互补——闸门是预测式全有全无，这层是反应式连续降仓，垫在满仓/清仓之间。
+    # 波动率 shift 1 天：当日收益乘的是前一日就能算出的仓位，无未来函数。叠加在熊市防御之后。
+    _navc_bear = _navc
+    _vt_on = False
+    if nav_engine == "daily" and not _navc.empty and len(_navc) > 40:
+        _vt_on = st.toggle(
+            "🌊 波动率目标仓位（近20日波动超目标 → 按比例降仓，缩掉部分持现金 4%）",
+            value=False, key=f"{kp}_vt_on",
+        )
+    if _vt_on:
+        _ret_vt = _navc.pct_change().fillna(0.0)
+        _vol20 = _ret_vt.rolling(20).std() * (252 ** 0.5)
+        _vt_def = int(round(float(_vol20.median()) * 100)) if _vol20.notna().any() else 20
+        _vt_target = st.slider(
+            "目标年化波动率 (%)（默认 = 本策略自身波动中位数）",
+            5, 80, min(max(_vt_def, 5), 80), 1, key=f"{kp}_vt_target",
+        ) / 100.0
+        _scale = (_vt_target / _vol20.replace(0.0, float("nan"))).clip(upper=1.0).shift(1).fillna(1.0)
+        _cash_dr = 1.04 ** (1.0 / 252) - 1.0
+        _navc = (1.0 + _scale * _ret_vt + (1.0 - _scale) * _cash_dr).cumprod() * float(_navc.iloc[0])
+        _vol_now = float(_vol20.iloc[-1])
+        _scale_now = min(1.0, _vt_target / _vol_now) if _vol_now == _vol_now and _vol_now > 0 else 1.0
+        st.markdown(
+            f"**当前建议仓位：{_scale_now:.0%}**"
+            f"（近 20 日已实现波动 {_vol_now:.0%} vs 目标 {_vt_target:.0%}，明日按此执行）"
+        )
+
     _ret_c = (float(_navc.iloc[-1]) / float(_navc.iloc[0]) - 1) * 100
     _peak = _navc.cummax()
     _dd_c = float(((_peak - _navc) / _peak.replace(0, float("nan"))).max()) * 100
@@ -781,13 +809,23 @@ def render_group(
     c5.metric("Sortino", _fmt(_kpi.get("sortino", float("nan"))))
     c6.metric("logR²", _fmt(_kpi.get("r2", float("nan"))))
 
+    def _dd_ret_pct(_s):
+        _pk = _s.cummax()
+        _dd = float(((_pk - _s) / _pk.replace(0, float("nan"))).max()) * 100
+        return _dd, (float(_s.iloc[-1]) / float(_s.iloc[0]) - 1) * 100
+
     if _bear_on:
-        _peak_raw = _navc_raw.cummax()
-        _dd_raw = float(((_peak_raw - _navc_raw) / _peak_raw.replace(0, float("nan"))).max()) * 100
-        _ret_raw = (float(_navc_raw.iloc[-1]) / float(_navc_raw.iloc[0]) - 1) * 100
+        _dd_raw, _ret_raw = _dd_ret_pct(_navc_raw)
+        _dd_b, _ret_b = _dd_ret_pct(_navc_bear)
         st.caption(
-            f"🐻 熊市防御对照：最大回撤 满仓 -{_dd_raw:.1f}% → 防御 -{_dd_c:.1f}%"
-            f"（规避 {_dd_raw - _dd_c:+.1f}pp）；总收益 满仓 {_ret_raw:+.1f}% → 防御 {_ret_c:+.1f}%。"
+            f"🐻 熊市防御对照：最大回撤 满仓 -{_dd_raw:.1f}% → 防御 -{_dd_b:.1f}%"
+            f"（规避 {_dd_raw - _dd_b:+.1f}pp）；总收益 满仓 {_ret_raw:+.1f}% → 防御 {_ret_b:+.1f}%。"
+        )
+    if _vt_on:
+        _dd_pre, _ret_pre = _dd_ret_pct(_navc_bear)
+        st.caption(
+            f"🌊 波动率目标对照（叠加在熊市防御之后）：最大回撤 -{_dd_pre:.1f}% → -{_dd_c:.1f}%"
+            f"（规避 {_dd_pre - _dd_c:+.1f}pp）；总收益 {_ret_pre:+.1f}% → {_ret_c:+.1f}%。"
         )
 
     _dg_seg = danger_daily if _bear_on else None
