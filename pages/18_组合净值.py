@@ -145,6 +145,10 @@ else:
             return v if len(v) == _n else [np.nan] * _n
 
         shy_m = pd.DataFrame({tk: _al(p.get("shareholder_yield")) for tk, p in _bt.items()}, index=_bidx).astype(float).resample("ME").last()
+        # 后端已在窗口前多回传预热段（display_from 之前）供 page 8 建仓预热；本页 A 曲线维持原口径，切掉。
+        _df_a = pd.to_datetime(bb.get("display_from"), errors="coerce")
+        if pd.notna(_df_a):
+            shy_m = shy_m[shy_m.index >= _df_a]
         with st.spinner("📊 加载回购稳定价格..."):
             _bb_cache, spy_wk_bb = _weekly_cache(list(_bt.keys()))
         _rest = [c for c in shy_m.columns if c not in _TECH_TICKERS]

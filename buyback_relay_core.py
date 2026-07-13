@@ -133,6 +133,7 @@ def render_group(
     danger_daily: pd.Series = None,
     danger_half_daily: pd.Series = None,
     bear_default: bool = False,
+    display_from=None,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -143,6 +144,9 @@ def render_group(
              设 hold_band=2 而 n_hold=1，即满仓单票但进场/守擂都按 Top2 判定：
              进场须当月 Top2，在任票没掉出 Top2(+δ) 就继续拿，换手比盯 Top1 更低。
     dynamic_n_hold = True 时，每月在 Top1-TopN 里按进场持续性动态持有 1-N 仓。
+    display_from = score_m 含窗口起点前的预热历史时，热力图/奖牌/净值从该日期起展示；
+             排名、进场计数（近6月≥2次进Top2）和在任状态用含预热的完整历史算，
+             避免窗口起点全体现金冷启动、把长期在任的霸榜票挡在场外压低净值。
     """
     n_hold = max(1, int(n_hold))
     max_n_hold = max(1, int(max_n_hold))
@@ -173,7 +177,18 @@ def render_group(
         # 已删 RS 门槛：金牌 = Top1、银牌 = Top2，金银同口径只看排名。
         tier = tier.mask(rank_m == 1, 3)
 
-    _confirmed = tier.iloc[:-1] if month_in_progress else tier
+    # 预热段只参与排名/进场计数/在任状态，不进热力图、奖牌榜和净值展示。
+    display_from = pd.to_datetime(display_from, errors="coerce") if display_from is not None else None
+    if display_from is not None and pd.notna(display_from) and (tier.index >= display_from).any():
+        _tier_d = tier.loc[tier.index >= display_from]
+        _rank_d = rank_m.loc[rank_m.index >= display_from]
+        _rs_d = g_rs.loc[g_rs.index >= display_from]
+        _score_d = g_score.loc[g_score.index >= display_from]
+    else:
+        display_from = None
+        _tier_d, _rank_d, _rs_d, _score_d = tier, rank_m, g_rs, g_score
+
+    _confirmed = _tier_d.iloc[:-1] if month_in_progress else _tier_d
 
     _gold_cnt = (_confirmed == 3).sum(axis=0)
     _silver_cnt = (_confirmed == 2).sum(axis=0)
@@ -183,15 +198,16 @@ def render_group(
     if only_medaled_in_heatmap:
         # 只留曾够格建仓的票：用和进场门槛一致的口径（最近 6 月内进 Top_band ≥ entry_min_top2_hits 次），
         # 滤掉只闪现一次、净值里根本没买过的生面孔，避免热力图误导。
-        _entry_ok = (rank_m <= _band).astype(int).rolling(6, min_periods=1).sum().max(axis=0) >= entry_min_top2_hits
+        _hits6 = (rank_m <= _band).astype(int).rolling(6, min_periods=1).sum()
+        _entry_ok = _hits6.reindex(_rank_d.index).max(axis=0) >= entry_min_top2_hits
         _ordered = [tk for tk in _ordered if bool(_entry_ok.get(tk, False))]
         if not _ordered:
             _ordered = (_gold_cnt * 10000 + _silver_cnt * 100 + _bronze_cnt).sort_values(ascending=False).index.tolist()[:1]
 
-    _tier_yx = tier[_ordered].T
-    _rank_yx = rank_m[_ordered].T
-    _rs_yx = g_rs[_ordered].T
-    _score_yx = g_score[_ordered].T
+    _tier_yx = _tier_d[_ordered].T
+    _rank_yx = _rank_d[_ordered].T
+    _rs_yx = _rs_d[_ordered].T
+    _score_yx = _score_d[_ordered].T
     _ylabels = [f"{tk}({grade_map.get(tk, '')})" if grade_map.get(tk) else tk for tk in _ordered]
 
     _hover = []
@@ -696,6 +712,11 @@ def render_group(
             st.caption(f"⚠️ 净值历史不足，无法跨 {'/'.join(l for l, _ in _HZ)} 比较 MA 窗口 Calmar（多为长窗口数据未就绪）。")
 
     _mh, _mh_raw = _holdings_for_k(_k)
+    if display_from is not None:
+        # 预热段建好的持仓/在任状态保留，净值和持仓表从窗口首个执行月起记账。
+        _m0 = hv.next_month_key(display_from.strftime("%Y-%m"), 1)
+        _mh = {m: h for m, h in _mh.items() if m >= _m0}
+        _mh_raw = {m: h for m, h in _mh_raw.items() if m >= _m0}
     _nav = _build_nav(_mh)
     if _nav is None:
         st.info("价格数据不足，无法重建净值。")

@@ -26,6 +26,8 @@ st.caption(
     "**金牌门槛不变**：当月 Top1 且 RS_210d>0；银牌 = Top2。**留任 MA4 卖出 / MA15 买回门**不变。"
     "回测见 backtest_a_leg_round6.py：2017-04→2026-06 规则池+FCFM +338%、DD -21.6%、Calmar 0.80"
     "（手挑+股东回报率同引擎 +341%、-23.9%、0.73；SPY +264%）。注意：近5年该腿年化 +4.9% 跑输 SPY，防守属性自行权衡。"
+    "排名/进场计数/在任状态用窗口起点前 ~12 个月预热历史算、净值从窗口起点记账——"
+    "否则窗口首月全体现金冷启动，长期在任票（2016 年的 V）要重新攒 6 个月进场计数，10Y 净值被压低约 30pp。"
 )
 
 with st.sidebar:
@@ -157,6 +159,7 @@ fcfm_m_long = _long_score_m()
 
 st.markdown("## 🏛️ 非科技组（按 FCF margin 排名）")
 render_group("回购稳定", _rest_cols, "stable_rest", score_m=fcfm_m, sweep_score_m=fcfm_m_long,
+             display_from=ts.get("display_from"),
              retention_mask=_ret_mask,
              retention_price_m=_close_m,
              retention_ma_window=4,

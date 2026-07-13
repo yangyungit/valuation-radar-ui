@@ -27,6 +27,7 @@ st.caption(
     "**出场按趋势**：在任票只要月末价 > 自己的 4 月均线就一直拿，跌破 MA4 才换（对齐 Page 7/10，替代原 δ 死区）。"
     "**进场门 MA4>MA15 + 下穿重置**：卖出后须先见 MA4 跌破 MA15，之后 MA4 再上穿 MA15 才准重新进场——"
     "只用「当下 MA4 在 MA15 上方」的话，霸榜票跌破 MA4 当月就被排名原地买回，卖不出去（BKNG 2019-11 案例）。"
+    "排名/进场计数/在任状态用窗口起点前 ~12 个月预热历史算、净值从窗口起点记账（消除窗口首月全体现金的冷启动伪影，与 fcf稳定页同口径）。"
 )
 
 with st.sidebar:
@@ -148,6 +149,7 @@ shy_m_long = _long_score_m()
 
 st.markdown("## 🏛️ 其余组（按股东回报率排名）")
 render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, sweep_score_m=shy_m_long,
+             display_from=ts.get("display_from"),
              retention_mask=_ret_mask,
              retention_price_m=_close_m,
              retention_ma_window=4,

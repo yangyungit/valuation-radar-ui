@@ -1,3 +1,13 @@
+## 2026-07-13 | page 8 两页净值消除窗口起点冷启动：预热段建仓 + display_from 截尾展示
+
+**范围**：`buyback_relay_core.py`（`render_group` 新参 `display_from`：热力图/奖牌榜/净值截到该日期起，排名、进场计数、在任状态用含预热的完整历史）、`pages/8_fcf稳定.py` / `pages/8_回购稳定.py`（传 `display_from=ts.get("display_from")` + caption 补说明）、`pages/18_组合净值.py`（A 曲线把预热段切掉，维持原口径）。
+
+**起因**：fcf稳定 10Y 显示 +299.9%，其中约 -95pp 是窗口起点冷启动伪影——排名历史从窗口起点才有，进场门「近 6 月 ≥2 次进 Top2」凑不齐、在任状态清零，2016 年在任的 V 整个下半年进不了场。后端两端点已在窗口前多回传 ~12 个月分数历史并给 `display_from`（valuation-radar DEV_LOG 同日条目）。
+
+**验证**：修后逻辑本地端到端复现：fcf稳定 10Y +299.9% → +329.0%（首月 V/CASH）。后端未部署新字段时 `display_from=None`，各页行为不变；pages 7/9/10/14/16 不传该参，零影响。
+
+---
+
 ## 2026-07-12 | 回购进攻页留任规则 δ 死区 → MA4 趋势留任（双仓保留）
 
 **范围**：`buyback_relay_core.py`（双仓 caption 分支）、`pages/7_回购进攻.py`（月末收盘价 + MA 留任参数 + caption）。
