@@ -131,6 +131,8 @@ def render_group(
     entry_ma_window: int = None,
     entry_short_ma: int = None,
     entry_reset_below: bool = False,
+    entry_vol_scale: pd.DataFrame = None,
+    entry_vol_desc: str = None,
     danger_daily: pd.Series = None,
     danger_half_daily: pd.Series = None,
     bear_default: bool = False,
@@ -354,10 +356,11 @@ def render_group(
         st.markdown(f"### 📈 持有金 + 银两仓(等权)· 净值 vs SPY")
         if entry_mask is not None and entry_short_ma:
             _s, _l = int(entry_short_ma), int(entry_ma_window or 15)
+            _l_txt = f"MA{_l}{entry_vol_desc}" if (entry_vol_scale is not None and entry_vol_desc) else f"MA{_l}"
             if entry_reset_below:
                 _entry_gate_rule = (
-                    f"**进场门(MA{_s}>MA{_l} 下穿重置)**：卖出后须先见 MA{_s} 跌破 MA{_l}，"
-                    f"之后 MA{_s} 再上穿 MA{_l} 才准重新进场，堵住「跌破 MA{_s} 当月被排名原地买回」 · "
+                    f"**进场门(MA{_s}>{_l_txt} 下穿重置)**：卖出后须先见 MA{_s} 跌破门槛，"
+                    f"之后 MA{_s} 再上穿门槛才准重新进场，堵住「跌破 MA{_s} 当月被排名原地买回」 · "
                 )
             else:
                 _entry_gate_rule = (
@@ -673,7 +676,11 @@ def render_group(
         _ma_curves = {lbl: [] for lbl, _ in _HZ}
         for _xw in _ma_grid:
             if _sweep_entry and entry_short_ma:
-                _mask_x = _px_L.rolling(int(entry_short_ma)).mean() > _px_L.rolling(_xw).mean()
+                # 进场门带波动缩放时，扫描重建的门也乘同一缩放，保持和实际口径一致
+                _gate_x = _px_L.rolling(_xw).mean()
+                if entry_vol_scale is not None:
+                    _gate_x = _gate_x * entry_vol_scale
+                _mask_x = _px_L.rolling(int(entry_short_ma)).mean() > _gate_x
             else:
                 _mask_x = _px_L > _px_L.rolling(_xw).mean()
             if _sweep_entry:

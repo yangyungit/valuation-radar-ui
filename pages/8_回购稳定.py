@@ -27,8 +27,10 @@ st.caption(
     "**出场按相对波动通道**：在任票只要月末价 > 自己的 MA6 × (1−0.5×近12月波动) 通道下沿就一直拿，跌破才换。"
     "波动带随个股波动自适应——低波动龙头(AZO/BKNG)绳子更短、高波动票更松，替代一刀切 MA4"
     "（MA4 对低波动票太紧、频繁被浅回调震出，空仓率高达 91%；通道后空仓降到 42%、总收益 152%→344%）。"
-    "**进场门 MA4>MA15 + 下穿重置**：卖出后须先见 MA4 跌破 MA15，之后 MA4 再上穿 MA15 才准重新进场——"
-    "只用「当下 MA4 在 MA15 上方」的话，霸榜票跌破 MA4 当月就被排名原地买回，卖不出去（BKNG 2019-11 案例）。"
+    "**进场门 MA4 > MA15×(1+0.125×近12月波动) + 下穿重置**：卖出后须先见 MA4 跌破门槛，"
+    "之后 MA4 再上穿门槛才准重新进场——只用「当下 MA4 在门槛上方」的话，霸榜票跌破 MA4 当月就被排名原地买回，"
+    "卖不出去（BKNG 2019-11 案例）。门槛幅度随个股波动缩放：高波动票要求更强的上穿确认、低波动票几乎贴着 MA15"
+    "（10Y 回测：总收益 301%→339%、回撤 16.0%→15.0%，3/5/10Y Calmar 齐≥1；一刀切 MA15 三段 Calmar 0.80/0.85/0.90）。"
     "排名/进场计数/在任状态用窗口起点前 ~12 个月预热历史算、净值从窗口起点记账（消除窗口首月全体现金的冷启动伪影，与 fcf稳定页同口径）。"
 )
 
@@ -114,13 +116,20 @@ if _px is not None and not _px.empty:
 # 低波动龙头(AZO/BKNG)绳子更短、高波动票更松，替代一刀切 MA4（对低波动票太紧、
 # 频繁被浅回调震出、空仓率 91%）。10Y 回测：总收益 152%→344%、空仓 91%→42%、
 # 回撤 6.9%→12.7%(仍是 SPY 一半)，稳健平台在 N5~7 / k0.2~0.8（三段 Calmar 齐≥1）。
-# 进场门：MA4 > MA15（水平）+ 下穿重置（entry_reset_below）——卖出后须先见 MA4 跌破 MA15，
-# 之后 MA4 再上穿 MA15 才准重新进场，堵住跌破当月被排名原地买回（BKNG 2019-11 案例）。
+# 进场门：MA4 > MA15 × (1 + 0.125×近12月波动) + 下穿重置（entry_reset_below）——卖出后须先见
+# MA4 跌破门槛，再上穿门槛才准重新进场，堵住跌破当月被排名原地买回（BKNG 2019-11 案例）。
+# 门槛幅度随个股波动缩放：高波动票要求更强的上穿确认，低波动票几乎贴着 MA15。
+# 10Y 回测（tmp_entry_compare.py）：一刀切 MA15 总收益 301% / 回撤 16.0% / 3/5/10Y Calmar
+# 0.80/0.85/0.90 → 缩放后 339% / 15.0% / 1.10/1.08/1.03，系数扫 [-0.75,1.0] maximin 最优在
+# 0.125（平台 0.125~0.25，c≥0.5 只有 3Y 好看=过拟合）。注意：直接把出场通道搬来当进场条件
+# （价格收回自己下沿/MA6/上沿即可买）全样本更差——崩盘后均线跟着塌、门常开，缺趋势确认。
 _RET_MA, _RET_K, _RET_VOL_WIN = 6, 0.5, 12
+_ENTRY_VOL_K = 0.125
 _close_m = pd.DataFrame(_close_m_cols).sort_index()
 _ret_vol = _close_m.pct_change().rolling(_RET_VOL_WIN).std()
 _ret_mask = _close_m > _close_m.rolling(_RET_MA).mean() * (1 - _RET_K * _ret_vol)
-_entry_mask = _close_m.rolling(4).mean() > _close_m.rolling(15).mean()
+_entry_vol_scale = 1 + _ENTRY_VOL_K * _ret_vol
+_entry_mask = _close_m.rolling(4).mean() > _close_m.rolling(15).mean() * _entry_vol_scale
 
 _COMMON = dict(
     rs_m=rs_m, king_m=king_m, name_map=name_map, grade_map=grade_map,
@@ -170,5 +179,7 @@ render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, sweep_sco
              entry_ma_window=15,
              entry_short_ma=4,
              entry_reset_below=True,
+             entry_vol_scale=_entry_vol_scale,
+             entry_vol_desc=f"×(1+{_ENTRY_VOL_K}×近{_RET_VOL_WIN}月波动)",
              gold_needs_rs=False,
              **_COMMON)
