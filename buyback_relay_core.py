@@ -129,6 +129,7 @@ def render_group(
     entry_mask: pd.DataFrame = None,
     entry_ma_window: int = None,
     entry_short_ma: int = None,
+    entry_reset_below: bool = False,
     danger_daily: pd.Series = None,
     danger_half_daily: pd.Series = None,
     bear_default: bool = False,
@@ -335,11 +336,17 @@ def render_group(
     else:
         st.markdown(f"### 📈 持有金 + 银两仓(等权)· 净值 vs SPY")
         if entry_mask is not None and entry_short_ma:
-            _entry_gate_rule = (
-                f"**进场门(MA{int(entry_short_ma)}>MA{int(entry_ma_window or 15)})**：腾位后须 "
-                f"{int(entry_short_ma)} 月均线上穿 {int(entry_ma_window or 15)} 月均线才准(重新)进场，"
-                f"堵住「跌破当月被排名原地买回」 · "
-            )
+            _s, _l = int(entry_short_ma), int(entry_ma_window or 15)
+            if entry_reset_below:
+                _entry_gate_rule = (
+                    f"**进场门(MA{_s}>MA{_l} 下穿重置)**：卖出后须先见 MA{_s} 跌破 MA{_l}，"
+                    f"之后 MA{_s} 再上穿 MA{_l} 才准重新进场，堵住「跌破 MA{_s} 当月被排名原地买回」 · "
+                )
+            else:
+                _entry_gate_rule = (
+                    f"**进场门(MA{_s}>MA{_l})**：腾位后须 MA{_s} 在 MA{_l} 上方才准(重新)进场，"
+                    f"堵住「跌破当月被排名原地买回」 · "
+                )
         elif entry_mask is not None:
             _entry_gate_rule = (
                 f"**买回门(MA{int(entry_ma_window or 15)})**：腾位后须月末价收回自己的 "
@@ -400,6 +407,7 @@ def render_group(
         if entry_mask_src is None:
             entry_mask_src = entry_mask
         _mh, _mh_raw, _prev_h = {}, {}, []
+        _need_reset = set()  # 下穿重置：卖出后被封锁待「短 MA 先跌破长 MA」解除的票
         for _ts, _row in rank_src.iterrows():
             _r = _row.dropna().sort_values()
             if _r.empty:
@@ -420,6 +428,12 @@ def render_group(
                 _raw = _order[:_band]
                 _elig_rank_limit = _band
             _sc = score_src.loc[_ts].dropna()
+            if entry_reset_below and entry_mask_src is not None and _need_reset:
+                # 解除封锁：短 MA 已跌破长 MA（entry_mask 变 False）→ 允许下次上穿时买回。
+                for _t in [t for t in _need_reset
+                           if t in entry_mask_src.columns and _ts in entry_mask_src.index
+                           and not bool(entry_mask_src.at[_ts, t])]:
+                    _need_reset.discard(_t)
             if mask_src is not None:
                 # MA 趋势留任：在任票只看自己趋势没坏（月末价 > 自己 MA），不跟别人比名次，
                 # 也不受进场门槛约束。跌破 MA 或掉出当月成分（分数变 NaN）才腾位。
@@ -438,17 +452,22 @@ def render_group(
                 # 在任票：分数仍在死区内就留任，不受进场门槛约束（已经进来的不赶）。
                 _hold = [t for t in _prev_h
                          if t != "CASH" and t in _sc.index and _sc[t] >= _cut2 - _delta][:_n_cur] if _prev_h else []
+            if entry_reset_below and _prev_h:
+                # 跌破留任 MA 被腾位的在任票记入封锁，直到短 MA 先跌破长 MA 再上穿才可买回，
+                # 堵住「跌破 MA 当月被排名原地买回」（BKNG 2019-11 案例）。
+                _need_reset.update(t for t in _prev_h if t != "CASH" and t not in _hold)
             # 新进场门槛：当月排名进入目标区间且最近 6 月内 ≥ _ENTRY_MIN_TOP2_HITS 次进过观察区间，
             # 滤掉只闪现一个月的生面孔。
             _elig = [t for t in _order
                      if _r[t] <= _elig_rank_limit and float(_tnow.get(t, 0)) >= entry_min_top2_hits]
             if entry_mask_src is not None:
-                # 买回门：跌破留任 MA 腾位后，须月末价收回自己的长 MA（如 15 月）上方才准
-                # （重新）进场。没有这道门，霸榜票跌破当月就被排名原地买回，留任 MA 形同虚设
-                # （2026-07 BKNG 案例，回测见 backtest_shy_ma_asym.py）。在任票不受此门约束。
+                # 进场门：跌破留任 MA 腾位后，须进场门（短 MA > 长 MA；开了 entry_reset_below 时
+                # 还须先经历一次「短 MA 跌破长 MA」下穿重置）才准（重新）进场。没有这道门，霸榜票
+                # 跌破当月就被排名原地买回，留任 MA 形同虚设（2026-07 BKNG 案例）。在任票不受此门约束。
                 _elig = [t for t in _elig
                          if t in entry_mask_src.columns and _ts in entry_mask_src.index
-                         and bool(entry_mask_src.at[_ts, t])]
+                         and bool(entry_mask_src.at[_ts, t])
+                         and not (entry_reset_below and t in _need_reset)]
             # 多个合格新票时，优先「连续在榜月数」最长的（更连贯、更新鲜），
             # 连贯度打平再看当月排名。避免 6 月内凑够 2 次的陈旧散点盖过当月冲上来的连续新票。
             _elig_t = sorted(_elig, key=lambda t: (-float(_snow.get(t, 0)), _r[t]))

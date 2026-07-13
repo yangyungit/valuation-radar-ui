@@ -25,8 +25,8 @@ st.caption(
     "**金牌 = Top1、银牌 = Top2**：纯按股东回报率排名发牌，不设 RS 门槛"
     "（发牌口径与净值回测一致；Page 7 动量版仍保留 RS 门槛）。"
     "**出场按趋势**：在任票只要月末价 > 自己的 4 月均线就一直拿，跌破 MA4 才换（对齐 Page 7/10，替代原 δ 死区）。"
-    "**进场门 MA4>MA15**：跌破腾位后须 4 月均线上穿 15 月均线才准重新进场——"
-    "没这道门时霸榜票跌破当月就被排名原地买回，留任 MA 形同虚设（BKNG 2019-2020 案例）。"
+    "**进场门 MA4>MA15 + 下穿重置**：卖出后须先见 MA4 跌破 MA15，之后 MA4 再上穿 MA15 才准重新进场——"
+    "只用「当下 MA4 在 MA15 上方」的话，霸榜票跌破 MA4 当月就被排名原地买回，卖不出去（BKNG 2019-11 案例）。"
 )
 
 with st.sidebar:
@@ -107,7 +107,8 @@ if _px is not None and not _px.empty:
                 _close_m_cols[_tk] = _px[_tk].dropna().resample("ME").last()
 
 # 出场：在任票月末价跌破自己 4 月均线才腾位（_ret_mask = price > MA4）。
-# 进场门：MA4 上穿 MA15（4 月均线 > 15 月均线）才准（重新）进场。
+# 进场门：MA4 > MA15（水平）+ 下穿重置（entry_reset_below）——卖出后须先见 MA4 跌破 MA15，
+# 之后 MA4 再上穿 MA15 才准重新进场，堵住跌破 MA4 当月被排名原地买回（BKNG 2019-11 案例）。
 _close_m = pd.DataFrame(_close_m_cols).sort_index()
 _ret_mask = _close_m > _close_m.rolling(4).mean()
 _entry_mask = _close_m.rolling(4).mean() > _close_m.rolling(15).mean()
@@ -153,5 +154,6 @@ render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, sweep_sco
              entry_mask=_entry_mask,
              entry_ma_window=15,
              entry_short_ma=4,
+             entry_reset_below=True,
              gold_needs_rs=False,
              **_COMMON)
