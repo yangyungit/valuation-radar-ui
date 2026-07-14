@@ -16,18 +16,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("💰 FCF 稳定（FCF+ROIC 规则池 × FCF margin 排名）")
+st.title("💰 ROIC 稳定（FCF+不稀释规则池 × ROIC 排名）")
 st.caption(
-    "**池子**：年度 PIT 规则池——近5财年 FCF 全正增长 / 股本5年净缩减≥5%且逐年降 / ROIC≥10% / 按 FCF margin 前40，"
-    "每年12月末用当时财报重构、次年生效（本地 Sharadar 构建上传）。页面只跑**非科技子集**（is_tech=False）。"
-    "原「回购+分红≤FCF」判据已删——回测证明它把 AZO/MCD 这类适度举债回购的好公司赶走、把 FCF 虚高的放贷公司放进来；"
-    "ROIC 门是放贷/银行/保险（ROIC 0.7~4%）与好生意（≥10%）的分界。"
-    "**排名轴 = FCF margin**（季频 ART PIT，池成员内排名）；股东回报率排名在规则池上失败（+43% vs 本口径 +338%），已弃用。"
-    "**金牌门槛不变**：当月 Top1 且 RS_210d>0；银牌 = Top2。**留任 MA4 卖出 / MA15 买回门**不变。"
-    "回测见 backtest_a_leg_round6.py：2017-04→2026-06 规则池+FCFM +338%、DD -21.6%、Calmar 0.80"
-    "（手挑+股东回报率同引擎 +341%、-23.9%、0.73；SPY +264%）。注意：近5年该腿年化 +4.9% 跑输 SPY，防守属性自行权衡。"
-    "排名/进场计数/在任状态用窗口起点前 ~12 个月预热历史算、净值从窗口起点记账——"
-    "否则窗口首月全体现金冷启动，长期在任票（2016 年的 V）要重新攒 6 个月进场计数，10Y 净值被压低约 30pp。"
+    "**池子**：年度 PIT 规则池——近5财年 FCF 全正增长 / 5年股本净增≤2%（不稀释即可，不再强制回购缩股）/ "
+    "ROIC≥10% / 市值≥$5B / 按 ROIC 前40，每年12月末用当时财报重构、次年生效（本地 Sharadar 构建上传）。"
+    "页面只跑**非科技子集**（is_tech=False）。**排名轴 = ROIC**（季频 ART PIT，池成员内排名）。"
+    "金牌门槛不变：当月 Top1 且 RS_210d>0；银牌 = Top2。留任 MA4 卖出 / MA15 买回门不变。"
+    "回测见 backtest_a_leg_round8/9.py：2017-04→2026-06 +1603%、DD -36.6%、Calmar 0.98（SPY +264%），近5年 +589%。"
+    "**三条警告**：收益高度集中，FIX+TPL+MA 三只贡献 77% 的 log 收益，剔 TPL 后全程只剩 +308%≈SPY；"
+    "DD 比 SPY 深，本质是押 ROIC 榜首单票的进攻腿，不是防守腿；截断宽度敏感（top20 +494%/top40 +1603%/top60 +1127%）。"
+    "排名/进场计数/在任状态用窗口起点前 ~12 个月预热历史算、净值从窗口起点记账。"
 )
 
 with st.sidebar:
@@ -39,7 +37,7 @@ with st.sidebar:
 _WINDOWS = ["3Y", "5Y", "10Y"]
 window = st.radio("时间跨度", _WINDOWS, index=2, horizontal=True, key="shy_window")
 
-with st.spinner("📊 加载回购股数据..."):
+with st.spinner("📊 加载 ROIC 稳定池数据..."):
     ts = fetch_buyback_stable_relay_timeseries(window)
     # δ 稳健性扫描要切尾部 3/5/10Y，固定再拉一份最长历史（缓存；选 10Y 时零额外成本）
     ts_long = ts if window == "10Y" else fetch_buyback_stable_relay_timeseries("10Y")
@@ -63,12 +61,12 @@ def _aligned(vals):
     return vals if len(vals) == _n else [np.nan] * _n
 
 
-fcfm_raw = pd.DataFrame(
-    {tk: _aligned(p.get("fcf_margin")) for tk, p in _tickers.items()}, index=_idx
+roic_raw = pd.DataFrame(
+    {tk: _aligned(p.get("roic")) for tk, p in _tickers.items()}, index=_idx
 ).astype(float)
 
-if fcfm_raw.isnull().all().all():
-    st.warning("⚠️ FCF margin 数据未就绪（buyback_stable_pool.json 尚未上传到 Render）")
+if roic_raw.isnull().all().all():
+    st.warning("⚠️ ROIC 数据未就绪（buyback_stable_pool.json 未更新到 Render）")
     st.stop()
 
 rs = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
@@ -79,7 +77,7 @@ asof = pd.to_datetime(ts.get("asof"), errors="coerce")
 
 king_m = king.resample("ME").last()
 rs_m = rs.resample("ME").last()
-fcfm_m = fcfm_raw.resample("ME").last()
+roic_m = roic_raw.resample("ME").last()
 if king_m.empty or len(king_m) < 2:
     st.warning("⚠️ 月末快照数据不足")
     st.stop()
@@ -128,7 +126,7 @@ _COMMON = dict(
     rs_m=rs_m, king_m=king_m, name_map=name_map, grade_map=grade_map,
     window=window, month_in_progress=_month_in_progress, last_month=_last_month,
     price_cache=_price_cache, spy_wk=_spy_wk,
-    score_label="FCF margin%", score_fmt="{:+.1f}",
+    score_label="ROIC%", score_fmt="{:.1f}",
 )
 
 _all_cols = list(king_m.columns)
@@ -136,9 +134,9 @@ _rest_cols = [c for c in _all_cols if not (_tickers.get(c, {}) or {}).get("is_te
 
 
 def _long_score_m():
-    """从 10Y 长历史构造月末 FCF margin，供 δ 稳健性扫描切尾部 3/5/10Y。失败返回 None。"""
+    """从 10Y 长历史构造月末 ROIC，供 δ 稳健性扫描切尾部 3/5/10Y。失败返回 None。"""
     if window == "10Y":
-        return fcfm_m
+        return roic_m
     if not (isinstance(ts_long, dict) and ts_long.get("success")):
         return None
     _tk_l = ts_long.get("tickers", {}) or {}
@@ -148,17 +146,17 @@ def _long_score_m():
     _ix_l = pd.to_datetime(_dt_l, errors="coerce")
     _nl = len(_ix_l)
     _raw_l = pd.DataFrame(
-        {tk: (lambda v: v if len(v) == _nl else [np.nan] * _nl)(list(p.get("fcf_margin") or []))
+        {tk: (lambda v: v if len(v) == _nl else [np.nan] * _nl)(list(p.get("roic") or []))
          for tk, p in _tk_l.items()},
         index=_ix_l,
     ).astype(float)
     return _raw_l.resample("ME").last()
 
 
-fcfm_m_long = _long_score_m()
+roic_m_long = _long_score_m()
 
-st.markdown("## 🏛️ 非科技组（按 FCF margin 排名）")
-render_group("回购稳定", _rest_cols, "stable_rest", score_m=fcfm_m, sweep_score_m=fcfm_m_long,
+st.markdown("## 🏛️ 非科技组（按 ROIC 排名）")
+render_group("回购稳定", _rest_cols, "stable_rest", score_m=roic_m, sweep_score_m=roic_m_long,
              display_from=ts.get("display_from"),
              retention_mask=_ret_mask,
              retention_price_m=_close_m,

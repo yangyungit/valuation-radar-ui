@@ -1,3 +1,11 @@
+## 2026-07-15 page8 排名轴 FCFm→ROIC（后端 P2-ROIC 池同日上线，字段 fcf_margin→roic）
+
+**范围**：`api_client.py`（`fetch_buyback_stable_relay_timeseries` docstring）、`pages/8_fcf稳定.py`（标题/caption/`fcfm_raw`→`roic_raw`/`fcfm_m`→`roic_m`/`fcfm_m_long`→`roic_m_long`/`_COMMON.score_label`/`score_fmt`/组标题/spinner 文案，全部改用 `roic` 字段，文件名与 URL 不变）。
+
+**字段映射**：后端 JSON `fcfm_panel`→`roic_panel`，接口响应每 ticker 字段 `fcf_margin`→`roic`。页面规则文案同步为「判据1 + 不稀释门(5年股本净增≤2%) + ROIC≥10% + 市值≥$5B + ROIC 前40」，caption 补三条警告（鲸鱼集中/DD/截断敏感，见后端 DEV_LOG 同日条目常量表）。
+
+---
+
 ## 2026-07-13 | 净值层加「波动率目标仓位」开关：近20日波动超目标按比例降仓
 
 **范围**：`buyback_relay_core.py` 净值段（熊市防御开关之后）。日频引擎页面（10 科技龙头 / 14 纳指100 / 16 另类资产）自动获得开关，默认关；周线引擎页面（7 FCF进攻等）不显示，需先升级 `nav_engine="daily"`。

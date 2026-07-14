@@ -894,7 +894,7 @@ def fetch_buyback_fcf_relay_timeseries(window: str = "5Y") -> dict:
 
 @st.cache_data(ttl=3600 * 4)
 def fetch_buyback_stable_relay_timeseries(window: str = "5Y") -> dict:
-    """page 8 回购稳定规则池（判据1+2+ROIC≥10%+FCFM 前 40，排名轴 fcf_margin）接力图时序。
+    """page 8 ROIC 稳定规则池（判据1+不稀释门+ROIC≥10%+ROIC 前 40，排名轴 roic）接力图时序。
     失败返回 {"success": False, "error": ...}。
     """
     try:
