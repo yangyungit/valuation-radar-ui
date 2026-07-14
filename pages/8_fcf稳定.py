@@ -23,10 +23,7 @@ st.caption(
     "原「回购+分红≤FCF」判据已删——回测证明它把 AZO/MCD 这类适度举债回购的好公司赶走、把 FCF 虚高的放贷公司放进来；"
     "ROIC 门是放贷/银行/保险（ROIC 0.7~4%）与好生意（≥10%）的分界。"
     "**排名轴 = FCF margin**（季频 ART PIT，池成员内排名）；股东回报率排名在规则池上失败（+43% vs 本口径 +338%），已弃用。"
-    "**金牌门槛不变**：当月 Top1 且 RS_210d>0；银牌 = Top2。"
-    "**出场按相对波动通道**：在任票月末价 > 自己 MA6×(1−0.5×近12月波动) 通道下沿就留任，跌破才换"
-    "（波动带随个股波动自适应，替代一刀切 MA4——MA4 对低波动龙头太紧、空仓率高达 91%，通道后降到 42%）。"
-    "**进场门 MA4 > MA15×(1+0.125×近12月波动) + 下穿重置**：卖出后须 MA4 先跌破门槛再上穿才准重进。"
+    "**金牌门槛不变**：当月 Top1 且 RS_210d>0；银牌 = Top2。**留任 MA4 卖出 / MA15 买回门**不变。"
     "回测见 backtest_a_leg_round6.py：2017-04→2026-06 规则池+FCFM +338%、DD -21.6%、Calmar 0.80"
     "（手挑+股东回报率同引擎 +341%、-23.9%、0.73；SPY +264%）。注意：近5年该腿年化 +4.9% 跑输 SPY，防守属性自行权衡。"
     "排名/进场计数/在任状态用窗口起点前 ~12 个月预热历史算、净值从窗口起点记账——"
@@ -120,21 +117,12 @@ if _missing:
             _price_cache[_tk] = _d["Close"].resample("W-FRI").last().dropna().to_frame(name="Close")
             _close_m_cols[_tk] = _d["Close"].resample("ME").last()
 
-# 出场：在任票月末价跌破自己的「相对波动通道」下沿才腾位。
-# 通道下沿 = MA6 × (1 − k×近12月月收益波动)，k=0.5 全池固定。波动带随个股自身波动缩放——
-# 低波动龙头(AZO/BKNG)绳子更短、高波动票更松，替代一刀切 MA4（对低波动票太紧、
-# 频繁被浅回调震出、空仓率 91%）。10Y 回测：总收益 152%→344%、空仓 91%→42%、
-# 回撤 6.9%→12.7%(仍是 SPY 一半)，稳健平台在 N5~7 / k0.2~0.8（三段 Calmar 齐≥1）。
-# 进场门：MA4 > MA15 × (1 + 0.125×近12月波动) + 下穿重置（entry_reset_below）——卖出后须先见
-# MA4 跌破门槛，再上穿门槛才准重新进场，堵住跌破当月被排名原地买回（BKNG 2019-11 案例）。
-# 门槛幅度随个股波动缩放：高波动票要求更强的上穿确认，低波动票几乎贴着 MA15。
-_RET_MA, _RET_K, _RET_VOL_WIN = 6, 0.5, 12
-_ENTRY_VOL_K = 0.125
+# MA4 留任 + MA15 买回门：在任票月末价 > 自己 4 月均线才留；腾位后须收回 15 月均线
+# 上方才准重新进场。回测 backtest_shy_ma_asym.py：+429% / DD -19.2% / Calmar 0.94，
+# vs 无买回门旧版 +421% / -30.0% / 0.60。
 _close_m = pd.DataFrame(_close_m_cols).sort_index()
-_ret_vol = _close_m.pct_change().rolling(_RET_VOL_WIN).std()
-_ret_mask = _close_m > _close_m.rolling(_RET_MA).mean() * (1 - _RET_K * _ret_vol)
-_entry_vol_scale = 1 + _ENTRY_VOL_K * _ret_vol
-_entry_mask = _close_m.rolling(4).mean() > _close_m.rolling(15).mean() * _entry_vol_scale
+_ret_mask = _close_m > _close_m.rolling(4).mean()
+_entry_mask = _close_m > _close_m.rolling(15).mean()
 
 _COMMON = dict(
     rs_m=rs_m, king_m=king_m, name_map=name_map, grade_map=grade_map,
@@ -174,16 +162,7 @@ render_group("回购稳定", _rest_cols, "stable_rest", score_m=fcfm_m, sweep_sc
              display_from=ts.get("display_from"),
              retention_mask=_ret_mask,
              retention_price_m=_close_m,
-             retention_ma_window=_RET_MA,
-             retention_desc=(
-                 f"在任票只要月末价 > 自己的 MA{_RET_MA} × (1 − {_RET_K}×近{_RET_VOL_WIN}月波动) "
-                 "波动通道下沿就一直拿，不管别人排第几；跌破通道下沿才腾位"
-                 "（波动带随个股波动自适应：低波动龙头绳子更短、高波动票更松，替代一刀切 MA4）"
-             ),
+             retention_ma_window=4,
              entry_mask=_entry_mask,
              entry_ma_window=15,
-             entry_short_ma=4,
-             entry_reset_below=True,
-             entry_vol_scale=_entry_vol_scale,
-             entry_vol_desc=f"×(1+{_ENTRY_VOL_K}×近{_RET_VOL_WIN}月波动)",
              **_COMMON)
