@@ -13,6 +13,21 @@ SLOT_COLORS = [
     "#1ABC9C", "#E74C3C", "#F1C40F", "#8E44AD",
 ]
 
+# GICS 板块英文 → 中文（做接力图顶部「ticker · 主营业务」标签用；后端 group 字段即英文 sector）
+_SECTOR_CN = {
+    "Technology": "科技",
+    "Industrials": "工业",
+    "Healthcare": "医疗",
+    "Financial Services": "金融",
+    "Consumer Cyclical": "可选消费",
+    "Consumer Defensive": "必选消费",
+    "Communication Services": "通讯服务",
+    "Energy": "能源",
+    "Basic Materials": "原材料",
+    "Real Estate": "房地产",
+    "Utilities": "公用事业",
+}
+
 
 # Sharadar 价格缓存：Page 6 净值重建优先用后端推来的股息复权日线（含退市票、深 8 年），
 # 缺的票（如系统上线后新增的活票）才回退 yfinance（只有 ~5 年）。
@@ -1200,7 +1215,6 @@ def build_slot_gantt_nav_fig(
     positions: build_nav_from_daily_positions 返回的逐日 bool Series（True=在场）。
     nav: 同一槽的日线 NAV Series。
     """
-    nm = name_map or {}
     gm = grade_map or {}
     fig = go.Figure()
     tks = [tk for tk, _, _ in segs if tk and tk != "CASH"]
@@ -1221,24 +1235,26 @@ def build_slot_gantt_nav_fig(
         else:
             color = color_map.get(tk, "#888")
             g = gm.get(tk, "")
-            label = f"{nm.get(tk, tk)}({g})" if g else nm.get(tk, tk)
+            _sec_cn = _SECTOR_CN.get(g, g)
+            label = f"{tk} · {_sec_cn}" if _sec_cn else tk
         _mid = (x0 + (x1 - x0) / 2).to_pydatetime()
+        # 名字贴着图表上方（y≈1.0）
         annotations.append(dict(
-            x=_mid, y=1.15, xref="x", yref="paper",
+            x=_mid, y=1.01, xref="x", yref="paper",
             text=label, showarrow=False,
             font=dict(size=12, color=color), xanchor="center", yanchor="bottom",
         ))
         if i > 0:
             _bx = x0.to_pydatetime()
-            # 换股边界：竖杠跟股票名字同一高度（都在 1.0~1.2 这个头部区间内），
-            # 边界正上方标精确换股日期
+            # 换股边界：竖杠只需从图顶到名字上方那点（换股日期），比原来短一截
             shapes.append(dict(
                 type="line", xref="x", yref="paper",
-                x0=_bx, x1=_bx, y0=1.0, y1=1.2,
+                x0=_bx, x1=_bx, y0=1.0, y1=1.08,
                 line=dict(color="rgba(200,200,200,0.6)", width=1),
             ))
+            # 换股日期放名字上方，斜排
             annotations.append(dict(
-                x=_bx, y=1.0, xref="x", yref="paper",
+                x=_bx, y=1.08, xref="x", yref="paper",
                 text=x0.strftime("%Y-%m-%d"), showarrow=False,
                 font=dict(size=9, color="#999"), xanchor="left", yanchor="bottom",
                 textangle=-40,
@@ -1332,7 +1348,8 @@ def build_slot_gantt_nav_fig(
             annotations.append(dict(
                 x=_dx, y=_BOTTOM_Y, xref="x", yref="paper",
                 text=f"<span style='color:{color}'>{arrow}</span> <span style='color:#999'>{d.strftime('%Y-%m-%d')}</span>",
-                showarrow=False, font=dict(size=9), xanchor="left", yanchor="middle",
+                showarrow=False, font=dict(size=9), xanchor="right", yanchor="top",
+                textangle=-40,
             ))
     else:
         _log_lo, _log_hi = float(np.log10(0.5)), float(np.log10(2.0))
@@ -1346,7 +1363,7 @@ def build_slot_gantt_nav_fig(
             gridcolor="rgba(100,100,100,0.3)",
         ),
         annotations=annotations, shapes=shapes,
-        height=640, margin=dict(l=10, r=10, t=100, b=90),
+        height=640, margin=dict(l=10, r=10, t=70, b=110),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(30,30,30,0.6)",
         font=dict(color="#ccc", size=12),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
