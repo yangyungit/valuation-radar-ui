@@ -1345,9 +1345,16 @@ def build_slot_gantt_nav_fig(
                 x0=_dx, x1=_dx, y0=0.0, y1=_BOTTOM_Y,
                 line=dict(color="rgba(200,200,200,0.45)", width=1),
             ))
+            # 三角正立、居中钉在引线下端点处
             annotations.append(dict(
                 x=_dx, y=_BOTTOM_Y, xref="x", yref="paper",
-                text=f"<span style='color:{color}'>{arrow}</span> <span style='color:#999'>{d.strftime('%Y-%m-%d')}</span>",
+                text=f"<span style='color:{color}'>{arrow}</span>",
+                showarrow=False, font=dict(size=11), xanchor="center", yanchor="top",
+            ))
+            # 日期在三角下方斜排
+            annotations.append(dict(
+                x=_dx, y=_BOTTOM_Y - 0.03, xref="x", yref="paper",
+                text=f"<span style='color:#999'>{d.strftime('%Y-%m-%d')}</span>",
                 showarrow=False, font=dict(size=9), xanchor="right", yanchor="top",
                 textangle=-40,
             ))
@@ -1363,7 +1370,7 @@ def build_slot_gantt_nav_fig(
             gridcolor="rgba(100,100,100,0.3)",
         ),
         annotations=annotations, shapes=shapes,
-        height=640, margin=dict(l=10, r=10, t=70, b=110),
+        height=640, margin=dict(l=10, r=10, t=70, b=130),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(30,30,30,0.6)",
         font=dict(color="#ccc", size=12),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
