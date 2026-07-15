@@ -128,6 +128,8 @@ def render_group(
     retention_price_m: pd.DataFrame = None,
     retention_ma_window: int = None,
     retention_desc: str = None,
+    retention_band: int = None,
+    exec_rule: dict = None,
     entry_mask: pd.DataFrame = None,
     entry_ma_window: int = None,
     entry_short_ma: int = None,
@@ -151,6 +153,11 @@ def render_group(
     display_from = score_m 含窗口起点前的预热历史时，热力图/奖牌/净值从该日期起展示；
              排名、进场计数（近6月≥2次进Top2）和在任状态用含预热的完整历史算，
              避免窗口起点全体现金冷启动、把长期在任的霸榜票挡在场外压低净值。
+    retention_band / exec_rule = 选股与买卖解耦模式（page7/8 专用，round10 回测敲定）：
+             选股层只按排名产出推荐区间（在任票掉出 Top{retention_band} 才结束推荐），
+             执行层在推荐区间内按 exec_rule（{"kind":"MA"|"DD","param":int,"reentry_ma":int}）
+             日频价格规则进出场，产出日线 NAV。设置后忽略 retention_mask/entry_mask，
+             nav_engine 须为 "daily"，daily_price_cache 须是 {ticker: 日线收盘 Series}。
     """
     n_hold = max(1, int(n_hold))
     max_n_hold = max(1, int(max_n_hold))
@@ -385,21 +392,31 @@ def render_group(
             f"在任票只要月末价 > 自己的 {int(retention_ma_window or 4)} 月均线就一直拿，"
             f"不管别人排第几；跌破均线才腾位"
         )
-        _hold_rule2 = (
-            f"**趋势留任**：{_ret_desc} · {_entry_gate_rule}"
-        ) if retention_mask is not None else (
-            "**守擂死区**：在任票的分数距 Top2 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
-        )
+        if retention_band is not None and exec_rule is not None:
+            _rk, _rp = exec_rule.get("kind"), exec_rule.get("param")
+            _exec_desc = (
+                f"距持有期高点回撤 >{_rp}% 出场，收盘回 MA{int(exec_rule.get('reentry_ma', 100))} 上方买回"
+                if _rk == "DD" else f"日线收盘 < 自身 MA{_rp} 出场，收盘回 MA{_rp} 上方买回"
+            )
+            _hold_rule2 = (
+                f"**选股与买卖解耦**：选股层只按排名，在任票掉出 Top{retention_band} 才结束推荐（进场仍 Top2）；"
+                f"执行层在推荐区间内按日频价格规则进出场——{_exec_desc} · "
+            )
+        elif retention_mask is not None:
+            _hold_rule2 = f"**趋势留任**：{_ret_desc} · {_entry_gate_rule}"
+        else:
+            _hold_rule2 = "**守擂死区**：在任票的分数距 Top2 门槛在 δ 以内就不换，差得更多才替换(δ = k × 当月横截面标准差) · "
+        _nav_freq_txt = "日线 NAV，价格含股息+拆股复权" if retention_band is not None else "周线 NAV，价格 yfinance 股息+拆股复权"
         st.caption(
             f"每月末按 {score_label} 选组内 Top2，次交易日开盘执行(去 look-ahead) · "
             "**进场门槛**：新进场须当月在组内前 2(金/银) **且最近 6 月内 ≥2 次进 Top2**(滤掉只闪现一个月的生面孔) · "
             "**多票并列**：优先连续在榜月数最长的(更连贯新鲜)，打平再看当月排名 · "
             "**没够格不硬上**：凑不满 2 仓的槽位持现金(年化 4%，至少不亏本) · "
             f"{_hold_rule2}"
-            "左右两列各等权，合成线 = 50/50 · 周线 NAV，价格 yfinance 股息+拆股复权 · 净值最长回看约 10 年。"
+            f"左右两列各等权，合成线 = 50/50 · {_nav_freq_txt} · 净值最长回看约 10 年。"
         )
-    if retention_mask is not None:
-        # MA 趋势留任：留任判据不含 k，δ 死区滑块无意义，直接取默认值占位。
+    if retention_mask is not None or retention_band is not None:
+        # MA 趋势留任 / 选股与买卖解耦：留任判据不含 k，δ 死区滑块无意义，直接取默认值占位。
         _k = float(default_k)
     else:
         _k = float(st.number_input(
@@ -431,6 +448,73 @@ def render_group(
         _streak_L = _inband_streak(_rank_L, _entry_rank_limit)
     else:
         _gscore_L, _rank_L, _ten6_L, _streak_L = g_score, rank_m, _ten6, _streak
+
+    def _recommend(rank_src, ten6_src, streak_src, band):
+        """选股层：只按排名产出每槽推荐区间，无 MA 价格判定（round10 recommend() 一比一移植）。
+        band=2/3：在任票掉出 Top2/Top3 即结束推荐；None：只要还在当月有效排名（年度池）内就推荐。
+        返回 (mh, mh_raw)：mh_raw = 当月未做留任/tie-break 的原始 TopN，供持仓表对照展示。"""
+        _mh, _mh_raw, _prev_h = {}, {}, []
+        for _ts, _row in rank_src.iterrows():
+            _r = _row.dropna().sort_values()
+            if _r.empty:
+                continue
+            _order = _r.index.tolist()
+            _tnow = ten6_src.loc[_ts]
+            _snow = streak_src.loc[_ts]
+            _raw = _order[:_band]
+            in_pool = set(_r.index)
+            if band is None:
+                _hold = [t for t in _prev_h if t != "CASH" and t in in_pool][:n_hold] if _prev_h else []
+            else:
+                _hold = [t for t in _prev_h
+                         if t != "CASH" and t in in_pool and _r[t] <= band][:n_hold] if _prev_h else []
+            _elig = [t for t in _order if _r[t] <= _band and float(_tnow.get(t, 0)) >= entry_min_top2_hits]
+            _elig_t = sorted(_elig, key=lambda t: (-float(_snow.get(t, 0)), _r[t]))
+            for t in _elig_t:
+                if len(_hold) >= n_hold:
+                    break
+                if t not in _hold:
+                    _hold.append(t)
+            _hold = (_hold + ["CASH"] * n_hold)[:n_hold]
+            _exec_m = hv.next_month_key(_ts.strftime("%Y-%m"), 1)
+            _mh[_exec_m] = _hold
+            _mh_raw[_exec_m] = _raw
+            _prev_h = _hold
+        return _mh, _mh_raw
+
+    def _execute(mh, daily_close_cache, spy_daily, rule):
+        """执行层：推荐区间内按日线价格规则进出场（round10 execute() 一比一移植）。
+        返回 (exec_months, slots, slot_segs, nav_l, nav_r, navc, exec_results)——
+        exec_results = 每槽 build_nav_from_daily_positions() 的原始返回（供进出场表/positions用）。"""
+        _exec_months = sorted(mh)
+        if not _exec_months:
+            return None
+        _slot_count = max(1, max((len(v) for v in mh.values()), default=n_hold))
+        _slots = hv.build_basket_slot_assignments(mh, _exec_months)
+        _slot_segs = [hv.build_slot_segments(_slots, i, _exec_months) for i in range(_slot_count)]
+        # DD 族买回门须按全历史算好一次（对齐 round10 execute() 的 ma100 dict），
+        # 不能按推荐段现算——段刚开始的 ~reentry_ma 天会没有 warmup，买回门形同虚设。
+        _reentry_cache = None
+        if rule.get("kind") == "DD":
+            _rw = int(rule.get("reentry_ma", 100))
+            _reentry_cache = {t: s.rolling(_rw).mean() for t, s in (daily_close_cache or {}).items()}
+        _results = [
+            hv.build_nav_from_daily_positions(
+                seg, daily_close_cache or {}, spy_daily, rule, reentry_ma_cache=_reentry_cache,
+            )
+            for seg in _slot_segs
+        ]
+        _navs = [r["nav"] for r in _results if not r["nav"].empty]
+        if not _navs:
+            return None
+        if len(_navs) == 1:
+            _navc = _navs[0]
+        else:
+            _uidx = _navs[0].index.union(_navs[1].index)
+            _navc = 0.5 * _navs[0].reindex(_uidx).ffill().bfill() + 0.5 * _navs[1].reindex(_uidx).ffill().bfill()
+        _nav_l = _results[0]["nav"] if len(_results) > 0 else pd.Series(dtype=float)
+        _nav_r = _results[1]["nav"] if len(_results) > 1 else pd.Series(dtype=float)
+        return _exec_months, _slots, _slot_segs, _nav_l, _nav_r, _navc, _results
 
     def _holdings_for_k(kval, rank_src=rank_m, score_src=g_score, ten6_src=_ten6, streak_src=_streak,
                         mask_src=retention_mask, entry_mask_src=None):
@@ -514,10 +598,20 @@ def render_group(
             _prev_h = _hold
         return _mh, _mh_raw
 
+    _exec_state: dict = {}
+
     def _build_nav(_mh):
         _exec_months = sorted(_mh)
         if not _exec_months:
             return None
+        if retention_band is not None and exec_rule is not None:
+            _res = _execute(_mh, daily_price_cache, spy_daily, exec_rule)
+            if _res is None:
+                return None
+            _em2, _slots2, _slot_segs2, _nav_l2, _nav_r2, _navc2, _results2 = _res
+            _exec_state["results"] = _results2
+            _exec_state["slot_segs"] = _slot_segs2
+            return _em2, _slots2, _slot_segs2, _nav_l2, _nav_r2, _navc2
         _slot_count = max(1, max((len(v) for v in _mh.values()), default=n_hold))
         _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
         _slot_segs = [hv.build_slot_segments(_slots, i, _exec_months) for i in range(_slot_count)]
@@ -564,7 +658,8 @@ def render_group(
     # ── δ 跨 3/5/10Y 稳健性扫描：用最长历史建净值，按尾部 3/5/10Y 各算总收益。
     #    单段峰值 = 过拟合（短窗口噪声最大）；找三段都不差的 δ（plateau 重叠）才稳健。──
     # MA 趋势留任模式下留任判据不含 k，扫描无意义 → 空网格跳过，后面不渲染扫描图。
-    _k_grid = [] if retention_mask is not None else [round(x * 0.25, 2) for x in range(13)]
+    _k_grid = [] if (retention_mask is not None or retention_band is not None) \
+        else [round(x * 0.25, 2) for x in range(13)]
     _HZ = sweep_horizons or [("3Y", 3), ("5Y", 5), ("10Y", 10)]
 
     def _trail_ret(_nav_s, _yrs):
@@ -654,7 +749,7 @@ def render_group(
         ),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
     )
-    if retention_mask is None:
+    if retention_mask is None and retention_band is None:
         st.plotly_chart(_sweep_fig, use_container_width=True, key=f"{kp}_dk_sweep")
 
         def _argmax_k(lbl):
@@ -729,7 +824,10 @@ def render_group(
         else:
             st.caption(f"⚠️ 净值历史不足，无法跨 {'/'.join(l for l, _ in _HZ)} 比较 MA 窗口 Calmar（多为长窗口数据未就绪）。")
 
-    _mh, _mh_raw = _holdings_for_k(_k)
+    if retention_band is not None:
+        _mh, _mh_raw = _recommend(rank_m, _ten6, _streak, retention_band)
+    else:
+        _mh, _mh_raw = _holdings_for_k(_k)
     if display_from is not None:
         # 预热段建好的持仓/在任状态保留，净值和持仓表从窗口首个执行月起记账。
         _m0 = hv.next_month_key(display_from.strftime("%Y-%m"), 1)
@@ -859,6 +957,25 @@ def render_group(
             hv.build_stitched_fig(_seg0, f"{group_label}接力 持仓段", _spy_seg, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg),
             use_container_width=True, key=f"{kp}_nav_l",
         )
+    elif retention_band is not None:
+        # 选股与买卖解耦：每槽一张「推荐区间甘特 + 执行层日线 NAV」组合图，替代原周线接力拼接图。
+        st.plotly_chart(
+            hv.build_combined_fig(_nav_l, _nav_r, _navc, spy_wk, f"{group_label} Top2 — 左右两列 50/50 合成 vs SPY"),
+            use_container_width=True, key=f"{kp}_nav_combined",
+        )
+        _exec_results = _exec_state.get("results", [])
+        _slot_names = ["左列 Slot 0", "右列 Slot 1"]
+        for _i, _seg in enumerate(_slot_segs[:2]):
+            _pos = _exec_results[_i]["positions"] if _i < len(_exec_results) else pd.Series(dtype=bool)
+            _slot_nav = _exec_results[_i]["nav"] if _i < len(_exec_results) else pd.Series(dtype=float)
+            st.plotly_chart(
+                hv.build_slot_gantt_nav_fig(
+                    _seg, _pos, _slot_nav, spy_daily,
+                    f"{group_label}接力 {_slot_names[_i] if _i < len(_slot_names) else f'槽{_i}'}",
+                    name_map, grade_map,
+                ),
+                use_container_width=True, key=f"{kp}_nav_gantt_{_i}",
+            )
     else:
         st.plotly_chart(
             hv.build_combined_fig(_nav_l, _nav_r, _navc, spy_wk, f"{group_label} Top2 — 左右两列 50/50 合成 vs SPY"),
@@ -919,5 +1036,30 @@ def render_group(
                 "右列实际持有": _nmg(_sa[1]),
                 "守擂留任": "是" if _kept else "",
             })
-    st.markdown("**每月实际持仓**(对照上方接力图核对；执行月 = 来源月 + 1)")
+    st.markdown("**每月推荐区间**(对照上方接力图核对；执行月 = 来源月 + 1)"
+                if retention_band is not None else
+                "**每月实际持仓**(对照上方接力图核对；执行月 = 来源月 + 1)")
     st.dataframe(pd.DataFrame(_pick_rows).iloc[::-1], use_container_width=True, hide_index=True)
+
+    if retention_band is not None:
+        _slot_names = ["左列 Slot 0", "右列 Slot 1"]
+        _exec_results = _exec_state.get("results", [])
+        _events_rows = []
+        for _i, _res in enumerate(_exec_results):
+            for _dt, _tk, _act in _res.get("events", []):
+                _events_rows.append({
+                    "日期": _dt.strftime("%Y-%m-%d"),
+                    "槽位": _slot_names[_i] if _i < len(_slot_names) else f"槽{_i}",
+                    "标的": _nmg(_tk),
+                    "动作": "🟢 进场(买回)" if _act == "entry" else "🔴 出场(止损/破位)",
+                })
+        _ent_n = sum(int(r.get("entries", 0)) for r in _exec_results)
+        _exo_n = sum(int(r.get("exits", 0)) for r in _exec_results)
+        st.markdown(f"**推荐区间内实际进出场**(执行层日频规则触发，非月末排名换仓 · 累计进场 {_ent_n} 次 / 出场 {_exo_n} 次)")
+        if _events_rows:
+            st.dataframe(
+                pd.DataFrame(_events_rows).sort_values("日期", ascending=False),
+                use_container_width=True, hide_index=True,
+            )
+        else:
+            st.caption("窗口内无执行层触发的进出场(全程持有或全程空仓)。")

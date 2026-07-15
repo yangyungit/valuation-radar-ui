@@ -21,8 +21,11 @@ st.caption(
     "**池子**：年度 PIT 规则池——近5财年 FCF 全正增长 / 5年股本净增≤2%（不稀释即可，不再强制回购缩股）/ "
     "ROIC≥10% / 市值≥$5B / 按 ROIC 前40，每年12月末用当时财报重构、次年生效（本地 Sharadar 构建上传）。"
     "页面只跑**非科技子集**（is_tech=False）。**排名轴 = ROIC**（季频 ART PIT，池成员内排名）。"
-    "金牌门槛不变：当月 Top1 且 RS_210d>0；银牌 = Top2。留任 MA4 卖出 / MA15 买回门不变。"
-    "回测见 backtest_a_leg_round8/9.py：2017-04→2026-06 +1603%、DD -36.6%、Calmar 0.98（SPY +264%），近5年 +589%。"
+    "金牌门槛不变：当月 Top1 且 RS_210d>0；银牌 = Top2。**选股与买卖解耦**：留任改按纯排名——"
+    "在任票掉出 Top3 才结束推荐（进场仍 Top2）；执行层按日线价格规则进出场——距持有期高点回撤 "
+    ">25% 出场，收盘回自身 MA100 上方买回。"
+    "回测见 valuation-radar/backtest_a_leg_round10.py：2017-04→2026-06 +1530%、DD -30.6%、Calmar 1.18"
+    "（SPY +264%），vs 原月频 MA4/MA15 引擎 +1603%/-36.6%/0.98——收益略降，DD 收窄 6pp、Calmar 更高。"
     "**三条警告**：收益高度集中，FIX+TPL+MA 三只贡献 77% 的 log 收益，剔 TPL 后全程只剩 +308%≈SPY；"
     "DD 比 SPY 深，本质是押 ROIC 榜首单票的进攻腿，不是防守腿；截断宽度敏感（top20 +494%/top40 +1603%/top60 +1127%）。"
     "排名/进场计数/在任状态用窗口起点前 ~12 个月预热历史算、净值从窗口起点记账。"
@@ -87,24 +90,30 @@ _month_in_progress = bool(pd.notna(asof) and _last_month.to_period("M").end_time
 
 with st.spinner("📊 加载价格..."):
     _pool = list(_tickers.keys())
-    # 12 年而非 10 年：MA15 需要 15 个月 warmup，否则 10Y 窗口开头的买回门全关（进不了场）。
+    # 12 年：为执行层日线规则（回撤/MA100）和 δ 类历史扫描留足预热窗口。
     _px = get_global_data(_pool + ["SPY"], years=12)
 
 _price_cache: dict = {}
-_close_m_cols: dict = {}
+_daily_close_cache: dict = {}
 _spy_wk = pd.DataFrame()
+_spy_daily = pd.Series(dtype=float)
 if _px is not None and not _px.empty:
     _wk = _px.resample("W-FRI").last()
     if "SPY" in _wk.columns:
         _spy_wk = _wk[["SPY"]].rename(columns={"SPY": "Close"}).dropna()
+    if "SPY" in _px.columns:
+        _spy_daily = _px["SPY"].dropna()
     for _tk in _pool:
         if _tk in _wk.columns:
             _s = _wk[_tk].dropna()
             if len(_s) >= 2:
                 _price_cache[_tk] = _s.to_frame(name="Close")
-                _close_m_cols[_tk] = _px[_tk].dropna().resample("ME").last()
+        if _tk in _px.columns:
+            _ds = _px[_tk].dropna()
+            if len(_ds) >= 2:
+                _daily_close_cache[_tk] = _ds
 
-# yfinance 拉不到的退市票从 Sharadar gbdt_oos_prices 补全复权日线
+# yfinance 拉不到的退市票从 Sharadar gbdt_oos_prices 补全复权日线（周线喂旧图缓存、日线喂执行层）
 _missing = [t for t in _pool if t not in _price_cache]
 if _missing:
     import holdings_viz as hv
@@ -113,14 +122,7 @@ if _missing:
         _d = hv.fetch_daily_ohlcv(_tk)
         if not _d.empty:
             _price_cache[_tk] = _d["Close"].resample("W-FRI").last().dropna().to_frame(name="Close")
-            _close_m_cols[_tk] = _d["Close"].resample("ME").last()
-
-# MA4 留任 + MA15 买回门：在任票月末价 > 自己 4 月均线才留；腾位后须收回 15 月均线
-# 上方才准重新进场。回测 backtest_shy_ma_asym.py：+429% / DD -19.2% / Calmar 0.94，
-# vs 无买回门旧版 +421% / -30.0% / 0.60。
-_close_m = pd.DataFrame(_close_m_cols).sort_index()
-_ret_mask = _close_m > _close_m.rolling(4).mean()
-_entry_mask = _close_m > _close_m.rolling(15).mean()
+            _daily_close_cache[_tk] = _d["Close"].dropna()
 
 _COMMON = dict(
     rs_m=rs_m, king_m=king_m, name_map=name_map, grade_map=grade_map,
@@ -158,10 +160,10 @@ roic_m_long = _long_score_m()
 st.markdown("## 🏛️ 非科技组（按 ROIC 排名）")
 render_group("回购稳定", _rest_cols, "stable_rest", score_m=roic_m, sweep_score_m=roic_m_long,
              display_from=ts.get("display_from"),
-             retention_mask=_ret_mask,
-             retention_price_m=_close_m,
-             retention_ma_window=4,
-             entry_mask=_entry_mask,
-             entry_ma_window=15,
+             retention_band=3,
+             exec_rule={"kind": "DD", "param": 25, "reentry_ma": 100},
+             daily_price_cache=_daily_close_cache,
+             spy_daily=_spy_daily,
+             nav_engine="daily",
              medal_table_hide_unmedaled=True,
              **_COMMON)

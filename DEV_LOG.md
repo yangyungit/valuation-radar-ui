@@ -1,3 +1,18 @@
+## 2026-07-15 | 选股与买卖解耦：page7/8 从月频 MA 留任改为「排名推荐区间 + 日线执行层」（Phase 2）
+
+**背景**：`valuation-radar/backtest_a_leg_round10.py`（Opus Phase 1，已 push）验证：选股层只按排名产出推荐区间，执行层在区间内按日线价格规则进出场，两页都打赢原月频 MA4/MA15 引擎——page8 敲定「留任掉出 Top3 才结束推荐 + 回撤 25% 止损/收盘回 MA100 买回」（+1530%/DD-30.6%/Calmar1.18，原引擎 +1603%/-36.6%/0.98）；page7 敲定「留任掉出 Top2 结束推荐 + 日线 MA100 出场/买回」（+3255%/DD-29.4%/Calmar1.59，原引擎 +1477%/-35.7%）。
+
+**范围**：
+- `holdings_viz.py`：新增 `_rule_active`（round10 execute_slot 内核 1:1 移植）、`build_nav_from_daily_positions`（推荐段→日线仓位/NAV/进出场事件）、`build_slot_gantt_nav_fig`（每槽两排组合图：上排单轨甘特=推荐区间，下排日期轴 NAV，持有绿实线/空仓灰虚线，进出场三角标记）、`_as_close_series` 辅助（spy_daily 兼容 Series/OHLCV DataFrame 两种传参）。
+- `buyback_relay_core.py`：`render_group` 新参 `retention_band`（留任排名带）+ `exec_rule`（执行层规则 dict）；新增 `_recommend`（round10 recommend() 1:1 移植，纯排名留任）、`_execute`（`build_basket_slot_assignments`+`build_slot_segments`+`build_nav_from_daily_positions`，两槽 50/50 合成）；`_build_nav`/caption/δ-MA 扫描图/持仓表/图表渲染分支按 `retention_band is not None` 路由到新逻辑，旧 `retention_mask`（MA 趋势留任）路径保持不变（其他页面零影响）；持仓表拆两层——月度推荐区间表（沿用原结构）+ 新增「推荐区间内实际进出场」明细表（执行层触发的日期/标的/动作）。
+- `pages/8_ROIC稳定.py` / `pages/7_FCF进攻.py`：删月频 MA mask 构建，改建 `daily_price_cache`（{ticker: 日线收盘 Series}，复用已拉的 `_px`）+ `spy_daily`；`render_group` 调用改传 `retention_band`/`exec_rule`/`nav_engine="daily"`；caption 改写为解耦口径+新回测数字。
+
+**踩坑（找到并修）**：DD 族买回门（MA100）若按推荐段现算，段刚开始的 ~100 天没有 warmup、买回门形同虚设，实测把 page8 最大回撤从目标 -30.6% 打到 -37.0%（Calmar 0.98，倒退回原引擎水平）。round10 `execute_slot()` 实际是 ma100 按**全历史**算好一次再按段 reindex，不是段内现算——修成 `_execute` 里预算全历史 `{ticker: 全历史 rolling(100).mean()}` 传给 `build_nav_from_daily_positions` 后，本地复测回到 +1635%/-30.4%/Calmar1.10，与目标基本吻合。MA 族（page7）本就该段内算，不受影响。
+
+**验证**：本地起 streamlit，`AppTest` 无头跑 page7/8：无异常；page8 统计卡 +1635.2%/DD-30.4%/Calmar1.10（目标 +1530%/-30.6%/1.18，DD 几乎精确，收益因页面走滚动 10Y 窗口而非回测固定 2017-04 起点有正常偏差）；page7 +2483.9%/DD-28.6%/Calmar1.47（目标 +3255%/-29.4%/1.59，同理）。`ReadLints` 无新增错误。
+
+---
+
 ## 2026-07-15 page8 排名轴 FCFm→ROIC（后端 P2-ROIC 池同日上线，字段 fcf_margin→roic）
 
 **范围**：`api_client.py`（`fetch_buyback_stable_relay_timeseries` docstring）、`pages/8_fcf稳定.py`（标题/caption/`fcfm_raw`→`roic_raw`/`fcfm_m`→`roic_m`/`fcfm_m_long`→`roic_m_long`/`_COMMON.score_label`/`score_fmt`/组标题/spinner 文案，全部改用 `roic` 字段，文件名与 URL 不变）。

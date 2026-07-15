@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 from _yf_session import new_yf_session
 
@@ -1047,6 +1048,255 @@ def build_nav_from_holdings(
     peak = nav.cummax()
     max_dd = float(((peak - nav) / peak.replace(0, float("nan"))).max()) * 100
     return {"nav": nav, "nav_wk": nav_wk, "total_ret": total_ret, "max_dd": max_dd}
+
+
+def _as_close_series(x) -> pd.Series:
+    """spy_daily 在各页面里传入格式不统一（Series 或带 Close 列的 OHLCV DataFrame），
+    统一取出收盘价 Series，供执行层日频规则 / 甘特+NAV 组合图使用。"""
+    if x is None:
+        return pd.Series(dtype=float)
+    if isinstance(x, pd.DataFrame):
+        return x["Close"].astype(float).dropna() if "Close" in x.columns else pd.Series(dtype=float)
+    return x.astype(float).dropna()
+
+
+def _rule_active(close: pd.Series, kind: str, param: int, ma_reentry: pd.Series) -> tuple:
+    """执行层价格规则（照搬 valuation-radar/backtest_a_leg_round10.py 的 _rule_active，
+    逻辑一比一，不重新设计）。返回 (active bool Series, entry_cnt, exit_cnt)。
+    已 shift(1) 去 look-ahead：第 t 日仓位由 t-1 日收盘信号决定，段起点默认进场。"""
+    close = close.dropna()
+    if len(close) < 2:
+        return pd.Series(True, index=close.index), 0, 0
+    if kind == "MA":
+        ma = close.rolling(param).mean()
+        sig = (close >= ma)
+        sig = sig.where(ma.notna(), True)   # MA 未 warmup 时默认在场
+    else:  # DD：距持有期高点回撤 > param% 出场，收盘回 ma_reentry 上方买回
+        m100 = ma_reentry.reindex(close.index)
+        vals = close.to_numpy()
+        m100v = m100.to_numpy()
+        n = len(vals)
+        act = np.ones(n, dtype=bool)
+        high = vals[0]
+        holding = True
+        thr = param / 100.0
+        for i in range(n):
+            if holding:
+                high = max(high, vals[i])
+                if vals[i] < high * (1.0 - thr):
+                    holding = False
+                    act[i] = False
+                else:
+                    act[i] = True
+            else:
+                # 收盘回买回门上方买回（MA 缺失时也允许买回，避免早期段永久空仓）
+                if np.isnan(m100v[i]) or vals[i] >= m100v[i]:
+                    holding = True
+                    high = vals[i]
+                    act[i] = True
+                else:
+                    act[i] = False
+        sig = pd.Series(act, index=close.index)
+    sig = sig.shift(1).fillna(True).astype(bool)
+    trans = sig.astype(int).diff().fillna(0)
+    entry_cnt = int((trans == 1).sum())
+    exit_cnt = int((trans == -1).sum())
+    return sig, entry_cnt, exit_cnt
+
+
+def build_nav_from_daily_positions(
+    segs: list,
+    daily_close_cache: dict,
+    spy_daily: pd.Series,
+    rule: dict,
+    cash_rate: float = 0.04,
+    reentry_ma_cache: dict = None,
+) -> dict:
+    """选股层推荐区间（一个槽）→ 执行层日频价格规则进出场 → 日线 NAV。
+    照搬 valuation-radar/backtest_a_leg_round10.py 的 execute_slot()，逻辑不重新设计。
+    segs: [(ticker_or_CASH, 起始月, 结束月), ...]（hv.build_slot_segments 的输出）。
+    rule: {"kind": "MA"|"DD", "param": int, "reentry_ma": int（DD 族买回门窗口，默认100）}。
+    reentry_ma_cache: DD 族买回门用——{ticker: 该票全历史 rolling(reentry_ma).mean()}，
+        对齐 round10 execute() 里 ma100 是按全历史算好一次再按段 reindex，不是段内现算
+        （段内现算会让每段前 ~reentry_ma 天买回门形同虚设，回撤止损组合 DD 明显失真）。
+        不传时退化为段内现算（MA 族本就该段内算，行为不受影响）。
+    返回 {"nav": 日线 Series, "positions": 逐日 bool Series（True=在场）,
+          "entries": int, "exits": int,
+          "events": [(日期, ticker, "entry"|"exit"), ...]（区间内实际进出场，供持仓表用）}。
+    """
+    _spy_close = _as_close_series(spy_daily)
+    cal = _spy_close.index if not _spy_close.empty else None
+    reentry_win = int(rule.get("reentry_ma", 100))
+    cash_dr = (1.0 + cash_rate) ** (1.0 / 365.0) - 1.0
+    running = 1.0
+    nav_parts, pos_parts, events = [], [], []
+    ent = exo = 0
+    for tk, s_m, e_m in segs:
+        sd = pd.Timestamp(f"{s_m}-01")
+        ed = pd.Timestamp(f"{e_m}-01") + pd.offsets.MonthEnd(1)
+        widx = cal[(cal >= sd) & (cal <= ed)] if cal is not None else pd.DatetimeIndex([])
+        if len(widx) < 1:
+            continue
+        close = daily_close_cache.get(tk) if tk and tk != "CASH" else None
+        if tk == "CASH" or close is None or close.empty:
+            days = (widx - widx[0]).days.to_numpy()
+            part = running * (1.0 + cash_rate) ** (days / 365.0)
+            nav_parts.append(pd.Series(part, index=widx))
+            pos_parts.append(pd.Series(False, index=widx))
+            running = float(nav_parts[-1].iloc[-1])
+            continue
+        px = close.reindex(widx).ffill()
+        if px.dropna().shape[0] < 2:
+            days = (widx - widx[0]).days.to_numpy()
+            part = running * (1.0 + cash_rate) ** (days / 365.0)
+            nav_parts.append(pd.Series(part, index=widx))
+            pos_parts.append(pd.Series(False, index=widx))
+            running = float(nav_parts[-1].iloc[-1])
+            continue
+        if reentry_ma_cache is not None and tk in reentry_ma_cache:
+            ma_reentry = reentry_ma_cache[tk].reindex(widx)
+        else:
+            ma_reentry = px.rolling(reentry_win).mean()
+        act, _, _ = _rule_active(px, rule["kind"], int(rule["param"]), ma_reentry)
+        act = act.reindex(widx).ffill().fillna(True).astype(bool)
+        trans = act.astype(int).diff().fillna(0)
+        ent += int((trans == 1).sum())
+        exo += int((trans == -1).sum())
+        for dt in trans.index[trans == 1]:
+            events.append((dt, tk, "entry"))
+        for dt in trans.index[trans == -1]:
+            events.append((dt, tk, "exit"))
+        stock_ret = px.pct_change().fillna(0.0)
+        day_ret = np.where(act.to_numpy(), stock_ret.to_numpy(), cash_dr)
+        nav = running * np.cumprod(1.0 + day_ret)
+        nav_parts.append(pd.Series(nav, index=widx))
+        pos_parts.append(act)
+        running = float(nav[-1])
+    if not nav_parts:
+        return {"nav": pd.Series(dtype=float), "positions": pd.Series(dtype=bool),
+                "entries": 0, "exits": 0, "events": []}
+    nav = pd.concat(nav_parts).sort_index()
+    nav = nav[~nav.index.duplicated(keep="last")]
+    positions = pd.concat(pos_parts).sort_index()
+    positions = positions[~positions.index.duplicated(keep="last")]
+    events.sort(key=lambda e: e[0])
+    return {"nav": nav, "positions": positions, "entries": ent, "exits": exo, "events": events}
+
+
+def build_slot_gantt_nav_fig(
+    segs: list,
+    positions: pd.Series,
+    nav: pd.Series,
+    spy_daily: pd.Series,
+    slot_name: str,
+    name_map: dict = None,
+    grade_map: dict = None,
+) -> go.Figure:
+    """每槽两排组合图：上排单轨甘特（色块=推荐区间），下排日期轴 NAV
+    （持有段实线着色、空仓段灰虚线，进出场日打标记点）。
+    segs: [(ticker_or_CASH, 起始月, 结束月), ...]（推荐区间，hv.build_slot_segments 输出）。
+    positions: build_nav_from_daily_positions 返回的逐日 bool Series（True=在场）。
+    nav: 同一槽的日线 NAV Series。
+    """
+    nm = name_map or {}
+    gm = grade_map or {}
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True, row_heights=[0.15, 0.85],
+        vertical_spacing=0.03,
+    )
+    tks = [tk for tk, _, _ in segs if tk and tk != "CASH"]
+    color_map = {t: SLOT_COLORS[i % len(SLOT_COLORS)] for i, t in enumerate(dict.fromkeys(tks))}
+
+    for tk, s_m, e_m in segs:
+        x0 = pd.Timestamp(f"{s_m}-01")
+        x1 = pd.Timestamp(f"{e_m}-01") + pd.offsets.MonthEnd(1)
+        if not tk or tk == "CASH":
+            fillc, label = "#2a2a2a", "空仓"
+        else:
+            fillc = color_map.get(tk, "#888")
+            g = gm.get(tk, "")
+            label = f"{nm.get(tk, tk)}({g})" if g else f"{nm.get(tk, tk)}"
+        fig.add_shape(
+            type="rect", x0=x0, x1=x1, y0=-0.4, y1=0.4,
+            fillcolor=fillc, opacity=0.9, line=dict(width=1, color="#111"),
+            layer="below", row=1, col=1,
+        )
+        fig.add_annotation(
+            x=x0 + (x1 - x0) / 2, y=0, text=label, showarrow=False,
+            font=dict(size=10, color="#fff"), row=1, col=1,
+        )
+
+    if nav is not None and not nav.empty:
+        nav_rel = nav.astype(float) / float(nav.iloc[0])
+        pos = positions.reindex(nav_rel.index).fillna(False).astype(bool) if positions is not None and not positions.empty else pd.Series(True, index=nav_rel.index)
+        state = pos.astype(int)
+        runs, run_start = [], 0
+        n = len(nav_rel)
+        for i in range(1, n + 1):
+            if i == n or int(state.iloc[i]) != int(state.iloc[run_start]):
+                runs.append((run_start, i, int(state.iloc[run_start])))
+                run_start = i
+        for rs, re_, stv in runs:
+            lo = max(0, rs - 1)
+            seg_x = nav_rel.index[lo:re_]
+            seg_y = [max(0.001, v) for v in nav_rel.iloc[lo:re_]]
+            if stv == 1:
+                fig.add_trace(go.Scatter(
+                    x=seg_x, y=seg_y, mode="lines",
+                    line=dict(color="#2ECC71", width=2), showlegend=False,
+                ), row=2, col=1)
+            else:
+                fig.add_trace(go.Scatter(
+                    x=seg_x, y=seg_y, mode="lines",
+                    line=dict(color="#888", width=1.5, dash="dash"), showlegend=False,
+                ), row=2, col=1)
+        trans = state.diff().fillna(0)
+        entries = nav_rel.index[trans == 1]
+        exits = nav_rel.index[trans == -1]
+        if len(entries):
+            fig.add_trace(go.Scatter(
+                x=entries, y=[max(0.001, nav_rel.loc[d]) for d in entries],
+                mode="markers", marker=dict(symbol="triangle-up", size=9, color="#2ECC71"),
+                name="进场", showlegend=True,
+            ), row=2, col=1)
+        if len(exits):
+            fig.add_trace(go.Scatter(
+                x=exits, y=[max(0.001, nav_rel.loc[d]) for d in exits],
+                mode="markers", marker=dict(symbol="triangle-down", size=9, color="#E74C3C"),
+                name="出场", showlegend=True,
+            ), row=2, col=1)
+
+        _spy_close = _as_close_series(spy_daily)
+        if not _spy_close.empty:
+            spy_seg = _spy_close.reindex(nav_rel.index).ffill().dropna()
+            if len(spy_seg) >= 2:
+                spy_rel = spy_seg / float(spy_seg.iloc[0])
+                fig.add_trace(go.Scatter(
+                    x=spy_rel.index, y=spy_rel.values, mode="lines",
+                    line=dict(color="rgba(180,180,180,0.4)", width=1.5, dash="dot"),
+                    name=f"SPY 同期 {(float(spy_rel.iloc[-1]) - 1) * 100:+.1f}%",
+                ), row=2, col=1)
+
+    fig.update_xaxes(type="date", showgrid=True, gridcolor="#222", row=1, col=1)
+    fig.update_xaxes(type="date", title="日期", showgrid=True, gridcolor="#222", row=2, col=1)
+    fig.update_yaxes(
+        showticklabels=False, range=[-0.6, 0.6], showgrid=False, zeroline=False, row=1, col=1,
+    )
+    fig.update_yaxes(
+        title="NAV（对数，1.0=起始）", type="log",
+        tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
+        ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
+        gridcolor="rgba(100,100,100,0.3)", row=2, col=1,
+    )
+    fig.update_layout(
+        title=dict(text=f"{slot_name} — 推荐区间(甘特) + 执行层持仓 NAV（绿=持有 · 灰虚线=空仓）",
+                    font=dict(size=13), x=0.01, xanchor="left"),
+        height=560, margin=dict(l=10, r=10, t=44, b=50),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(30,30,30,0.6)",
+        font=dict(color="#ccc", size=12),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
+    )
+    return fig
 
 
 def build_combined_fig(
