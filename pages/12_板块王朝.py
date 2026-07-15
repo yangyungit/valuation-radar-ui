@@ -731,6 +731,28 @@ with _dyn_tab1:
                             )
                             _ov_prog.progress((_ci + 1) / len(_ov_configs), text=f"{_clabel} 完成")
                         _ov_prog.empty()
+
+                        # 固定对比线：252d · N=2 · buffer(4)，不参与寻优，供与各配置最优对比
+                        _pin_wins, _pin_n, _pin_bn = [252], 2, 4
+                        _pin_score_hz = {hz: _score_from_ts(_ov_ts[hz], _pin_wins) for hz in _ov_hz}
+                        _pin_disp = _pin_score_hz.get("10Y", pd.DataFrame())
+                        if _pin_disp is None or _pin_disp.empty:
+                            for hz in ["5Y", "3Y"]:
+                                if not _pin_score_hz.get(hz, pd.DataFrame()).empty:
+                                    _pin_disp = _pin_score_hz[hz]
+                                    break
+                        _pin_rel, _pin_ret = pd.Series(dtype=float), float("nan")
+                        if _pin_disp is not None and not _pin_disp.empty:
+                            _pin_navc = _build_navc(_pin_disp, "buffer", _pin_bn, 1.0, _pin_n)[4]
+                            if not _pin_navc.empty:
+                                _pin_rel = _pin_navc.astype(float).dropna()
+                                _pin_rel = _pin_rel / float(_pin_rel.iloc[0])
+                                _pin_ret = (float(_pin_rel.iloc[-1]) - 1.0) * 100.0
+                        _ov_results.append({
+                            "label": "252d(固定)", "params": (_pin_n, "buffer", _pin_bn, 1.0),
+                            "rel": _pin_rel, "ret": _pin_ret, "pinned": True,
+                        })
+
                         st.session_state[_ov_key] = _ov_results
 
                     _ov_cached = st.session_state.get(_ov_key)
@@ -756,10 +778,14 @@ with _dyn_tab1:
                                     _pstr += f"({_kd})"
                             else:
                                 _pstr = "—"
+                            _is_pin = bool(_res.get("pinned"))
                             _ov_entries.append({
-                                "rel": _rel, "color": _ov_palette[_i % len(_ov_palette)],
+                                "rel": _rel,
+                                "color": "#FFFFFF" if _is_pin else _ov_palette[_i % len(_ov_palette)],
                                 "name": f"{_res['label']} · {_pstr} {_res['ret']:+.0f}%",
                                 "ret": _res.get("ret", float("nan")),
+                                "width": 3 if _is_pin else 2,
+                                "dash": "dash" if _is_pin else None,
                             })
                         _ov_entries.sort(
                             key=lambda e: (e["ret"] if e["ret"] == e["ret"] else float("-inf")),
@@ -768,7 +794,8 @@ with _dyn_tab1:
                         for _e in _ov_entries:
                             _ov_fig.add_trace(go.Scatter(
                                 x=_e["rel"].index, y=_e["rel"].values, mode="lines",
-                                name=_e["name"], line=dict(color=_e["color"], width=2),
+                                name=_e["name"],
+                                line=dict(color=_e["color"], width=_e["width"], dash=_e["dash"]),
                             ))
                         # SPY 基准置于图例末尾
                         if _spy_wk is not None and not _spy_wk.empty:
@@ -796,6 +823,7 @@ with _dyn_tab1:
                         st.plotly_chart(_ov_fig, use_container_width=True, key=f"{_ov_key}_fig")
                         st.caption(
                             "每条 = 该动量配置在 maximin(3Y/5Y/10Y)口径下最优的 N+守擂,图例标出选中参数。"
+                            "白色粗虚线「252d(固定)」= 固定 N=2·buffer(4),不参与寻优,作对比基线。"
                             "各自起点归一;起点日期因窗口预热长度而异(504d 最晚)。"
                         )
 
