@@ -5,7 +5,6 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
 from _yf_session import new_yf_session
 
@@ -1192,65 +1191,98 @@ def build_slot_gantt_nav_fig(
     name_map: dict = None,
     grade_map: dict = None,
 ) -> go.Figure:
-    """每槽两排组合图：上排单轨甘特（色块=推荐区间），下排日期轴 NAV
-    （持有段实线着色、空仓段灰虚线，进出场日打标记点）。
+    """单图：顶部按自己颜色的文字标签标注每段推荐票（同 build_stitched_fig 风格），
+    段与段之间用细竖线分隔；下方 NAV 按「当前持有票」的颜色着色（空仓灰虚线），
+    段内视觉降采样到月频，但每段起止两端仍保留精确到日的真实数据点，
+    横轴只在换股边界标精确日期。
     segs: [(ticker_or_CASH, 起始月, 结束月), ...]（推荐区间，hv.build_slot_segments 输出）。
     positions: build_nav_from_daily_positions 返回的逐日 bool Series（True=在场）。
     nav: 同一槽的日线 NAV Series。
     """
     nm = name_map or {}
     gm = grade_map or {}
-    fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True, row_heights=[0.15, 0.85],
-        vertical_spacing=0.03,
-    )
+    fig = go.Figure()
     tks = [tk for tk, _, _ in segs if tk and tk != "CASH"]
     color_map = {t: SLOT_COLORS[i % len(SLOT_COLORS)] for i, t in enumerate(dict.fromkeys(tks))}
 
+    seg_bounds: list = []  # (x0, x1, ticker_or_"")；""=空仓（不用 None，避免 pandas 把 None
+    # 和字符串混列时悄悄转成 float nan，导致 nan != nan 把连续空仓切成逐日碎段）
     for tk, s_m, e_m in segs:
         x0 = pd.Timestamp(f"{s_m}-01")
         x1 = pd.Timestamp(f"{e_m}-01") + pd.offsets.MonthEnd(1)
-        if not tk or tk == "CASH":
-            fillc, label = "#2a2a2a", "空仓"
+        seg_bounds.append((x0, x1, "" if (not tk or tk == "CASH") else tk))
+
+    name_annotations: list = []
+    boundary_dates: list = []
+    for i, (x0, x1, tk) in enumerate(seg_bounds):
+        if not tk:
+            color, label = "#999", "💰 空仓"
         else:
-            fillc = color_map.get(tk, "#888")
+            color = color_map.get(tk, "#888")
             g = gm.get(tk, "")
-            label = f"{nm.get(tk, tk)}({g})" if g else f"{nm.get(tk, tk)}"
-        fig.add_shape(
-            type="rect", x0=x0, x1=x1, y0=-0.4, y1=0.4,
-            fillcolor=fillc, opacity=0.9, line=dict(width=1, color="#111"),
-            layer="below", row=1, col=1,
-        )
-        fig.add_annotation(
-            x=x0 + (x1 - x0) / 2, y=0, text=label, showarrow=False,
-            font=dict(size=10, color="#fff"), row=1, col=1,
-        )
+            label = f"{nm.get(tk, tk)}({g})" if g else nm.get(tk, tk)
+        name_annotations.append(dict(
+            x=(x0 + (x1 - x0) / 2).to_pydatetime(), y=1.0, xref="x", yref="paper",
+            text=label, showarrow=False,
+            font=dict(size=12, color=color), xanchor="center", yanchor="bottom",
+        ))
+        if i > 0:
+            boundary_dates.append(x0)
+
+    for bx in boundary_dates:
+        fig.add_vline(x=bx.to_pydatetime(), line_dash="dash", line_color="rgba(200,200,200,0.35)", line_width=1)
+
+    _tick_dates = [seg_bounds[0][0]] if seg_bounds else []
+    _tick_dates += boundary_dates
+    if seg_bounds:
+        _tick_dates.append(seg_bounds[-1][1])
 
     if nav is not None and not nav.empty:
         nav_rel = nav.astype(float) / float(nav.iloc[0])
-        pos = positions.reindex(nav_rel.index).fillna(False).astype(bool) if positions is not None and not positions.empty else pd.Series(True, index=nav_rel.index)
-        state = pos.astype(int)
+        pos = (
+            positions.reindex(nav_rel.index).fillna(False).astype(bool)
+            if positions is not None and not positions.empty
+            else pd.Series(True, index=nav_rel.index)
+        )
+
+        # 每天所处的推荐段票（段之间首尾相接，取「最近一个已开始的段」）
+        _starts = np.array([b[0].value for b in seg_bounds]) if seg_bounds else np.array([])
+        _tk_by_start = [b[2] for b in seg_bounds]
+        if len(_starts):
+            _day_ns = nav_rel.index.values.astype("datetime64[ns]").astype("int64")
+            _pos_idx = np.clip(np.searchsorted(_starts, _day_ns, side="right") - 1, 0, len(_tk_by_start) - 1)
+            seg_tk_of_day = pd.Series([_tk_by_start[i] for i in _pos_idx], index=nav_rel.index)
+        else:
+            seg_tk_of_day = pd.Series([""] * len(nav_rel), index=nav_rel.index)
+        # 着色状态：在场 = 该段票自己的颜色；空仓/未在场 = ""（灰虚线）
+        _seg_tk_list = seg_tk_of_day.tolist()
+        _pos_list = pos.tolist()
+        _keys = [tk if ok else "" for tk, ok in zip(_seg_tk_list, _pos_list)]
+        n = len(_keys)
         runs, run_start = [], 0
-        n = len(nav_rel)
         for i in range(1, n + 1):
-            if i == n or int(state.iloc[i]) != int(state.iloc[run_start]):
-                runs.append((run_start, i, int(state.iloc[run_start])))
+            if i == n or _keys[i] != _keys[run_start]:
+                runs.append((run_start, i, _keys[run_start]))
                 run_start = i
-        for rs, re_, stv in runs:
-            lo = max(0, rs - 1)
-            seg_x = nav_rel.index[lo:re_]
-            seg_y = [max(0.001, v) for v in nav_rel.iloc[lo:re_]]
-            if stv == 1:
-                fig.add_trace(go.Scatter(
-                    x=seg_x, y=seg_y, mode="lines",
-                    line=dict(color="#2ECC71", width=2), showlegend=False,
-                ), row=2, col=1)
-            else:
-                fig.add_trace(go.Scatter(
-                    x=seg_x, y=seg_y, mode="lines",
-                    line=dict(color="#888", width=1.5, dash="dash"), showlegend=False,
-                ), row=2, col=1)
-        trans = state.diff().fillna(0)
+
+        for rs, re_, tkv in runs:
+            lo = max(0, rs - 1)  # 接上前一点，保持折线连续
+            run_idx = nav_rel.index[lo:re_]
+            run_val = nav_rel.iloc[lo:re_]
+            if len(run_idx) == 0:
+                continue
+            _pts = run_val.resample("ME").last().dropna()
+            _pts.loc[run_idx[0]] = run_val.iloc[0]
+            _pts.loc[run_idx[-1]] = run_val.iloc[-1]
+            _pts = _pts[~_pts.index.duplicated(keep="last")].sort_index()
+            _y = [max(0.001, v) for v in _pts.values]
+            _line = (
+                dict(color="#888", width=1.5, dash="dash") if not tkv
+                else dict(color=color_map.get(tkv, "#888"), width=2)
+            )
+            fig.add_trace(go.Scatter(x=_pts.index, y=_y, mode="lines", line=_line, showlegend=False))
+
+        trans = pos.astype(int).diff().fillna(0)
         entries = nav_rel.index[trans == 1]
         exits = nav_rel.index[trans == -1]
         if len(entries):
@@ -1258,13 +1290,13 @@ def build_slot_gantt_nav_fig(
                 x=entries, y=[max(0.001, nav_rel.loc[d]) for d in entries],
                 mode="markers", marker=dict(symbol="triangle-up", size=9, color="#2ECC71"),
                 name="进场", showlegend=True,
-            ), row=2, col=1)
+            ))
         if len(exits):
             fig.add_trace(go.Scatter(
                 x=exits, y=[max(0.001, nav_rel.loc[d]) for d in exits],
                 mode="markers", marker=dict(symbol="triangle-down", size=9, color="#E74C3C"),
                 name="出场", showlegend=True,
-            ), row=2, col=1)
+            ))
 
         _spy_close = _as_close_series(spy_daily)
         if not _spy_close.empty:
@@ -1275,26 +1307,32 @@ def build_slot_gantt_nav_fig(
                     x=spy_rel.index, y=spy_rel.values, mode="lines",
                     line=dict(color="rgba(180,180,180,0.4)", width=1.5, dash="dot"),
                     name=f"SPY 同期 {(float(spy_rel.iloc[-1]) - 1) * 100:+.1f}%",
-                ), row=2, col=1)
+                ))
 
-    fig.update_xaxes(type="date", showgrid=True, gridcolor="#222", row=1, col=1)
-    fig.update_xaxes(type="date", title="日期", showgrid=True, gridcolor="#222", row=2, col=1)
-    fig.update_yaxes(
-        showticklabels=False, range=[-0.6, 0.6], showgrid=False, zeroline=False, row=1, col=1,
-    )
-    fig.update_yaxes(
-        title="NAV（对数，1.0=起始）", type="log",
-        tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
-        ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
-        gridcolor="rgba(100,100,100,0.3)", row=2, col=1,
-    )
+    _tick_dates = sorted(set(_tick_dates))
+    _tick_texts = [d.strftime("%Y-%m-%d") for d in _tick_dates]
+    _tick_dates = [d.to_pydatetime() for d in _tick_dates]
+
     fig.update_layout(
-        title=dict(text=f"{slot_name} — 推荐区间(甘特) + 执行层持仓 NAV（绿=持有 · 灰虚线=空仓）",
+        title=dict(text=f"{slot_name} — 择股接力 + 执行层持仓 NAV（配色=当前持仓 · 灰虚线=空仓）",
                     font=dict(size=13), x=0.01, xanchor="left"),
-        height=560, margin=dict(l=10, r=10, t=44, b=50),
+        xaxis=dict(
+            type="date", tickmode="array", tickvals=_tick_dates, ticktext=_tick_texts,
+            tickfont=dict(size=10), tickangle=-45,
+            gridcolor="rgba(100,100,100,0.3)",
+        ),
+        yaxis=dict(
+            title="NAV（对数，1.0=起始）", type="log",
+            tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
+            ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
+            gridcolor="rgba(100,100,100,0.3)",
+        ),
+        annotations=name_annotations,
+        height=560, margin=dict(l=10, r=10, t=44, b=60),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(30,30,30,0.6)",
         font=dict(color="#ccc", size=12),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
+        showlegend=True,
     )
     return fig
 
