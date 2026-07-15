@@ -968,12 +968,10 @@ def render_group(
         for _i, _seg in enumerate(_slot_segs[:2]):
             _pos = _exec_results[_i]["positions"] if _i < len(_exec_results) else pd.Series(dtype=bool)
             _slot_nav = _exec_results[_i]["nav"] if _i < len(_exec_results) else pd.Series(dtype=float)
+            _slot_title = f"{group_label}接力 {_slot_names[_i] if _i < len(_slot_names) else f'槽{_i}'}"
+            st.markdown(f"##### {_slot_title} — 择股接力 + 执行层持仓 NAV（配色=当前持仓 · 灰虚线=空仓）")
             st.plotly_chart(
-                hv.build_slot_gantt_nav_fig(
-                    _seg, _pos, _slot_nav, spy_daily,
-                    f"{group_label}接力 {_slot_names[_i] if _i < len(_slot_names) else f'槽{_i}'}",
-                    name_map, grade_map,
-                ),
+                hv.build_slot_gantt_nav_fig(_seg, _pos, _slot_nav, spy_daily, _slot_title, name_map, grade_map),
                 use_container_width=True, key=f"{kp}_nav_gantt_{_i}",
             )
     else:

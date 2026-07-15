@@ -1192,9 +1192,10 @@ def build_slot_gantt_nav_fig(
     grade_map: dict = None,
 ) -> go.Figure:
     """单图：顶部按自己颜色的文字标签标注每段推荐票（同 build_stitched_fig 风格），
-    段与段之间用细竖线分隔；下方 NAV 按「当前持有票」的颜色着色（空仓灰虚线），
-    段内视觉降采样到月频，但每段起止两端仍保留精确到日的真实数据点，
-    横轴只在换股边界标精确日期。
+    股票名字那行用小竖杠分隔换股边界、边界上方标换股日期；下方 NAV 按「当前持有票」
+    的颜色着色（空仓灰虚线），段内视觉降采样到周频，但每段起止两端仍保留精确到日
+    的真实数据点；实际进出场（执行层日频规则触发，可能早于/晚于换股边界）不画三角，
+    只在图底部标精确日期。大盘 SPY 同期线同样降到周频。
     segs: [(ticker_or_CASH, 起始月, 结束月), ...]（推荐区间，hv.build_slot_segments 输出）。
     positions: build_nav_from_daily_positions 返回的逐日 bool Series（True=在场）。
     nav: 同一槽的日线 NAV Series。
@@ -1212,8 +1213,8 @@ def build_slot_gantt_nav_fig(
         x1 = pd.Timestamp(f"{e_m}-01") + pd.offsets.MonthEnd(1)
         seg_bounds.append((x0, x1, "" if (not tk or tk == "CASH") else tk))
 
-    name_annotations: list = []
-    boundary_dates: list = []
+    annotations: list = []
+    shapes: list = []
     for i, (x0, x1, tk) in enumerate(seg_bounds):
         if not tk:
             color, label = "#999", "💰 空仓"
@@ -1221,21 +1222,26 @@ def build_slot_gantt_nav_fig(
             color = color_map.get(tk, "#888")
             g = gm.get(tk, "")
             label = f"{nm.get(tk, tk)}({g})" if g else nm.get(tk, tk)
-        name_annotations.append(dict(
-            x=(x0 + (x1 - x0) / 2).to_pydatetime(), y=1.0, xref="x", yref="paper",
+        _mid = (x0 + (x1 - x0) / 2).to_pydatetime()
+        annotations.append(dict(
+            x=_mid, y=1.15, xref="x", yref="paper",
             text=label, showarrow=False,
             font=dict(size=12, color=color), xanchor="center", yanchor="bottom",
         ))
         if i > 0:
-            boundary_dates.append(x0)
-
-    for bx in boundary_dates:
-        fig.add_vline(x=bx.to_pydatetime(), line_dash="dash", line_color="rgba(200,200,200,0.35)", line_width=1)
-
-    _tick_dates = [seg_bounds[0][0]] if seg_bounds else []
-    _tick_dates += boundary_dates
-    if seg_bounds:
-        _tick_dates.append(seg_bounds[-1][1])
+            _bx = x0.to_pydatetime()
+            # 换股边界：股票名字行的小竖杠 + 上方标精确换股日期
+            shapes.append(dict(
+                type="line", xref="x", yref="paper",
+                x0=_bx, x1=_bx, y0=1.0, y1=1.06,
+                line=dict(color="rgba(200,200,200,0.6)", width=1),
+            ))
+            annotations.append(dict(
+                x=_bx, y=1.06, xref="x", yref="paper",
+                text=x0.strftime("%Y-%m-%d"), showarrow=False,
+                font=dict(size=9, color="#999"), xanchor="left", yanchor="bottom",
+                textangle=-40,
+            ))
 
     if nav is not None and not nav.empty:
         nav_rel = nav.astype(float) / float(nav.iloc[0])
@@ -1271,7 +1277,7 @@ def build_slot_gantt_nav_fig(
             run_val = nav_rel.iloc[lo:re_]
             if len(run_idx) == 0:
                 continue
-            _pts = run_val.resample("ME").last().dropna()
+            _pts = run_val.resample("W-FRI").last().dropna()
             _pts.loc[run_idx[0]] = run_val.iloc[0]
             _pts.loc[run_idx[-1]] = run_val.iloc[-1]
             _pts = _pts[~_pts.index.duplicated(keep="last")].sort_index()
@@ -1282,53 +1288,46 @@ def build_slot_gantt_nav_fig(
             )
             fig.add_trace(go.Scatter(x=_pts.index, y=_y, mode="lines", line=_line, showlegend=False))
 
+        # 实际进出场（执行层日频规则触发，去掉三角形，图底部标精确日期）
         trans = pos.astype(int).diff().fillna(0)
         entries = nav_rel.index[trans == 1]
         exits = nav_rel.index[trans == -1]
-        if len(entries):
-            fig.add_trace(go.Scatter(
-                x=entries, y=[max(0.001, nav_rel.loc[d]) for d in entries],
-                mode="markers", marker=dict(symbol="triangle-up", size=9, color="#2ECC71"),
-                name="进场", showlegend=True,
+        for d in entries:
+            annotations.append(dict(
+                x=d.to_pydatetime(), y=-0.20, xref="x", yref="paper",
+                text=f"🟢{d.strftime('%Y-%m-%d')}", showarrow=False,
+                font=dict(size=9, color="#2ECC71"), xanchor="left", yanchor="top",
+                textangle=-40,
             ))
-        if len(exits):
-            fig.add_trace(go.Scatter(
-                x=exits, y=[max(0.001, nav_rel.loc[d]) for d in exits],
-                mode="markers", marker=dict(symbol="triangle-down", size=9, color="#E74C3C"),
-                name="出场", showlegend=True,
+        for d in exits:
+            annotations.append(dict(
+                x=d.to_pydatetime(), y=-0.20, xref="x", yref="paper",
+                text=f"🔴{d.strftime('%Y-%m-%d')}", showarrow=False,
+                font=dict(size=9, color="#E74C3C"), xanchor="left", yanchor="top",
+                textangle=-40,
             ))
 
         _spy_close = _as_close_series(spy_daily)
         if not _spy_close.empty:
             spy_seg = _spy_close.reindex(nav_rel.index).ffill().dropna()
             if len(spy_seg) >= 2:
-                spy_rel = spy_seg / float(spy_seg.iloc[0])
+                spy_rel = (spy_seg / float(spy_seg.iloc[0])).resample("W-FRI").last().dropna()
                 fig.add_trace(go.Scatter(
                     x=spy_rel.index, y=spy_rel.values, mode="lines",
                     line=dict(color="rgba(180,180,180,0.4)", width=1.5, dash="dot"),
                     name=f"SPY 同期 {(float(spy_rel.iloc[-1]) - 1) * 100:+.1f}%",
                 ))
 
-    _tick_dates = sorted(set(_tick_dates))
-    _tick_texts = [d.strftime("%Y-%m-%d") for d in _tick_dates]
-    _tick_dates = [d.to_pydatetime() for d in _tick_dates]
-
     fig.update_layout(
-        title=dict(text=f"{slot_name} — 择股接力 + 执行层持仓 NAV（配色=当前持仓 · 灰虚线=空仓）",
-                    font=dict(size=13), x=0.01, xanchor="left"),
-        xaxis=dict(
-            type="date", tickmode="array", tickvals=_tick_dates, ticktext=_tick_texts,
-            tickfont=dict(size=10), tickangle=-45,
-            gridcolor="rgba(100,100,100,0.3)",
-        ),
+        xaxis=dict(type="date", showgrid=True, gridcolor="rgba(100,100,100,0.3)", title="日期"),
         yaxis=dict(
             title="NAV（对数，1.0=起始）", type="log",
             tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
             ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
             gridcolor="rgba(100,100,100,0.3)",
         ),
-        annotations=name_annotations,
-        height=560, margin=dict(l=10, r=10, t=44, b=60),
+        annotations=annotations, shapes=shapes,
+        height=640, margin=dict(l=10, r=10, t=85, b=150),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(30,30,30,0.6)",
         font=dict(color="#ccc", size=12),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
