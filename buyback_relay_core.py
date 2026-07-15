@@ -113,6 +113,7 @@ def render_group(
     hold_band: int = None,
     entry_min_top2_hits: int = 2,
     show_medal_table: bool = True,
+    medal_table_hide_unmedaled: bool = False,
     only_medaled_in_heatmap: bool = False,
     nav_engine: str = "weekly",
     daily_price_cache: dict = None,
@@ -324,7 +325,10 @@ def render_group(
     if show_medal_table:
         _rank_suffix = " → 铜牌" if dynamic_n_hold and max_n_hold >= 3 else ""
         st.markdown(f"#### 🏅 奖牌榜(按累计金牌 → 银牌{_rank_suffix}排序)")
-        st.dataframe(_medal_df, use_container_width=True, hide_index=True)
+        _medal_show = _medal_df
+        if medal_table_hide_unmedaled and not _medal_df.empty:
+            _medal_show = _medal_df[(_medal_df["🥇 累计金牌(月)"] > 0) | (_medal_df["🥈 累计银牌(月)"] > 0)]
+        st.dataframe(_medal_show, use_container_width=True, hide_index=True)
 
     if dynamic_n_hold:
         st.markdown(f"### 📈 动态持有 Top1-Top{max_n_hold} · 净值 vs SPY")

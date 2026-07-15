@@ -5,7 +5,7 @@ import numpy as np
 from api_client import fetch_buyback_stable_relay_timeseries, fetch_gbdt_oos_prices, get_global_data
 from buyback_relay_core import render_group
 
-st.set_page_config(page_title="fcf稳定", layout="wide")
+st.set_page_config(page_title="ROIC稳定", layout="wide")
 
 st.markdown("""
 <style>
@@ -163,4 +163,5 @@ render_group("回购稳定", _rest_cols, "stable_rest", score_m=roic_m, sweep_sc
              retention_ma_window=4,
              entry_mask=_entry_mask,
              entry_ma_window=15,
+             medal_table_hide_unmedaled=True,
              **_COMMON)
