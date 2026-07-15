@@ -959,8 +959,11 @@ def render_group(
         )
     elif retention_band is not None:
         # 选股与买卖解耦：每槽一张「推荐区间甘特 + 执行层日线 NAV」组合图，替代原周线接力拼接图。
+        # 上方合成净值图重采样到周线（W-FRI），日线太密。执行层 NAV 仍按日频算，仅展示降频。
+        def _to_wk(_s):
+            return _s.resample("W-FRI").last().dropna() if not _s.empty else _s
         st.plotly_chart(
-            hv.build_combined_fig(_nav_l, _nav_r, _navc, spy_wk, f"{group_label} Top2 — 左右两列 50/50 合成 vs SPY"),
+            hv.build_combined_fig(_to_wk(_nav_l), _to_wk(_nav_r), _to_wk(_navc), spy_wk, f"{group_label} Top2 — 左右两列 50/50 合成 vs SPY"),
             use_container_width=True, key=f"{kp}_nav_combined",
         )
         _exec_results = _exec_state.get("results", [])

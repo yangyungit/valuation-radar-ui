@@ -1324,6 +1324,21 @@ def build_slot_gantt_nav_fig(
         y_hi = max(_y_all) * 1.15 if _y_all else 2.0
         _log_lo, _log_hi = float(np.log10(y_lo)), float(np.log10(y_hi))
 
+        # 换股边界竖线：从图区顶(y_hi=paper 顶边)延伸到净值曲线在换股日的分界点，
+        # 接上图外那截「图顶→日期标签」的引线，整根从日期一路连到曲线交界处。
+        _ix_ns = nav_rel.index.values.astype("datetime64[ns]").astype("int64")
+        for _bx0, _bx1, _btk in seg_bounds[1:]:
+            _bp = int(np.searchsorted(_ix_ns, pd.Timestamp(_bx0).value))
+            if _bp >= len(nav_rel):
+                continue
+            _byv = max(0.001, float(nav_rel.iloc[_bp]))
+            shapes.append(dict(
+                type="line", xref="x", yref="y",
+                x0=_bx0.to_pydatetime(), x1=_bx0.to_pydatetime(),
+                y0=_byv, y1=y_hi,
+                line=dict(color="rgba(200,200,200,0.6)", width=1),
+            ))
+
         # 实际进出场（执行层日频规则触发）：三角标记放在下方年份刻度同一高度，
         # 用一根细引导线（图内竖线 + 图外竖线两段拼接）连回图上真正的进出场点位置，
         # 日期文字用灰色（方向靠三角颜色区分）。
