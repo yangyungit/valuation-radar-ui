@@ -199,6 +199,12 @@ def render_group(
     _bronze_cnt = (_confirmed == 1).sum(axis=0)
     _ordered = (_gold_cnt * 10000 + _silver_cnt * 100 + _bronze_cnt).sort_values(ascending=False).index.tolist()
 
+    if medal_table_hide_unmedaled:
+        # 没拿过金/银牌的票热力图和奖牌榜都不显示，不是可切换开关，直接过滤
+        _ordered = [tk for tk in _ordered if _gold_cnt.get(tk, 0) > 0 or _silver_cnt.get(tk, 0) > 0]
+        if not _ordered:
+            _ordered = (_gold_cnt * 10000 + _silver_cnt * 100 + _bronze_cnt).sort_values(ascending=False).index.tolist()[:1]
+
     if only_medaled_in_heatmap:
         # 只留曾够格建仓的票：用和进场门槛一致的口径（最近 6 月内进 Top_band ≥ entry_min_top2_hits 次），
         # 滤掉只闪现一次、净值里根本没买过的生面孔，避免热力图误导。
@@ -325,10 +331,7 @@ def render_group(
     if show_medal_table:
         _rank_suffix = " → 铜牌" if dynamic_n_hold and max_n_hold >= 3 else ""
         st.markdown(f"#### 🏅 奖牌榜(按累计金牌 → 银牌{_rank_suffix}排序)")
-        _medal_show = _medal_df
-        if medal_table_hide_unmedaled and not _medal_df.empty:
-            _medal_show = _medal_df[(_medal_df["🥇 累计金牌(月)"] > 0) | (_medal_df["🥈 累计银牌(月)"] > 0)]
-        st.dataframe(_medal_show, use_container_width=True, hide_index=True)
+        st.dataframe(_medal_df, use_container_width=True, hide_index=True)
 
     if dynamic_n_hold:
         st.markdown(f"### 📈 动态持有 Top1-Top{max_n_hold} · 净值 vs SPY")
