@@ -1230,19 +1230,21 @@ def build_slot_gantt_nav_fig(
         ))
         if i > 0:
             _bx = x0.to_pydatetime()
-            # 换股边界：股票名字行的小竖杠 + 上方标精确换股日期
+            # 换股边界：竖杠跟股票名字同一高度（都在 1.0~1.2 这个头部区间内），
+            # 边界正上方标精确换股日期
             shapes.append(dict(
                 type="line", xref="x", yref="paper",
-                x0=_bx, x1=_bx, y0=1.0, y1=1.06,
+                x0=_bx, x1=_bx, y0=1.0, y1=1.2,
                 line=dict(color="rgba(200,200,200,0.6)", width=1),
             ))
             annotations.append(dict(
-                x=_bx, y=1.06, xref="x", yref="paper",
+                x=_bx, y=1.0, xref="x", yref="paper",
                 text=x0.strftime("%Y-%m-%d"), showarrow=False,
                 font=dict(size=9, color="#999"), xanchor="left", yanchor="bottom",
                 textangle=-40,
             ))
 
+    _y_all: list = []  # 收集全部实际画出的 y 值，用于固定 log 轴 range（下方引导线要精确打到轴底）
     if nav is not None and not nav.empty:
         nav_rel = nav.astype(float) / float(nav.iloc[0])
         pos = (
@@ -1282,52 +1284,69 @@ def build_slot_gantt_nav_fig(
             _pts.loc[run_idx[-1]] = run_val.iloc[-1]
             _pts = _pts[~_pts.index.duplicated(keep="last")].sort_index()
             _y = [max(0.001, v) for v in _pts.values]
+            _y_all.extend(_y)
             _line = (
                 dict(color="#888", width=1.5, dash="dash") if not tkv
                 else dict(color=color_map.get(tkv, "#888"), width=2)
             )
             fig.add_trace(go.Scatter(x=_pts.index, y=_y, mode="lines", line=_line, showlegend=False))
 
-        # 实际进出场（执行层日频规则触发，去掉三角形，图底部标精确日期）
-        trans = pos.astype(int).diff().fillna(0)
-        entries = nav_rel.index[trans == 1]
-        exits = nav_rel.index[trans == -1]
-        for d in entries:
-            annotations.append(dict(
-                x=d.to_pydatetime(), y=-0.20, xref="x", yref="paper",
-                text=f"🟢{d.strftime('%Y-%m-%d')}", showarrow=False,
-                font=dict(size=9, color="#2ECC71"), xanchor="left", yanchor="top",
-                textangle=-40,
-            ))
-        for d in exits:
-            annotations.append(dict(
-                x=d.to_pydatetime(), y=-0.20, xref="x", yref="paper",
-                text=f"🔴{d.strftime('%Y-%m-%d')}", showarrow=False,
-                font=dict(size=9, color="#E74C3C"), xanchor="left", yanchor="top",
-                textangle=-40,
-            ))
-
         _spy_close = _as_close_series(spy_daily)
         if not _spy_close.empty:
             spy_seg = _spy_close.reindex(nav_rel.index).ffill().dropna()
             if len(spy_seg) >= 2:
                 spy_rel = (spy_seg / float(spy_seg.iloc[0])).resample("W-FRI").last().dropna()
+                _y_all.extend(float(v) for v in spy_rel.values)
                 fig.add_trace(go.Scatter(
                     x=spy_rel.index, y=spy_rel.values, mode="lines",
                     line=dict(color="rgba(180,180,180,0.4)", width=1.5, dash="dot"),
                     name=f"SPY 同期 {(float(spy_rel.iloc[-1]) - 1) * 100:+.1f}%",
                 ))
 
+        # log 轴 range 先固定下来，下方引导线才能精确打到轴底（也避免被引导线的极小值拉爆自动量程）
+        y_lo = min(_y_all) * 0.85 if _y_all else 0.5
+        y_hi = max(_y_all) * 1.15 if _y_all else 2.0
+        _log_lo, _log_hi = float(np.log10(y_lo)), float(np.log10(y_hi))
+
+        # 实际进出场（执行层日频规则触发）：三角标记放在下方年份刻度同一高度，
+        # 用一根细引导线（图内竖线 + 图外竖线两段拼接）连回图上真正的进出场点位置，
+        # 日期文字用灰色（方向靠三角颜色区分）。
+        _BOTTOM_Y = -0.06
+        trans = pos.astype(int).diff().fillna(0)
+        entries = nav_rel.index[trans == 1]
+        exits = nav_rel.index[trans == -1]
+        for d, arrow, color in (
+            [(d, "▲", "#2ECC71") for d in entries] + [(d, "▼", "#E74C3C") for d in exits]
+        ):
+            _dx = d.to_pydatetime()
+            shapes.append(dict(
+                type="line", xref="x", yref="y",
+                x0=_dx, x1=_dx, y0=float(nav_rel.loc[d]), y1=y_lo,
+                line=dict(color="rgba(200,200,200,0.45)", width=1),
+            ))
+            shapes.append(dict(
+                type="line", xref="x", yref="paper",
+                x0=_dx, x1=_dx, y0=0.0, y1=_BOTTOM_Y,
+                line=dict(color="rgba(200,200,200,0.45)", width=1),
+            ))
+            annotations.append(dict(
+                x=_dx, y=_BOTTOM_Y, xref="x", yref="paper",
+                text=f"<span style='color:{color}'>{arrow}</span> <span style='color:#999'>{d.strftime('%Y-%m-%d')}</span>",
+                showarrow=False, font=dict(size=9), xanchor="left", yanchor="middle",
+            ))
+    else:
+        _log_lo, _log_hi = float(np.log10(0.5)), float(np.log10(2.0))
+
     fig.update_layout(
         xaxis=dict(type="date", showgrid=True, gridcolor="rgba(100,100,100,0.3)", title="日期"),
         yaxis=dict(
-            title="NAV（对数，1.0=起始）", type="log",
+            title="NAV（对数，1.0=起始）", type="log", range=[_log_lo, _log_hi],
             tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
             ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
             gridcolor="rgba(100,100,100,0.3)",
         ),
         annotations=annotations, shapes=shapes,
-        height=640, margin=dict(l=10, r=10, t=85, b=150),
+        height=640, margin=dict(l=10, r=10, t=100, b=90),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(30,30,30,0.6)",
         font=dict(color="#ccc", size=12),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
