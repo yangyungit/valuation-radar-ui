@@ -54,13 +54,23 @@ _all_groups = sorted({
     for p in (_ts.get("tickers", {}) or {}).values()
     if p.get("group", "")
 })
+# D-ext（净值回测扩展票）不进组别 multiselect，只由「D 组扩展版」checkbox 控制并入选仓池
+_all_groups_display = [g for g in _all_groups if not g.startswith("D-ext")]
 _default_groups = [
     g for g in ["C: 核心板块 (Level 1 Sectors)", "D: 细分赛道 (Level 2/Themes)"]
-    if g in _all_groups
+    if g in _all_groups_display
 ]
 
 with st.sidebar:
-    selected_groups = st.multiselect("显示资产组别：", _all_groups, default=_default_groups)
+    selected_groups = st.multiselect("显示资产组别：", _all_groups_display, default=_default_groups)
+    _d_selected = any(g.startswith("D:") for g in selected_groups)
+    _use_dext = False
+    if _d_selected:
+        _use_dext = st.checkbox(
+            "D 组扩展版(+SOXX/URNM/COPX/XHB)", value=False,
+            help="仅并入王朝接力净值实验台的选仓池，不进染色图母体。"
+                 "SOXX≈SMH、XHB≈ITB 高度重叠;COPX 铜矿是真新赛道;URNM 2019-12 上市。",
+        )
 
 st.title("👑 板块王朝 (Dynasty Relay)")
 st.caption("月末板块排名 · 王朝期识别 · ETF 轮动净值")
@@ -374,186 +384,555 @@ with _dyn_tab1:
 </div>
 """, unsafe_allow_html=True)
 
-                    # ── 王朝接力净值
+                    _render_relay_lab(key_suffix)
+
+                def _render_relay_lab(key_suffix):
+                    # ── 王朝接力净值实验台（多层筛选回测）
                     st.markdown("---")
-                    st.markdown(f"##### 📈 {metric_label} · 王朝接力净值(龙头 + 次龙头,左右两列)")
+                    st.markdown("##### 🧪 王朝接力净值实验台(多层筛选回测)")
                     st.caption(
-                        "每月末选 **2 个仓位**,顺延 1 月执行(去 look-ahead) · **进场门槛**:新进场"
-                        "必须当月在前 3(图上银/金格) · **资历优先**:够格的按近 6 月进前 3 次数排序,"
-                        "优先老牌、不追单月暴涨 · **守擂防抖**:在任票只要还在 Top-N 缓冲区内就继续持有,"
-                        "掉出缓冲区才换人 · 左右两列只为对齐观察:上月在某列且本月仍持有的留原列,不来回跳 · "
-                        "各列等权,合成线 = 左右 50/50 · 周线 NAV,价格 yfinance 股息+拆股复权,"
-                        "与后端 king_score 同源 · 净值最长回看约 10 年,早期未上市的 ETF 月份缺价。"
+                        "月末选仓、顺延 1 月执行(去 look-ahead) · 周线 NAV,价格 yfinance 复权 · "
+                        "打分口径固定 king_score、进场门槛固定资历接力、多窗口 blend 固定 Borda(沿袭板块王朝) · "
+                        "窗口/持仓数/守擂可调 · 早期未上市 ETF 月份自动缺席。"
                     )
-                    _dyn_buf = int(st.number_input(
-                        "守擂缓冲区 buffer_N(≥2,越大越不换仓)",
-                        min_value=2, max_value=10, value=4, step=1,
-                        key=f"dyn_nav_buf_{key_suffix}",
-                        help="持有的票掉到第 N 名以内都不换;掉出第 N 名才被替换为当前 Top2。"
-                             "= 2 即严格只拿前两名(最敏感,换手最高)。",
-                    ))
-                    _ten6 = (_rank_m <= 3).astype(int).rolling(6, min_periods=1).sum()
-                    if not _dyn_price_cache:
-                        st.info("暂无可用价格数据,无法渲染王朝接力净值。")
-                    else:
-                        _mh: dict = {}
-                        _mh_src: dict = {}
-                        _mh_raw: dict = {}
-                        _mh_ten: dict = {}
-                        _prev_h: list = []
-                        for _ts, _row in _rank_m.iterrows():
-                            _r = _row.dropna().sort_values()
-                            if _r.empty:
+
+                    # 控件区：一排旋钮，显式 for 渲染（架构约束：禁列表推导生成组件）
+                    # 打分口径固定 king_score、进场门槛固定资历接力、多窗口 blend 固定 Borda（沿袭板块王朝）
+                    _ctrl_cols = st.columns([1.4, 0.9, 2.2])
+                    _guard_choices = ["buffer", "δ", "无"]
+                    with _ctrl_cols[0]:
+                        _mom_wins = st.multiselect(
+                            "动量窗口(日)", [63, 126, 252, 504], default=[252],
+                            key=f"lab_wins_{key_suffix}",
+                            help="多选做 blend(Borda 名次平均);单选=纯单窗口动量。",
+                        )
+                    with _ctrl_cols[1]:
+                        _n_hold = int(st.selectbox("持仓数 N", [1, 2, 3, 4, 5], index=1, key=f"lab_n_{key_suffix}"))
+                    with _ctrl_cols[2]:
+                        _guard_sel = st.radio(
+                            "守擂", _guard_choices, key=f"lab_guard_{key_suffix}", horizontal=True,
+                        )
+
+                    # 守擂三档规则说明（常显，供新用户看懂）
+                    st.markdown(
+                        "<div style='font-size:13px;color:#aaa;line-height:1.7;margin:-4px 0 6px'>"
+                        "<b style='color:#ccc'>守擂 = 上月持仓的留任规则：</b>"
+                        "<b>buffer</b> 在任票掉出前 buffer_N 名才换,减少无谓换仓 · "
+                        "<b>δ</b> 在任票分数 ≥「第N名门槛 − kδ×当月σ」就留任 · "
+                        "<b>无</b> 不留任,每月按排名硬换 TopN(换手最高)。"
+                        "buffer_N / kδ 由系统 maximin 自动定最优,无需手选。"
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                    # buffer_N / kδ 不再手选：由下方 maximin sweep 自动定最优后回填主曲线
+                    _buf_n = max(4, _n_hold)
+                    _kdelta = 1.0
+
+                    if not _mom_wins:
+                        _mom_wins = [252]
+                    _basis_code = "king_score"
+                    _blend_code = "borda"
+                    _guard_code = {"buffer": "buffer", "δ": "delta", "无": "none"}[_guard_sel]
+                    _gate_code = "seniority"
+
+                    # 选仓池：选中 C/D + 可选 D-ext 4 票（染色图不含,只进净值回测）
+                    _pool = dict(_picked_d)
+                    _dext_in = []
+                    if _use_dext:
+                        for _tk, _p in _dyn_tickers.items():
+                            if str(_p.get("group", "")).startswith("D-ext"):
+                                _pool[_tk] = _p
+                                _dext_in.append(_tk)
+                    _pool_name_map = {tk: p.get("name", tk) for tk, p in _pool.items()}
+                    if _dext_in:
+                        st.caption(
+                            "D 组扩展版已并入选仓池:"
+                            + "、".join(f"{_pool_name_map.get(t, t)}({t})" for t in _dext_in)
+                            + " · SOXX≈SMH、XHB≈ITB 高度重叠(近似重复暴露),COPX 铜矿是真新赛道 · "
+                            "URNM 2019-12 上市,10Y 早期缺席。"
+                        )
+
+                    def _score_from_ts(_ts_dict, _wins=None):
+                        """从某窗口时序算选仓池月末 score（月×板块）。_wins=None 用当前旋钮。"""
+                        _use_wins = _mom_wins if _wins is None else _wins
+                        _tks = _ts_dict.get("tickers", {}) or {}
+                        _dates = _ts_dict.get("dates", []) or []
+                        if not _dates:
+                            return pd.DataFrame()
+                        _ix = pd.to_datetime(_dates, errors="coerce")
+                        _pl = {tk: p for tk, p in _tks.items() if tk in _pool}
+                        if not _pl:
+                            return pd.DataFrame()
+                        _rsw = {}
+                        for _w in [63, 126, 252, 504]:
+                            _cols = {}
+                            for tk, p in _pl.items():
+                                _v = p.get(f"rs_{_w}")
+                                if _v is None:
+                                    _v = p.get("rs")
+                                if _v is not None:
+                                    _cols[tk] = _v
+                            if _cols:
+                                _rsw[_w] = pd.DataFrame(_cols, index=_ix).astype(float).resample("ME").last()
+                        _advm = pd.DataFrame(
+                            {tk: p.get("adv_63d") for tk, p in _pl.items()}, index=_ix
+                        ).astype(float).resample("ME").last()
+                        return hv.blend_relay_scores(_rsw, _advm, _use_wins, _blend_code, _basis_code)
+
+                    # 当前窗口打分
+                    _score_m = _score_from_ts(_dyn_ts)
+
+                    # 价格：选仓池 + SPY，周线（含 D-ext）
+                    _pool_px = get_global_data(sorted(_pool.keys()) + ["SPY"], years=10)
+                    _pc: dict = {}
+                    _spy_wk = _dyn_spy_wk
+                    if _pool_px is not None and not _pool_px.empty:
+                        _wk = _pool_px.resample("W-FRI").last()
+                        if "SPY" in _wk.columns:
+                            _spy_wk = _wk[["SPY"]].rename(columns={"SPY": "Close"}).dropna()
+                        for _tk in _pool:
+                            if _tk in _wk.columns:
+                                _s = _wk[_tk].dropna()
+                                if len(_s) >= 2:
+                                    _pc[_tk] = _s.to_frame(name="Close")
+
+                    def _build_navc(_sm, _gd, _bn, _kd, _n=None):
+                        """选仓 → 槽位 → 各槽周线 NAV → 等权合成。_n=None 用当前旋钮。
+                        返回 (monthly_holdings, slots, exec_months, slot_navs, navc)。"""
+                        _nn = _n_hold if _n is None else int(_n)
+                        if _sm is None or _sm.empty:
+                            return {}, {}, [], [], pd.Series(dtype=float)
+                        _mh2 = hv.select_relay_holdings(
+                            _sm, _nn, _gate_code, _gd, _bn, _kd
+                        )
+                        if not _mh2:
+                            return {}, {}, [], [], pd.Series(dtype=float)
+                        _em = sorted(_mh2)
+                        _sl = hv.build_basket_slot_assignments(_mh2, _em)
+                        _ns = max((len(v) for v in _sl.values()), default=_nn)
+                        _snavs = []
+                        for _si in range(_ns):
+                            _sg = hv.build_slot_segments(_sl, _si, _em)
+                            _nv = hv.calc_slot_stats(_sg, _pc, _spy_wk, 0.04)[2]
+                            _snavs.append((f"仓{_si + 1}", _nv))
+                        _valid = [nv for _, nv in _snavs if not nv.empty]
+                        _navc2 = pd.Series(dtype=float)
+                        if _valid:
+                            _ui = _valid[0].index
+                            for _n in _valid[1:]:
+                                _ui = _ui.union(_n.index)
+                            _acc = None
+                            for _n in _valid:
+                                _r = _n.reindex(_ui).ffill().bfill()
+                                _acc = _r if _acc is None else _acc + _r
+                            _navc2 = _acc / len(_valid)
+                        return _mh2, _sl, _em, _snavs, _navc2
+
+                    if _score_m.empty or not _pc:
+                        st.info("暂无足够数据渲染净值(检查选仓池 / 动量窗口 / 价格)。")
+                        return
+
+                    # ── 守擂参数自动寻优：在选中守擂方式上跑 3Y/5Y/10Y 网格，maximin 定最优后回填主曲线
+                    _HZ = ["3Y", "5Y", "10Y"]
+                    _hz_color = {"3Y": "#5DADE2", "5Y": "#FFD700", "10Y": "#E67E22"}
+
+                    def _maximin(grid_vals, cum_by_val):
+                        """各段归一化后取 min 最高（并列取跨段 std 最小）。"""
+                        _norm = {}
+                        for hz in _HZ:
+                            _vals = [cum_by_val[v].get(hz, float("nan")) for v in grid_vals]
+                            _mx = max([x for x in _vals if x == x], default=float("nan"))
+                            _norm[hz] = [
+                                (x / _mx) if (_mx == _mx and _mx > 0 and x == x) else float("nan")
+                                for x in _vals
+                            ]
+                        _best, _best_key = None, None
+                        for _i, v in enumerate(grid_vals):
+                            _sc = [_norm[hz][_i] for hz in _HZ if _norm[hz][_i] == _norm[hz][_i]]
+                            if len(_sc) < len(_HZ):
                                 continue
-                            _order = _r.index.tolist()
-                            _t2 = _order[:2]
-                            _tN = set(_order[:_dyn_buf])
-                            _tnow = _ten6.loc[_ts]
-                            _elig = [t for t in _order if _r[t] <= 3]
-                            _elig_t = sorted(
-                                _elig, key=lambda t: (-float(_tnow.get(t, 0)), _r[t]))
-                            _hold = [t for t in _prev_h if t in _tN][:2] if _prev_h else []
-                            for t in _elig_t:
-                                if len(_hold) >= 2:
-                                    break
-                                if t not in _hold:
-                                    _hold.append(t)
-                            if len(_hold) < 2:
-                                for t in _order:
-                                    if len(_hold) >= 2:
-                                        break
-                                    if t not in _hold:
-                                        _hold.append(t)
-                            _exec_m = hv.next_month_key(_ts.strftime("%Y-%m"), 1)
-                            _mh[_exec_m] = _hold
-                            _mh_src[_exec_m] = _ts.strftime("%Y-%m")
-                            _mh_raw[_exec_m] = _t2
-                            _mh_ten[_exec_m] = {t: int(_tnow.get(t, 0)) for t in _hold}
-                            _prev_h = _hold
-                        _exec_months = sorted(_mh)
-                        if not _exec_months:
-                            st.info("月度排名数据不足,无法渲染净值。")
-                        else:
-                            _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
+                            _key = (min(_sc), -float(np.std(_sc)))
+                            if _best_key is None or _key > _best_key:
+                                _best_key, _best = _key, v
+                        return _best, _norm
 
-                            def _dyn_nm(t):
-                                if not t or t == "CASH":
-                                    return "—"
-                                return f"{_d_name_map.get(t, t)} ({t})"
+                    _rec_val = None
+                    _sweep_grid, _sweep_norm, _sweep_cum = [], {}, {}
+                    if _guard_code != "none":
+                        _score_by_hz = {
+                            hz: _score_from_ts(_dynasty_ts_by_window.get(hz, {}) or {})
+                            for hz in _HZ
+                        }
 
-                            def _wt(t, ten):
-                                b = _dyn_nm(t)
-                                return (f"{b} · 资历{ten[t]}"
-                                        if (t and t != "CASH" and t in ten) else b)
-                            _picks_rows = []
-                            for _em in _exec_months:
-                                _sa = _slots.get(_em, ["—", "—"])
-                                _raw = _mh_raw.get(_em, [])
-                                _raw1 = _raw[0] if len(_raw) > 0 else None
-                                _raw2 = _raw[1] if len(_raw) > 1 else None
-                                _ten = _mh_ten.get(_em, {})
-                                _held = {t for t in _sa if t and t != "CASH"}
-                                _kept = bool(_raw) and _held != set(_raw)
-                                _picks_rows.append({
-                                    "排名来源月": _mh_src.get(_em, "—"),
-                                    "执行月(实际持有)": _em,
-                                    "来源月 Top1(龙头)": _dyn_nm(_raw1),
-                                    "来源月 Top2(次龙头)": _dyn_nm(_raw2),
-                                    "左列实际持有": _wt(_sa[0], _ten),
-                                    "右列实际持有": _wt(_sa[1], _ten),
-                                    "守擂留任": "是" if _kept else "",
-                                })
-                            st.markdown("**每月左右两列实际持仓**(对照上方王朝接力图逐行核对)")
-                            st.caption(
-                                "「排名来源月」对应王朝接力图里那一格的月份;「执行月」= 来源月 + 1 = 真正持有的月份"
-                                "(去 look-ahead:月末排名是用截至月末的价格算的,只能下月才进场)。"
-                                "**选股两层**:① 新进场必须当月在前 3(图上银/金格)才够格;② 够格的按「资历」"
-                                "(近 6 月进过前 3 的次数,数字越大越老牌)排序,优先老牌、不追单月暴涨。"
-                                "标的后缀 `· 资历N` 就是这个次数。当「实际持有」≠「来源月 Top1/Top2」时:"
-                                "① **守擂留任=是**——上月的票还在缓冲区内被留任;② 资历更高的老牌把单月窜上来的新票挤掉。"
-                            )
-                            st.dataframe(
-                                pd.DataFrame(_picks_rows).iloc[::-1],
-                                use_container_width=True, hide_index=True,
-                            )
+                        def _cum_ret_for(hz, gd, bn, kd):
+                            _sm2 = _score_by_hz.get(hz)
+                            if _sm2 is None or _sm2.empty:
+                                return float("nan")
+                            _r = _build_navc(_sm2, gd, bn, kd)[4]
+                            if _r.empty:
+                                return float("nan")
+                            return (float(_r.iloc[-1]) / float(_r.iloc[0]) - 1.0) * 100.0
 
-                            _seg_l = hv.build_slot_segments(_slots, 0, _exec_months)
-                            _seg_r = hv.build_slot_segments(_slots, 1, _exec_months)
-                            _nav_l = hv.calc_slot_stats(
-                                _seg_l, _dyn_price_cache, _dyn_spy_wk, 0.04)[2]
-                            _nav_r = hv.calc_slot_stats(
-                                _seg_r, _dyn_price_cache, _dyn_spy_wk, 0.04)[2]
+                        with st.spinner("守擂参数寻优（3Y/5Y/10Y 网格）..."):
+                            if _guard_code == "delta":
+                                _sweep_grid = [round(x * 0.25, 2) for x in range(0, 13)]  # 0~3.0
+                                _sweep_cum = {
+                                    dk: {hz: _cum_ret_for(hz, "delta", _buf_n, dk) for hz in _HZ}
+                                    for dk in _sweep_grid
+                                }
+                            else:  # buffer
+                                _sweep_grid = list(range(int(_n_hold), 11))  # buffer N~10
+                                _sweep_cum = {
+                                    bn: {hz: _cum_ret_for(hz, "buffer", bn, _kdelta) for hz in _HZ}
+                                    for bn in _sweep_grid
+                                }
+                        _rec_val, _sweep_norm = _maximin(_sweep_grid, _sweep_cum)
 
-                            _navc = pd.Series(dtype=float)
-                            if not _nav_l.empty and not _nav_r.empty:
-                                _uidx = _nav_l.index.union(_nav_r.index)
-                                _nl = _nav_l.reindex(_uidx).ffill().bfill()
-                                _nr = _nav_r.reindex(_uidx).ffill().bfill()
-                                _navc = 0.5 * _nl + 0.5 * _nr
-                            elif not _nav_l.empty:
-                                _navc = _nav_l.copy()
-                            elif not _nav_r.empty:
-                                _navc = _nav_r.copy()
-
-                            if _navc.empty:
-                                st.info("价格窗口内无足够数据生成净值曲线。")
+                        # 回填主曲线所用守擂参数（无稳健解则保留默认）
+                        if _rec_val is not None:
+                            if _guard_code == "delta":
+                                _kdelta = float(_rec_val)
                             else:
-                                _ret_c = (
-                                    float(_navc.iloc[-1]) / float(_navc.iloc[0]) - 1
-                                ) * 100
-                                _peak_c = _navc.cummax()
-                                _dd_c = float(
-                                    ((_peak_c - _navc)
-                                     / _peak_c.replace(0, float("nan"))).max()
-                                ) * 100
-                                _kpi = hv.compute_nav_kpi(_navc)
-                                _years_c = (_navc.index[-1] - _navc.index[0]).days / 365.25
-                                _cagr_c = (
-                                    ((float(_navc.iloc[-1]) / float(_navc.iloc[0])) ** (1 / _years_c) - 1) * 100
-                                    if _years_c > 0 else float("nan")
-                                )
+                                _buf_n = int(_rec_val)
 
-                                def _fmt_k(v, f=".2f"):
-                                    try:
-                                        if isinstance(v, float) and (
-                                            v != v or abs(v) == float("inf")):
-                                            return "—"
-                                        return f"{v:{f}}"
-                                    except (TypeError, ValueError):
-                                        return "—"
+                    _mh, _slots, _exec_months, _slot_navs, _navc = _build_navc(
+                        _score_m, _guard_code, _buf_n, _kdelta
+                    )
+                    if _navc.empty:
+                        st.info("价格窗口内无足够数据生成净值曲线。")
+                        return
 
-                                _c1, _c2, _c3, _c4, _c5, _c6 = st.columns(6)
-                                _c1.metric("总收益", f"{_ret_c:+.1f}%")
-                                _c2.metric("CAGR", f"{_cagr_c:+.1f}%" if _cagr_c == _cagr_c else "—")
-                                _c3.metric("最大回撤", f"-{_dd_c:.1f}%")
-                                _c4.metric("Calmar", _fmt_k(_kpi.get("calmar", float("nan"))))
-                                _c5.metric("Sortino", _fmt_k(_kpi.get("sortino", float("nan"))))
-                                _c6.metric("logR²", _fmt_k(_kpi.get("r2", float("nan"))))
+                    # 统计卡（两排，第二排抄动量双龙口径：换股 / 换手 / 持有月数）
+                    _ret_c = (float(_navc.iloc[-1]) / float(_navc.iloc[0]) - 1) * 100
+                    _peak_c = _navc.cummax()
+                    _dd_c = float(((_peak_c - _navc) / _peak_c.replace(0, float("nan"))).max()) * 100
+                    _kpi = hv.compute_nav_kpi(_navc)
+                    _years_c = (_navc.index[-1] - _navc.index[0]).days / 365.25
+                    _cagr_c = (
+                        ((float(_navc.iloc[-1]) / float(_navc.iloc[0])) ** (1 / _years_c) - 1) * 100
+                        if _years_c > 0 else float("nan")
+                    )
+                    _turn = hv.relay_turnover_stats(_mh)
 
-                                st.plotly_chart(
-                                    hv.build_combined_fig(
-                                        _nav_l, _nav_r, _navc, _dyn_spy_wk,
-                                        "王朝接力 — 左列+右列 50/50 合成 vs SPY",
-                                    ),
-                                    use_container_width=True,
-                                    key=f"dyn_nav_combined_{key_suffix}",
+                    def _fmt_k(v, f=".2f"):
+                        try:
+                            if isinstance(v, float) and (v != v or abs(v) == float("inf")):
+                                return "—"
+                            return f"{v:{f}}"
+                        except (TypeError, ValueError):
+                            return "—"
+
+                    _row_a = st.columns(6)
+                    _metrics_a = [
+                        ("总收益", f"{_ret_c:+.1f}%"),
+                        ("CAGR", f"{_cagr_c:+.1f}%" if _cagr_c == _cagr_c else "—"),
+                        ("最大回撤", f"-{_dd_c:.1f}%"),
+                        ("Calmar", _fmt_k(_kpi.get("calmar", float("nan")))),
+                        ("Sortino", _fmt_k(_kpi.get("sortino", float("nan")))),
+                        ("logR²", _fmt_k(_kpi.get("r2", float("nan")))),
+                    ]
+                    for _mi in range(len(_metrics_a)):
+                        _row_a[_mi].metric(_metrics_a[_mi][0], _metrics_a[_mi][1])
+                    _row_b = st.columns(3)
+                    _metrics_b = [
+                        ("换股次数", f"{_turn['n_swaps']}"),
+                        ("年均换手", f"{_turn['ann_turnover']:.2f}"),
+                        ("平均持有月数", f"{_turn['avg_hold_months']}"),
+                    ]
+                    for _mi in range(len(_metrics_b)):
+                        _row_b[_mi].metric(_metrics_b[_mi][0], _metrics_b[_mi][1])
+
+                    # ── 收益总览：各动量配置各自最优 N+守擂 的合成净值对比（maximin 选优,各自起点归一）
+                    st.markdown("---")
+                    _ov_key = f"lab_overview_{key_suffix}"
+                    if st.button(
+                        "📊 生成收益总览对比(各动量配置最优 N+守擂)",
+                        key=f"{_ov_key}_btn",
+                        help="7 种动量窗口配置,各自搜 N×守擂 最优(maximin 3Y/5Y/10Y);计算较重,点一次算一次。",
+                    ):
+                        _ov_configs = [
+                            ([63], "63d"), ([126], "126d"), ([252], "252d"), ([504], "504d"),
+                            ([63, 126], "63+126"), ([63, 126, 252], "63+126+252"),
+                            ([63, 126, 252, 504], "63+126+252+504"),
+                        ]
+                        _ov_hz = ["3Y", "5Y", "10Y"]
+                        _ov_delta_grid = [round(x * 0.25, 2) for x in range(0, 13)]
+                        _ov_ts = {hz: (_dynasty_ts_by_window.get(hz, {}) or {}) for hz in _ov_hz}
+
+                        def _ov_tot_ret(_sm, _n, _gd, _bn, _kd):
+                            _r = _build_navc(_sm, _gd, _bn, _kd, _n)[4]
+                            if _r is None or _r.empty:
+                                return float("nan")
+                            return (float(_r.iloc[-1]) / float(_r.iloc[0]) - 1.0) * 100.0
+
+                        _ov_results = []
+                        _ov_prog = st.progress(0.0, text="搜索各动量配置最优参数...")
+                        for _ci in range(len(_ov_configs)):
+                            _wins, _clabel = _ov_configs[_ci]
+                            _score_hz = {hz: _score_from_ts(_ov_ts[hz], _wins) for hz in _ov_hz}
+                            _score_disp = _score_hz.get("10Y", pd.DataFrame())
+                            if _score_disp is None or _score_disp.empty:
+                                for hz in ["5Y", "3Y"]:
+                                    if not _score_hz.get(hz, pd.DataFrame()).empty:
+                                        _score_disp = _score_hz[hz]
+                                        break
+                            # 候选：N × 守擂 × 参数
+                            _cands = []
+                            for _n in [1, 2, 3, 4, 5]:
+                                for _bn in range(int(_n), 11):
+                                    _cands.append((_n, "buffer", _bn, 1.0))
+                                for _dk in _ov_delta_grid:
+                                    _cands.append((_n, "delta", max(4, _n), _dk))
+                                _cands.append((_n, "none", max(4, _n), 1.0))
+                            _rows = []
+                            for (_n, _gd, _bn, _kd) in _cands:
+                                _rr = {
+                                    hz: _ov_tot_ret(_score_hz.get(hz, pd.DataFrame()), _n, _gd, _bn, _kd)
+                                    for hz in _ov_hz
+                                }
+                                _rows.append(((_n, _gd, _bn, _kd), _rr))
+                            # 各段按候选集内最大值归一，maximin 选优
+                            _nmax = {}
+                            for hz in _ov_hz:
+                                _vals = [rr[hz] for _, rr in _rows if rr[hz] == rr[hz]]
+                                _nmax[hz] = max(_vals) if _vals else float("nan")
+                            _best, _best_key = None, None
+                            for (_params, _rr) in _rows:
+                                _sc, _ok = [], True
+                                for hz in _ov_hz:
+                                    _mx, _v = _nmax[hz], _rr[hz]
+                                    if not (_mx == _mx and _mx > 0 and _v == _v):
+                                        _ok = False
+                                        break
+                                    _sc.append(_v / _mx)
+                                if not _ok:
+                                    continue
+                                _key = (min(_sc), -float(np.std(_sc)))
+                                if _best_key is None or _key > _best_key:
+                                    _best_key, _best = _key, _params
+                            if _best is None:  # 三段凑不齐则退化为 10Y 总收益最高
+                                _best_r = None
+                                for (_params, _rr) in _rows:
+                                    _v = _rr.get("10Y", float("nan"))
+                                    if _v == _v and (_best_r is None or _v > _best_r):
+                                        _best_r, _best = _v, _params
+                            # 用最长可用时序建展示曲线（各自起点归一）
+                            _rel, _fret = pd.Series(dtype=float), float("nan")
+                            if _best is not None and _score_disp is not None and not _score_disp.empty:
+                                _n, _gd, _bn, _kd = _best
+                                _navc_w = _build_navc(_score_disp, _gd, _bn, _kd, _n)[4]
+                                if not _navc_w.empty:
+                                    _rel = _navc_w.astype(float).dropna()
+                                    _rel = _rel / float(_rel.iloc[0])
+                                    _fret = (float(_rel.iloc[-1]) - 1.0) * 100.0
+                            _ov_results.append(
+                                {"label": _clabel, "params": _best, "rel": _rel, "ret": _fret}
+                            )
+                            _ov_prog.progress((_ci + 1) / len(_ov_configs), text=f"{_clabel} 完成")
+                        _ov_prog.empty()
+
+                        # 固定对比线：252d · N=2 · buffer(4)，不参与寻优，供与各配置最优对比
+                        _pin_wins, _pin_n, _pin_bn = [252], 2, 4
+                        _pin_score_hz = {hz: _score_from_ts(_ov_ts[hz], _pin_wins) for hz in _ov_hz}
+                        _pin_disp = _pin_score_hz.get("10Y", pd.DataFrame())
+                        if _pin_disp is None or _pin_disp.empty:
+                            for hz in ["5Y", "3Y"]:
+                                if not _pin_score_hz.get(hz, pd.DataFrame()).empty:
+                                    _pin_disp = _pin_score_hz[hz]
+                                    break
+                        _pin_rel, _pin_ret = pd.Series(dtype=float), float("nan")
+                        if _pin_disp is not None and not _pin_disp.empty:
+                            _pin_navc = _build_navc(_pin_disp, "buffer", _pin_bn, 1.0, _pin_n)[4]
+                            if not _pin_navc.empty:
+                                _pin_rel = _pin_navc.astype(float).dropna()
+                                _pin_rel = _pin_rel / float(_pin_rel.iloc[0])
+                                _pin_ret = (float(_pin_rel.iloc[-1]) - 1.0) * 100.0
+                        _ov_results.append({
+                            "label": "252d(固定)", "params": (_pin_n, "buffer", _pin_bn, 1.0),
+                            "rel": _pin_rel, "ret": _pin_ret, "pinned": True,
+                        })
+
+                        st.session_state[_ov_key] = _ov_results
+
+                    _ov_cached = st.session_state.get(_ov_key)
+                    if _ov_cached:
+                        _guard_disp = {"buffer": "buffer", "delta": "δ", "none": "无"}
+                        _ov_palette = ["#E74C3C", "#E67E22", "#F1C40F", "#2ECC71",
+                                       "#3498DB", "#9B59B6", "#1ABC9C"]
+                        _ov_fig = go.Figure()
+                        # 颜色按原配置序固定，图例按最终总收益从高到低排
+                        _ov_entries = []
+                        for _i in range(len(_ov_cached)):
+                            _res = _ov_cached[_i]
+                            _rel = _res.get("rel")
+                            if _rel is None or _rel.empty:
+                                continue
+                            _p = _res.get("params")
+                            if _p:
+                                _n, _gd, _bn, _kd = _p
+                                _pstr = f"N={_n}·{_guard_disp.get(_gd, _gd)}"
+                                if _gd == "buffer":
+                                    _pstr += f"({_bn})"
+                                elif _gd == "delta":
+                                    _pstr += f"({_kd})"
+                            else:
+                                _pstr = "—"
+                            _is_pin = bool(_res.get("pinned"))
+                            _ov_entries.append({
+                                "rel": _rel,
+                                "color": "#FFFFFF" if _is_pin else _ov_palette[_i % len(_ov_palette)],
+                                "name": f"{_res['label']} · {_pstr} {_res['ret']:+.0f}%",
+                                "ret": _res.get("ret", float("nan")),
+                                "width": 3 if _is_pin else 2,
+                                "dash": "dash" if _is_pin else None,
+                            })
+                        _ov_entries.sort(
+                            key=lambda e: (e["ret"] if e["ret"] == e["ret"] else float("-inf")),
+                            reverse=True,
+                        )
+                        for _e in _ov_entries:
+                            _ov_fig.add_trace(go.Scatter(
+                                x=_e["rel"].index, y=_e["rel"].values, mode="lines",
+                                name=_e["name"],
+                                line=dict(color=_e["color"], width=_e["width"], dash=_e["dash"]),
+                            ))
+                        # SPY 基准置于图例末尾
+                        if _spy_wk is not None and not _spy_wk.empty:
+                            _spy_s = _spy_wk["Close"].astype(float).dropna()
+                            if len(_spy_s) >= 2:
+                                _spy_rel = _spy_s / float(_spy_s.iloc[0])
+                                _ov_fig.add_trace(go.Scatter(
+                                    x=_spy_rel.index, y=_spy_rel.values, mode="lines",
+                                    name=f"SPY {(float(_spy_rel.iloc[-1]) - 1) * 100:+.1f}%",
+                                    line=dict(color="rgba(170,170,170,0.45)", width=1.5, dash="dot"),
+                                ))
+                        _ov_fig.update_layout(
+                            title="收益总览 · 各动量配置最优 N+守擂 vs SPY(各自起点归一)",
+                            xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
+                            yaxis=dict(
+                                title="NAV(对数,1.0 = 起始)", type="log",
+                                tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
+                                ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
+                                gridcolor="rgba(100,100,100,0.3)",
+                            ),
+                            height=460, margin=dict(l=10, r=10, t=44, b=60),
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(30,30,30,0.6)",
+                            font=dict(color="#ccc", size=13), showlegend=True,
+                        )
+                        st.plotly_chart(_ov_fig, use_container_width=True, key=f"{_ov_key}_fig")
+                        st.caption(
+                            "每条 = 该动量配置在 maximin(3Y/5Y/10Y)口径下最优的 N+守擂,图例标出选中参数。"
+                            "白色粗虚线「252d(固定)」= 固定 N=2·buffer(4),不参与寻优,作对比基线。"
+                            "各自起点归一;起点日期因窗口预热长度而异(504d 最晚)。"
+                        )
+
+                    # 主曲线所用守擂参数说明（自动寻优结果）
+                    if _guard_code == "none":
+                        _guard_txt = "守擂=无 · 每月按排名硬换仓"
+                    elif _rec_val is not None:
+                        _lbl = "kδ" if _guard_code == "delta" else "buffer_N"
+                        _guard_txt = f"守擂={_guard_sel} · maximin 最优 {_lbl}\\* = {_rec_val} · 主曲线已按此值回测"
+                    else:
+                        _lbl, _val = ("kδ", _kdelta) if _guard_code == "delta" else ("buffer_N", _buf_n)
+                        _guard_txt = f"守擂={_guard_sel} · 网格无稳健解,主曲线用默认 {_lbl}={_val}"
+                    st.caption(_guard_txt)
+
+                    # 合成净值 + 各仓叠加
+                    st.plotly_chart(
+                        hv.build_combined_fig_n(
+                            _slot_navs, _navc, _spy_wk,
+                            f"王朝接力净值实验台 — 等权 {_n_hold} 仓合成 vs SPY",
+                        ),
+                        use_container_width=True,
+                        key=f"lab_combined_{key_suffix}",
+                    )
+
+                    # 每月持仓表
+                    _pick_rows = []
+                    for _em in _exec_months:
+                        _sa = _slots.get(_em, [])
+                        _row = {"执行月(持有)": _em}
+                        for _si in range(len(_sa)):
+                            _t = _sa[_si]
+                            _row[f"仓{_si + 1}"] = (
+                                "—" if (not _t or _t == "CASH")
+                                else f"{_pool_name_map.get(_t, _t)} ({_t})"
+                            )
+                        _pick_rows.append(_row)
+                    if _pick_rows:
+                        st.markdown("**每月实际持仓**(执行月 = 排名来源月 + 1,去 look-ahead)")
+                        st.dataframe(
+                            pd.DataFrame(_pick_rows).iloc[::-1],
+                            use_container_width=True, hide_index=True,
+                        )
+
+                    # 各仓分段拼接图
+                    for _si in range(len(_slot_navs)):
+                        _seg = hv.build_slot_segments(_slots, _si, _exec_months)
+                        st.plotly_chart(
+                            hv.build_stitched_fig(
+                                _seg, f"王朝接力 仓{_si + 1} (Slot {_si})",
+                                _spy_wk, _pc, _pool_name_map,
+                            ),
+                            use_container_width=True,
+                            key=f"lab_slot{_si}_{key_suffix}",
+                        )
+
+                    # ── 守擂稳健性 sweep（尾部 3Y/5Y/10Y，各自归一化 + maximin）
+                    # 参数已在上方自动寻优并回填主曲线，这里佐证：三线齐高=稳健平台，单段峰值各异=过拟合。
+                    if _guard_code != "none" and _sweep_grid:
+                        st.markdown("---")
+
+                        def _sweep_fig(grid_vals, norm, cum_by_val, rec, xlabel, title):
+                            _fig = go.Figure()
+                            for hz in _HZ:
+                                _y = norm.get(hz, [])
+                                if sum(1 for v in _y if v == v) < 2:
+                                    continue
+                                _cd = [cum_by_val[v].get(hz, float("nan")) for v in grid_vals]
+                                _fig.add_trace(go.Scatter(
+                                    x=grid_vals, y=_y, mode="lines+markers", name=hz,
+                                    line=dict(color=_hz_color.get(hz, "#E67E22"),
+                                              width=4 if hz == "3Y" else 2),
+                                    marker=dict(size=5), customdata=_cd,
+                                    hovertemplate=f"{hz} {xlabel}=%{{x}} → 总收益 %{{customdata:.1f}}%<extra></extra>",
+                                ))
+                            if rec is not None:
+                                _fig.add_vline(x=rec, line=dict(color="#2ECC71", width=2, dash="dash"))
+                                _fig.add_annotation(
+                                    x=rec, y=1.02, yref="paper", text=f"maximin={rec}",
+                                    showarrow=False, font=dict(color="#2ECC71", size=13),
+                                    bgcolor="#111", xanchor="left",
                                 )
-                                st.plotly_chart(
-                                    hv.build_stitched_fig(
-                                        _seg_l, "王朝接力 左列 (Slot 0)",
-                                        _dyn_spy_wk, _dyn_price_cache, _d_name_map,
-                                    ),
-                                    use_container_width=True,
-                                    key=f"dyn_nav_l_{key_suffix}",
-                                )
-                                st.plotly_chart(
-                                    hv.build_stitched_fig(
-                                        _seg_r, "王朝接力 右列 (Slot 1)",
-                                        _dyn_spy_wk, _dyn_price_cache, _d_name_map,
-                                    ),
-                                    use_container_width=True,
-                                    key=f"dyn_nav_r_{key_suffix}",
-                                )
+                            _fig.update_layout(
+                                height=300, margin=dict(l=20, r=20, t=46, b=20),
+                                plot_bgcolor="#111111", paper_bgcolor="#111111",
+                                font=dict(color="#ddd"),
+                                xaxis=dict(title=xlabel, showgrid=True, gridcolor="#222"),
+                                yaxis=dict(title="各段归一化收益 (÷自身峰值)", showgrid=True, gridcolor="#222"),
+                                title=dict(text=title, font=dict(size=13), x=0.01, xanchor="left"),
+                                legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
+                            )
+                            return _fig
+
+                        if _guard_code == "delta":
+                            _xlabel = "kδ (×横截面σ)"
+                            _title = "δ 稳健性 · 3Y/5Y/10Y(各自归一化;三线齐高=稳健平台)"
+                            _rec_label = f"δ\\* = {_rec_val}" if _rec_val is not None else ""
+                        else:
+                            _xlabel = "buffer_N"
+                            _title = "buffer 稳健性 · 3Y/5Y/10Y(各自归一化;三线齐高=稳健平台)"
+                            _rec_label = f"buffer_N\\* = {_rec_val}" if _rec_val is not None else ""
+                        st.plotly_chart(
+                            _sweep_fig(_sweep_grid, _sweep_norm, _sweep_cum, _rec_val, _xlabel, _title),
+                            use_container_width=True, key=f"lab_sweep_{key_suffix}",
+                        )
+                        st.caption(
+                            ("✅ maximin 最优:" + _rec_label + " —— 三段都不差的重叠平台,主曲线已按此值回测。"
+                             if _rec_label else "网格内暂无三段齐全的稳健点,主曲线用默认守擂参数。")
+                            + " 单段峰值各异是过拟合症状,别照搬;60 分平台优先于 90 分尖峰。"
+                        )
 
                 st.markdown(
                     f"##### 🅰️ 按 king_score 排名(主图 · 动量+容量 · "

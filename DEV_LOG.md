@@ -30,6 +30,51 @@
 
 ---
 
+## 2026-07-14 | 板块王朝接力净值实验台：新增「收益总览」对比图（7 动量配置各自最优 N+守擂）
+
+**范围**：`pages/12_板块王朝.py`（`_render_relay_lab`）。
+
+**改动**：
+- `_score_from_ts` 加可选 `_wins` 参数、`_build_navc` 加可选 `_n` 参数，让总览能按配置改动量窗口和持仓数（默认仍用当前旋钮，原调用零影响）。
+- 在合成净值主图上方加「📊 生成收益总览对比」按钮：对 7 种动量配置（63/126/252/504/63+126/63+126+252/63+126+252+504）各自在 N∈1..5 × 守擂∈{buffer,δ,无} × 参数网格里，用 maximin(3Y/5Y/10Y 各段归一取 min 最高)选最优，再用最长可用时序建展示曲线，7 条 + SPY 叠一张 log 轴对比图（各自起点归一），图例标出每条选中的 N+守擂+参数。
+
+**动机**：主理人要横向比较哪种动量窗口配置整体最能打，而非逐个手调。
+
+**性能/交互**：搜索约 7×110×3 ≈ 2300 次净值构建,计算重,故按钮触发 + `st.session_state` 缓存 + 进度条,不拖日常翻页。切换选仓池后需重新点按钮刷新（缓存不自动失效）。
+
+**验证**：`ReadLints` 无新增错误。
+
+**后端契约**：无改动，纯前端。
+
+---
+
+## 2026-07-14 | 板块王朝接力净值实验台：守擂三档规则常显说明 + 守擂按钮横排、控件列宽调整
+
+**范围**：`pages/12_板块王朝.py`（`_render_relay_lab` 控件区）。
+
+**改动**：守擂 radio 改 `horizontal=True`；控件列宽由 `columns(3)` 改 `columns([1.4,0.9,2.2])`（缩短动量窗口/持仓数,让守擂横排放得下）；控件下方加 13px 常显文案说明 buffer/δ/无 三档留任规则,供新用户看懂。
+
+---
+
+## 2026-07-14 | 板块王朝接力净值实验台：守擂参数改自动寻优（删手选框 + 常显 maximin sweep）
+
+**范围**：`pages/12_板块王朝.py`（`_render_relay_lab`）。
+
+**改动**：
+- 删掉守擂选 buffer/δ 后出现的 `buffer_N` / `kδ` 手动输入框（原 `lab_bufn_*` / `lab_kd_*`）。
+- 删掉「显示 δ/buffer 稳健性 sweep」勾选框（原 `lab_sweep_toggle_*`），改成：定好 动量窗口+N+守擂方式 后，把 maximin 网格寻优提到主曲线之前跑，直接常显当前守擂方式对应的那张 3Y/5Y/10Y 稳健性折线图。
+- 主合成净值曲线/统计卡改用 maximin 选出的最优 `buffer_N*` / `kδ*` 回测（无稳健解则回退默认 `buffer_N=max(4,N)` / `kδ=1.0`）；合成图上方加 caption 标注实际所用守擂值。
+
+**动机**：主理人反馈参数太多不好比较，要系统自动定最优守擂参数并给出佐证图，而非手动逐个试。
+
+**性能**：sweep 由勾选框按需算改为每次渲染都算，但只算当前选中守擂那一条网格（原来两条都算），价格走 `get_global_data` 缓存，spinner 提示。守擂=无 时不跑 sweep。
+
+**验证**：`ReadLints` 无新增错误；已 grep 确认无遗留引用（`_show_sweep`/`_rec_delta`/`_rec_buf`/`lab_bufn`/`lab_kd`/`lab_sweep_toggle` 等全部清零）。
+
+**后端契约**：无改动，纯前端 UI 行为调整。
+
+---
+
 ## 2026-07-13 | page 8 两页净值消除窗口起点冷启动：预热段建仓 + display_from 截尾展示
 
 **范围**：`buyback_relay_core.py`（`render_group` 新参 `display_from`：热力图/奖牌榜/净值截到该日期起，排名、进场计数、在任状态用含预热的完整历史）、`pages/8_fcf稳定.py` / `pages/8_回购稳定.py`（传 `display_from=ts.get("display_from")` + caption 补说明）、`pages/18_组合净值.py`（A 曲线把预热段切掉，维持原口径）。
@@ -90,6 +135,24 @@
 - `pages/16_另类资产.py`：只跑 alt 池（`alt_membership` 每月全含直接当 `pool_membership`），10M 动量横截面排名，MA4 趋势留任，render_group 参数与科技龙头页对齐（default_k=0.75/单持/hold_band=2/日线净值/单边 10bps）。含合成 BTCX。
 
 **后端契约**：无改动，沿用既有 `/api/v1/macro/alt_assets_pit_relay/timeseries`。
+
+---
+
+## 2026-07-07 | 板块王朝页新增「王朝接力净值实验台」（多层筛选回测）
+
+**范围**：`pages/12_板块王朝.py` 的 `_render_relay` 净值段替换为 `_render_relay_lab`；`holdings_viz.py` 新增 `blend_relay_scores` / `select_relay_holdings` / `relay_turnover_stats` / `build_combined_fig_n`。Tab1 染色热力图、王朝接力摘要、Tab2 龙头股一律未动。
+
+**起因**：把原写死的「2 仓 king_score 接力净值」升级成可调实验台，人工做参数稳健性研究。
+
+**改动**：
+- **控件区 6 旋钮**（显式 for 渲染）：打分口径(纯动量/king_score)、动量窗口 multiselect(63/126/252/504)、blend(Z-avg/Borda)、持仓数 N(1-5)、守擂(buffer/δ/无)+参数、进场门槛(资历接力/纯选最强)。
+- **打分层**（`blend_relay_scores`）：多窗口 blend（Z-avg=横截面 Z 平均 / Borda=名次平均），king_score=blend动量Z + 0.8×Z(log10 ADV)，横截面在当前选仓池内做。消费后端新增的 `rs_63/126/252/504`。
+- **选仓层**（`select_relay_holdings`）：门槛+守擂参数化，N=2/资历/buffer 时与旧逻辑等价（向后兼容）。产出每月 N 票，顺延 1 月执行。
+- **净值泛化 2→N**（`build_combined_fig_n`）：N 条 slot 等权合成；统计卡补换股次数/年均换手/平均持有月数（口径抄动量双龙）。
+- **D 组扩展版**：侧边栏 D-ext 组不进 multiselect，勾 D 组时显示 checkbox，勾上则 SOXX/URNM/COPX/XHB 并入选仓池（不进染色图）。
+- **δ/buffer 稳健性 sweep + maximin**：`show_all` checkbox 触发；在已缓存的 3Y/5Y/10Y 时序上复用同一套 blend/select/nav 函数跑网格，各段归一化 + maximin 推荐虚线。
+
+**架构决策（偏离原 plan）**：plan 原设计把 sweep 放后端新端点 `/api/v1/macro/dynasty_relay_sweep`（B4）+ `fetch_dynasty_relay_sweep`（F1）。改为前端计算——避免在后端仓库复制一套与前端字节一致的选仓/守擂/净值回测逻辑（正是 core-protocols §9 禁止的「前后端镜像副本」），且前端已缓存 3 窗口时序，直接复用主图同一套函数，口径天然一致。未新增任何 `/api/v1/*` 端点。
 
 ---
 

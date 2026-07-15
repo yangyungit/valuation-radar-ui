@@ -225,6 +225,165 @@ def build_slot_assignments(
     return slot_assignments, hold_map, gate_closed
 
 
+def blend_relay_scores(
+    rs_month_by_w: dict,
+    adv_month: pd.DataFrame,
+    mom_windows: list,
+    blend: str = "zavg",
+    score_basis: str = "momentum",
+    cap_weight: float = 0.8,
+) -> pd.DataFrame:
+    """王朝接力净值实验台的打分层：多窗口动量 blend + 口径切换，横截面在传入的
+    选仓池（columns）内做。返回月×板块 score（越大越强），供选仓层排名。
+
+    rs_month_by_w: {window: 月×板块 原始 RS DataFrame}（已 resample("ME").last()）。
+    adv_month:     月×板块 ADV_63d（king_score 容量项用）。
+    mom_windows:   选中的动量窗口列表（63/126/252/504）。
+    blend:         'zavg'（各窗口横截面 Z 后平均）/ 'borda'（各窗口名次平均）。
+    score_basis:   'momentum'（纯动量）/ 'king_score'（动量 Z + cap_weight×Z(log10 ADV)）。
+    """
+    wins = [w for w in mom_windows if w in rs_month_by_w and not rs_month_by_w[w].empty]
+    if not wins:
+        return pd.DataFrame()
+
+    def _xs_z(df: pd.DataFrame) -> pd.DataFrame:
+        return df.sub(df.mean(axis=1), axis=0).div(
+            df.std(axis=1).replace(0, np.nan), axis=0
+        )
+
+    if blend == "borda":
+        rank_acc = None
+        for w in wins:
+            rk = rs_month_by_w[w].rank(axis=1, ascending=True)  # 越大 RS 名次越高=越强
+            rank_acc = rk if rank_acc is None else rank_acc.add(rk, fill_value=np.nan)
+        mom = _xs_z(rank_acc / len(wins))  # 平均名次再标准化，越大越强
+    else:  # zavg
+        z_acc = None
+        for w in wins:
+            z = _xs_z(rs_month_by_w[w].astype(float))
+            z_acc = z if z_acc is None else z_acc.add(z, fill_value=np.nan)
+        mom = z_acc / len(wins)
+
+    if score_basis == "king_score":
+        mom_z = _xs_z(mom)
+        adv = adv_month.reindex(index=mom.index, columns=mom.columns).astype(float)
+        log_adv = np.log10(adv.where(adv > 0))
+        adv_z = _xs_z(log_adv)
+        score = mom_z + cap_weight * adv_z
+        # 缺 ADV 的票（如 D-ext 早期）退回纯动量分，不整月被丢出排名
+        score = score.where(score.notna(), mom_z)
+        return score
+    return mom
+
+
+def select_relay_holdings(
+    score_m: pd.DataFrame,
+    n_holdings: int = 2,
+    gate: str = "seniority",
+    guard: str = "buffer",
+    buffer_n: int = 4,
+    k_delta: float = 1.0,
+    shift_months: int = 1,
+) -> dict:
+    """王朝接力净值实验台选仓层：进场门槛 + 守擂机制参数化，产出每月 N 票持仓。
+    返回 {执行月: [tickers]}（已顺延 shift_months 去 look-ahead）。
+
+    gate:  'seniority'（现状：新进场须当月前3 + 近6月进前3次数排序）/ 'pure'（纯 TopN by score）。
+    guard: 'buffer'（名次死区，在任票掉出前 buffer_n 才换）/ 'delta'（分差死区，在任票分数
+           低于「第N名门槛 − k_delta×当月横截面σ」才换）/ 'none'（每月直接换 TopN）。
+    """
+    if score_m.empty or len(score_m) < 2:
+        return {}
+    n = max(1, int(n_holdings))
+    rank_m = score_m.rank(axis=1, ascending=False, method="min")
+    ten6 = (rank_m <= 3).astype(int).rolling(6, min_periods=1).sum()
+    mh: dict = {}
+    prev: list = []
+    for ts, row in score_m.iterrows():
+        s = row.dropna()
+        if s.empty:
+            continue
+        order = s.sort_values(ascending=False).index.tolist()  # 分高在前
+        rk = rank_m.loc[ts]
+        if gate == "pure":
+            elig_sorted = order[:]
+        else:  # seniority
+            tnow = ten6.loc[ts]
+            elig = [t for t in order if rk.get(t, 99) <= 3]
+            elig_sorted = sorted(elig, key=lambda t: (-float(tnow.get(t, 0)), rk.get(t, 99)))
+        # 守擂：决定上月持仓哪些留任
+        if not prev or guard == "none":
+            hold: list = []
+        elif guard == "delta":
+            thresh = float(s[order[n - 1]]) if len(order) >= n else float(s.min())
+            sigma = float(s.std()) if len(s) > 1 else 0.0
+            keep_line = thresh - float(k_delta) * sigma
+            hold = [t for t in prev if t in s.index and float(s[t]) >= keep_line][:n]
+        else:  # buffer
+            tN = set(order[:buffer_n])
+            hold = [t for t in prev if t in tN][:n]
+        # 补足空槽：先够格池，再兜底原始 order
+        for t in elig_sorted:
+            if len(hold) >= n:
+                break
+            if t not in hold:
+                hold.append(t)
+        if len(hold) < n:
+            for t in order:
+                if len(hold) >= n:
+                    break
+                if t not in hold:
+                    hold.append(t)
+        hold = hold[:n]
+        exec_m = next_month_key(ts.strftime("%Y-%m"), shift_months)
+        mh[exec_m] = hold
+        prev = hold
+    return mh
+
+
+def relay_turnover_stats(monthly_holdings: dict) -> dict:
+    """从 {执行月: [tickers]} 算换股次数 / 年均换手 / 平均持有月数（口径对齐动量双龙统计卡）。
+    换股次数 = 相邻月新增标的数之和；年均换手 = 平均每月换手率×12；
+    平均持有月数 = 总持仓槽月 / 段数（一段 = 同一标的连续持有）。
+    """
+    months = sorted(monthly_holdings)
+    if len(months) < 2:
+        return {"n_swaps": 0, "ann_turnover": 0.0, "avg_hold_months": 0.0}
+    n_swaps = 0
+    turns: list = []
+    prev: set = set()
+    for m in months:
+        cur = {t for t in monthly_holdings.get(m, []) if t and t != "CASH"}
+        if prev:
+            added = cur - prev
+            n_swaps += len(added)
+            denom = max(len(cur), len(prev), 1)
+            turns.append(len(added) / denom)
+        prev = cur
+    ann_turnover = float(np.mean(turns)) * 12 if turns else 0.0
+    # 平均持有月数：按标的追踪连续段
+    seg_count = 0
+    slot_months = 0
+    for m in months:
+        cur = [t for t in monthly_holdings.get(m, []) if t and t != "CASH"]
+        slot_months += len(cur)
+    # 段数：每个标的的连续持有段
+    all_tks = {t for m in months for t in monthly_holdings.get(m, []) if t and t != "CASH"}
+    for tk in all_tks:
+        held_prev = False
+        for m in months:
+            held = tk in (monthly_holdings.get(m, []) or [])
+            if held and not held_prev:
+                seg_count += 1
+            held_prev = held
+    avg_hold = (slot_months / seg_count) if seg_count else 0.0
+    return {
+        "n_swaps": n_swaps,
+        "ann_turnover": ann_turnover,
+        "avg_hold_months": round(avg_hold, 1),
+    }
+
+
 def build_basket_slot_assignments(monthly_holdings: dict, months: list) -> dict:
     """把篮子月度持仓 {month: [top1, top2, ...]} 拆成槽位分配，供拼接图用。
     无守擂缓冲，但保持槽位连续：上月在该槽的标的若本月仍持有就留原槽，
@@ -941,6 +1100,75 @@ def build_combined_fig(
     fig.add_trace(go.Scatter(
         x=a_nav.index, y=a_nav.values, mode="lines",
         name=f"A 曲线（50/50 合成） {(float(a_nav.iloc[-1]) - 1) * 100:+.1f}%",
+        line=dict(color="#F1C40F", width=3),
+    ))
+
+    fig.update_layout(
+        title=title,
+        xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
+        yaxis=dict(
+            title="NAV（对数，1.0 = 起始）",
+            type="log",
+            tickvals=[0.25, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
+            ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
+            gridcolor="rgba(100,100,100,0.3)",
+        ),
+        height=480, margin=dict(l=10, r=10, t=44, b=60),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(30,30,30,0.6)",
+        font=dict(color="#ccc", size=13),
+        showlegend=True,
+    )
+    return fig
+
+
+def build_combined_fig_n(
+    slot_navs: list,
+    nav_combined: pd.Series,
+    spy_wk: pd.DataFrame,
+    title: str,
+) -> go.Figure:
+    """N 条 slot 净值 + 等权合成线 + SPY 叠加（build_combined_fig 的 2→N 泛化）。
+    slot_navs: [(label, nav_series), ...]，各序列相对自身起点归一为累计收益率。
+    合成线（黄）最上层，SPY（灰虚线）最底层。
+    """
+    fig = go.Figure()
+    if nav_combined is None or nav_combined.empty:
+        return fig
+
+    def _nav_rel(s: pd.Series) -> pd.Series:
+        s = s.astype(float).dropna()
+        return s / float(s.iloc[0]) if not s.empty else s
+
+    if spy_wk is not None and not spy_wk.empty:
+        sd, ed = nav_combined.index[0], nav_combined.index[-1]
+        spy_seg = spy_wk[(spy_wk.index >= sd) & (spy_wk.index <= ed)]["Close"]
+        spy_seg = spy_seg.astype(float).dropna()
+        if len(spy_seg) >= 2:
+            spy_nav = spy_seg / float(spy_seg.iloc[0])
+            fig.add_trace(go.Scatter(
+                x=spy_nav.index, y=spy_nav.values, mode="lines",
+                name=f"SPY {(float(spy_nav.iloc[-1]) - 1) * 100:+.1f}%",
+                line=dict(color="rgba(170,170,170,0.45)", width=1.5, dash="dot"),
+            ))
+
+    for si, (label, nav) in enumerate(slot_navs):
+        if nav is None or nav.empty:
+            continue
+        rel = _nav_rel(nav)
+        if rel.empty:
+            continue
+        color = SLOT_COLORS[si % len(SLOT_COLORS)]
+        fig.add_trace(go.Scatter(
+            x=rel.index, y=rel.values, mode="lines",
+            name=f"{label} {(float(rel.iloc[-1]) - 1) * 100:+.1f}%",
+            line=dict(color=color, width=1.5),
+        ))
+
+    a_nav = _nav_rel(nav_combined)
+    fig.add_trace(go.Scatter(
+        x=a_nav.index, y=a_nav.values, mode="lines",
+        name=f"合成（等权 {len(slot_navs)} 仓） {(float(a_nav.iloc[-1]) - 1) * 100:+.1f}%",
         line=dict(color="#F1C40F", width=3),
     ))
 
