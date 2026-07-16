@@ -500,7 +500,8 @@ def render_group(
             _reentry_cache = {t: s.rolling(_rw).mean() for t, s in (daily_close_cache or {}).items()}
         _results = [
             hv.build_nav_from_daily_positions(
-                seg, daily_close_cache or {}, spy_daily, rule, reentry_ma_cache=_reentry_cache,
+                seg, daily_close_cache or {}, spy_daily, rule,
+                reentry_ma_cache=_reentry_cache, cost_bps=cost_bps,
             )
             for seg in _slot_segs
         ]
@@ -639,12 +640,12 @@ def render_group(
         if not price_cache:
             return None
         _seg_l = _slot_segs[0]
-        _nav_l = hv.calc_slot_stats(_seg_l, price_cache, spy_wk, 0.04)[2]
+        _nav_l = hv.calc_slot_stats(_seg_l, price_cache, spy_wk, 0.04, cost_bps)[2]
         if n_hold < 2:
             # 单仓：满仓 Top1，净值 = 左列，不掺现金、不做 50/50。
             return _exec_months, _slots, _slot_segs, _nav_l, pd.Series(dtype=float), _nav_l.copy()
         _seg_r = _slot_segs[1]
-        _nav_r = hv.calc_slot_stats(_seg_r, price_cache, spy_wk, 0.04)[2]
+        _nav_r = hv.calc_slot_stats(_seg_r, price_cache, spy_wk, 0.04, cost_bps)[2]
         _navc = pd.Series(dtype=float)
         if not _nav_l.empty and not _nav_r.empty:
             _uidx = _nav_l.index.union(_nav_r.index)

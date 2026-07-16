@@ -42,7 +42,7 @@ st.caption(
     "每月只在合并成分内横截面排名。"
     "**排名**:按 **raw 12M 绝对涨幅**（月末价/12 个月前月末价 − 1）横截面排名。"
     "**🥇 金牌 = 当月 Top1 / 🥈 银牌 = Top2**（已删 RS 门槛，只看排名）。"
-    "**净值口径**:日线、执行月首个交易日 Open 买入、持有到月末 Close、扣单边 10bps；"
+    "**净值口径**:日线、执行月首个交易日 Open 买入、持有到月末 Close、扣单边 2%(200bps 滑点)；"
     "满仓单票、进场按 Top2 判定：新进场须当月 Top2 且最近 6 月内 ≥2 次进 Top2(滤掉闪现一月的生面孔)，"
     "多票并列时优先连续在榜月数最长的(更连贯新鲜)、打平看当月排名，"
     "**留任按趋势**:在任票只要月末价 > 自己的 4 月均线(≈MA80 日线)就一直拿、不管别人排第几，跌破均线才换，"
@@ -208,7 +208,7 @@ render_group(_label, _cols, "ndx_main",
              nav_engine="daily",
              daily_price_cache=price_cache_daily,
              spy_daily=spy_daily,
-             cost_bps=10.0,
+             cost_bps=200.0,
              segment_window_slider=True,
              retention_mask=_ret_mask,
              retention_price_m=_close_me,

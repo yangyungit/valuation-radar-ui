@@ -1125,6 +1125,7 @@ def build_nav_from_daily_positions(
     rule: dict,
     cash_rate: float = 0.04,
     reentry_ma_cache: dict = None,
+    cost_bps: float = 0.0,
 ) -> dict:
     """选股层推荐区间（一个槽）→ 执行层日频价格规则进出场 → 日线 NAV。
     照搬 valuation-radar/backtest_a_leg_round10.py 的 execute_slot()，逻辑不重新设计。
@@ -1143,6 +1144,8 @@ def build_nav_from_daily_positions(
     reentry_win = int(rule.get("reentry_ma", 100))
     cash_dr = (1.0 + cash_rate) ** (1.0 / 365.0) - 1.0
     running = 1.0
+    cf = (1.0 - cost_bps / 10000.0) if cost_bps else 1.0  # 单边换仓成本乘子
+    prev_tk_held = None  # 上一段结束时实际持有的票（None=空仓），用于段边界换手计成本
     nav_parts, pos_parts, events = [], [], []
     ent = exo = 0
     for tk, s_m, e_m in segs:
@@ -1153,19 +1156,25 @@ def build_nav_from_daily_positions(
             continue
         close = daily_close_cache.get(tk) if tk and tk != "CASH" else None
         if tk == "CASH" or close is None or close.empty:
+            if cost_bps and prev_tk_held is not None:
+                running *= cf  # 上一段持票 → 转现金前卖出，扣一次单边
             days = (widx - widx[0]).days.to_numpy()
             part = running * (1.0 + cash_rate) ** (days / 365.0)
             nav_parts.append(pd.Series(part, index=widx))
             pos_parts.append(pd.Series(False, index=widx))
             running = float(nav_parts[-1].iloc[-1])
+            prev_tk_held = None
             continue
         px = close.reindex(widx).ffill()
         if px.dropna().shape[0] < 2:
+            if cost_bps and prev_tk_held is not None:
+                running *= cf
             days = (widx - widx[0]).days.to_numpy()
             part = running * (1.0 + cash_rate) ** (days / 365.0)
             nav_parts.append(pd.Series(part, index=widx))
             pos_parts.append(pd.Series(False, index=widx))
             running = float(nav_parts[-1].iloc[-1])
+            prev_tk_held = None
             continue
         if reentry_ma_cache is not None and tk in reentry_ma_cache:
             ma_reentry = reentry_ma_cache[tk].reindex(widx)
@@ -1182,10 +1191,25 @@ def build_nav_from_daily_positions(
             events.append((dt, tk, "exit"))
         stock_ret = px.pct_change().fillna(0.0)
         day_ret = np.where(act.to_numpy(), stock_ret.to_numpy(), cash_dr)
-        nav = running * np.cumprod(1.0 + day_ret)
+        gross = 1.0 + day_ret
+        if cost_bps:
+            # 段边界换股：上一段持有别的票 → 先卖旧（一次单边）
+            if prev_tk_held is not None and prev_tk_held != tk:
+                running *= cf
+            cost_mult = np.ones(len(widx))
+            # 段首建仓买入：段首在场且非同票跨段连续持有
+            if bool(act.iloc[0]) and prev_tk_held != tk:
+                cost_mult[0] *= cf
+            # 段内价格规则进出场：进=买、出=卖，各扣一次单边
+            _tr = trans.to_numpy()
+            cost_mult[_tr == 1] *= cf
+            cost_mult[_tr == -1] *= cf
+            gross = gross * cost_mult
+        nav = running * np.cumprod(gross)
         nav_parts.append(pd.Series(nav, index=widx))
         pos_parts.append(act)
         running = float(nav[-1])
+        prev_tk_held = tk if bool(act.iloc[-1]) else None
     if not nav_parts:
         return {"nav": pd.Series(dtype=float), "positions": pd.Series(dtype=bool),
                 "entries": 0, "exits": 0, "events": []}
