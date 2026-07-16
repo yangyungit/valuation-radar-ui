@@ -182,4 +182,5 @@ render_group("其余回购股", _rest_cols, "shy_rest", score_m=shy_m, sweep_sco
              entry_vol_scale=_entry_vol_scale,
              entry_vol_desc=f"×(1+{_ENTRY_VOL_K}×近{_RET_VOL_WIN}月波动)",
              gold_needs_rs=False,
+             cost_bps=200.0,
              **_COMMON)

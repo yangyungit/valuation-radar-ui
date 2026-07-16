@@ -162,4 +162,5 @@ render_group("纯科技股", _tech_cols, "bb_tech",
              daily_price_cache=_daily_close_cache,
              spy_daily=_spy_daily,
              nav_engine="daily",
+             cost_bps=200.0,
              **_COMMON)

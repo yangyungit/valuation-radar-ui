@@ -514,7 +514,7 @@ with _dyn_tab1:
                         _snavs = []
                         for _si in range(_ns):
                             _sg = hv.build_slot_segments(_sl, _si, _em)
-                            _nv = hv.calc_slot_stats(_sg, _pc, _spy_wk, 0.04)[2]
+                            _nv = hv.calc_slot_stats(_sg, _pc, _spy_wk, 0.04, 200.0)[2]
                             _snavs.append((f"仓{_si + 1}", _nv))
                         _valid = [nv for _, nv in _snavs if not nv.empty]
                         _navc2 = pd.Series(dtype=float)
