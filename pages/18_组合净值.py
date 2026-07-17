@@ -343,3 +343,33 @@ st.caption(
     "logR² = log(NAV) 对时间线性拟合优度（越接近 1 越像匀速复利、越平滑）。"
     "DD 为最大回撤（负值）。所有曲线裁到三条都有数据的共同窗口后再算，口径一致可比。"
 )
+
+# ── A/B/C（+SPY）周收益相关矩阵 ──
+_ret_src = {"A 回购稳定": _norm["A"], "B 板块轮动": _norm["B"], "C FCF进攻": _norm["C"]}
+if not spy_norm.empty:
+    _ret_src["SPY 大盘"] = spy_norm
+_ret_df = pd.DataFrame(_ret_src).pct_change().dropna(how="any")
+st.markdown("### 🔗 分策略周收益相关矩阵")
+if len(_ret_df) < 8:
+    st.warning("⚠️ 共同窗口内周收益样本不足，相关矩阵不可靠。")
+else:
+    _corr = _ret_df.corr()
+    _hm = go.Figure(data=go.Heatmap(
+        z=_corr.values, x=list(_corr.columns), y=list(_corr.index),
+        zmin=-1, zmax=1, colorscale="RdBu_r", reversescale=False,
+        text=[[f"{v:.2f}" for v in row] for row in _corr.values],
+        texttemplate="%{text}", textfont=dict(size=15),
+        colorbar=dict(title="ρ"),
+    ))
+    _hm.update_layout(
+        height=380, margin=dict(l=10, r=10, t=30, b=10),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#ccc", size=13),
+        yaxis=dict(autorange="reversed"),
+    )
+    st.plotly_chart(_hm, use_container_width=True, key="combo_corr")
+    st.caption(
+        "基于共同窗口的**周收益率**（非净值）皮尔逊相关。ρ 越接近 0 越分散、越接近 1 越同涨同跌、负值为对冲。"
+        "同一策略内的 2 仓不在此比较（本就同源）；三条全是美股 long-only，"
+        "与 SPY 一列反映各自的市场 beta 相关，是系统性下跌里同跌的部分。"
+    )
