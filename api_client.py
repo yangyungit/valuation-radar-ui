@@ -910,6 +910,17 @@ def fetch_buyback_stable_relay_timeseries(window: str = "5Y") -> dict:
 
 
 @st.cache_data(ttl=3600 * 4)
+def fetch_logr2_stable_pool() -> dict:
+    """logR² 稳定页：年度 PIT 带鱼池 + 月末滚动 5Y logR2 面板。失败返回 {"success": False}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/logr2_stable_pool", timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
 def fetch_tech_leader_relay_timeseries(window: str = "5Y") -> dict:
     """科技龙头池接力图时序（king_score = 纯动量 Z(RS_210d)，池内横截面排名）。
     母体 = 美股 + 美股 ADR 的科技龙头，与回购池独立。供「科技龙头」页调用。

@@ -1,3 +1,11 @@
+## 2026-07-18 | 新增 logR² 稳定页：带鱼池排名+等权Top10净值（无接力引擎）
+
+**范围**：`api_client.py` 新增 `fetch_logr2_stable_pool()`；新建 `pages/8_logR2稳定.py`——独立页面，不复用 `buyback_relay_core.render_group`（Fable 回测双槽接力引擎在带鱼池上全灭，见后端 `backtest_logr2_stable_round1/2.py`）。
+
+**逻辑**：后端 `/api/v1/macro/logr2_stable_pool` 返回年度 PIT 带鱼池（市值≥$30B/FCF>0/5Y周线CAGR≥8%/maxDD≥-45%/带方向logR²前40）+ 月末滚动 260 周 logR² 面板。前端只看非科技子集，按面板+池 mask 排名，等权 Top10 月末调仓（成本单边换手×200bps，空位现金年化4%），对照等权全池与 SPY，逐年收益表。定性防守腿（全程跑输 SPY，尾部 3Y Calmar 翻倍）caption 原样写明，未美化。
+
+---
+
 ## 2026-07-15 | 选股与买卖解耦：page7/8 从月频 MA 留任改为「排名推荐区间 + 日线执行层」（Phase 2）
 
 **背景**：`valuation-radar/backtest_a_leg_round10.py`（Opus Phase 1，已 push）验证：选股层只按排名产出推荐区间，执行层在区间内按日线价格规则进出场，两页都打赢原月频 MA4/MA15 引擎——page8 敲定「留任掉出 Top3 才结束推荐 + 回撤 25% 止损/收盘回 MA100 买回」（+1530%/DD-30.6%/Calmar1.18，原引擎 +1603%/-36.6%/0.98）；page7 敲定「留任掉出 Top2 结束推荐 + 日线 MA100 出场/买回」（+3255%/DD-29.4%/Calmar1.59，原引擎 +1477%/-35.7%）。
