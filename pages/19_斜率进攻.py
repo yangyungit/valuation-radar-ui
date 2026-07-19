@@ -23,9 +23,11 @@ st.caption(
     "且 maxDD≥-45% / 带方向 logR² 前40），只看**非科技子集**，池子零改动。"
     "**排名轴 = 当前段年化斜率**：月末在 52~260 周里找最长的仍达标（logR²≥0.70 且年化斜率≥8%）"
     "后缀窗当「当前段」，段斜率越陡排名越前；无达标段 = 无资格。**🥇 金牌 = 斜率 Top1 / 🥈 银牌 = Top2**。"
-    "**组合 = 斜率 Top2 月调 + 通道斩仓**：月末收盘 ≤ MA6×(1−0.25σ) 即斩仓、换现金，"
-    "名额不顺延、空槽拿现金 4%（选股层每月出斜率 Top2，破线即把该股踢出当月持仓，不是段内日线止损）。"
-    "回测（round7-11，2017-04→2026-06，单边 200bps）：全程 CAGR 18.4% / DD -30.5% / Calmar 0.60"
+    "**组合 = 斜率 Top2 月调 + 通道斩仓**：月末收盘**连续 2 个月** ≤ MA6×(1−0.25σ) 才斩仓、换现金，"
+    "名额不顺延、空槽拿现金 4%（选股层每月出斜率 Top2，连 2 月破线才把该股踢出当月持仓，不是段内日线止损；"
+    "单月破线立刻斩会被均线附近抽波反复触发，换手翻倍却不多规避回撤，故加 2 月确认）。"
+    "⚠️ **下列回测数字是旧「单月破线即斩」版，2 月确认改动后待重跑更新**（月度近似估计：换手降到 ~1.9 次/年、"
+    "回撤仍守 ~-31%、Calmar 略升）。回测（round7-11，2017-04→2026-06，单边 200bps）：全程 CAGR 18.4% / DD -30.5% / Calmar 0.60"
     "（SPY 15.0% / -23.9% / 0.63），3Y 29.3% / -13.4% / 2.19，5Y 16.8% / -30.5% / 0.55，"
     "换手 1.7 次/年，常态空仓 23%。同池对照：无斩仓（纯斜率 Top2）17.5%/**-49.2%**/0.36——"
     "斩仓把回撤从 -49% 砍到 -30%，CAGR 反升，是这页的核心 alpha。"
@@ -44,6 +46,7 @@ with st.sidebar:
 
 TOP_N = 2
 K_STOP = 0.25
+CONFIRM_M = 2        # 连续 2 月破线才斩，滤掉单月抽波假信号（降换手）
 MA_W, SIG_W = 6, 12
 COST_BPS = 200.0     # 单边 200bps
 
@@ -105,12 +108,16 @@ if _px is not None and "SPY" in _px.columns:
 
 close_m = pd.DataFrame({t: s.resample("ME").last() for t, s in close_d.items()}).sort_index()
 
-# ── 通道斩仓线：月收盘 ≤ MA6×(1−0.25σ12) 即出局（月度选股层决策）──
+# ── 通道斩仓线：连续 CONFIRM_M 个月收盘 ≤ MA6×(1−0.25σ12) 才出局（月度选股层决策）。
+#    单月破线立刻斩会被最陡动量票在均线附近的抽波反复触发，换手翻倍却不多规避回撤；
+#    要求连 2 月都破线才确认，去掉假信号，换手降一档、回撤守住 ~-31%。──
 ma6 = close_m.rolling(MA_W).mean()
 ret_m = close_m.pct_change(fill_method=None)
 sig12 = ret_m.rolling(SIG_W).std()
 floor_m = ma6 * (1 - K_STOP * sig12)
-above = (close_m > floor_m).reindex(index=slope_m.index, columns=slope_m.columns).fillna(False)
+_above0 = (close_m > floor_m).reindex(index=slope_m.index, columns=slope_m.columns).fillna(False)
+_conf_below = (~_above0).rolling(CONFIRM_M).sum().fillna(0) >= CONFIRM_M
+above = ~_conf_below
 
 # ── 每月持仓：斜率 Top2 且在通道上方；破线换现金、名额不顺延（决策月 → 执行月 +1）──
 sel = (rank_m <= TOP_N) & above & memb          # 通道过滤后的实际持仓
