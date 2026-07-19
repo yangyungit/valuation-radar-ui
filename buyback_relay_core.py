@@ -140,6 +140,8 @@ def render_group(
     danger_half_daily: pd.Series = None,
     bear_default: bool = False,
     display_from=None,
+    precomputed_holdings: dict = None,
+    precomputed_raw: dict = None,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -153,6 +155,11 @@ def render_group(
     display_from = score_m 含窗口起点前的预热历史时，热力图/奖牌/净值从该日期起展示；
              排名、进场计数（近6月≥2次进Top2）和在任状态用含预热的完整历史算，
              避免窗口起点全体现金冷启动、把长期在任的霸榜票挡在场外压低净值。
+    precomputed_holdings = 外部已算好的每月持仓 {执行月: [ticker|CASH, ...]}，直接喂给
+             周线接力引擎，跳过 render_group 自己的选股/守擂/进场门（page19 通道斩仓专用：
+             破 MA6×(1−kσ) 那月就把该股换现金、名额不顺延，属月度选股层决策，不是段内日线规则）。
+             传入后排名/热力图/奖牌仍按 score_m 算，δ/MA 扫描全跳过。precomputed_raw 供持仓表
+             对照展示当月「原始 slope Top2」（未经通道过滤），不传则用 precomputed_holdings 本身。
     retention_band / exec_rule = 选股与买卖解耦模式（page7/8 专用，round10 回测敲定）：
              选股层只按排名产出推荐区间（在任票掉出 Top{retention_band} 才结束推荐），
              执行层在推荐区间内按 exec_rule（{"kind":"MA"|"DD","param":int,"reentry_ma":int}）
@@ -415,8 +422,8 @@ def render_group(
             f"{_hold_rule2}"
             f"左右两列各等权，合成线 = 50/50 · {_nav_freq_txt} · 净值最长回看约 10 年。"
         )
-    if retention_mask is not None or retention_band is not None:
-        # MA 趋势留任 / 选股与买卖解耦：留任判据不含 k，δ 死区滑块无意义，直接取默认值占位。
+    if retention_mask is not None or retention_band is not None or precomputed_holdings is not None:
+        # MA 趋势留任 / 选股与买卖解耦 / 外部持仓：留任判据不含 k，δ 死区滑块无意义，直接取默认值占位。
         _k = float(default_k)
     else:
         _k = float(st.number_input(
@@ -659,7 +666,8 @@ def render_group(
     # ── δ 跨 3/5/10Y 稳健性扫描：用最长历史建净值，按尾部 3/5/10Y 各算总收益。
     #    单段峰值 = 过拟合（短窗口噪声最大）；找三段都不差的 δ（plateau 重叠）才稳健。──
     # MA 趋势留任模式下留任判据不含 k，扫描无意义 → 空网格跳过，后面不渲染扫描图。
-    _k_grid = [] if (retention_mask is not None or retention_band is not None) \
+    _k_grid = [] if (retention_mask is not None or retention_band is not None
+                     or precomputed_holdings is not None) \
         else [round(x * 0.25, 2) for x in range(13)]
     _HZ = sweep_horizons or [("3Y", 3), ("5Y", 5), ("10Y", 10)]
 
@@ -750,7 +758,7 @@ def render_group(
         ),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
     )
-    if retention_mask is None and retention_band is None:
+    if retention_mask is None and retention_band is None and precomputed_holdings is None:
         st.plotly_chart(_sweep_fig, use_container_width=True, key=f"{kp}_dk_sweep")
 
         def _argmax_k(lbl):
@@ -825,7 +833,11 @@ def render_group(
         else:
             st.caption(f"⚠️ 净值历史不足，无法跨 {'/'.join(l for l, _ in _HZ)} 比较 MA 窗口 Calmar（多为长窗口数据未就绪）。")
 
-    if retention_band is not None:
+    if precomputed_holdings is not None:
+        _mh = {m: list(h) for m, h in precomputed_holdings.items()}
+        _mh_raw = ({m: list(h) for m, h in precomputed_raw.items()}
+                   if precomputed_raw is not None else {m: list(h) for m, h in _mh.items()})
+    elif retention_band is not None:
         _mh, _mh_raw = _recommend(rank_m, _ten6, _streak, retention_band)
     else:
         _mh, _mh_raw = _holdings_for_k(_k)
