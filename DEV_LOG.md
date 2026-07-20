@@ -1,3 +1,11 @@
+## 2026-07-20 page 8 FCF收益率稳定：加守擂死区 k=1.0 降换手（Phase 2）
+
+**范围**：`pages/8_FCF收益率稳定.py`（持仓循环 + caption）。后端零改动。
+
+**起因**：主理人指换手太抖（月调硬重排 35 段 / 进场 4.15 次/年，近半年 ACGL/AMP/TRV 乒乓）。round16（valuation-radar）敲定分数死区：在任票 fcfy ≥ Top2 门槛分 − 1.0×截面 std 就不换。换手 2.06→0.87/年、持仓 35→14 段，全程 17.1/-21.2/0.81（原 12.3/0.58）。照抄 ROIC 页按名次留任证伪（9.8/0.46）。当前持仓 ACGL+TRV → AMP+TRV。
+
+---
+
 ## 2026-07-20 斜率进攻页落地 round15：试用期半仓 + 进场锚定止损（Phase 2）
 
 **范围**：`holdings_viz.py`（`calc_slot_stats` 段权重）/ `buyback_relay_core.py`（`render_group` 新参 `precomputed_weights`）/ `pages/19_斜率进攻.py`（持仓循环加半仓+止损、caption 换 round15 数字），仅 valuation-radar-ui 一个仓。

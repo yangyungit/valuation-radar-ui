@@ -21,14 +21,16 @@ st.caption(
     "**池子**：年度 PIT 价格行为池（带鱼池，不变）——市值≥$30B / TTM FCF>0 / 近5Y周线 CAGR≥8% 且 "
     "maxDD≥-45% / 按带方向 logR² 前40，每年12月末重构次年生效（本地 Sharadar 构建上传）。"
     "页面只看**非科技子集**。**排名轴 = FCF收益率**（ART PIT fcf/marketcap，季频 ffill 到月末，池成员内排名）。"
-    "**组合 = 等权 Top2 月末调仓**——无金银牌、无 MA/回撤择时：round3-5 已证伪接力形态"
-    "（所有排名轴的双槽接力全跑输等权篮子，见 backtest_logr2_stable_round3/4/5.py）。"
-    "回测（round6，2017-04→2026-06，单边 200bps）：全程 CAGR 12.3% / DD -21.2% / Calmar 0.58"
-    "（SPY 15.0% / -23.9% / 0.63），3Y 13.5% / -10.7% / 1.26，5Y 9.9% / -11.7% / 0.85，换手 2.1 次/年。"
-    "**三条警告**：① 全程跑输 SPY 2.7pp，价值只在 DD 更浅，是防守腿不是进攻腿；"
-    "② 持仓常年是成对保险股（TRV/CB/PGR/ACGL），等于一注押保险业，行业集中需人工过目，别当黑箱信；"
-    "③ 该组合是 24 个候选里择优出来的（唯一佐证：对未来 12 月收益池内 IC +0.115，其余轴全≈0），预期打折看待。"
-    "**注：下方热力图/奖牌/接力净值走前端周线复权价，与上列月线回测数字会有小差，持仓逻辑一致（🥇=Top1 / 🥈=Top2，等权月调）。**"
+    "**组合 = 等权 Top2 月末调仓 + 守擂死区**（round16）——在任票 fcfy 距当月 Top2 门槛分"
+    "≤1×截面标准差就不换，腾槽按当月排名补；无金银牌、无 MA/回撤择时（round3-5 已证伪接力形态，"
+    "round16 证伪照抄 ROIC 页按名次留任——fcfy 轴 2~5 名名次是噪声，按名次留任照样乒乓）。"
+    "回测（round16，2017-04→2026-06，单边 200bps）：全程 CAGR 17.1% / DD -21.2% / Calmar 0.81"
+    "（SPY 15.0% / -23.9% / 0.63），3Y 22.8% / -10.7% / 2.13，5Y 19.3% / -10.7% / 1.80，"
+    "换手 0.87 次/年（原月调硬重排 2.06）。"
+    "**三条警告**：① 持仓常年是成对保险股（TRV/CB/PGR/ACGL），等于一注押保险业，行业集中需人工过目，别当黑箱信；"
+    "② 死区 k=1.0 是 round6 之后又一轮 ~20 变体择优（邻域 [0.9,1.2] 平台、0.7/0.8 有坑），预期打折看待；"
+    "③ 死区只降换手不防崩：2018 年 -16.7%（SPY -9.6%），DD 与硬重排相同 -21.2%。"
+    "**注：下方热力图/奖牌/接力净值走前端周线复权价，与上列月线回测数字会有小差，持仓逻辑一致（🥇=Top1 / 🥈=Top2）。**"
 )
 
 with st.sidebar:
@@ -70,7 +72,6 @@ memb = pd.DataFrame(False, index=score_m.index, columns=score_m.columns)
 for y, mem in pools.items():
     memb.loc[memb.index.year == y, [t for t in mem if t in memb.columns]] = True
 score_in = score_m.where(memb & score_m.notna())        # 排名轴：FCF收益率（池成员 mask）
-rank_m = score_in.rank(axis=1, ascending=False, method="first")
 
 # ── 价格（yfinance + Sharadar 补缺，BRK.B 走别名）──
 _ALIAS = {"BRK.B": "BRK-B"}
@@ -97,14 +98,24 @@ _spy_wk = pd.DataFrame()
 if _px is not None and "SPY" in _px.columns:
     _spy_wk = _px["SPY"].dropna().resample("W-FRI").last().dropna().to_frame(name="Close")
 
-# ── 每月持仓：当月 FCF收益率 Top2，月末调仓，次月执行（决策月 → 执行月 +1）。
-#    无守擂、无接力留任——每月重取当月 Top2，等权两仓。──
+# ── 每月持仓：守擂死区（round16 k=1.0）——在任票 fcfy ≥ 当月 Top2 门槛分
+#    − K_DEAD×截面 std 就不换；腾出的槽按当月排名补。月末决策，次月执行。──
+K_DEAD = 1.0
 _mh, _mh_raw = {}, {}
+_prev = []
 for d in score_in.index:
-    order = rank_m.loc[d].dropna().sort_values().index.tolist()
-    top2 = order[:TOP_N]
+    row = score_in.loc[d]
+    order = row.dropna().sort_values(ascending=False)
+    top2 = order.index[:TOP_N].tolist()
+    if len(order) >= TOP_N:
+        thresh = float(order.iloc[TOP_N - 1]) - K_DEAD * float(row.std())
+        keep = [t for t in _prev if pd.notna(row.get(t)) and float(row[t]) >= thresh]
+        hold = keep + [t for t in order.index if t not in keep][:TOP_N - len(keep)]
+    else:
+        hold = top2
+    _prev = hold
     em = hv.next_month_key(d.strftime("%Y-%m"), 1)
-    _mh[em] = list(top2)
+    _mh[em] = list(hold)
     _mh_raw[em] = list(top2)
 
 last_month = score_in.index[-1]
