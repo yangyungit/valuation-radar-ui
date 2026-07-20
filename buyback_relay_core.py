@@ -142,6 +142,7 @@ def render_group(
     display_from=None,
     precomputed_holdings: dict = None,
     precomputed_raw: dict = None,
+    precomputed_weights: dict = None,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -160,6 +161,7 @@ def render_group(
              破 MA6×(1−kσ) 那月就把该股换现金、名额不顺延，属月度选股层决策，不是段内日线规则）。
              传入后排名/热力图/奖牌仍按 score_m 算，δ/MA 扫描全跳过。precomputed_raw 供持仓表
              对照展示当月「原始 slope Top2」（未经通道过滤），不传则用 precomputed_holdings 本身。
+    precomputed_weights = {执行月: {ticker: 权重}}，缺省 1.0；只影响周线净值记账（半仓段一半按现金 4%），不影响热力图/奖牌/甘特显示。
     retention_band / exec_rule = 选股与买卖解耦模式（page7/8 专用，round10 回测敲定）：
              选股层只按排名产出推荐区间（在任票掉出 Top{retention_band} 才结束推荐），
              执行层在推荐区间内按 exec_rule（{"kind":"MA"|"DD","param":int,"reentry_ma":int}）
@@ -646,12 +648,33 @@ def render_group(
             return _exec_months, _slots, _slot_segs, _nav_l, _nav_r, _navc
         if not price_cache:
             return None
-        _seg_l = _slot_segs[0]
+
+        def _split_by_weight(segs):
+            if precomputed_weights is None:
+                return segs
+            out = []
+            for tk, s_m, e_m in segs:
+                if tk == "CASH":
+                    out.append((tk, s_m, e_m))
+                    continue
+                cur_w, cur_s, prev_m, m = None, s_m, s_m, s_m
+                while m <= e_m:
+                    w_ = float((precomputed_weights.get(m) or {}).get(tk, 1.0))
+                    if cur_w is None:
+                        cur_w, cur_s = w_, m
+                    elif w_ != cur_w:
+                        out.append((tk, cur_s, prev_m, cur_w))
+                        cur_w, cur_s = w_, m
+                    prev_m, m = m, hv.next_month_key(m, 1)
+                out.append((tk, cur_s, e_m, cur_w))
+            return out
+
+        _seg_l = _split_by_weight(_slot_segs[0])
         _nav_l = hv.calc_slot_stats(_seg_l, price_cache, spy_wk, 0.04, cost_bps)[2]
         if n_hold < 2:
             # 单仓：满仓 Top1，净值 = 左列，不掺现金、不做 50/50。
             return _exec_months, _slots, _slot_segs, _nav_l, pd.Series(dtype=float), _nav_l.copy()
-        _seg_r = _slot_segs[1]
+        _seg_r = _split_by_weight(_slot_segs[1])
         _nav_r = hv.calc_slot_stats(_seg_r, price_cache, spy_wk, 0.04, cost_bps)[2]
         _navc = pd.Series(dtype=float)
         if not _nav_l.empty and not _nav_r.empty:
