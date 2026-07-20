@@ -29,17 +29,20 @@ st.caption(
     "**组合 = 带鱼持有 + 通道斩仓**：斜率排名只决定买什么，不决定卖什么——槽位买入后一直持有，"
     "直到月末收盘 ≤ MA6×(1−0.25σ) 破线才斩仓换现金（单月确认）；腾出的槽给当月斜率 Top2 里"
     "通道上方、且**价在自身近 12 月高点 5% 内**（浅V不容忍：挡深V反抽半山腰进场）的未持有票，"
+    "新仓头 2 月半仓试用（另一半现金），且头 3 月内月收盘跌破进场价 10% 提前斩（与通道线先破者算）；"
     "没有就拿现金 4%（掉出 Top2 不卖：一直参与直的，直到被打破才找下一个）。"
-    "回测（round12-14，2017-04→2026-06，单边 200bps）：全程 CAGR 18.6% / DD -26.2% / Calmar 0.71"
-    "（SPY 15.0% / -23.9% / 0.63），3Y 27.6% / -26.2% / 1.05，5Y 15.0% / -26.2% / 0.57，"
-    "换手 1.25 次/年，常态空仓 21%。同池对照：旧「斜率 Top2 月调 + 2 月确认斩仓」= 22.1%/-31.5%/0.70——"
-    "持到破位让 3.5pp CAGR，换 5.3pp 回撤 + 换手更低 + 不再中途卖掉没破位的带鱼。"
-    "**四条警告**：① 本组合是 round7-14 20+ 形态择优（k=0.25 取平台 [0.15,0.35] 中心非孤峰），预期打折看待；"
+    "回测（round12-15，2017-04→2026-06，单边 200bps）：全程 CAGR 17.2% / DD -17.8% / Calmar 0.97"
+    "（SPY 15.0 / -23.9 / 0.63），3Y 22.0 / -16.3 / 1.35，5Y 13.9 / -16.3 / 0.85，"
+    "换手 0.77 次/年，常态空仓 40%。同池对照：无半仓/止损的持到破位版 = 16.3/-23.9/0.68——"
+    "9 个 whipsaw 亏损段（EA -20/LULU -19/LLY re-entry ×2 等，全是 1~3 月短命仓）是主要失血，"
+    "半仓+止损砍伤害不砍赢家（AMZN/PYPL/LLY 大段无伤）。"
+    "**四条警告**：① 本组合是 round7-15 20+ 形态择优（k=0.25 取平台 [0.15,0.35] 中心非孤峰），预期打折看待；"
     "② 近 3Y Calmar 1.05 低于旧月调版的 2.15，价值在全程回撤和持有纪律——这是**进攻腿**，"
     "与 FCF收益率稳定页（防守腿）互补，别当同类；"
-    "③ 双票高集中，破线月末才确认，崩盘首段 -15~-20% 跑不掉（最大回撤窗 2025-01→2025-03）；"
+    "③ 双票高集中，破线月末才确认，EA 式单月跳空 -20% 止损也救不了（月线下月才看见），半仓层把它的组合伤害压到 -5%；"
     "④ 空仓 21% 是特性不是 bug：Top2 都不合格或在通道下方时拿现金，别手痒补仓。"
     "**注：下方热力图/奖牌/接力净值走前端周线复权价，与上列月线回测数字会有小差，持仓逻辑一致。**"
+    "半仓段净值按一半现金记账，甘特图仍显示整段持有。"
 )
 
 with st.sidebar:
@@ -54,6 +57,9 @@ MA_W, SIG_W = 6, 12
 COST_BPS = 200.0     # 单边 200bps
 NEAR_HIGH = 0.95     # 浅V不容忍：新进场须月末价 ≥ 自身近 12 月最高价 ×0.95（5% 内），
                      # 深V反抽还远在前高下方直接挡掉（REGN/AGN 2016、MSCI 2022、PWR 2025-02 那批）
+STOP_S = 0.10        # 锚定止损：进场后头 3 月内，月收盘 ≤ 进场价×0.90 即斩（round15）
+STOP_WIN_M = 3
+PROB_M = 2           # 试用期半仓：新仓头 2 月半槽，另一半按现金 4% 记账（round15）
 
 doc = fetch_logr2_stable_pool()
 if not doc.get("success"):
@@ -153,18 +159,25 @@ near_ok = (near_high >= NEAR_HIGH).fillna(False)
 #    补槽 = 当月段斜率 Top2 里通道上方的未持有票，没有就空槽拿现金
 #    （决策月 → 执行月 +1）──
 raw = (rank_m <= TOP_N) & memb                  # 原始斜率 Top2（持仓表对照用）
-_mh, _mh_raw = {}, {}
-_held: list = []
-for d in slope_m.index:
-    _held = [t for t in _held if bool(above.at[d, t])]
+_mh, _mh_raw, _wts = {}, {}, {}
+_held: dict = {}                                # tk -> [进场月序号, 进场月末价]
+for i, d in enumerate(slope_m.index):
+    for t in list(_held):
+        px = close_m.at[d, t] if (d in close_m.index and t in close_m.columns) else np.nan
+        out = pd.isna(px) or not bool(above.at[d, t])
+        if not out and (i - _held[t][0]) <= STOP_WIN_M:
+            out = px <= _held[t][1] * (1 - STOP_S)
+        if out:
+            del _held[t]
     order = rank_m.loc[d].dropna().sort_values().index.tolist()
     for t in order:
         if len(_held) >= TOP_N or rank_m.at[d, t] > TOP_N:
             break
         if t not in _held and bool(above.at[d, t]) and bool(near_ok.at[d, t]):
-            _held.append(t)
+            _held[t] = [i, float(close_m.at[d, t])]
     em = hv.next_month_key(d.strftime("%Y-%m"), 1)
     _mh[em] = list(_held)
+    _wts[em] = {t: (0.5 if (i - e[0]) < PROB_M else 1.0) for t, e in _held.items()}
     _mh_raw[em] = [t for t in order if bool(raw.at[d, t])][:TOP_N]
 
 last_month = sc_in.index[-1]
@@ -218,5 +231,6 @@ render_group(
     medal_table_hide_unmedaled=True,
     display_from=window_lo,
     precomputed_holdings=_mh, precomputed_raw=_mh_raw,
+    precomputed_weights=_wts,
     danger_daily=_danger_full, danger_half_daily=_danger_half, bear_default=False,
 )

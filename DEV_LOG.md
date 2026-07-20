@@ -1,3 +1,11 @@
+## 2026-07-20 斜率进攻页落地 round15：试用期半仓 + 进场锚定止损（Phase 2）
+
+**范围**：`holdings_viz.py`（`calc_slot_stats` 段权重）/ `buyback_relay_core.py`（`render_group` 新参 `precomputed_weights`）/ `pages/19_斜率进攻.py`（持仓循环加半仓+止损、caption 换 round15 数字），仅 valuation-radar-ui 一个仓。
+**常量**（Fable 定值）：`PROB_M=2`（新仓头 2 月半仓，另一半按现金 4% 记账）、`STOP_S=0.10`（进场月末价 ×0.90 锚定止损）、`STOP_WIN_M=3`（止损只在进场后头 3 月内生效）。
+**出处**：`valuation-radar/backtest_logr2_stable_round15.py`（commit db79f73），月线回测 CAGR 17.2% / DD -17.8% / Calmar 0.97；冷却期方案已证伪，near 门本次不动。
+
+---
+
 ## 2026-07-18 | 新增 logR² 稳定页：带鱼池排名+等权Top10净值（无接力引擎）
 
 **范围**：`api_client.py` 新增 `fetch_logr2_stable_pool()`；新建 `pages/8_logR2稳定.py`——独立页面，不复用 `buyback_relay_core.render_group`（Fable 回测双槽接力引擎在带鱼池上全灭，见后端 `backtest_logr2_stable_round1/2.py`）。
