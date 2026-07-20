@@ -18,7 +18,8 @@ st.set_page_config(page_title="风险预警", layout="wide")
 st.title("⚠️ 风险预警 · 流动性 / 风险偏好条带")
 st.caption(
     "从上到下：**标普 SPY 跌破月 MA10**（大盘趋势总闸）→ **危险条带 GBDT**（后端清仓/减半信号）→ "
-    "**风险偏好内部**（BTC 跌破自己月 MA10，HYG÷LQD、ARKK÷SPY、SMH÷SPY 跌破自己月 MA24 = 🔴）。绿 = 安全，"
+    "**风险偏好内部**（BTC 跌破自己月 MA10，HYG÷LQD、ARKK÷SPY、SMH÷SPY 跌破自己月 MA24 = 🔴）→ "
+    "**防守腿池宽度**（page 8 带鱼池非科技，宽度 <40% 报警）。绿 = 安全，"
     "哪些破位了自己看，结合自己的判断操作。"
 )
 
@@ -32,6 +33,7 @@ with st.expander("📖 每个指标是什么、公式怎么算（点开）", exp
 | **HYG÷LQD**（信用利差） | HYG=高收益垃圾债，LQD=投资级债。比值下行 = 垃圾债跑输投资级 = 信用利差走阔 = 钱在往安全资产躲。比 BTC 更纯净地反映风险偏好 | `HYG月末收盘 ÷ LQD月末收盘` | `比值 < MA24(比值)` |
 | **ARKK÷SPY**（高 beta 科技 RS） | ARKK=高成长/高 beta 科技篮子。相对 SPY 的强度下行 = 高风险科技开始跑输大盘 = 资金撤离激进仓位 | `ARKK月末收盘 ÷ SPY月末收盘` | `比值 < MA24(比值)` |
 | **SMH÷SPY**（半导体 RS） | SMH=半导体 ETF，全球周期与 AI 资本开支的领先指标。相对 SPY 走弱 = 半导体动能退潮 | `SMH月末收盘 ÷ SPY月末收盘` | `比值 < MA24(比值)` |
+| **防守池宽度** | page 8（FCF收益率稳定）带鱼池非科技成员中，月末收盘在自身通道上方的占比。单票破线是噪声，全池同破 = 系统性下跌 | `收盘 > MA6×(1−0.25·σ12) 的成员数 ÷ 有效成员数` | `宽度 < 40%`（回到 ≥50% 才解除，滞回） |
 
 **MA 交叉通用算法**：日线拉取 → resample 到月末收盘 → 算 N 个月滚动均线 `MA_N`。当月收盘（或比值）< MA_N → 该月标红；MA 未成形的头 N-1 个月记 ⚪（数据不足）。
 
@@ -403,6 +405,102 @@ st.caption(
     "读法：红段 = 该指标当月破位（跌破自己的 MA），绿段 = 安全。"
     "各指标独立看，破位了没、结合自己的判断操作。"
 )
+
+# ── 第 4 条：防守腿池宽度（page 8 FCF收益率稳定 联动，round17）
+# 单票破线是噪声（54 段 whipsaw 实证），全池同破 = 系统性下跌。
+# 只在 2008 式慢熊有反应时间（2008-07 触发，离底还有 8 个月）；
+# 2020 式快崩月频信号来不及，触发时底已过，不建议照着行动。
+_BR_OFF, _BR_ON, _BR_MIN_VALID = 0.40, 0.50, 10
+_breadth, _br_state = None, None
+try:
+    from api_client import fetch_logr2_stable_pool, get_global_data as _ggd
+
+    _doc = fetch_logr2_stable_pool()
+    _pools = ({int(y): list(m) for y, m in (_doc.get("pools") or {}).items()}
+              if _doc.get("success") else {})
+    _meta = _doc.get("meta") or {}
+    _pool_rest = sorted({t for mem in _pools.values() for t in mem
+                         if not (_meta.get(t) or {}).get("is_tech")})
+    if _pool_rest:
+        _BR_ALIAS = {"BRK.B": "BRK-B"}
+        with st.spinner("📊 加载防守池宽度（page 8 联动）..."):
+            _pxd = _ggd([_BR_ALIAS.get(t, t) for t in _pool_rest], years=12)
+        if _pxd is not None and not _pxd.empty:
+            _cm = pd.DataFrame({t: _pxd[_BR_ALIAS.get(t, t)]
+                                for t in _pool_rest if _BR_ALIAS.get(t, t) in _pxd.columns})
+            _cm = _cm.resample("ME").last()
+            _floor = _cm.rolling(6).mean() * (1 - 0.25 * _cm.pct_change().rolling(12).std())
+            _memb_b = pd.DataFrame(False, index=_cm.index, columns=_cm.columns)
+            for _y, _mem in _pools.items():
+                _memb_b.loc[_memb_b.index.year == _y,
+                            [t for t in _mem if t in _memb_b.columns]] = True
+            _valid = _memb_b & _floor.notna() & _cm.notna()
+            _nv = _valid.sum(axis=1)
+            _breadth = (((_cm > _floor) & _valid).sum(axis=1) / _nv.where(_nv >= 1)).dropna()
+            _on, _st_rec = True, {}
+            for _dt in _breadth.index:
+                _b = float(_breadth[_dt])
+                if int(_nv.get(_dt, 0)) >= _BR_MIN_VALID:
+                    if _on and _b < _BR_OFF:
+                        _on = False
+                    elif not _on and _b >= _BR_ON:
+                        _on = True
+                _st_rec[_dt] = _on
+            _br_state = pd.Series(_st_rec)
+except Exception:
+    _breadth, _br_state = None, None
+
+if _breadth is not None and _br_state is not None and not _breadth.empty:
+    st.markdown(
+        "#### 🛡️ 防守腿池宽度 "
+        "<span style='font-size:13px; color:#888; font-weight:normal;'>"
+        "(page 8 带鱼池非科技 · 通道上方成员占比 · &lt;40% 报警，回到 ≥50% 解除)</span>",
+        unsafe_allow_html=True,
+    )
+    _br_red = (~_br_state).astype(float)
+    _build_ribbon([("防守池宽度", _br_red, "")], _x_lo, _x_hi, key="risk_breadth_ribbon")
+
+    _fig_b = go.Figure()
+    for _s0, _s1 in _segs(_br_red):
+        _fig_b.add_vrect(x0=_s0, x1=_s1, fillcolor="rgba(231,76,60,0.18)",
+                         line_width=0, layer="below")
+    _fig_b.add_trace(go.Scatter(
+        x=_breadth.index, y=_breadth.values, mode="lines", name="宽度",
+        line=dict(color="#ddd", width=1.3),
+    ))
+    _fig_b.add_hline(y=_BR_OFF, line=dict(color="#E74C3C", width=1, dash="dot"))
+    _fig_b.add_hline(y=_BR_ON, line=dict(color="#2ECC71", width=1, dash="dot"))
+    _fig_b.update_layout(
+        height=220,
+        margin=dict(l=50, r=20, t=30, b=28),
+        plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
+        font=dict(color="#ddd"), showlegend=False,
+        title=dict(text="防守池宽度 · 月频（红线 40% 报警 / 绿线 50% 解除）",
+                   font=dict(size=13, color="#ddd")),
+        xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                   range=[_x_lo, _x_hi], tickformat="%Y", dtick="M12",
+                   ticks="outside", tickfont=dict(size=10, color="#999")),
+        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                   tickformat=".0%", range=[0, 1.02],
+                   tickfont=dict(size=10, color="#999")),
+    )
+    st.plotly_chart(_fig_b, use_container_width=True, key="risk_breadth_chart")
+
+    _b_last = float(_breadth.iloc[-1])
+    if bool(_br_state.iloc[-1]):
+        _b_txt = "<span style='color:#2ECC71; font-weight:bold;'>安全</span>"
+    else:
+        _b_txt = "<span style='color:#E74C3C; font-weight:bold;'>报警（系统性下跌）</span>"
+    st.caption(
+        f"当前：{_b_txt} · 宽度 {_b_last * 100:.0f}%"
+        f"（{_breadth.index[-1].strftime('%Y-%m')}，当月未走完）。"
+        "读法：这是 page 8 防守腿的慢熊警报——单票破线是噪声，全池同破才是系统性下跌。"
+        "回测（round17）：2008 式慢熊触发时离底还有 8 个月，有反应时间；"
+        "2020 式快崩触发时底已过，别照着砍。是否降防守腿仓位自己判断，引擎不自动动。",
+        unsafe_allow_html=True,
+    )
+else:
+    st.info("防守池宽度暂不可用（池子或价格未拉到，其余条带不受影响）。")
 
 # ── 三个比值指标详情图（月线 + MA24），方便肉眼判断走势/破位是否靠谱
 st.markdown("#### 📈 三个比值指标详情（月线 + MA24）")
