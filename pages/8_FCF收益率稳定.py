@@ -1,10 +1,21 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 
+import holdings_viz as hv
 from api_client import fetch_logr2_stable_pool, fetch_gbdt_oos_prices, get_global_data
+from buyback_relay_core import render_group
 
 st.set_page_config(page_title="FCF收益率稳定", layout="wide")
+
+st.markdown("""
+<style>
+    .insight-box { border-left: 4px solid #FFD700; background-color: #1a1a1a; padding: 15px; border-radius: 5px; margin-bottom: 20px; margin-top: 20px; }
+    .insight-title { font-weight: bold; color: #FFD700; font-size: 18px; margin-bottom: 10px; }
+    .tag-bull { background-color: rgba(46, 204, 113, 0.2); color: #2ECC71; padding: 2px 6px; border-radius: 4px; font-size: 13px; font-weight: bold; }
+    .tag-bear { background-color: rgba(231, 76, 60, 0.2); color: #E74C3C; padding: 2px 6px; border-radius: 4px; font-size: 13px; font-weight: bold; }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("💵 FCF收益率稳定（带鱼池 × FCF收益率 Top2）")
 st.caption(
     "**池子**：年度 PIT 价格行为池（带鱼池，不变）——市值≥$30B / TTM FCF>0 / 近5Y周线 CAGR≥8% 且 "
@@ -17,6 +28,7 @@ st.caption(
     "**三条警告**：① 全程跑输 SPY 2.7pp，价值只在 DD 更浅，是防守腿不是进攻腿；"
     "② 持仓常年是成对保险股（TRV/CB/PGR/ACGL），等于一注押保险业，行业集中需人工过目，别当黑箱信；"
     "③ 该组合是 24 个候选里择优出来的（唯一佐证：对未来 12 月收益池内 IC +0.115，其余轴全≈0），预期打折看待。"
+    "**注：下方热力图/奖牌/接力净值走前端周线复权价，与上列月线回测数字会有小差，持仓逻辑一致（🥇=Top1 / 🥈=Top2，等权月调）。**"
 )
 
 with st.sidebar:
@@ -26,8 +38,7 @@ with st.sidebar:
         st.rerun()
 
 TOP_N = 2
-COST = 0.02          # 单边 200bps
-CASH_APY = 0.04
+COST_BPS = 200.0     # 单边 200bps
 
 doc = fetch_logr2_stable_pool()
 if not doc.get("success"):
@@ -37,7 +48,6 @@ if not doc.get("success"):
 pools = {int(y): list(mem) for y, mem in (doc.get("pools") or {}).items()}
 meta = doc.get("meta") or {}
 fcfy_panel = doc.get("fcfy_panel") or {}
-logr2_panel = doc.get("logr2_panel") or {}
 if not fcfy_panel:
     st.warning("⚠️ fcfy_panel 未就绪（本地重跑 build_logr2_stable_pool.py 并上传后生效）")
     st.stop()
@@ -49,34 +59,18 @@ if pd.notna(built) and (pd.Timestamp.now(tz="UTC") - built).days > 40:
 union = sorted({t for mem in pools.values() for t in mem})
 rest = [t for t in union if not (meta.get(t) or {}).get("is_tech")]
 
-# FCF 收益率面板：ART 季频 datekey → 月末 ffill（PIT）
+# FCF 收益率面板：ART 季频 datekey → 月末 ffill（PIT），池成员内排名
 raw = pd.DataFrame({tk: pd.Series(fcfy_panel.get(tk) or {}, dtype=float) for tk in rest})
 raw.index = pd.to_datetime(raw.index)
 raw = raw.sort_index()
 grid = pd.date_range(raw.index.min(), pd.Timestamp.today(), freq="ME")
 score_m = raw.reindex(raw.index.union(grid)).ffill().reindex(grid)
 
-# logR²（构池轴）最新值，排名表信息列，不参与排名
-logr2_m = pd.DataFrame({tk: pd.Series(logr2_panel.get(tk) or {}, dtype=float) for tk in rest})
-logr2_m.index = pd.to_datetime(logr2_m.index)
-lr_last = logr2_m.sort_index().iloc[-1] if not logr2_m.empty else pd.Series(dtype=float)
-
 memb = pd.DataFrame(False, index=score_m.index, columns=score_m.columns)
 for y, mem in pools.items():
     memb.loc[memb.index.year == y, [t for t in mem if t in memb.columns]] = True
-score_in = score_m.where(memb)
-rank_m = score_in.rank(axis=1, ascending=False, method="min")
-
-# ── 最新排名表 ──
-last = score_in.index[-1]
-cur = rank_m.loc[last].dropna().sort_values().head(15)
-rows = [{"排名": int(cur[t]), "代码": t, "名称": (meta.get(t) or {}).get("name", t),
-         "行业": (meta.get(t) or {}).get("industry", ""),
-         "FCF收益率%": round(float(score_in.at[last, t]), 1),
-         "logR²": round(float(lr_last.get(t)), 3) if pd.notna(lr_last.get(t)) else None,
-         "Top2": "✅" if cur[t] <= TOP_N else ""} for t in cur.index]
-st.markdown(f"## 🏛️ 非科技 FCF收益率排名（{last.date()}，池 {int(memb.loc[last].sum())} 只）")
-st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+score_in = score_m.where(memb & score_m.notna())        # 排名轴：FCF收益率（池成员 mask）
+rank_m = score_in.rank(axis=1, ascending=False, method="first")
 
 # ── 价格（yfinance + Sharadar 补缺，BRK.B 走别名）──
 _ALIAS = {"BRK.B": "BRK-B"}
@@ -95,37 +89,39 @@ if _missing:
         if rows_p:
             arr = pd.DataFrame(rows_p, columns=["date", "o", "h", "l", "c", "v"])
             close_d[t] = arr.assign(date=pd.to_datetime(arr["date"])).set_index("date")["c"].astype(float)
-close_m = pd.DataFrame({t: s.resample("ME").last() for t, s in close_d.items()}).sort_index()
-spy_m = _px["SPY"].dropna().resample("ME").last() if (_px is not None and "SPY" in _px.columns) else pd.Series(dtype=float)
 
-# ── 等权净值（月调，成本=单边换手×200bps，空位现金 4%）──
-ret_m = close_m.pct_change(fill_method=None)
+# 周线价格喂 render_group 的接力引擎（calc_slot_stats）
+_price_cache = {t: s.resample("W-FRI").last().dropna().to_frame(name="Close")
+                for t, s in close_d.items() if s.resample("W-FRI").last().dropna().shape[0] >= 2}
+_spy_wk = pd.DataFrame()
+if _px is not None and "SPY" in _px.columns:
+    _spy_wk = _px["SPY"].dropna().resample("W-FRI").last().dropna().to_frame(name="Close")
 
-def ew_nav(sel: pd.DataFrame) -> pd.Series:
-    w_raw = sel.reindex(index=ret_m.index, columns=ret_m.columns).fillna(False).astype(float)
-    w = w_raw.div(w_raw.sum(axis=1).replace(0, np.nan), axis=0).fillna(0.0)
-    cash_w = (1 - w.sum(axis=1)).clip(lower=0.0)
-    port = (w.shift(1) * ret_m).sum(axis=1) + cash_w.shift(1).fillna(0) * (CASH_APY / 12)
-    turn = (w - w.shift(1)).abs().sum(axis=1) * 0.5
-    return (1 + port - turn * COST).cumprod()
+# ── 每月持仓：当月 FCF收益率 Top2，月末调仓，次月执行（决策月 → 执行月 +1）。
+#    无守擂、无接力留任——每月重取当月 Top2，等权两仓。──
+_mh, _mh_raw = {}, {}
+for d in score_in.index:
+    order = rank_m.loc[d].dropna().sort_values().index.tolist()
+    top2 = order[:TOP_N]
+    em = hv.next_month_key(d.strftime("%Y-%m"), 1)
+    _mh[em] = list(top2)
+    _mh_raw[em] = list(top2)
 
-memb_px = memb & score_in.notna()
-nav2 = ew_nav((rank_m <= TOP_N) & memb_px)
-nav_all = ew_nav(memb_px)
-lo = close_m.index[-1] - pd.DateOffset(years=int(window[:-1]))
-chart = pd.DataFrame({"等权Top2": nav2, "等权全池": nav_all, "SPY": spy_m})
-chart = chart[chart.index >= lo].dropna(how="all")
-chart = chart / chart.iloc[0]
-st.markdown("## 📈 等权 Top2 月调 vs 全池 vs SPY")
-st.line_chart(chart)
+last_month = score_in.index[-1]
+window_lo = last_month - pd.DateOffset(years=int(window[:-1]))
+name_map = {t: (meta.get(t) or {}).get("name", t) for t in rest}
+_rs_dummy = pd.DataFrame(float("nan"), index=score_in.index, columns=score_in.columns)
 
-# ── 逐年收益 ──
-def yearly(s: pd.Series) -> pd.Series:
-    s = s.dropna()
-    return s.groupby(s.index.year).apply(lambda t: (float(t.iloc[-1]) / float(t.iloc[0]) - 1) * 100).round(1)
-
-st.markdown("## 📅 逐年收益%")
-st.dataframe(pd.DataFrame({"等权Top2": yearly(nav2[nav2.index >= lo]),
-                           "等权全池": yearly(nav_all[nav_all.index >= lo]),
-                           "SPY": yearly(spy_m[spy_m.index >= lo])}),
-             use_container_width=True)
+render_group(
+    "非科技 FCF收益率", rest, "fcfy_rest",
+    score_m=score_in, sweep_score_m=None,
+    rs_m=_rs_dummy, king_m=score_in, name_map=name_map, grade_map={},
+    window=window, month_in_progress=False, last_month=last_month,
+    price_cache=_price_cache, spy_wk=_spy_wk,
+    score_label="FCF收益率%", score_fmt="{:.1f}",
+    n_hold=TOP_N, gold_needs_rs=False,
+    nav_engine="weekly", cost_bps=COST_BPS,
+    medal_table_hide_unmedaled=True,
+    display_from=window_lo,
+    precomputed_holdings=_mh, precomputed_raw=_mh_raw,
+)
