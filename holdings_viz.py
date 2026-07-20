@@ -557,6 +557,7 @@ def build_stitched_fig(
     grade_map: dict = None,
     danger_daily: pd.Series = None,
     danger_half_daily: pd.Series = None,
+    weight_by_month: dict = None,
 ) -> go.Figure:
     pc = price_cache if price_cache is not None else {}
     nm = name_map if name_map is not None else {}
@@ -648,6 +649,19 @@ def build_stitched_fig(
             _state[_dg] = 2
         else:
             seg_nav = (closes / float(closes.iloc[0])) * running_nav
+
+        # 试用期半仓（precomputed_weights 里权重<1 的月）只染白、不改个股净值路径——
+        # 半仓的组合权重已在合成净值里按半现金记账，这里的接力图画的是个股自身走势。
+        if weight_by_month:
+            _half_wk = pd.Series(
+                [float((weight_by_month.get(f"{d.year:04d}-{d.month:02d}") or {}).get(tk, 1.0)) < 1.0
+                 for d in closes.index],
+                index=closes.index,
+            )
+            if bool(_half_wk.any()):
+                if _state is None:
+                    _state = pd.Series(0, index=closes.index)
+                _state = _state.mask((_state == 0) & _half_wk, 1)
 
         _y_vals = [max(0.001, v) for v in seg_nav]
         if _state is not None and int((_state != 0).sum()) > 0:
