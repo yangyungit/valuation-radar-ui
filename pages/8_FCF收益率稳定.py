@@ -21,15 +21,15 @@ st.caption(
     "**池子**：年度 PIT 价格行为池（带鱼池，不变）——市值≥$30B / TTM FCF>0 / 近5Y周线 CAGR≥8% 且 "
     "maxDD≥-45% / 按带方向 logR² 前40，每年12月末重构次年生效（本地 Sharadar 构建上传）。"
     "页面只看**非科技子集**。**排名轴 = FCF收益率**（ART PIT fcf/marketcap，季频 ffill 到月末，池成员内排名）。"
-    "**组合 = 等权 Top2 月末调仓 + 守擂死区**（round16）——在任票 fcfy 距当月 Top2 门槛分"
-    "≤1×截面标准差就不换，腾槽按当月排名补；无金银牌、无 MA/回撤择时（round3-5 已证伪接力形态，"
-    "round16 证伪照抄 ROIC 页按名次留任——fcfy 轴 2~5 名名次是噪声，按名次留任照样乒乓）。"
-    "回测（round16，2017-04→2026-06，单边 200bps）：全程 CAGR 17.1% / DD -21.2% / Calmar 0.81"
-    "（SPY 15.0% / -23.9% / 0.63），3Y 22.8% / -10.7% / 2.13，5Y 19.3% / -10.7% / 1.80，"
-    "换手 0.87 次/年（原月调硬重排 2.06）。"
+    "**组合 = 等权 Top2 月末调仓 + 守擂死区 + 逐月趋势门槛**——在任票 fcfy 距当月 Top2 门槛分"
+    "≤1×截面标准差就不换，腾槽按当月排名补；**候选票另需当月带方向 logR² ≥ 0.75**（趋势顺滑度门槛，"
+    "把进池后趋势掉头的票当月踢出，如 ADM 2024 logR² 0.83→0.28）；无金银牌、无 MA/回撤择时。"
+    "回测（2017-04→2026-06，单边 200bps）：全程 CAGR 17.4% / DD -21.2% / Calmar 0.82"
+    "（SPY 15.0% / -23.9% / 0.63），3Y 27.5% / -10.8% / 2.55，5Y 20.4% / -10.8% / 1.89，"
+    "换手 0.98 次/年。"
     "**三条警告**：① 持仓常年是成对保险股（TRV/CB/PGR/ACGL），等于一注押保险业，行业集中需人工过目，别当黑箱信；"
-    "② 死区 k=1.0 是 round6 之后又一轮 ~20 变体择优（邻域 [0.9,1.2] 平台、0.7/0.8 有坑），预期打折看待；"
-    "③ 死区只降换手不防崩：2018 年 -16.7%（SPY -9.6%），DD 与硬重排相同 -21.2%。"
+    "② 死区 k=1.0 + 门槛 0.75 都是变体择优（logR² 门槛 [0.65,0.80] 是平台、0.85+ 急塌，取平台中心），预期打折看待；"
+    "③ 门槛增益主要来自躲开 ADM 2024 单次，DD 全程未改善（仍 -21.2%），真实价值是持仓更集中+降换手，非提升收益。"
     "**注：下方热力图/奖牌/接力净值走前端周线复权价，与上列月线回测数字会有小差，持仓逻辑一致（🥇=Top1 / 🥈=Top2）。**"
 )
 
@@ -40,6 +40,7 @@ with st.sidebar:
         st.rerun()
 
 COST_BPS = 200.0     # 单边 200bps
+LOGR2_GATE = 0.75    # 逐月趋势顺滑度门槛：候选票当月滚动260周带方向logR²需≥此值
 
 doc = fetch_logr2_stable_pool()
 if not doc.get("success"):
@@ -49,8 +50,12 @@ if not doc.get("success"):
 pools = {int(y): list(mem) for y, mem in (doc.get("pools") or {}).items()}
 meta = doc.get("meta") or {}
 fcfy_panel = doc.get("fcfy_panel") or {}
+logr2_panel = doc.get("logr2_panel") or {}
 if not fcfy_panel:
     st.warning("⚠️ fcfy_panel 未就绪（本地重跑 build_logr2_stable_pool.py 并上传后生效）")
+    st.stop()
+if not logr2_panel:
+    st.warning("⚠️ logr2_panel 未就绪（趋势门槛依赖它，本地重跑 build_logr2_stable_pool.py 并上传后生效）")
     st.stop()
 built = pd.to_datetime(doc.get("built_at"), errors="coerce", utc=True)
 if pd.notna(built) and (pd.Timestamp.now(tz="UTC") - built).days > 40:
@@ -70,7 +75,14 @@ score_m = raw.reindex(raw.index.union(grid)).ffill().reindex(grid)
 memb = pd.DataFrame(False, index=score_m.index, columns=score_m.columns)
 for y, mem in pools.items():
     memb.loc[memb.index.year == y, [t for t in mem if t in memb.columns]] = True
-score_in = score_m.where(memb & score_m.notna())        # 排名轴：FCF收益率（池成员 mask）
+
+# 逐月趋势顺滑度门槛：池按年重建（粘性），进池后趋势掉头（如 ADM 2024 logR² 0.83→0.28）
+# 靠这道闸当月踢出候选，让持仓集中在平滑上行票。NaN（logR² 未就绪）视为不达标。
+logr2_m = pd.DataFrame({tk: pd.Series(logr2_panel.get(tk) or {}, dtype=float) for tk in rest})
+logr2_m.index = pd.to_datetime(logr2_m.index)
+logr2_m = logr2_m.sort_index().reindex(index=score_m.index, columns=score_m.columns)
+gate_mask = logr2_m >= LOGR2_GATE
+score_in = score_m.where(memb & gate_mask & score_m.notna())  # 排名轴：FCF收益率（池成员 × logR²门槛）
 
 # ── 价格（yfinance + Sharadar 补缺，BRK.B 走别名）──
 _ALIAS = {"BRK.B": "BRK-B"}
@@ -143,11 +155,11 @@ with tab2:
 
 with tab1:
     st.info(
-        "**单仓实验**：只持 FCF收益率 Top1，守擂死区 k=2.0（在任票 fcfy ≥ 当月 Top1 门槛分 "
-        "− 2.0×截面 std 就不换）。月线回测（2017-04→，单边 200bps）：CAGR 18.1% / DD -18.3% / "
-        "Calmar 0.99，对照现状 Top2 的 17.1% / -21.2% / 0.81——单仓年化更高、回撤更浅、Calmar 更好，"
-        "换手 0.98 次/年。**k=2.0 取自回撤平台右肩**：k∈[1.0,2.0] 是同型持仓平台（DD 恒 -18.x、9 段结构一致），"
-        "CAGR 随 k 单调升到 2.0，k≥2.25 才因漏切换令 DD 恶化到 -21.9。仍是参数择优，预期打折看待；"
+        "**单仓实验**：只持 FCF收益率 Top1，守擂死区 k=2.0 + 逐月 logR² ≥ 0.75 趋势门槛。"
+        "月线回测（2017-04→，单边 200bps）：CAGR 22.8% / DD -18.3% / Calmar 1.25，对照现状 Top2 的 "
+        "17.4% / -21.2% / 0.82——单仓年化更高、回撤更浅、Calmar 更好，换手 0.65 次/年（比 Top2 更省）。"
+        "门槛对单仓增益更明显（无门槛时单仓 18.1% / -18.3% / 0.99），因单槽更易被掉头票占满，"
+        "门槛把 ADM 2024 这类挡在门外。**仍是参数择优**（k=2.0、门槛 0.75 都取自平台），预期打折看待；"
         "下方走前端周线复权价重建，与月线回测数字有小差。"
     )
     _mh1, _mh1_raw = _deadband_holdings(1, 2.0)
