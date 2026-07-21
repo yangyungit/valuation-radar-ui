@@ -7,7 +7,7 @@ from api_client import (fetch_logr2_stable_pool, fetch_gbdt_oos_prices, get_glob
                         compute_macro_regime_api, fetch_current_regime)
 from buyback_relay_core import render_group
 
-st.set_page_config(page_title="斜率进攻", layout="wide")
+st.set_page_config(page_title="带鱼斜率", layout="wide")
 
 st.markdown("""
 <style>
@@ -18,7 +18,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ 斜率进攻（带鱼池 × 当前段斜率 Top2 × 通道斩仓）")
+st.title("⚡ 带鱼斜率（带鱼池 × 当前段斜率 Top2 × 通道斩仓）")
 st.caption(
     "**池子**：与 FCF收益率稳定页同一个带鱼池（年度 PIT，市值≥$30B / TTM FCF>0 / 5Y CAGR≥8% "
     "且 maxDD≥-45% / 带方向 logR² 前40），只看**非科技子集**，池子零改动"
