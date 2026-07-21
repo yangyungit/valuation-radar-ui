@@ -132,7 +132,7 @@ _common = dict(
     medal_table_hide_unmedaled=True, display_from=window_lo,
 )
 
-tab2, tab1 = st.tabs(["🥈 Top2 双仓（现状 · 死区 k=1.0）", "🥇 Top1 单仓（死区 k=1.5 · 实验）"])
+tab2, tab1 = st.tabs(["🥈 Top2 双仓（现状 · 死区 k=1.0）", "🥇 Top1 单仓（死区 k=2.0 · 实验）"])
 
 with tab2:
     _mh2, _mh2_raw = _deadband_holdings(2, 1.0)
@@ -143,13 +143,14 @@ with tab2:
 
 with tab1:
     st.info(
-        "**单仓实验**：只持 FCF收益率 Top1，守擂死区 k=1.5（在任票 fcfy ≥ 当月 Top1 门槛分 "
-        "− 1.5×截面 std 就不换）。月线回测（2017-04→，单边 200bps）：CAGR 16.2% / DD -18.8% / "
-        "Calmar 0.86，对照现状 Top2 的 17.1% / -21.2% / 0.81——单仓年化低约 1 个点，但回撤更浅、"
-        "Calmar 略高。**k=1.5 是又一层参数择优，预期打折看待**；下方走前端周线复权价重建，"
-        "与月线回测数字有小差。"
+        "**单仓实验**：只持 FCF收益率 Top1，守擂死区 k=2.0（在任票 fcfy ≥ 当月 Top1 门槛分 "
+        "− 2.0×截面 std 就不换）。月线回测（2017-04→，单边 200bps）：CAGR 18.1% / DD -18.3% / "
+        "Calmar 0.99，对照现状 Top2 的 17.1% / -21.2% / 0.81——单仓年化更高、回撤更浅、Calmar 更好，"
+        "换手 0.98 次/年。**k=2.0 取自回撤平台右肩**：k∈[1.0,2.0] 是同型持仓平台（DD 恒 -18.x、9 段结构一致），"
+        "CAGR 随 k 单调升到 2.0，k≥2.25 才因漏切换令 DD 恶化到 -21.9。仍是参数择优，预期打折看待；"
+        "下方走前端周线复权价重建，与月线回测数字有小差。"
     )
-    _mh1, _mh1_raw = _deadband_holdings(1, 1.5)
+    _mh1, _mh1_raw = _deadband_holdings(1, 2.0)
     render_group(
         "非科技 FCF收益率(单仓)", rest, "fcfy_rest_top1",
         n_hold=1, precomputed_holdings=_mh1, precomputed_raw=_mh1_raw, **_common,
