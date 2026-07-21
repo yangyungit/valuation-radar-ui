@@ -39,7 +39,6 @@ with st.sidebar:
         fetch_gbdt_oos_prices.clear()
         st.rerun()
 
-TOP_N = 2
 COST_BPS = 200.0     # 单边 200bps
 
 doc = fetch_logr2_stable_pool()
@@ -98,41 +97,60 @@ _spy_wk = pd.DataFrame()
 if _px is not None and "SPY" in _px.columns:
     _spy_wk = _px["SPY"].dropna().resample("W-FRI").last().dropna().to_frame(name="Close")
 
-# ── 每月持仓：守擂死区（round16 k=1.0）——在任票 fcfy ≥ 当月 Top2 门槛分
-#    − K_DEAD×截面 std 就不换；腾出的槽按当月排名补。月末决策，次月执行。──
-K_DEAD = 1.0
-_mh, _mh_raw = {}, {}
-_prev = []
-for d in score_in.index:
-    row = score_in.loc[d]
-    order = row.dropna().sort_values(ascending=False)
-    top2 = order.index[:TOP_N].tolist()
-    if len(order) >= TOP_N:
-        thresh = float(order.iloc[TOP_N - 1]) - K_DEAD * float(row.std())
-        keep = [t for t in _prev if pd.notna(row.get(t)) and float(row[t]) >= thresh]
-        hold = keep + [t for t in order.index if t not in keep][:TOP_N - len(keep)]
-    else:
-        hold = top2
-    _prev = hold
-    em = hv.next_month_key(d.strftime("%Y-%m"), 1)
-    _mh[em] = list(hold)
-    _mh_raw[em] = list(top2)
+# ── 每月持仓：守擂死区——在任票 fcfy ≥ 当月 Top-n 门槛分 − k×截面 std 就不换；
+#    腾出的槽按当月排名补。月末决策，次月执行。──
+def _deadband_holdings(n, k):
+    _mh, _mh_raw, _prev = {}, {}, []
+    for d in score_in.index:
+        row = score_in.loc[d]
+        order = row.dropna().sort_values(ascending=False)
+        top = order.index[:n].tolist()
+        if len(order) >= n:
+            thresh = float(order.iloc[n - 1]) - k * float(row.std())
+            keep = [t for t in _prev if pd.notna(row.get(t)) and float(row[t]) >= thresh]
+            hold = keep + [t for t in order.index if t not in keep][:n - len(keep)]
+        else:
+            hold = top
+        _prev = hold
+        em = hv.next_month_key(d.strftime("%Y-%m"), 1)
+        _mh[em] = list(hold)
+        _mh_raw[em] = list(top)
+    return _mh, _mh_raw
 
 last_month = score_in.index[-1]
 window_lo = last_month - pd.DateOffset(years=int(window[:-1]))
 name_map = {t: (meta.get(t) or {}).get("name", t) for t in rest}
 _rs_dummy = pd.DataFrame(float("nan"), index=score_in.index, columns=score_in.columns)
 
-render_group(
-    "非科技 FCF收益率", rest, "fcfy_rest",
+_common = dict(
     score_m=score_in, sweep_score_m=None,
     rs_m=_rs_dummy, king_m=score_in, name_map=name_map, grade_map={},
     window=window, month_in_progress=False, last_month=last_month,
     price_cache=_price_cache, spy_wk=_spy_wk,
     score_label="FCF收益率%", score_fmt="{:.1f}",
-    n_hold=TOP_N, gold_needs_rs=False,
-    nav_engine="weekly", cost_bps=COST_BPS,
-    medal_table_hide_unmedaled=True,
-    display_from=window_lo,
-    precomputed_holdings=_mh, precomputed_raw=_mh_raw,
+    gold_needs_rs=False, nav_engine="weekly", cost_bps=COST_BPS,
+    medal_table_hide_unmedaled=True, display_from=window_lo,
 )
+
+tab2, tab1 = st.tabs(["🥈 Top2 双仓（现状 · 死区 k=1.0）", "🥇 Top1 单仓（死区 k=1.5 · 实验）"])
+
+with tab2:
+    _mh2, _mh2_raw = _deadband_holdings(2, 1.0)
+    render_group(
+        "非科技 FCF收益率", rest, "fcfy_rest",
+        n_hold=2, precomputed_holdings=_mh2, precomputed_raw=_mh2_raw, **_common,
+    )
+
+with tab1:
+    st.info(
+        "**单仓实验**：只持 FCF收益率 Top1，守擂死区 k=1.5（在任票 fcfy ≥ 当月 Top1 门槛分 "
+        "− 1.5×截面 std 就不换）。月线回测（2017-04→，单边 200bps）：CAGR 16.2% / DD -18.8% / "
+        "Calmar 0.86，对照现状 Top2 的 17.1% / -21.2% / 0.81——单仓年化低约 1 个点，但回撤更浅、"
+        "Calmar 略高。**k=1.5 是又一层参数择优，预期打折看待**；下方走前端周线复权价重建，"
+        "与月线回测数字有小差。"
+    )
+    _mh1, _mh1_raw = _deadband_holdings(1, 1.5)
+    render_group(
+        "非科技 FCF收益率(单仓)", rest, "fcfy_rest_top1",
+        n_hold=1, precomputed_holdings=_mh1, precomputed_raw=_mh1_raw, **_common,
+    )
