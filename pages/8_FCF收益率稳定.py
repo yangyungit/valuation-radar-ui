@@ -142,6 +142,7 @@ _common = dict(
     score_label="FCF收益率%", score_fmt="{:.1f}",
     gold_needs_rs=False, nav_engine="weekly", cost_bps=COST_BPS,
     medal_table_hide_unmedaled=True, display_from=window_lo,
+    pick_show_name=True,
 )
 
 tab2, tab1 = st.tabs(["🥈 Top2 双仓（现状 · 死区 k=1.0）", "🥇 Top1 单仓（死区 k=2.0 · 实验）"])

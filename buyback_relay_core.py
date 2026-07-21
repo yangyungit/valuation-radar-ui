@@ -143,6 +143,7 @@ def render_group(
     precomputed_holdings: dict = None,
     precomputed_raw: dict = None,
     precomputed_weights: dict = None,
+    pick_show_name: bool = False,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -1034,7 +1035,12 @@ def render_group(
         if not t or t == "CASH":
             return "—"
         g = grade_map.get(t, "")
-        return f"{t}({g})" if g else t
+        base = f"{t}({g})" if g else t
+        if pick_show_name:
+            nm = name_map.get(t)
+            if nm and nm != t:
+                return f"{base} · {nm}"
+        return base
 
     _pick_rows = []
     for _em in _exec_months:
