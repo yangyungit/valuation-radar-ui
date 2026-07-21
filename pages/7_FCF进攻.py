@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from api_client import fetch_buyback_fcf_relay_timeseries, fetch_gbdt_oos_prices, get_global_data
+from api_client import fetch_buyback_fcf_relay_timeseries, fetch_gbdt_oos_prices
 from buyback_relay_core import render_group
 
 st.set_page_config(page_title="FCF进攻", layout="wide")
@@ -43,6 +43,7 @@ st.caption(
     "**留任按趋势**：在任票只要月末价 > 自己的 4 月均线就一直拿，跌破才换（对齐科技龙头页，替代原 δ 死区）。"
     "回测见 backtest_buyback_ma_onehold.py：本口径 2017-04→2026-06 = +1477%、回撤 -35.7%"
     "（原 δ0.75 版 +1410%、-42.7%；SPY +264%）。"
+    "**本页实时净值已全走 Sharadar closeadj（与回测同源）**，数据新鲜到缓存上次 push Render 的日期。"
 )
 
 with st.sidebar:
@@ -89,34 +90,22 @@ _last_month = king_m.index[-1]
 _month_in_progress = bool(pd.notna(asof) and _last_month.to_period("M").end_time.normalize() > asof.normalize())
 
 # ── 价格(全池一次拉好,两组共享)──
+# 全池走 Sharadar closeadj（与后端排名、离线回测同源），yfinance 仅在缓存缺票时兜底。
 with st.spinner("📊 加载价格..."):
     _pool = list(_tickers.keys())
-    _px = get_global_data(_pool + ["SPY"], years=10)
+    import holdings_viz as hv
+    hv.prime_sharadar_prices(fetch_gbdt_oos_prices(tuple(sorted(_pool + ["SPY"]))))
 
 _price_cache: dict = {}
 _close_m_cols: dict = {}
-_spy_wk = pd.DataFrame()
-if _px is not None and not _px.empty:
-    _wk = _px.resample("W-FRI").last()
-    if "SPY" in _wk.columns:
-        _spy_wk = _wk[["SPY"]].rename(columns={"SPY": "Close"}).dropna()
-    for _tk in _pool:
-        if _tk in _wk.columns:
-            _s = _wk[_tk].dropna()
-            if len(_s) >= 2:
-                _price_cache[_tk] = _s.to_frame(name="Close")
-                _close_m_cols[_tk] = _px[_tk].dropna().resample("ME").last()
-
-# yfinance 拉不到的退市票（如 ANSS）从 Sharadar gbdt_oos_prices 补全复权日线
-_missing = [t for t in _pool if t not in _price_cache]
-if _missing:
-    import holdings_viz as hv
-    hv.prime_sharadar_prices(fetch_gbdt_oos_prices(tuple(sorted(_missing))))
-    for _tk in _missing:
-        _d = hv.fetch_daily_ohlcv(_tk)
-        if not _d.empty:
-            _price_cache[_tk] = _d["Close"].resample("W-FRI").last().dropna().to_frame(name="Close")
-            _close_m_cols[_tk] = _d["Close"].resample("ME").last()
+for _tk in _pool:
+    _d = hv.fetch_daily_ohlcv(_tk)          # Sharadar 优先，缺回退 yfinance
+    if not _d.empty:
+        _price_cache[_tk] = _d["Close"].resample("W-FRI").last().dropna().to_frame(name="Close")
+        _close_m_cols[_tk] = _d["Close"].resample("ME").last()
+_spy_d = hv.fetch_daily_ohlcv("SPY")
+_spy_wk = (_spy_d["Close"].resample("W-FRI").last().dropna().to_frame(name="Close")
+           if not _spy_d.empty else pd.DataFrame())
 
 _COMMON = dict(
     rs_m=rs_m, king_m=king_m, name_map=name_map, grade_map=grade_map,
