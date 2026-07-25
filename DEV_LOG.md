@@ -1,3 +1,15 @@
+## 2026-07-25 page 20 重写：黄金带鱼改为规则池等权月调，轮动6变体回测全灭故删除
+
+**范围**：`pages/20_黄金带鱼.py`（重写）。
+
+**起因**：round2 回测（valuation-radar `backtest_golden_ribbon_round2.py`，`7a59ce5`）把 12M 动量 Top1/2/3 × 通道留任/出池即卖 6 个轮动变体搬到规则池上跑，全程 CAGR −2.6%~9.8%，全部跑输等权规则池月调（18.5%）甚至 SPY（14.9%），k 扫描 0→3 无稳健平台。判读：池子六道门已按「又陡又顺」筛过，池内再押 Top-n = 抽签，且动量排名专挑刚进池的高位票（AJG/SNPS/FTNT 段明细全是这么亏的）。
+
+**改动**：删除手挑 7 只轮动整块（`get_global_data` 拉价、`_channel_holdings*`、`_navc_for_k`、`_k_sweep_curves`、两个 tab、k 扫描图），删除 `holdings_viz` / `buyback_relay_core` import。新主体 = 规则池等权月调净值（口径同 round2 `nav_of`：月末决策次月执行、等权、单边 200bps、空池现金 4%，退市票价格 NaN 自动出局不 ffill），净值一律走后端 Sharadar 复权价（`fetch_gbdt_oos_prices`）与回测同源，不用 yfinance。页面自上而下：当前持仓卡（`{cur_year}` 年生效池等权 + 七轴详情）→ 净值图（等权规则池 / 手挑7静态等权 / SPY，3Y/5Y/10Y 窗口，log 轴）+ 三列统计卡（CAGR/DD/Calmar，按窗口切段）→ 页底手挑对照 / 全部候选 / 逐年池（原样保留）。
+
+**核验**：离线复现（`system/venv` 直连 Render API）——10Y 窗口等权规则池 CAGR 18.01%（目标 18.5% ±0.5pct，同价格源不同精确切段口径，差在容差内）；当前持仓 = GWW/PWR/WAB，与 2026 年生效池一致。`py_compile` 通过，无新增 lint。
+
+---
+
 ## 2026-07-25 page 20 页底新增黄金阶段规则池展示，与手挑7只对照
 
 **范围**：`pages/20_黄金带鱼.py`。手挑轮动区（tab1/tab2、k 扫描）不动，仅页底追加展示区。

@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 
-import holdings_viz as hv
-from api_client import get_global_data, fetch_logr2_stable_pool
-from buyback_relay_core import render_group, _plot_param_sweep
+from api_client import fetch_logr2_stable_pool, fetch_gbdt_oos_prices
 
 st.set_page_config(page_title="黄金带鱼", layout="wide")
 
@@ -16,233 +15,93 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🥇 黄金带鱼轮动（黄金档7只 × 12M动量 × 通道留任）")
+st.title("🥇 黄金带鱼（规则池等权月调）")
 st.caption(
-    "**池子**：带鱼.md 黄金档手挑 7 只——AAPL / LLY / TJX / COST / V / BRK.B / MA（又陡又顺的品牌龙头，固定名单）。"
-    "**排名轴 = 12M 动量**（月末价 12 个月涨幅，纯前端 yfinance 价格计算，无后端依赖）。"
-    "**组合 = 排名决定买、通道决定卖**：在任票只要月末价 > 自己的 MA6×(1−1.5×近12月波动) 通道下沿就一直拿，"
-    "排名掉了不卖；跌破通道下沿才腾位，腾位当月立刻按 12M 动量排名补最强票，**无进场门、无空仓**"
-    "（跌破但当月动量仍在 Top 档 → 原地留任，视为噪音；破线 + 掉出 Top 档同时发生才真换仓）。"
-    "月末决策、次月执行。回测（月线，2016-07→2026-07，单边 200bps）："
-    "Top2 全程 CAGR 20.7% / DD -21.2% / Calmar 0.98（SPY 14.8 / -23.9 / 0.62），"
-    "5Y 21.2 / -18.4 / 1.15，3Y 23.7 / -11.5 / 2.05，换仓 1.9 次/年。"
-    "（⚠️ 2026-07 通道 k 由 0.5 调至 1.5：卖得更慢、不在急跌里瞎腾仓——10Y 周线 回撤 -35.7%→-25.5% / Calmar 0.58→0.98 / logR² 0.972→0.976。"
-    "上列月线数字系 k=0.5 旧基线待重跑，现以统计卡 + 下方 k 扫描图为准；k 值坐在跨 3/5/10Y 的重叠平台上，非单窗口碰运气。）"
-    "**四条警告**：① 这 7 只是 2026-07 **事后**手挑的十年最漂亮票，所有数字自带后视镜光环——"
-    "等权 7 只拿住不动就是 22.8 / -14.7 / 1.56 的怪物基线，**轮动版并没有跑赢它**，"
-    "本页价值是持有纪律和换仓提示，不是证明轮动更赚；"
-    "② 回购页同款严进场门（MA4>MA15+下穿重置）在 7 只小池实测崩坏（10Y CAGR 3.1% / DD -43% / 空槽率 30%——"
-    "小池腾位后长期填不满，这池子空仓就是亏），故本页无进场门；"
-    "③ 规则经 6 变体择优（严门/松门/无门/k0.25/12-1动量/榜内不限档），最简单的版本胜出，预期仍打折看待；"
-    "④ Top1 单仓实测 17.3 / -30.6 / 0.57，单票集中回撤太深，只留作对照别当主力。"
-    "**注：下方热力图/奖牌/接力净值走前端周线复权价，与上列月线回测数字会有小差，持仓逻辑一致（🥇=Top1 / 🥈=Top2）。**"
-    "**页底新增黄金阶段规则池（PIT 逐年重算），与本页手挑名单对照。**"
+    "**策略 = 规则池本体，等权月调**：黄金阶段六道门槛（规则与逐年名单见页底）每年 12-31 PIT 重算次年生效，"
+    "当年池内等权、月末再平衡，单边 200bps。回测（`backtest_golden_ribbon_round2.py`，2017-04→2026-07，Sharadar 复权价）："
+    "全程 CAGR 18.5% / DD −26.3% / Calmar 0.70（SPY 14.9 / −23.9 / 0.62），3Y 25.4 / −9.2 / 2.75，5Y 14.9 / −26.3 / 0.57。"
+    "**为什么不轮动**：12M 动量 Top1/2/3 × 通道留任/出池即卖 6 变体全灭（全程 CAGR −2.6%~9.8%，全跑输等权池甚至 SPY；"
+    "通道 k 0→3 扫描无稳健平台）——池子六道门已按「又陡又顺」筛过，池内再押 Top-n = 抽签，且动量排名专挑刚进池的高位票"
+    "（AJG −27% / SNPS −21% / FTNT −24% 的亏损段全是这么来的）。本页不做轮动、不发奖牌。"
+    "**对照**：手挑 7 只静态等权 22.7 / −14.7 / 1.55 更漂亮，但那是 2026 年事后挑的十年最漂亮票，后视镜产物，图里只作对照线。"
+    "**四条警告**：① 近 3Y 收益含 AI 资本开支 beta（ANET/AVGO/GWW/PWR）；"
+    "② 池小（年均 10 只）且行业集中，2026 池仅 3 只，别当分散组合；"
+    "③ 5Y 段只比 SPY 好一点（14.9 vs 12.7）且回撤更深（−26.3 vs −23.9），价值主要在 3Y 段和纪律性；"
+    "④ 2022 池膨胀到 32 只正值市场顶部，池大小可能是过热信号，待单独验证。"
+    "**净值走后端 Sharadar 复权价（与回测同源），新鲜度到上次本地价格推送为止。**"
 )
 
 with st.sidebar:
     if st.button("🔄 强制刷新数据"):
         fetch_logr2_stable_pool.clear()
+        fetch_gbdt_oos_prices.clear()
         st.rerun()
 
-COST_BPS = 200.0          # 单边 200bps，与姊妹页同口径
-MOM_W = 12                # 12M 动量
-RET_MA, RET_K, VOL_W = 6, 1.5, 12   # 通道下沿 = MA6 × (1 − k×近12月波动)，k 由下方跨3/5/10Y Calmar 扫描定（暂用 1.5）
-
-GOLD = ["AAPL", "LLY", "TJX", "COST", "V", "BRK.B", "MA"]
-_ALIAS = {"BRK.B": "BRK-B"}
+COST_BPS = 200.0
+CASH_RATE = 0.04
+HAND_GOLD = ["AAPL", "LLY", "TJX", "COST", "V", "BRK.B", "MA"]   # 仅对照线 + 页底对照表
 name_map = {"AAPL": "Apple", "LLY": "Eli Lilly", "TJX": "TJX", "COST": "Costco",
             "V": "Visa", "BRK.B": "Berkshire", "MA": "Mastercard"}
 
-window = st.radio("时间跨度", ["3Y", "5Y", "10Y"], index=2, horizontal=True, key="gold_window")
-
-with st.spinner("📊 加载价格..."):
-    _px = get_global_data([_ALIAS.get(t, t) for t in GOLD] + ["SPY"], years=12)
-if _px is None or _px.empty:
-    st.error("⚠️ 价格数据拉取失败（yfinance），点侧栏刷新重试")
+doc = fetch_logr2_stable_pool()
+if not doc.get("success"):
+    st.error(f"⚠️ 数据暂不可用：{doc.get('error', '未知错误')}")
     st.stop()
 
-close_d = {}
-for t in GOLD:
-    col = _ALIAS.get(t, t)
-    if col in _px.columns and _px[col].notna().sum() >= 2:
-        close_d[t] = _px[col].dropna()
-pool = list(close_d.keys())
-if len(pool) < 2:
-    st.error("⚠️ 有效价格不足 2 只，无法排名")
-    st.stop()
-
-_price_cache = {t: s.resample("W-FRI").last().dropna().to_frame(name="Close")
-                for t, s in close_d.items()}
-_spy_wk = pd.DataFrame()
-if "SPY" in _px.columns:
-    _spy_wk = _px["SPY"].dropna().resample("W-FRI").last().dropna().to_frame(name="Close")
-
-close_m = pd.DataFrame({t: s.resample("ME").last() for t, s in close_d.items()}).sort_index()
-mom_m = close_m.pct_change(MOM_W) * 100
-_vol = close_m.pct_change().rolling(VOL_W).std()
-ret_mask = close_m > close_m.rolling(RET_MA).mean() * (1 - RET_K * _vol)
-
-asof = max(s.index[-1] for s in close_d.values())
-last_month = mom_m.index[-1]
-month_in_progress = bool(last_month.to_period("M").end_time.normalize() > asof.normalize())
-
-
-# ── 每月持仓：在任票 > 自身通道下沿就留任（排名掉了不卖）；
-#    跌破才腾位，当月按 12M 动量排名补 Top-n 里未留任的最强票（无进场门，回测见 caption ②）。──
-def _channel_holdings(n):
-    _mh, _mh_raw, _prev = {}, {}, []
-    for d in mom_m.index:
-        order = mom_m.loc[d].dropna().sort_values(ascending=False)
-        top = order.index[:n].tolist()
-        keep = [t for t in _prev if bool(ret_mask.at[d, t])]
-        hold = keep + [t for t in top if t not in keep][:n - len(keep)]
-        _prev = hold
-        em = hv.next_month_key(d.strftime("%Y-%m"), 1)
-        _mh[em] = list(hold)
-        _mh_raw[em] = list(top)
-    return _mh, _mh_raw
-
-
-# ── 通道 k 值跨 3/5/10Y Calmar 稳健性扫描：全历史各 k 重建 Top2 净值 → 切尾部三段算
-#    Calmar（周线 CAGR/最大回撤）→ 归一化找三线齐高的重叠平台。口径与主净值完全同源，
-#    只有 k 变。别把 k 写死——每次数据更新重画，看平台漂没漂。──
-_HZ_SWEEP = [("3Y", 3), ("5Y", 5), ("10Y", 10)]
-
-
-def _channel_holdings_mask(n, mask):
-    _mh, _prev = {}, []
-    for d in mom_m.index:
-        order = mom_m.loc[d].dropna().sort_values(ascending=False)
-        top = order.index[:n].tolist()
-        keep = [t for t in _prev if (d in mask.index and t in mask.columns and bool(mask.at[d, t]))]
-        hold = keep + [t for t in top if t not in keep][:n - len(keep)]
-        _prev = hold
-        _mh[hv.next_month_key(d.strftime("%Y-%m"), 1)] = list(hold)
-    return _mh
-
-
-def _navc_for_k(kval):
-    _mask = close_m > close_m.rolling(RET_MA).mean() * (1 - kval * _vol)
-    _mh = _channel_holdings_mask(2, _mask)
-    _ems = sorted(_mh)
-    _slots = hv.build_basket_slot_assignments(_mh, _ems)
-    _segs = [hv.build_slot_segments(_slots, i, _ems) for i in range(2)]
-    _nl = hv.calc_slot_stats(_segs[0], _price_cache, _spy_wk, 0.04, COST_BPS)[2]
-    _nr = hv.calc_slot_stats(_segs[1], _price_cache, _spy_wk, 0.04, COST_BPS)[2]
-    if _nl.empty and _nr.empty:
-        return pd.Series(dtype=float)
-    if _nl.empty:
-        return _nr
-    if _nr.empty:
-        return _nl
-    _ui = _nl.index.union(_nr.index)
-    return 0.5 * _nl.reindex(_ui).ffill().bfill() + 0.5 * _nr.reindex(_ui).ffill().bfill()
-
-
-def _trail_calmar(_nav, _yrs):
-    if _nav is None or _nav.empty:
-        return float("nan")
-    _end = _nav.index[-1]
-    if (_end - _nav.index[0]).days < _yrs * 365.25 * 0.9:
-        return float("nan")
-    _seg = _nav[_nav.index >= _end - pd.DateOffset(years=_yrs)]
-    if len(_seg) < 8:
-        return float("nan")
-    return hv.compute_nav_kpi(_seg).get("calmar", float("nan"))
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def _k_sweep_curves(_asof_key):
-    # _asof_key 只作缓存键：数据更新（asof 变）→ 重算；同日多次 rerun 走缓存。
-    _grid = [round(x * 0.1, 2) for x in range(0, 31)]   # 0.0 → 3.0，步长 0.1
-    _curves = {lbl: [] for lbl, _ in _HZ_SWEEP}
-    for _kv in _grid:
-        _nav = _navc_for_k(_kv)
-        for lbl, yrs in _HZ_SWEEP:
-            _curves[lbl].append(_trail_calmar(_nav, yrs))
-    return _grid, _curves
-
-
-window_lo = last_month - pd.DateOffset(years=int(window[:-1]))
-_rs_dummy = pd.DataFrame(float("nan"), index=mom_m.index, columns=mom_m.columns)
-
-_common = dict(
-    score_m=mom_m, sweep_score_m=None,
-    rs_m=_rs_dummy, king_m=mom_m, name_map=name_map, grade_map={},
-    window=window, month_in_progress=month_in_progress, last_month=last_month,
-    price_cache=_price_cache, spy_wk=_spy_wk,
-    score_label="12M动量%", score_fmt="{:+.1f}",
-    gold_needs_rs=False, nav_engine="weekly", cost_bps=COST_BPS,
-    medal_table_hide_unmedaled=True, display_from=window_lo,
-    pick_show_name=True,
-)
-
-tab2, tab1 = st.tabs(["🥈 Top2 双仓（现状）", "🥇 Top1 单仓（对照 · 回撤深）"])
-
-with tab2:
-    _mh2, _mh2_raw = _channel_holdings(2)
-    render_group(
-        "黄金带鱼 12M动量", pool, "gold_ribbon",
-        n_hold=2, precomputed_holdings=_mh2, precomputed_raw=_mh2_raw, **_common,
-    )
-
-    st.markdown("---")
-    st.markdown(f"#### 🔧 通道 k 值稳健性扫描（当前 k={RET_K}）")
-    with st.spinner("扫描 k=0→3 · 重建净值算 Calmar..."):
-        _grid, _curves = _k_sweep_curves(asof.strftime("%Y-%m-%d"))
-    _rec_k = _plot_param_sweep(
-        _grid, _curves, _HZ_SWEEP, RET_K,
-        axis_title="通道 k 值（下沿 = MA6×(1−k×近12月波动)；k 越大下沿越低=拿得越久越少腾位）",
-        rec_sym="k",
-        title_text="通道 k 稳健性 · 尾部 3/5/10Y Calmar（各自归一化；三线齐高处=稳健平台；绿=自动 maximin 推荐；灰=当前）",
-        key="gold_k_sweep", dtick=0.5, metric_name="Calmar", val_fmt=".2f", unit="",
-        yaxis_title="各段归一化 Calmar (÷自身峰值)",
-    )
-    st.caption(
-        f"✅ 当前钉在 **k={RET_K}**（1.5–1.8 的重叠平台左端，三段 Calmar 齐高：3Y≈1.7 / 5Y≈1.2 / 10Y≈0.96）。"
-        f"⚠️ **别照搬绿线自动推荐（k*={_rec_k}）**：它只认 maximin 单点最高，识别不了「峰紧贴 k=2.0 悬崖」——"
-        "k=1.9 冲最高后 2.0 瞬间崩到 0.2–0.5，参数抖一点就掉下去，正是过拟合。取平台左端 1.5 离悬崖留足边际。"
-        "k≥2.2 还有条更宽的平台，但那里通道几乎不触发≈拿住不卖，3Y/5Y 反而更低。每次数据更新回来看这张图，平台漂了再调 k。"
-    )
-
-with tab1:
-    st.info(
-        "**单仓对照**：只持 12M 动量 Top1，通道留任同款。月线回测（2016-07→，单边 200bps）："
-        "CAGR 17.3% / DD -30.6% / Calmar 0.57——单票集中，LLY 式 -40% 深跌要月末破线才确认，"
-        "回撤比 Top2（-21.2%）深一截，收益还更低。放这里只为对照，别当主力。"
-    )
-    _mh1, _mh1_raw = _channel_holdings(1)
-    render_group(
-        "黄金带鱼 12M动量(单仓)", pool, "gold_ribbon_top1",
-        n_hold=1, precomputed_holdings=_mh1, precomputed_raw=_mh1_raw, **_common,
-    )
-
-st.markdown("---")
-st.markdown("## 📏 黄金阶段规则池（PIT 逐年重算 · 与上方手挑 7 只对照）")
-
-_doc = fetch_logr2_stable_pool()
-_gpools = {int(y): list(m) for y, m in (_doc.get("golden_pools") or {}).items()} if _doc.get("success") else {}
-_gaxes_by_y = _doc.get("golden_axes") or {}
-_gthr = _doc.get("golden_thresholds") or {}
-_gmeta = _doc.get("meta") or {}
-if not _gpools or not _gaxes_by_y or not _gthr:
+pools = {int(y): list(m) for y, m in (doc.get("golden_pools") or {}).items()}
+gaxes_by_y = doc.get("golden_axes") or {}
+gthr = doc.get("golden_thresholds") or {}
+gmeta = doc.get("meta") or {}
+if not pools or not gaxes_by_y or not gthr:
     st.info("规则池未就绪（本地重跑 build_logr2_stable_pool.py 并上传后生效）")
     st.stop()
-_gy = max(int(y) for y in _gaxes_by_y)
-_gaxes = _gaxes_by_y[str(_gy)]
 
-st.caption(
-    "**规则**（回测定稿，出处 valuation-radar `backtest_golden_ribbon_round1.py`，commit 3704cba）："
-    "基础闸门（市值≥$30B / TTM FCF>0 / 5Y 周线 CAGR≥8% / maxDD≥−45%）+ 价格 logR²≥0.90 + 价格 CAGR≥20% + "
-    "maxDD≥−40% + 营收 logR²≥0.80 + 净利 CAGR≥10% + 净利 logR²≥0.60（尾部 20 个 ART 季，PIT），"
-    "每年 12-31 重算次年生效。回测（月末等权、单边 200bps，2017-04→2026-07）："
-    "全程 CAGR 18.7% / DD −26.3% / Calmar 0.71，5Y 16.1%、3Y 26.6%，对照 SPY 15.0 / −23.9 / 0.63。"
-    "消融：纯价格 14.9%、纯基本面 11.4%——基本面轴只在陡坡端（CAGR≥20%）有增量。"
-    "**三条警告**：① 近 3Y 收益含 AI 资本开支 beta（ANET/AVGO/GWW/PWR 一批）；"
-    "② 池小（年均 10 只），别当分散组合用；"
-    "③ 规则说 AAPL/V/MA 的黄金阶段（5Y 口径）已淡出、LLY 卡在净利 logR² 0.52<0.60——"
-    "和上方手挑名单分歧是特性不是 bug：手挑记住的是过去十年的王，规则盯的是正在王座上的。"
-)
+built = pd.to_datetime(doc.get("built_at"), errors="coerce", utc=True)
+if pd.notna(built) and (pd.Timestamp.now(tz="UTC") - built).days > 40:
+    st.warning(f"⚠️ 数据已 {(pd.Timestamp.now(tz='UTC') - built).days} 天未重建"
+               "（本地跑 build_logr2_stable_pool.py 并上传后排名才会更新）")
+
+union = sorted({t for m in pools.values() for t in m})
+cur_year = max(pools)
+gaxes = gaxes_by_y.get(str(cur_year), {})
+
+# ── 净值一律走后端 Sharadar 复权价，与回测同源（data-consistency.mdc 红线，不用 yfinance 画净值）──
+with st.spinner("📊 加载价格（Sharadar 复权）..."):
+    _raw = fetch_gbdt_oos_prices(tuple(sorted(set(union + HAND_GOLD + ["SPY"]))))
+close_d = {}
+for t, rows in (_raw or {}).items():
+    if rows:
+        arr = pd.DataFrame(rows, columns=["date", "o", "h", "l", "c", "v"])
+        close_d[t] = arr.assign(date=pd.to_datetime(arr["date"])).set_index("date")["c"].astype(float)
+_missing = [t for t in sorted(set(union + HAND_GOLD + ["SPY"])) if t not in close_d]
+if _missing:
+    st.warning(f"⚠️ 价格缓存缺票：{_missing}（本地 push_local_to_render --tables gbdt_oos_prices 后消失）")
+
+close_m = pd.DataFrame(close_d).sort_index().resample("ME").last()
+ret_m = close_m.pct_change(fill_method=None)
+
+
+def _ew_nav(members_by_month) -> pd.Series:
+    """members_by_month: {月末Timestamp: [tk]}。月末决策次月执行，等权、单边 200bps、空池现金 4%。"""
+    w = pd.DataFrame(0.0, index=list(members_by_month), columns=close_m.columns)
+    for d, mem in members_by_month.items():
+        ok = [t for t in mem if t in close_m.columns and pd.notna(close_m.at[d, t])]
+        for t in ok:
+            w.at[d, t] = 1.0 / len(ok) if ok else 0.0
+    cash = (1 - w.sum(axis=1)).clip(lower=0.0)
+    port = (w.shift(1) * ret_m.reindex(w.index)).sum(axis=1) + cash.shift(1).fillna(1.0) * CASH_RATE / 12
+    turn = (w - w.shift(1)).abs().sum(axis=1) * 0.5
+    return (1 + port - turn * COST_BPS / 10000).cumprod()
+
+
+_months = [d for d in close_m.index if d.year in pools]
+nav_pool = _ew_nav({d: pools[d.year] for d in _months})
+nav_hand = _ew_nav({d: HAND_GOLD for d in _months})
+nav_spy = _ew_nav({d: ["SPY"] for d in _months})
+
+if nav_pool.dropna().empty:
+    st.error("⚠️ 规则池净值不可用（价格缺失过多），无法展示")
+    st.stop()
 
 _AXIS_COLS = ["p_r2", "p_cagr", "p_dd", "rev_r2", "rev_cagr", "ni_r2", "ni_cagr"]
 _AXIS_LABEL = {"p_r2": "价格logR²", "p_cagr": "价格CAGR%", "p_dd": "价格maxDD%",
@@ -250,8 +109,8 @@ _AXIS_LABEL = {"p_r2": "价格logR²", "p_cagr": "价格CAGR%", "p_dd": "价格m
 
 
 def _axis_row(tk):
-    a = _gaxes.get(tk, {})
-    row = {"ticker": tk, "name": _gmeta.get(tk, {}).get("name", ""), "sector": _gmeta.get(tk, {}).get("sector", "")}
+    a = gaxes.get(tk, {})
+    row = {"ticker": tk, "name": gmeta.get(tk, {}).get("name", ""), "sector": gmeta.get(tk, {}).get("sector", "")}
     row.update({c: a.get(c) for c in _AXIS_COLS})
     return row, a
 
@@ -260,7 +119,7 @@ def _missing_axes(a: dict) -> str:
     if not a:
         return "轴缺数据"
     miss = []
-    for k, thr in _gthr.items():
+    for k, thr in gthr.items():
         v = a.get(k)
         if v is None:
             miss.append(f"{_AXIS_LABEL.get(k, k)}缺数据")
@@ -269,30 +128,110 @@ def _missing_axes(a: dict) -> str:
     return " · ".join(miss) if miss else "全达标"
 
 
-st.markdown(f"#### ✅ 当下池（{_gy} 年生效）")
-_cur_rows = [_axis_row(tk)[0] for tk, a in _gaxes.items() if a.get("gold")]
-if _cur_rows:
-    _df_cur = pd.DataFrame(_cur_rows).sort_values("p_cagr", ascending=False)
-    st.dataframe(_df_cur, hide_index=True, use_container_width=True)
+# ── 1. 当前持仓卡：最新生效年池等权 + 七轴详情 ──
+st.markdown(f"### 📌 当前持仓（{cur_year} 年生效池，等权月调）")
+cur_holdings = pools[cur_year]
+if cur_holdings:
+    _cols = st.columns(len(cur_holdings))
+    for _c, _tk in zip(_cols, cur_holdings):
+        _c.metric(_tk, f"{100.0 / len(cur_holdings):.1f}%", name_map.get(_tk, gmeta.get(_tk, {}).get("name", "")))
 else:
-    st.warning(f"{_gy} 年无票过黄金阶段全部六道门槛")
+    st.warning(f"{cur_year} 年池为空")
+
+_cur_rows = [_axis_row(tk)[0] for tk, a in gaxes.items() if a.get("gold")]
+if _cur_rows:
+    st.dataframe(pd.DataFrame(_cur_rows).sort_values("p_cagr", ascending=False),
+                 hide_index=True, use_container_width=True)
+else:
+    st.warning(f"{cur_year} 年无票过黄金阶段全部六道门槛")
+
+st.markdown("---")
+
+# ── 2. 净值图：等权规则池 / 手挑7静态等权 / SPY ──
+window = st.radio("时间跨度", ["3Y", "5Y", "10Y"], index=2, horizontal=True, key="gold_window")
+_last = nav_pool.index.max()
+_lo = _last - pd.DateOffset(years=int(window[:-1]))
+
+
+def _slice(nav: pd.Series) -> pd.Series:
+    s = nav[nav.index >= _lo].dropna()
+    return s
+
+
+def _rebase(nav: pd.Series) -> pd.Series:
+    s = _slice(nav)
+    return s / float(s.iloc[0]) if not s.empty else s
+
+
+def _kpi(nav: pd.Series) -> dict:
+    s = _slice(nav)
+    if len(s) < 6:
+        return {"cagr": float("nan"), "dd": float("nan"), "calmar": float("nan")}
+    years = len(s) / 12.0
+    cagr = (float(s.iloc[-1]) / float(s.iloc[0])) ** (1.0 / years) - 1.0
+    peak = s.cummax()
+    max_dd = abs(float((s / peak - 1.0).min()))
+    calmar = cagr / max_dd if max_dd > 1e-9 else float("nan")
+    return {"cagr": cagr, "dd": max_dd, "calmar": calmar}
+
+
+_p, _h, _s = _rebase(nav_pool), _rebase(nav_hand), _rebase(nav_spy)
+fig = go.Figure()
+for _lbl, _series, _color in [
+    ("等权规则池", _p, "#FFD700"),
+    ("手挑7静态等权", _h, "#3498DB"),
+    ("SPY", _s, "rgba(170,170,170,0.7)"),
+]:
+    if _series.empty:
+        continue
+    _name = f"{_lbl} {(float(_series.iloc[-1]) - 1) * 100:+.1f}%"
+    fig.add_trace(go.Scatter(x=_series.index, y=_series.values, mode="lines", name=_name,
+                              line=dict(color=_color, width=2.4 if _lbl == "等权规则池" else 1.6)))
+fig.update_layout(
+    title=f"黄金带鱼净值 · {window} · 起点归一 = 1",
+    xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
+    yaxis=dict(title="NAV（对数）", type="log", gridcolor="rgba(100,100,100,0.3)"),
+    height=480, margin=dict(l=10, r=10, t=44, b=40),
+    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(30,30,30,0.6)",
+    font=dict(color="#ccc", size=13), showlegend=True,
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1.0),
+)
+st.plotly_chart(fig, use_container_width=True, key="gold_nav")
+
+_kpi_pool = _kpi(nav_pool)
+_m1, _m2, _m3 = st.columns(3)
+_m1.metric(f"CAGR（{window}）", f"{_kpi_pool['cagr'] * 100:+.1f}%" if _kpi_pool["cagr"] == _kpi_pool["cagr"] else "N/A")
+_m2.metric(f"maxDD（{window}）", f"{-_kpi_pool['dd'] * 100:.1f}%" if _kpi_pool["dd"] == _kpi_pool["dd"] else "N/A")
+_m3.metric(f"Calmar（{window}）", f"{_kpi_pool['calmar']:.2f}" if _kpi_pool["calmar"] == _kpi_pool["calmar"] else "N/A")
+st.caption("统计卡为「等权规则池」曲线按当前选中窗口切段计算（月线 NAV）。")
+
+st.markdown("---")
+st.markdown("## 📏 黄金阶段规则池（PIT 逐年重算）")
+st.caption(
+    "**规则**（回测定稿，出处 valuation-radar `backtest_golden_ribbon_round1.py`，commit 3704cba）："
+    "基础闸门（市值≥$30B / TTM FCF>0 / 5Y 周线 CAGR≥8% / maxDD≥−45%）+ 价格 logR²≥0.90 + 价格 CAGR≥20% + "
+    "maxDD≥−40% + 营收 logR²≥0.80 + 净利 CAGR≥10% + 净利 logR²≥0.60（尾部 20 个 ART 季，PIT），"
+    "每年 12-31 重算次年生效。消融：纯价格 14.9%、纯基本面 11.4%——基本面轴只在陡坡端（CAGR≥20%）有增量。"
+    "**手挑名单分歧是特性不是 bug**：手挑记住的是过去十年的王，规则盯的是正在王座上的——"
+    "规则说 AAPL/V/MA 的黄金阶段（5Y 口径）已淡出、LLY 卡在净利 logR² 0.52<0.60。"
+)
 
 st.markdown("#### 🆚 手挑 7 只对照")
 _hand_rows = []
-for tk in GOLD:
+for tk in HAND_GOLD:
     row, a = _axis_row(tk)
     row["缺哪条轴"] = _missing_axes(a)
     _hand_rows.append(row)
 st.dataframe(pd.DataFrame(_hand_rows), hide_index=True, use_container_width=True)
 
-with st.expander(f"全部候选（过基础闸门 {len(_gaxes)} 只，含 near-miss）"):
-    _all_rows = [dict(_axis_row(tk)[0], gold=a.get("gold", False)) for tk, a in _gaxes.items()]
+with st.expander(f"全部候选（过基础闸门 {len(gaxes)} 只，含 near-miss）"):
+    _all_rows = [dict(_axis_row(tk)[0], gold=a.get("gold", False)) for tk, a in gaxes.items()]
     _df_all = pd.DataFrame(_all_rows).sort_values("p_cagr", ascending=False)
     st.dataframe(_df_all, hide_index=True, use_container_width=True)
 
 with st.expander("逐年池"):
-    _sizes = pd.Series({y: len(_gpools[y]) for y in sorted(_gpools)})
+    _sizes = pd.Series({y: len(pools[y]) for y in sorted(pools)})
     st.bar_chart(_sizes)
     st.caption("2022 年池膨胀到高位正值市场顶部，池大小可能是过热信号，待单独验证")
-    _year_rows = [{"年": y, "n只": len(_gpools[y]), "名单": "、".join(_gpools[y])} for y in sorted(_gpools)]
+    _year_rows = [{"年": y, "n只": len(pools[y]), "名单": "、".join(pools[y])} for y in sorted(pools)]
     st.dataframe(pd.DataFrame(_year_rows), hide_index=True, use_container_width=True)
