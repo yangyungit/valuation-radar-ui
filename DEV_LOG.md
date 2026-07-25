@@ -1,3 +1,15 @@
+## 2026-07-25 page 20 页底新增黄金阶段规则池展示，与手挑7只对照
+
+**范围**：`pages/20_黄金带鱼.py`。手挑轮动区（tab1/tab2、k 扫描）不动，仅页底追加展示区。
+
+**起因**：valuation-radar 侧 `build_logr2_stable_pool.py` 新产出黄金阶段规则池（价格 logR²≥0.90 + CAGR≥20% + maxDD≥−40% + 营收 logR²≥0.80 + 净利 CAGR≥10% + 净利 logR²≥0.60，PIT 逐年重算），沿用现有 `logr2_stable_pool.json` 上传链路，`fetch_logr2_stable_pool` 已存在直接复用。
+
+**改动**：四块——当下池（2026 年 gold=True 行）、手挑 7 只对照（逐票列出「缺哪条轴」）、全部候选 142 只 expander（near-miss 用）、逐年池 expander（柱状图 + 名单表）。
+
+**核验**：本地重跑 `data/logr2_stable_pool.json` 离线模拟前端逻辑——2026 池 = GWW/PWR/WAB；LLY 在候选表但不在池内（净利 logR² 0.52<0.60）；AAPL 缺 p_r2/rev_r2，V/MA 缺 p_cagr，均与 round1 回测记录一致；2022 池 32 只为逐年最大值。`py_compile` 通过，无新增 lint。
+
+---
+
 ## 2026-07-25 新增 page 20 黄金带鱼：黄金档7只 × 12M动量 × 通道留任
 
 **范围**：`pages/20_黄金带鱼.py`（新文件）。纯前端 yfinance 价格计算，后端零改动。

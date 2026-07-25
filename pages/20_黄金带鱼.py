@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 import holdings_viz as hv
-from api_client import get_global_data
+from api_client import get_global_data, fetch_logr2_stable_pool
 from buyback_relay_core import render_group, _plot_param_sweep
 
 st.set_page_config(page_title="黄金带鱼", layout="wide")
@@ -36,10 +36,12 @@ st.caption(
     "③ 规则经 6 变体择优（严门/松门/无门/k0.25/12-1动量/榜内不限档），最简单的版本胜出，预期仍打折看待；"
     "④ Top1 单仓实测 17.3 / -30.6 / 0.57，单票集中回撤太深，只留作对照别当主力。"
     "**注：下方热力图/奖牌/接力净值走前端周线复权价，与上列月线回测数字会有小差，持仓逻辑一致（🥇=Top1 / 🥈=Top2）。**"
+    "**页底新增黄金阶段规则池（PIT 逐年重算），与本页手挑名单对照。**"
 )
 
 with st.sidebar:
     if st.button("🔄 强制刷新数据"):
+        fetch_logr2_stable_pool.clear()
         st.rerun()
 
 COST_BPS = 200.0          # 单边 200bps，与姊妹页同口径
@@ -214,3 +216,83 @@ with tab1:
         "黄金带鱼 12M动量(单仓)", pool, "gold_ribbon_top1",
         n_hold=1, precomputed_holdings=_mh1, precomputed_raw=_mh1_raw, **_common,
     )
+
+st.markdown("---")
+st.markdown("## 📏 黄金阶段规则池（PIT 逐年重算 · 与上方手挑 7 只对照）")
+
+_doc = fetch_logr2_stable_pool()
+_gpools = {int(y): list(m) for y, m in (_doc.get("golden_pools") or {}).items()} if _doc.get("success") else {}
+_gaxes_by_y = _doc.get("golden_axes") or {}
+_gthr = _doc.get("golden_thresholds") or {}
+_gmeta = _doc.get("meta") or {}
+if not _gpools or not _gaxes_by_y or not _gthr:
+    st.info("规则池未就绪（本地重跑 build_logr2_stable_pool.py 并上传后生效）")
+    st.stop()
+_gy = max(int(y) for y in _gaxes_by_y)
+_gaxes = _gaxes_by_y[str(_gy)]
+
+st.caption(
+    "**规则**（回测定稿，出处 valuation-radar `backtest_golden_ribbon_round1.py`，commit 3704cba）："
+    "基础闸门（市值≥$30B / TTM FCF>0 / 5Y 周线 CAGR≥8% / maxDD≥−45%）+ 价格 logR²≥0.90 + 价格 CAGR≥20% + "
+    "maxDD≥−40% + 营收 logR²≥0.80 + 净利 CAGR≥10% + 净利 logR²≥0.60（尾部 20 个 ART 季，PIT），"
+    "每年 12-31 重算次年生效。回测（月末等权、单边 200bps，2017-04→2026-07）："
+    "全程 CAGR 18.7% / DD −26.3% / Calmar 0.71，5Y 16.1%、3Y 26.6%，对照 SPY 15.0 / −23.9 / 0.63。"
+    "消融：纯价格 14.9%、纯基本面 11.4%——基本面轴只在陡坡端（CAGR≥20%）有增量。"
+    "**三条警告**：① 近 3Y 收益含 AI 资本开支 beta（ANET/AVGO/GWW/PWR 一批）；"
+    "② 池小（年均 10 只），别当分散组合用；"
+    "③ 规则说 AAPL/V/MA 的黄金阶段（5Y 口径）已淡出、LLY 卡在净利 logR² 0.52<0.60——"
+    "和上方手挑名单分歧是特性不是 bug：手挑记住的是过去十年的王，规则盯的是正在王座上的。"
+)
+
+_AXIS_COLS = ["p_r2", "p_cagr", "p_dd", "rev_r2", "rev_cagr", "ni_r2", "ni_cagr"]
+_AXIS_LABEL = {"p_r2": "价格logR²", "p_cagr": "价格CAGR%", "p_dd": "价格maxDD%",
+               "rev_r2": "营收logR²", "rev_cagr": "营收CAGR%", "ni_r2": "净利logR²", "ni_cagr": "净利CAGR%"}
+
+
+def _axis_row(tk):
+    a = _gaxes.get(tk, {})
+    row = {"ticker": tk, "name": _gmeta.get(tk, {}).get("name", ""), "sector": _gmeta.get(tk, {}).get("sector", "")}
+    row.update({c: a.get(c) for c in _AXIS_COLS})
+    return row, a
+
+
+def _missing_axes(a: dict) -> str:
+    if not a:
+        return "轴缺数据"
+    miss = []
+    for k, thr in _gthr.items():
+        v = a.get(k)
+        if v is None:
+            miss.append(f"{_AXIS_LABEL.get(k, k)}缺数据")
+        elif v < thr:
+            miss.append(f"{_AXIS_LABEL.get(k, k)} {v}<{thr}")
+    return " · ".join(miss) if miss else "全达标"
+
+
+st.markdown(f"#### ✅ 当下池（{_gy} 年生效）")
+_cur_rows = [_axis_row(tk)[0] for tk, a in _gaxes.items() if a.get("gold")]
+if _cur_rows:
+    _df_cur = pd.DataFrame(_cur_rows).sort_values("p_cagr", ascending=False)
+    st.dataframe(_df_cur, hide_index=True, use_container_width=True)
+else:
+    st.warning(f"{_gy} 年无票过黄金阶段全部六道门槛")
+
+st.markdown("#### 🆚 手挑 7 只对照")
+_hand_rows = []
+for tk in GOLD:
+    row, a = _axis_row(tk)
+    row["缺哪条轴"] = _missing_axes(a)
+    _hand_rows.append(row)
+st.dataframe(pd.DataFrame(_hand_rows), hide_index=True, use_container_width=True)
+
+with st.expander(f"全部候选（过基础闸门 {len(_gaxes)} 只，含 near-miss）"):
+    _all_rows = [dict(_axis_row(tk)[0], gold=a.get("gold", False)) for tk, a in _gaxes.items()]
+    _df_all = pd.DataFrame(_all_rows).sort_values("p_cagr", ascending=False)
+    st.dataframe(_df_all, hide_index=True, use_container_width=True)
+
+with st.expander("逐年池"):
+    _sizes = pd.Series({y: len(_gpools[y]) for y in sorted(_gpools)})
+    st.bar_chart(_sizes)
+    st.caption("2022 年池膨胀到高位正值市场顶部，池大小可能是过热信号，待单独验证")
+    _year_rows = [{"年": y, "n只": len(_gpools[y]), "名单": "、".join(_gpools[y])} for y in sorted(_gpools)]
+    st.dataframe(pd.DataFrame(_year_rows), hide_index=True, use_container_width=True)
