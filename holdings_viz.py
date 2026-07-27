@@ -557,6 +557,7 @@ def build_stitched_fig(
     grade_map: dict = None,
     danger_daily: pd.Series = None,
     danger_half_daily: pd.Series = None,
+    weight_by_month: dict = None,
 ) -> go.Figure:
     pc = price_cache if price_cache is not None else {}
     nm = name_map if name_map is not None else {}
@@ -648,6 +649,19 @@ def build_stitched_fig(
             _state[_dg] = 2
         else:
             seg_nav = (closes / float(closes.iloc[0])) * running_nav
+
+        # 试用期半仓（precomputed_weights 里权重<1 的月）只染白、不改个股净值路径——
+        # 半仓的组合权重已在合成净值里按半现金记账，这里的接力图画的是个股自身走势。
+        if weight_by_month:
+            _half_wk = pd.Series(
+                [float((weight_by_month.get(f"{d.year:04d}-{d.month:02d}") or {}).get(tk, 1.0)) < 1.0
+                 for d in closes.index],
+                index=closes.index,
+            )
+            if bool(_half_wk.any()):
+                if _state is None:
+                    _state = pd.Series(0, index=closes.index)
+                _state = _state.mask((_state == 0) & _half_wk, 1)
 
         _y_vals = [max(0.001, v) for v in seg_nav]
         if _state is not None and int((_state != 0).sum()) > 0:
@@ -756,7 +770,9 @@ def calc_slot_stats(
     nav_all: list = []
     running_nav = 1.0
     last_tk = None  # 上一段「实际渲染」的标的（用于判断换仓边界）
-    for tk, s_m, e_m in segs:
+    for seg in segs:
+        tk, s_m, e_m = seg[0], seg[1], seg[2]
+        w = float(seg[3]) if len(seg) > 3 else 1.0
         if tk == "CASH":
             if spy_wk is not None and not spy_wk.empty:
                 sd = pd.Timestamp(f"{s_m}-01")
@@ -781,10 +797,15 @@ def calc_slot_stats(
         closes = wkd[mask]["Close"].astype(float).dropna()
         if len(closes) < 2:
             continue
-        if cost_bps:
+        if cost_bps and last_tk != tk:
             sides = (1 if (last_tk is not None and last_tk != "CASH") else 0) + 1
             running_nav *= max(0.0, 1.0 - sides * cost_bps / 10000.0)
-        seg_nav = (closes / float(closes.iloc[0])) * running_nav
+        if w < 1.0:
+            days = (closes.index - closes.index[0]).days.to_numpy()
+            cash_ret = pd.Series((1.0 + cash_rate) ** (days / 365.0) - 1.0, index=closes.index)
+            seg_nav = running_nav * (1.0 + w * (closes / float(closes.iloc[0]) - 1.0) + (1.0 - w) * cash_ret)
+        else:
+            seg_nav = (closes / float(closes.iloc[0])) * running_nav
         running_nav = float(seg_nav.iloc[-1])
         last_tk = tk
         nav_all.append(seg_nav)

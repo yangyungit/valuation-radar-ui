@@ -14,6 +14,14 @@ alwaysApply: true
 - **全局缓存控制**：每个页面侧边栏必须保留 `st.cache_data.clear()` 一键强刷按钮。
 - **绘图安全**：数据送入 Plotly 前必须 `.astype(float)` + `.dropna()`。
 
+### 价格源（画净值曲线必读）
+
+**涉及回测对齐、含退市票、画净值曲线 → 全池走 Sharadar closeadj，yfinance 仅兜底**。做法：先 `hv.prime_sharadar_prices(fetch_gbdt_oos_prices(tuple(sorted(pool + ["SPY"]))))` 全池注入，再逐票 `hv.fetch_daily_ohlcv(tk)`（内部已「Sharadar 优先、缺回退 yfinance」）。纯实时活票展示才用 `get_global_data` / yfinance。
+
+- 为什么：`gbdt_oos_prices` 含退市票深历史、复权口径与离线回测同源；`get_global_data`(yfinance) 只有 ~5 年、缺退市、复权口径不同，混用导致线上净值与回测对不上，反复返工（2026-07-21：FCF进攻页净值 +969% vs 回测 +1477%，切 Sharadar 后对齐）。
+- 反模式：`get_global_data(全池)` + 只给 `_missing` 退市票补 Sharadar——这是「yfinance 主、Sharadar 补」，方向反了，在场活票仍走 yfinance 口径。正解是「Sharadar 主、yfinance 兜底」。
+- 代价：Sharadar 数据滞后到后端上次 push Render 的日期（月频调仓无害）。
+
 ---
 
 ## ✂️ 2. UI 文案简洁原则（Concise Copy Protocol）
