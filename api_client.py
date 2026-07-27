@@ -884,7 +884,7 @@ def fetch_buyback_fcf_relay_timeseries(window: str = "5Y") -> dict:
         r = requests.get(
             f"{API_BASE_URL}/api/v1/macro/buyback_fcf_relay/timeseries",
             params={"window": window},
-            timeout=120,
+            timeout=300,
         )
         r.raise_for_status()
         return r.json()
@@ -893,7 +893,7 @@ def fetch_buyback_fcf_relay_timeseries(window: str = "5Y") -> dict:
 
 
 @st.cache_data(ttl=3600 * 4)
-def fetch_buyback_stable_relay_timeseries(window: str = "5Y") -> dict:
+def _fetch_buyback_stable_relay_timeseries_cached(window: str = "5Y") -> dict:
     """page 8 ROIC 稳定规则池（判据1+不稀释门+ROIC≥10%+ROIC 前 40，排名轴 roic）接力图时序。
     失败返回 {"success": False, "error": ...}。
     """
@@ -907,6 +907,23 @@ def fetch_buyback_stable_relay_timeseries(window: str = "5Y") -> dict:
         return r.json()
     except Exception as e:
         return {"success": False, "error": str(e), "dates": [], "tickers": {}}
+
+
+def fetch_buyback_stable_relay_timeseries(window: str = "5Y") -> dict:
+    """读取 page 8 ROIC 稳定池时序；只缓存成功响应。
+
+    Streamlit 会缓存普通返回值，包括后端缺运行时 JSON 时的 ``success=False``。
+    失败响应若缓存 4 小时，即使文件随后上传，页面仍会持续显示旧错误；因此失败后立即
+    清掉本函数缓存，让下次 rerun/强制刷新重新请求后端。
+    """
+    result = _fetch_buyback_stable_relay_timeseries_cached(window)
+    if not result.get("success"):
+        _fetch_buyback_stable_relay_timeseries_cached.clear()
+    return result
+
+
+# 保留页面现有 ``fetch_buyback_stable_relay_timeseries.clear()`` 调用契约。
+fetch_buyback_stable_relay_timeseries.clear = _fetch_buyback_stable_relay_timeseries_cached.clear
 
 
 @st.cache_data(ttl=3600 * 4)
@@ -1122,18 +1139,18 @@ def fetch_dynasty_double_dragon(
     rebalance: bool = False,
     cost_bps: float = 10.0,
     n_holdings: int = 3,
+    pool_mode: str = "sp500_pit",
 ) -> dict:
-    """从后端获取 C 组双龙持仓回测（研究原型），供 Page 0「📈 C组双龙持仓」TAB 用。
+    """从后端获取标普500或D组ETF历史成分池的双龙回测。
 
-    返回三条可比策略曲线：
-    1) C组戴金板块 -> 板块内王朝龙头 Top2 -> 下月执行。
-    2) 当前 S&P500 股票池 -> 12M 动量 + MA200 -> TopN/K 守擂。
-    3) 当前 S&P500 股票池 -> 12M 动量 + MA200 -> TopN/分差 δ 防抖守擂。
+    标普池返回戴金龙头、K守擂和δ守擂三条可比曲线；D组池完全跳过
+    C组戴金逻辑，只返回基于D组历史N-PORT成分的K守擂和δ守擂。
     signal 选择主策略；n_holdings 驱动两条动量策略，k<=0 时后端自动选择旧排名守擂 K。
-    delta_k<0 时后端按 3Y/5Y/10Y 稳健平台自动选择防抖强度。
-    戴金龙头策略固定两仓。
+    delta_k<0 时后端跨窗口稳健选择防抖强度：标普用 3Y/5Y/10Y，
+    D组用 3Y/5Y/ALL。
     返回净值曲线 / 当前持仓解释 / 持仓时间线 / 统计卡 / selection_timeline / frontier。
-    诚实定位：信号无前视、次日成交、扣成本；但池含生存者偏差，非真实业绩。
+    诚实定位：信号无前视、次日成交、扣成本；两类成员池均为PIT并含退市历史。
+    仍是规则研究原型，不代表真实业绩。
     首次加载较慢（~500 股 + 预热 + BIL/RSP），Render 冷启动 502/504 自动重试一次。
     失败返回 {"success": False, "error": ...}。
     """
@@ -1150,6 +1167,7 @@ def fetch_dynasty_double_dragon(
                     "delta_k": delta_k,
                     "risk_protect": risk_protect, "rebalance": rebalance,
                     "cost_bps": cost_bps, "n_holdings": n_holdings,
+                    "pool_mode": pool_mode,
                 },
                 timeout=180,
             )
@@ -1162,6 +1180,87 @@ def fetch_dynasty_double_dragon(
                 continue
             break
     return {"success": False, "error": str(last_exc)}
+
+
+@st.cache_data(ttl=3600 * 4)
+def fetch_dynasty_double_dragon_walk_forward(
+    n_holdings: int = 2,
+    fixed_k: int = 30,
+    cost_bps: float = 10.0,
+    wf_selector: str = "cagr",
+    detail_level: str = "summary",
+) -> dict:
+    """独立获取标普500 12-0/12-1严格走步研究；不传递任何delta参数。"""
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/dynasty/double_dragon/walk_forward",
+            params={
+                "n_holdings": n_holdings,
+                "fixed_k": fixed_k,
+                "cost_bps": cost_bps,
+                "wf_selector": wf_selector,
+                "detail_level": detail_level,
+            },
+            timeout=180,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as exc:
+        return {"success": False, "schema_version": "dd_walk_forward_v1", "error": str(exc)}
+
+
+@st.cache_data(ttl=3600 * 4)
+def fetch_dynasty_double_dragon_momentum_periods(
+    n_holdings: int = 2,
+    fixed_k: int = 30,
+    cost_bps: float = 10.0,
+    detail_level: str = "summary",
+) -> dict:
+    """获取七种动量周期的同 TopN、同固定 K、同成本对照实验。"""
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/dynasty/double_dragon/momentum_periods",
+            params={
+                "n_holdings": n_holdings,
+                "fixed_k": fixed_k,
+                "cost_bps": cost_bps,
+                "detail_level": detail_level,
+            },
+            timeout=240,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as exc:
+        return {"success": False, "schema_version": "dd_momentum_period_v1", "error": str(exc)}
+
+
+@st.cache_data(ttl=3600 * 4)
+def fetch_dynasty_double_dragon_ma_exit_reentry(
+    momentum_period: str = "12_0",
+    n_holdings: int = 2,
+    fixed_k: int = 30,
+    cost_bps: float = 10.0,
+    selected_exit_ma: int = 50,
+    detail_level: str = "summary",
+) -> dict:
+    """获取固定MA200普通入场下的完整MA卖出、停车与再入组合实验。"""
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/dynasty/double_dragon/ma_exit_reentry",
+            params={
+                "momentum_period": momentum_period,
+                "n_holdings": n_holdings,
+                "fixed_k": fixed_k,
+                "cost_bps": cost_bps,
+                "selected_exit_ma": selected_exit_ma,
+                "detail_level": detail_level,
+            },
+            timeout=240,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as exc:
+        return {"success": False, "schema_version": "dd_ma_exit_reentry_v1", "error": str(exc)}
 
 
 @st.cache_data(ttl=3600 * 4)
