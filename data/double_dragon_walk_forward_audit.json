@@ -1,0 +1,273 @@
+{
+  "generated_at": "2026-07-26T10:38:14.025142+00:00",
+  "schema_version": "dd_walk_forward_v1",
+  "cold_seconds": 18.635,
+  "config": {
+    "train_months": 60,
+    "update_frequency": "annual",
+    "effective_rule": "dec_signal_next_trading_day_close",
+    "n_holdings": 2,
+    "fixed_k": 30,
+    "cost_bps": 10.0,
+    "wf_selector": "cagr"
+  },
+  "data_quality": {
+    "pit_start": "2010-01",
+    "pit_end": "2026-07",
+    "price_start": "2009-01-02",
+    "price_as_of": "2026-07-01",
+    "signal_as_of": "2026-06-30",
+    "strict_oos_start": "2016-01-01",
+    "last_valid_month": "2026-06",
+    "universe_size": 823,
+    "data_fingerprint": "1464ca68b2921660af58659e8f87e192912bd893ab545eaca53de50aee9611ec",
+    "sector_label_mode": "static_latest_gics_approximation",
+    "terminal_value_policy": "confirmed_action_last_closeadj_then_bil; otherwise_strict_error",
+    "valid_5y": true,
+    "valid_10y": true
+  },
+  "coverage": {
+    "months": 198,
+    "min_fresh_ratio": 0.998,
+    "terminal_confirmations": 213,
+    "trailing_invalid_months": [
+      "2026-07: 当前自然月未结束，未纳入信号"
+    ]
+  },
+  "walk_forward_periods": {
+    "12_0": 11,
+    "12_1": 11
+  },
+  "results": {
+    "5Y": {
+      "mom12_0_fixed": {
+        "cum_return": 6.170242522264184,
+        "cagr": 0.48296259024935884,
+        "max_dd": -0.4889538122630839,
+        "calmar": 0.9877468548900454,
+        "sortino": 1.22,
+        "n_swaps": 16,
+        "avg_hold_months": 6.7,
+        "ann_turnover": 1.581,
+        "cum_cost": 0.0212,
+        "excess_vs_spy": 5.3160351702850575,
+        "bil_months": 0
+      },
+      "mom12_1_fixed": {
+        "cum_return": 0.9393536073489077,
+        "cagr": 0.14166655114601157,
+        "max_dd": -0.6967094544137056,
+        "calmar": 0.2033366279853726,
+        "sortino": 0.34,
+        "n_swaps": 18,
+        "avg_hold_months": 6.0,
+        "ann_turnover": 1.89,
+        "cum_cost": 0.0192,
+        "excess_vs_spy": 0.08514625536978149,
+        "bil_months": 0
+      },
+      "mom12_0_walk_forward": {
+        "cum_return": 3.499583526741538,
+        "cagr": 0.35099066745451735,
+        "max_dd": -0.4793903659088684,
+        "calmar": 0.7321604529725578,
+        "sortino": 0.87,
+        "n_swaps": 21,
+        "avg_hold_months": 5.2,
+        "ann_turnover": 2.197,
+        "cum_cost": 0.0341,
+        "excess_vs_spy": 2.6453761747624114,
+        "bil_months": 0
+      },
+      "mom12_1_walk_forward": {
+        "cum_return": 6.4225762911529785,
+        "cagr": 0.4932577305951773,
+        "max_dd": -0.40898474738865753,
+        "calmar": 1.2060540979696617,
+        "sortino": 1.19,
+        "n_swaps": 25,
+        "avg_hold_months": 4.4,
+        "ann_turnover": 2.04,
+        "cum_cost": 0.0234,
+        "excess_vs_spy": 5.568368939173852,
+        "bil_months": 0
+      }
+    },
+    "10Y": {
+      "mom12_0_fixed": {
+        "cum_return": 41.0753331709287,
+        "cagr": 0.4535333179254788,
+        "max_dd": -0.4889538122630839,
+        "calmar": 0.9275586089130502,
+        "sortino": 1.29,
+        "n_swaps": 32,
+        "avg_hold_months": 7.1,
+        "ann_turnover": 1.507,
+        "cum_cost": 0.1712,
+        "excess_vs_spy": 37.90163062705908,
+        "bil_months": 0
+      },
+      "mom12_1_fixed": {
+        "cum_return": 3.770783310234756,
+        "cagr": 0.1691446853068066,
+        "max_dd": -0.6967094544137056,
+        "calmar": 0.24277650351270905,
+        "sortino": 0.45,
+        "n_swaps": 40,
+        "avg_hold_months": 5.7,
+        "ann_turnover": 1.84,
+        "cum_cost": 0.0859,
+        "excess_vs_spy": 0.5970807663651323,
+        "bil_months": 0
+      },
+      "mom12_0_walk_forward": {
+        "cum_return": 9.569925241475007,
+        "cagr": 0.2659635813085657,
+        "max_dd": -0.6645057698463985,
+        "calmar": 0.40024269671886153,
+        "sortino": 0.7,
+        "n_swaps": 41,
+        "avg_hold_months": 5.6,
+        "ann_turnover": 2.137,
+        "cum_cost": 0.1248,
+        "excess_vs_spy": 6.396222697605383,
+        "bil_months": 0
+      },
+      "mom12_1_walk_forward": {
+        "cum_return": 16.38432108108002,
+        "cagr": 0.3305547589079114,
+        "max_dd": -0.6534932116368555,
+        "calmar": 0.5058273797212753,
+        "sortino": 0.87,
+        "n_swaps": 50,
+        "avg_hold_months": 4.6,
+        "ann_turnover": 2.258,
+        "cum_cost": 0.1096,
+        "excess_vs_spy": 13.210618537210397,
+        "bil_months": 0
+      }
+    }
+  },
+  "diagnostics": {
+    "mom12_0_fixed": {
+      "failure_42d": {
+        "mature": 59,
+        "censored": 1,
+        "absolute_loss_rate": 0.3559,
+        "under_spy_rate": 0.5932
+      },
+      "failure_63d": {
+        "mature": 59,
+        "censored": 1,
+        "absolute_loss_rate": 0.322,
+        "under_spy_rate": 0.5085
+      },
+      "actual_holding_failures": {
+        "closed_positions": 58,
+        "three_month_exit_loss_count": 10,
+        "three_month_exit_loss_rate": 0.1724
+      },
+      "super_winners": {
+        "definition": "forward_252d_ge_100pct_or_monthly_eligible_future_top5",
+        "opportunities": 980,
+        "captured": 11,
+        "capture_rate": 0.0112,
+        "unique_superwinner_tickers": 236,
+        "average_entry_delay_months": 13.45,
+        "retained_252d_rate": 0.6364,
+        "early_exit_count": 4,
+        "repurchased_count": 7
+      }
+    },
+    "mom12_1_fixed": {
+      "failure_42d": {
+        "mature": 71,
+        "censored": 0,
+        "absolute_loss_rate": 0.2958,
+        "under_spy_rate": 0.4648
+      },
+      "failure_63d": {
+        "mature": 71,
+        "censored": 0,
+        "absolute_loss_rate": 0.338,
+        "under_spy_rate": 0.507
+      },
+      "actual_holding_failures": {
+        "closed_positions": 69,
+        "three_month_exit_loss_count": 15,
+        "three_month_exit_loss_rate": 0.2174
+      },
+      "super_winners": {
+        "definition": "forward_252d_ge_100pct_or_monthly_eligible_future_top5",
+        "opportunities": 965,
+        "captured": 8,
+        "capture_rate": 0.0083,
+        "unique_superwinner_tickers": 227,
+        "average_entry_delay_months": 21.71,
+        "retained_252d_rate": 0.375,
+        "early_exit_count": 5,
+        "repurchased_count": 5
+      }
+    },
+    "mom12_0_walk_forward": {
+      "failure_42d": {
+        "mature": 48,
+        "censored": 0,
+        "absolute_loss_rate": 0.4792,
+        "under_spy_rate": 0.5625
+      },
+      "failure_63d": {
+        "mature": 47,
+        "censored": 1,
+        "absolute_loss_rate": 0.5106,
+        "under_spy_rate": 0.5745
+      },
+      "actual_holding_failures": {
+        "closed_positions": 46,
+        "three_month_exit_loss_count": 13,
+        "three_month_exit_loss_rate": 0.2826
+      },
+      "super_winners": {
+        "definition": "forward_252d_ge_100pct_or_monthly_eligible_future_top5",
+        "opportunities": 980,
+        "captured": 9,
+        "capture_rate": 0.0092,
+        "unique_superwinner_tickers": 236,
+        "average_entry_delay_months": 30.83,
+        "retained_252d_rate": 0.4444,
+        "early_exit_count": 5,
+        "repurchased_count": 7
+      }
+    },
+    "mom12_1_walk_forward": {
+      "failure_42d": {
+        "mature": 59,
+        "censored": 0,
+        "absolute_loss_rate": 0.4237,
+        "under_spy_rate": 0.5593
+      },
+      "failure_63d": {
+        "mature": 58,
+        "censored": 1,
+        "absolute_loss_rate": 0.4138,
+        "under_spy_rate": 0.5
+      },
+      "actual_holding_failures": {
+        "closed_positions": 57,
+        "three_month_exit_loss_count": 17,
+        "three_month_exit_loss_rate": 0.2982
+      },
+      "super_winners": {
+        "definition": "forward_252d_ge_100pct_or_monthly_eligible_future_top5",
+        "opportunities": 965,
+        "captured": 5,
+        "capture_rate": 0.0052,
+        "unique_superwinner_tickers": 227,
+        "average_entry_delay_months": 34.46,
+        "retained_252d_rate": 0.2,
+        "early_exit_count": 4,
+        "repurchased_count": 4
+      }
+    }
+  }
+}
