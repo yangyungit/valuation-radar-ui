@@ -105,6 +105,30 @@ def get_global_data(tickers, years=4):
     except Exception as e:
         return pd.DataFrame()
 
+@st.cache_data(ttl=3600 * 4, show_spinner=False)
+def fetch_close_series(ticker: str, years: int = 10) -> pd.Series:
+    """单票复权收盘价。不按工作日过滤——BTC/ETH 周末照常交易，滤掉会漏掉跳空。
+
+    与 get_global_data 的区别就在这里，那个函数服务于股票面板，会 dayofweek < 5。
+    """
+    end = datetime.now()
+    start = end - timedelta(days=int(365.25 * years))
+    try:
+        raw = yf.download(ticker, start=start, end=end, progress=False,
+                          auto_adjust=True, session=new_yf_session())
+    except Exception:
+        return pd.Series(dtype=float)
+    if raw is None or raw.empty or "Close" not in raw:
+        return pd.Series(dtype=float)
+    s = raw["Close"]
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
+    idx = pd.to_datetime(s.index)
+    if getattr(idx, "tz", None) is not None:
+        idx = idx.tz_localize(None)
+    return pd.Series(s.values.astype(float), index=idx).dropna()
+
+
 def _calc_ttm_div_yield(ticker_obj, price: float) -> float:
     """计算 TTM（过去12个月）真实股息率，适配月度/季度/年度等任意付息频率。"""
     try:
