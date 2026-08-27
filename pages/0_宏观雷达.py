@@ -108,7 +108,7 @@ _PAGE_TICKERS = [
     "XLI", "XLB", "XLU", "XLRE", "XLC",
 ]
 
-_WAVE_TAB_WINDOWS = ["1M", "3M", "6M", "1Y", "5Y", "10Y"]
+_WAVE_TAB_WINDOWS = ["1Y", "1M", "3M", "6M", "5Y", "10Y"]  # 1Y 排第一 = st.tabs 默认激活项
 
 with st.spinner("📊 加载市场结构数据..."):
     df_prices       = get_global_data(_PAGE_TICKERS, years=10)
@@ -245,9 +245,9 @@ else:
     else:
         _PALETTE = px.colors.qualitative.Light24
 
-        _tab_1m, _tab_3m, _tab_6m, _tab_1y, _tab_5y, _tab_10y = st.tabs([
-            "📅 近 1 个月 (1M)", "📅 近 3 个月 (3M)",
-            "📅 近 6 个月 (6M)", "📅 近 1 年 (1Y)",
+        _tab_1y, _tab_1m, _tab_3m, _tab_6m, _tab_5y, _tab_10y = st.tabs([
+            "📅 近 1 年 (1Y)",   "📅 近 1 个月 (1M)",
+            "📅 近 3 个月 (3M)", "📅 近 6 个月 (6M)",
             "📅 近 5 年 (5Y)",   "📅 近 10 年 (10Y)",
         ])
 
@@ -519,7 +519,7 @@ else:
 </div>
 """, unsafe_allow_html=True)
 
-        for _w, _t in zip(_WAVE_TAB_WINDOWS, (_tab_1m, _tab_3m, _tab_6m, _tab_1y, _tab_5y, _tab_10y)):
+        for _w, _t in zip(_WAVE_TAB_WINDOWS, (_tab_1y, _tab_1m, _tab_3m, _tab_6m, _tab_5y, _tab_10y)):
             _render_wave_tab(
                 _w, _t,
                 composite_field="composite",
