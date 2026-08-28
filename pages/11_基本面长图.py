@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from api_client import fetch_fundamentals_manifest, fetch_fundamentals
+from api_client import fetch_fundamentals_manifest, fetch_fundamentals, fetch_estimates
 
 st.set_page_config(page_title="基本面长图", layout="wide", page_icon="📈")
 st.title("📈 基本面长图（ROIC / Rule40 / 利润率 / 股东总回报率 / EPS / PE / FCF / 营收 vs 股价）")
@@ -104,3 +104,90 @@ fig.update_layout(
     **axis_layout,
 )
 st.plotly_chart(fig, use_container_width=True)
+
+st.divider()
+st.subheader("🔭 分析师预期修正")
+st.caption("数据源：yfinance 一致预期，只覆盖本财年和下一财年——2028 及以后是付费数据。"
+           "重点看方向不看绝对值：共识还在上修说明市场对这家公司的预期在变强。")
+
+if st.toggle("加载分析师预期（首次约 5-8 秒，之后走缓存）", value=True, key="est_on"):
+    est = fetch_estimates(tk)
+    if not est.get("success"):
+        st.info(f"{tk} 拿不到分析师预期：{est.get('error')}")
+    else:
+        fy = [p for p in est["periods"] if p["period"] in ("0y", "+1y")]
+        cols = st.columns(len(fy) + 1)
+        for c, p in zip(cols, fy):
+            cur, d30, d90 = p.get("eps_avg"), p.get("eps_30d"), p.get("eps_90d")
+            chg30 = (cur / d30 - 1) * 100 if cur and d30 else None
+            chg90 = (cur / d90 - 1) * 100 if cur and d90 else None
+            c.metric(f"{p['label']} EPS 共识", f"${cur:,.2f}" if cur else "—",
+                     f"{chg30:+.1f}%　近 30 天" if chg30 is not None else None)
+            bits = []
+            if chg90 is not None:
+                bits.append(f"近 90 天 {chg90:+.1f}%")
+            up, dn = int(p.get("up_30d") or 0), int(p.get("down_30d") or 0)
+            bits.append(f"30 天内 {up} 家上修 / {dn} 家下修")
+            if p.get("analysts"):
+                bits.append(f"{int(p['analysts'])} 家覆盖")
+            c.caption("　·　".join(bits))
+
+        pt, rt = est.get("price_target") or {}, est.get("ratings") or {}
+        c = cols[-1]
+        if pt.get("mean") and pt.get("current"):
+            up_pct = (pt["mean"] / pt["current"] - 1) * 100
+            c.metric("目标价均值", f"${pt['mean']:,.0f}", f"{up_pct:+.1f}% 空间")
+            c.caption(f"区间 ${pt.get('low', 0):,.0f} – ${pt.get('high', 0):,.0f}　·　"
+                      f"现价 ${pt['current']:,.2f}")
+        if rt.get("mean"):
+            c.caption(f"评级均值 {rt['mean']:.2f}（1=强买 5=强卖）　·　"
+                      f"强买 {rt.get('strong_buy') or 0} / 买 {rt.get('buy') or 0} / "
+                      f"持有 {rt.get('hold') or 0} / 卖 {(rt.get('sell') or 0) + (rt.get('strong_sell') or 0)}")
+
+        # 两个财年 EPS 量级不同，统一归一到「相对 90 天前的 %」才能同图比斜率
+        STEPS = [("eps_90d", -90), ("eps_60d", -60), ("eps_30d", -30),
+                 ("eps_7d", -7), ("eps_avg", 0)]
+        figr = go.Figure()
+        for p, color in zip(fy, ("#1f6fb4", "#ff7f0e")):
+            base = p.get("eps_90d")
+            if not base:
+                continue
+            xs, ys = [], []
+            for key, off in STEPS:
+                v = p.get(key)
+                if v:
+                    xs.append(off); ys.append((v / base - 1) * 100)
+            if len(xs) > 1:
+                figr.add_trace(go.Scatter(x=xs, y=ys, name=f"{p['label']} EPS",
+                                          mode="lines+markers",
+                                          line=dict(color=color, width=2)))
+        if figr.data:
+            figr.add_hline(y=0, line_dash="dash", line_color="#666", opacity=0.6)
+            figr.update_layout(
+                height=300, plot_bgcolor="#111", paper_bgcolor="#111",
+                font=dict(color="#ddd"), legend=dict(orientation="h", y=1.12),
+                margin=dict(l=50, r=30, t=30, b=40), hovermode="x unified",
+                xaxis=dict(title="距今天数", showgrid=False),
+                yaxis=dict(title="相对 90 天前 (%)", zeroline=False),
+            )
+            st.plotly_chart(figr, use_container_width=True)
+
+        with st.expander("季度共识明细"):
+            q = [p for p in est["periods"] if p["period"] in ("0q", "+1q")]
+            st.dataframe(pd.DataFrame([{
+                "期间": p["label"],
+                "EPS 共识": p.get("eps_avg"),
+                "30 天前": p.get("eps_30d"),
+                "90 天前": p.get("eps_90d"),
+                "上修(30天)": p.get("up_30d"),
+                "下修(30天)": p.get("down_30d"),
+                "营收共识": p.get("rev_avg"),
+                "同比": p.get("rev_growth"),
+            } for p in q]), use_container_width=True, hide_index=True)
+
+        hist = est.get("history") or []
+        if len(hist) > 1:
+            with st.expander(f"自攒快照历史（{len(hist)} 份）"):
+                st.caption("每次打开本页都会存一份当天的共识，跑久了就有了自己的时点预期历史。")
+                st.dataframe(pd.DataFrame(hist), use_container_width=True, hide_index=True)
+        st.caption(f"快照日期 {est.get('snapshot_date')}")
