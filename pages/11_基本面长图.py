@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from api_client import fetch_fundamentals_manifest, fetch_fundamentals, fetch_estimates
+from api_client import (fetch_fundamentals_manifest, fetch_fundamentals,
+                        fetch_estimates, fetch_estimate_quarters)
 
 st.set_page_config(page_title="基本面长图", layout="wide", page_icon="📈")
 st.title("📈 基本面长图（ROIC / Rule40 / 利润率 / 股东总回报率 / EPS / PE / FCF / 营收 vs 股价）")
@@ -184,6 +185,31 @@ if st.toggle("加载分析师预期（首次约 5-8 秒，之后走缓存）", v
                 "营收共识": p.get("rev_avg"),
                 "同比": p.get("rev_growth"),
             } for p in q]), use_container_width=True, hide_index=True)
+
+        qs = fetch_estimate_quarters(tk)
+        rows = [e for e in (qs.get("quarters") or [])
+                if e.get("revision_90d_pct") is not None]
+        if rows:
+            ys = [e["revision_90d_pct"] for e in rows]
+            up = sum(1 for v in ys if v > 0)
+            st.markdown("**历史每季的 90 天修正**")
+            st.caption(f"数据源：Alpha Vantage，覆盖 {rows[0]['period_date']} 至今。"
+                       f"每根柱子是那个季度临近财报时、分析师相对 90 天前把预期改了多少。"
+                       f"　·　{len(ys)} 个季度里 {up} 个上修、{len(ys) - up} 个下修")
+            figq = go.Figure(go.Bar(
+                x=[e["period_date"] for e in rows], y=ys,
+                marker_color=["#2ca02c" if v >= 0 else "#d62728" for v in ys],
+                hovertemplate="%{x}<br>修正 %{y:+.1f}%<extra></extra>"))
+            figq.update_layout(
+                height=280, plot_bgcolor="#111", paper_bgcolor="#111",
+                font=dict(color="#ddd"), showlegend=False,
+                margin=dict(l=50, r=30, t=20, b=40),
+                xaxis=dict(showgrid=False),
+                yaxis=dict(title="相对 90 天前 (%)", zeroline=True, zerolinecolor="#666"),
+            )
+            st.plotly_chart(figq, use_container_width=True)
+        elif qs.get("error"):
+            st.caption(f"历史季度预期暂不可用：{qs['error']}")
 
         hist = est.get("history") or []
         if len(hist) > 1:

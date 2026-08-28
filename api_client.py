@@ -3076,6 +3076,16 @@ def fetch_fundamentals(ticker: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=86400)
+def fetch_estimate_quarters(ticker: str) -> dict:
+    """历史时点季度预期（Alpha Vantage，2017 至今）。免费层 25 次/天，后端已按周缓存。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/estimates/{ticker}/quarters", timeout=45)
+        r.raise_for_status(); return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @st.cache_data(ttl=3600)
 def fetch_estimates(ticker: str, refresh: int = 1) -> dict:
     """分析师一致预期 + 90 天修正曲线。后端实时拉 yfinance，单只 5-8 秒。"""
