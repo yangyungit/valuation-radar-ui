@@ -5,8 +5,10 @@ from api_client import (
     fetch_congress_hot,
     fetch_congress_trades,
     fetch_h13f_consensus,
+    fetch_h13f_curve,
     fetch_h13f_holdings,
     fetch_h13f_investors,
+    fetch_h13f_leaderboard,
     fetch_h13f_meta,
     fetch_h13f_new_positions,
     fetch_h13f_ticker,
@@ -69,6 +71,7 @@ with st.sidebar:
     if st.button("🔄 清缓存重取"):
         for f in (fetch_h13f_meta, fetch_h13f_investors, fetch_h13f_holdings,
                   fetch_h13f_consensus, fetch_h13f_new_positions, fetch_h13f_ticker,
+                  fetch_h13f_leaderboard, fetch_h13f_curve,
                   fetch_congress_trades, fetch_congress_hot):
             f.clear()
         st.rerun()
@@ -76,8 +79,8 @@ with st.sidebar:
 _cat = None if category == "全部" else category
 _rule = dict(min_tickers=n_lo, max_tickers=n_hi, min_value=min_value_b * 1e9)
 
-tab_new, tab_pool, tab_fund, tab_stock, tab_congress = st.tabs(
-    ["🆕 新建仓", "🤝 共同持股池", "📋 单机构持仓", "🔍 单只票", "🏛️ 国会交易"]
+tab_new, tab_pool, tab_fund, tab_stock, tab_perf, tab_congress = st.tabs(
+    ["🆕 新建仓", "🤝 共同持股池", "📋 单机构持仓", "🔍 单只票", "🏆 业绩排行", "🏛️ 国会交易"]
 )
 
 # ── 新建仓 ──────────────────────────────────────────────────────────
@@ -230,6 +233,55 @@ with tab_stock:
                     cols.append("动作")
                 st.dataframe(show[cols], use_container_width=True, hide_index=True,
                              height=460)
+
+# ── 业绩排行 ────────────────────────────────────────────────────────
+with tab_perf:
+    st.caption(
+        "每期在 13F 申报截止日（季末 + 45 天）按持仓市值加权买入，持到下一期申报日"
+        "再换一遍，这是照抄 13F 能跑到的最快节奏。**不是机构的真实收益**——"
+        "13F 看不到空头、美国以外上市的股票和季度中间的进出，"
+        "所以做空对冲多、海外仓位重的机构会被系统性低估。"
+    )
+    c1, c2 = st.columns([1, 3])
+    years = c1.selectbox("回看年数", [3, 5, 10, 13], index=2)
+    min_q = c2.slider("至少几期才进榜", 4, 40, 8,
+                      help="期数太少的机构，收益基本靠运气，排名不可比。")
+
+    res = fetch_h13f_leaderboard(years=years, min_quarters=min_q,
+                                 category=_cat, curated=curated)
+    lb = pd.DataFrame(res["rows"]) if res.get("success") and res["rows"] else pd.DataFrame()
+    if not res.get("success"):
+        st.error(res.get("error"))
+    elif lb.empty:
+        st.info("这个条件下没有机构进榜，把期数门槛调低试试。")
+    else:
+        beat = int((lb.excess > 0).sum())
+        c1, c2 = st.columns(2)
+        c1.metric("进榜机构", f"{len(lb)} 家")
+        c2.metric("年化跑赢 SPY 的", f"{beat} 家",
+                  delta=f"占 {beat / len(lb) * 100:.0f}%", delta_color="off")
+
+        show = lb.rename(columns={
+            "label": "机构", "category": "类别", "quarters": "期数",
+            "start": "起", "end": "止",
+        })[["机构", "类别", "期数", "起", "止"]].copy()
+        for src, dst in (("cagr", "年化"), ("spy_cagr", "同期SPY"), ("excess", "超额"),
+                         ("win_rate", "季度胜率"), ("worst", "最差单季"), ("cover", "价格覆盖")):
+            show[dst] = lb[src].map(_pct)
+        show["累计"] = lb.cum.map(lambda v: f"{v:.2f}x")
+        st.dataframe(
+            show[["机构", "类别", "期数", "年化", "同期SPY", "超额", "累计",
+                  "季度胜率", "最差单季", "起", "止", "价格覆盖"]],
+            use_container_width=True, hide_index=True, height=560)
+
+        pick = st.selectbox("看谁的净值曲线", lb.investorname.tolist(),
+                            format_func=lambda n: LABEL.get(n, n))
+        cur = fetch_h13f_curve(pick, years=years)
+        if cur.get("success") and cur["rows"]:
+            g = pd.DataFrame(cur["rows"]).set_index("nq")
+            st.line_chart(g[["nav", "spy_nav"]].rename(
+                columns={"nav": LABEL.get(pick, pick), "spy_nav": "SPY"}))
+            st.caption("净值从回看区间第一期的申报日起算，两条线同起点。")
 
 # ── 国会交易 ────────────────────────────────────────────────────────
 with tab_congress:

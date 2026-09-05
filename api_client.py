@@ -3164,6 +3164,23 @@ def fetch_h13f_ticker(ticker: str, quarter: str, curated: bool = True,
     })
 
 
+@st.cache_data(ttl=3600)
+def fetch_h13f_leaderboard(years: int = 10, min_quarters: int = 8,
+                           category: str | None = None, curated: bool = True) -> dict:
+    """机构历史业绩排行，附 SPY 同期对照。"""
+    return _h13f_get("/api/v1/holdings13f/leaderboard", {
+        "years": years, "min_quarters": min_quarters,
+        "category": category, "curated": curated,
+    }, timeout=120)
+
+
+@st.cache_data(ttl=3600)
+def fetch_h13f_curve(investorname: str, years: int = 10) -> dict:
+    """单家机构的逐季净值曲线。"""
+    return _h13f_get("/api/v1/holdings13f/curve",
+                     {"investorname": investorname, "years": years})
+
+
 @st.cache_data(ttl=1800)
 def fetch_congress_trades(days: int = 180, ticker: str | None = None,
                           member: str | None = None, stocks_only: bool = True) -> dict:
