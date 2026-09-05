@@ -3095,3 +3095,84 @@ def fetch_estimates(ticker: str, refresh: int = 1) -> dict:
         r.raise_for_status(); return r.json()
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ==========================================
+# 机构 13F 持仓 + 国会交易
+# ==========================================
+def _h13f_get(path: str, params: dict, timeout: int = 60) -> dict:
+    try:
+        r = requests.get(f"{API_BASE_URL}{path}", params=params, timeout=timeout)
+        r.raise_for_status(); return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "rows": []}
+
+
+@st.cache_data(ttl=3600)
+def fetch_h13f_meta() -> dict:
+    """报告期清单 + 名单机构（中文名/类别）。"""
+    return _h13f_get("/api/v1/holdings13f/meta", {}, timeout=30)
+
+
+@st.cache_data(ttl=3600)
+def fetch_h13f_investors(quarter: str, category: str | None = None, curated: bool = True,
+                         min_tickers: int = 1, max_tickers: int = 100000,
+                         min_value: float = 0.0) -> dict:
+    return _h13f_get("/api/v1/holdings13f/investors", {
+        "quarter": quarter, "category": category, "curated": curated,
+        "min_tickers": min_tickers, "max_tickers": max_tickers, "min_value": min_value,
+    })
+
+
+@st.cache_data(ttl=3600)
+def fetch_h13f_holdings(investor: str, quarter: str) -> dict:
+    return _h13f_get("/api/v1/holdings13f/holdings",
+                     {"investor": investor, "quarter": quarter})
+
+
+@st.cache_data(ttl=3600)
+def fetch_h13f_consensus(quarter: str, min_holders: int = 10, category: str | None = None,
+                         curated: bool = True, stocks_only: bool = True,
+                         min_tickers: int = 5, max_tickers: int = 120,
+                         min_value: float = 2e9) -> dict:
+    return _h13f_get("/api/v1/holdings13f/consensus", {
+        "quarter": quarter, "min_holders": min_holders, "category": category,
+        "curated": curated, "stocks_only": stocks_only, "min_tickers": min_tickers,
+        "max_tickers": max_tickers, "min_value": min_value,
+    })
+
+
+@st.cache_data(ttl=3600)
+def fetch_h13f_new_positions(quarter: str, min_new_holders: int = 2,
+                             category: str | None = None, curated: bool = True,
+                             stocks_only: bool = True, exclude_universe: bool = False,
+                             min_tickers: int = 5, max_tickers: int = 120,
+                             min_value: float = 2e9) -> dict:
+    return _h13f_get("/api/v1/holdings13f/new_positions", {
+        "quarter": quarter, "min_new_holders": min_new_holders, "category": category,
+        "curated": curated, "stocks_only": stocks_only,
+        "exclude_universe": exclude_universe, "min_tickers": min_tickers,
+        "max_tickers": max_tickers, "min_value": min_value,
+    })
+
+
+@st.cache_data(ttl=3600)
+def fetch_h13f_ticker(ticker: str, quarter: str, curated: bool = True,
+                      category: str | None = None) -> dict:
+    return _h13f_get("/api/v1/holdings13f/ticker", {
+        "ticker": ticker, "quarter": quarter, "curated": curated, "category": category,
+    })
+
+
+@st.cache_data(ttl=1800)
+def fetch_congress_trades(days: int = 180, ticker: str | None = None,
+                          member: str | None = None, stocks_only: bool = True) -> dict:
+    return _h13f_get("/api/v1/congress/trades", {
+        "days": days, "ticker": ticker, "member": member, "stocks_only": stocks_only,
+    }, timeout=30)
+
+
+@st.cache_data(ttl=1800)
+def fetch_congress_hot(days: int = 90, min_members: int = 2) -> dict:
+    return _h13f_get("/api/v1/congress/hot",
+                     {"days": days, "min_members": min_members}, timeout=30)
