@@ -35,6 +35,7 @@ if not resp.get("success"):
     st.error(f"读取 {tk} 失败：{resp.get('error')}"); st.stop()
 d = resp["data"]; f = d["fundamentals"]; px = d["price"]
 fi = pd.to_datetime(f["datekey"]); pdt = pd.to_datetime(px["date"])
+tail_from = d.get("yf_tail_from")
 
 # 净利润没有单独字段，用营收 * 净利率反推（Sharadar netmargin 本就是 netinc/revenue）
 if f.get("revenue_usd") is not None and f.get("net_margin") is not None:
@@ -218,6 +219,12 @@ elif len(pct_sel) <= 4:
 else:
     left_title = f"指标值 %（{len(pct_sel)} 条，见图例颜色）"
 
+# Sharadar 停在退订日，尾部几季是 yfinance 季报补的，披露日按历史滞后中位数估算，
+# 且 ROIC/PE/毛利率这些补不了的指标在竖线右边直接断掉——标出来免得当成真断崖。
+if tail_from:
+    fig.add_shape(type="line", xref="x", yref="paper", x0=tail_from, x1=tail_from,
+                  y0=0, y1=1, line=dict(color="#888", width=1, dash="dot"), opacity=0.7)
+
 fig.update_layout(
     height=640, plot_bgcolor="#111", paper_bgcolor="#111",
     font=dict(color="#ddd"), legend=dict(orientation="h", y=1.04),
@@ -234,6 +241,11 @@ fig.update_layout(
     **axis_layout,
 )
 st.plotly_chart(fig, use_container_width=True)
+if tail_from:
+    st.caption(f"竖虚线（{tail_from}）右边的基本面点来自 yfinance 季报——Sharadar 已在 2026-06-12 "
+               "停更。披露日按该票历史「披露日 − 季度末」中位数估算，可能差几天；"
+               "ROIC / Rule40 / 毛利率 / 股东总回报率 / EPS / PE 补不了，那几条线到此为止。"
+               "价格线也是从 Sharadar 末日起接的 yfinance。")
 
 st.divider()
 st.subheader("🔭 分析师预期修正")
