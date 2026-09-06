@@ -53,21 +53,20 @@ _gap_ok = (_dk - _dk.shift(4)).dt.days.between(300, 460)
 _ni_prior = _ni.shift(4)
 f["net_income_yoy"] = np.where(_gap_ok & (_ni_prior > 0), (_ni / _ni_prior - 1) * 100, np.nan).tolist()
 
-# 净利润历史上只要出现过负值，log 轴就画不出那几个点，此时退回线性轴。
-# 资本开支本身恒为负（现金流出），不开 log。
-_ni_vals = [v for v in f["net_income_usd"] if v is not None]
-net_income_log = bool(_ni_vals) and min(_ni_vals) > 0
-# 经营现金流、FCF 固定 log：正值区间常跨 4 个数量级以上，线性轴会把早年压成贴地一条平线，
-# 看不出增长。代价是烧钱年份（OCF/FCF 为负）在 log 轴上画不出来，那几段会断线。
+# 美元类序列的 Linear/Log 由右上角全局开关统一控制（2026-09-06 前是每条各自判断，
+# 净利润因早年亏损被判线性后会拖累共享轴上的营收/FCF/OCF 一起变线性，体验很怪）。
+# 资本开支恒为负（现金流出），log 轴画不出任何一个点，不参与开关，固定线性。
+if "fund_chart_scale" not in st.session_state:
+    st.session_state["fund_chart_scale"] = "Log"
+use_log = st.session_state["fund_chart_scale"] == "Log"
+
 _ocf_neg = sum(1 for v in (f.get("ocf_usd") or []) if v is not None and v <= 0)
 _fcf_neg = sum(1 for v in (f.get("fcf_usd") or []) if v is not None and v <= 0)
-# 单季 FCF 负值比 TTM 频繁得多（大额资本开支砸在单一季度不会被摊平），一旦出现负值
-# 就整条退回线性轴，否则断线太多看不出形状。
-_fcfq_vals = [v for v in (f.get("fcf_q_usd") or []) if v is not None]
-fcf_q_log = bool(_fcfq_vals) and min(_fcfq_vals) > 0
+_fcfq_neg = sum(1 for v in (f.get("fcf_q_usd") or []) if v is not None and v <= 0)
+_ni_neg = sum(1 for v in (f.get("net_income_usd") or []) if v is not None and v <= 0)
 
 # 可叠加到主图的序列。pct 类挂左轴(指标值 %)，dollar/ratio 类各挂独立右轴(量纲差异大)。
-# 第 5 项 log=True 表示该序列右轴用对数坐标（看增长速度，和复权价的 log 轴口径一致）。
+# 第 5 项："toggle" 表示这条线跟随右上角 Linear/Log 开关，False 表示恒为线性（资本开支）。
 OVERLAYS = [
     ("ROIC %",        "roic_pct",         "#1f6fb4", "pct",    False),
     ("Rule of 40 %",  "rule40",           "#d62728", "pct",    False),
@@ -77,15 +76,16 @@ OVERLAYS = [
     ("营收同比 %",    "rev_yoy",          "#7f7f00", "pct",    False),
     ("净利润同比 %",  "net_income_yoy",   "#aa40fc", "pct",    False),
     ("股东总回报率 %","shareholder_yield","#bcbd22", "pct",    False),
-    ("EPS (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", False),
+    ("EPS (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", "toggle"),
     ("PE (TTM)",     "pe",               "#8c564b", "ratio",  False),
-    ("FCF ($)",      "fcf_usd",          "#17becf", "dollar", True),
-    ("FCF (单季,$)", "fcf_q_usd",        "#00e5c0", "dollar", fcf_q_log),
-    ("经营现金流 (TTM,$)","ocf_usd",      "#98df8a", "dollar", True),
+    ("FCF ($)",      "fcf_usd",          "#17becf", "dollar", "toggle"),
+    ("FCF (单季,$)", "fcf_q_usd",        "#00e5c0", "dollar", "toggle"),
+    ("经营现金流 (TTM,$)","ocf_usd",      "#98df8a", "dollar", "toggle"),
     ("资本开支 (TTM,$)","capex_usd",      "#c49c94", "dollar", False),
-    ("净利润 (TTM,$)","net_income_usd",   "#ff9896", "dollar", net_income_log),
-    ("营收 (TTM,$)", "revenue_usd",      "#e377c2", "dollar", True),
+    ("净利润 (TTM,$)","net_income_usd",   "#ff9896", "dollar", "toggle"),
+    ("营收 (TTM,$)", "revenue_usd",      "#e377c2", "dollar", "toggle"),
 ]
+OVERLAYS = [(l, k, c, kd, (use_log if lg == "toggle" else lg)) for l, k, c, kd, lg in OVERLAYS]
 sel_overlays = st.multiselect(
     "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=["ROIC %", "Rule of 40 %"],
     help="ROIC/Rule40/净利率/毛利率/经营利润率/营收同比/净利润同比/股东总回报率挂左侧 % 轴；"
@@ -95,15 +95,21 @@ sel_overlays = st.multiselect(
          "FCF (单季) 是当季原始数，不做 4 季滚动——TTM 会把拐点推迟约 4 个月",
 )
 
-if "经营现金流 (TTM,$)" in sel_overlays and _ocf_neg:
-    st.caption(f"⚠️ 经营现金流走 log 轴，{tk} 有 {_ocf_neg} 个季度经营现金流为负（烧钱期），"
-               f"这些点在 log 轴上画不出来，那几段线是断的。")
-if "FCF ($)" in sel_overlays and _fcf_neg:
-    st.caption(f"⚠️ FCF 走 log 轴，{tk} 有 {_fcf_neg} 个季度 FCF 为负，"
-               f"这些点在 log 轴上画不出来，那几段线是断的。")
-if "FCF (单季,$)" in sel_overlays and not fcf_q_log and _fcfq_vals:
-    st.caption(f"ℹ️ {tk} 单季 FCF 出现过负值，这条线走线性轴（其余 $ 序列是 log），"
-               f"看拐点位置可以，别拿斜率跟 log 轴的线比。")
+if use_log:
+    if "经营现金流 (TTM,$)" in sel_overlays and _ocf_neg:
+        st.caption(f"⚠️ 经营现金流走 log 轴，{tk} 有 {_ocf_neg} 个季度经营现金流为负（烧钱期），"
+                   f"这些点在 log 轴上画不出来，那几段线是断的。")
+    if "FCF ($)" in sel_overlays and _fcf_neg:
+        st.caption(f"⚠️ FCF 走 log 轴，{tk} 有 {_fcf_neg} 个季度 FCF 为负，"
+                   f"这些点在 log 轴上画不出来，那几段线是断的。")
+    if "FCF (单季,$)" in sel_overlays and _fcfq_neg:
+        st.caption(f"⚠️ FCF(单季) 走 log 轴，{tk} 有 {_fcfq_neg} 个季度为负，"
+                   f"这些点在 log 轴上画不出来，那几段线是断的。")
+    if "净利润 (TTM,$)" in sel_overlays and _ni_neg:
+        st.caption(f"⚠️ 净利润走 log 轴，{tk} 有 {_ni_neg} 个季度净利润为负（亏损期），"
+                   f"这些点在 log 轴上画不出来，那几段线是断的。")
+if "资本开支 (TTM,$)" in sel_overlays:
+    st.caption("ℹ️ 资本开支恒为负（现金流出），不参与 Linear/Log 开关，固定线性轴。")
 
 def _series(key):
     """后端新增字段时，前端 fetch_fundamentals 的 1 小时缓存里可能还是旧 JSON（没这个 key）。
@@ -240,6 +246,13 @@ fig.update_layout(
                 side="right", anchor="x", showgrid=False),
     **axis_layout,
 )
+
+_, scale_col = st.columns([6, 1])
+with scale_col:
+    st.radio("美元序列坐标轴", ["Linear", "Log"], key="fund_chart_scale",
+             horizontal=True, label_visibility="collapsed",
+             help="控制 FCF/经营现金流/净利润/营收/EPS 这几条 $ 序列走线性还是对数轴；"
+                  "复权价固定 log，资本开支固定线性，不受此开关影响。")
 st.plotly_chart(fig, use_container_width=True)
 if tail_from:
     st.caption(f"竖虚线（{tail_from}）右边的基本面点来自 yfinance 季报——Sharadar 已在 2026-06-12 "
