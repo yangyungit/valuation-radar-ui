@@ -7,7 +7,8 @@ from api_client import (fetch_fundamentals_manifest, fetch_fundamentals,
 
 st.set_page_config(page_title="基本面长图", layout="wide", page_icon="📈")
 st.title("📈 基本面长图（ROIC / Rule40 / 利润率 / 股东总回报率 / EPS / PE / FCF / 营收 vs 股价）")
-st.caption("数据源：Sharadar SF1 (ART/TTM, PIT datekey) + SEP closeadj。仅含已 push 的关注股。")
+st.caption("数据源：Sharadar SF1（ART/TTM，FCF 单季走 ARQ；均按 PIT datekey 对齐）+ SEP closeadj。"
+           "仅含已 push 的关注股。")
 
 with st.sidebar:
     if st.button("🔄 清除缓存"):
@@ -59,6 +60,10 @@ net_income_log = bool(_ni_vals) and min(_ni_vals) > 0
 # 看不出增长。代价是烧钱年份（OCF/FCF 为负）在 log 轴上画不出来，那几段会断线。
 _ocf_neg = sum(1 for v in (f.get("ocf_usd") or []) if v is not None and v <= 0)
 _fcf_neg = sum(1 for v in (f.get("fcf_usd") or []) if v is not None and v <= 0)
+# 单季 FCF 负值比 TTM 频繁得多（大额资本开支砸在单一季度不会被摊平），一旦出现负值
+# 就整条退回线性轴，否则断线太多看不出形状。
+_fcfq_vals = [v for v in (f.get("fcf_q_usd") or []) if v is not None]
+fcf_q_log = bool(_fcfq_vals) and min(_fcfq_vals) > 0
 
 # 可叠加到主图的序列。pct 类挂左轴(指标值 %)，dollar/ratio 类各挂独立右轴(量纲差异大)。
 # 第 5 项 log=True 表示该序列右轴用对数坐标（看增长速度，和复权价的 log 轴口径一致）。
@@ -74,6 +79,7 @@ OVERLAYS = [
     ("EPS (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", False),
     ("PE (TTM)",     "pe",               "#8c564b", "ratio",  False),
     ("FCF ($)",      "fcf_usd",          "#17becf", "dollar", True),
+    ("FCF (单季,$)", "fcf_q_usd",        "#00e5c0", "dollar", fcf_q_log),
     ("经营现金流 (TTM,$)","ocf_usd",      "#98df8a", "dollar", True),
     ("资本开支 (TTM,$)","capex_usd",      "#c49c94", "dollar", False),
     ("净利润 (TTM,$)","net_income_usd",   "#ff9896", "dollar", net_income_log),
@@ -83,7 +89,8 @@ sel_overlays = st.multiselect(
     "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=["ROIC %", "Rule of 40 %"],
     help="ROIC/Rule40/净利率/毛利率/经营利润率/营收同比/净利润同比/股东总回报率挂左侧 % 轴；"
          "EPS/PE/FCF/经营现金流/资本开支/净利润/营收 各挂独立右侧轴。"
-         "FCF = 经营现金流 + 资本开支（资本开支本身是负数）",
+         "FCF = 经营现金流 + 资本开支（资本开支本身是负数）。"
+         "FCF (单季) 是当季原始数，不做 4 季滚动——TTM 会把拐点推迟约 4 个月",
 )
 
 if "经营现金流 (TTM,$)" in sel_overlays and _ocf_neg:
@@ -92,6 +99,9 @@ if "经营现金流 (TTM,$)" in sel_overlays and _ocf_neg:
 if "FCF ($)" in sel_overlays and _fcf_neg:
     st.caption(f"⚠️ FCF 走 log 轴，{tk} 有 {_fcf_neg} 个季度 FCF 为负，"
                f"这些点在 log 轴上画不出来，那几段线是断的。")
+if "FCF (单季,$)" in sel_overlays and not fcf_q_log and _fcfq_vals:
+    st.caption(f"ℹ️ {tk} 单季 FCF 出现过负值，这条线走线性轴（其余 $ 序列是 log），"
+               f"看拐点位置可以，别拿斜率跟 log 轴的线比。")
 
 def _series(key):
     """后端新增字段时，前端 fetch_fundamentals 的 1 小时缓存里可能还是旧 JSON（没这个 key）。
