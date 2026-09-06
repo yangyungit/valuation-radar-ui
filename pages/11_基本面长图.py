@@ -109,8 +109,12 @@ for i, (label, key, color, kind, log) in enumerate(dollar_sel):
         fig.add_shape(type="line", xref="paper", x0=0, x1=1, yref=ax,
                      y0=0, y1=0, line=dict(color=color, width=1, dash="dot"), opacity=0.6)
 
-fig.add_hline(y=40, line_dash="dash", line_color="#d62728", opacity=0.4)
-fig.add_hline(y=20, line_dash="dash", line_color="#1f6fb4", opacity=0.4)
+# 这两条阈值线只对 Rule40/ROIC 有意义，没勾这两个指标时不画（否则会在无关的左轴范围里
+# 显得莫名其妙——比如只看净利润同比时，左轴变成 % 同比范围，40/20 阈值线毫无意义）
+if "Rule of 40 %" in sel_overlays:
+    fig.add_hline(y=40, line_dash="dash", line_color="#d62728", opacity=0.4)
+if "ROIC %" in sel_overlays:
+    fig.add_hline(y=20, line_dash="dash", line_color="#1f6fb4", opacity=0.4)
 
 pct_sel = [label for label, key, _, kind, _ in OVERLAYS if kind == "pct" and label in sel_overlays]
 pct_vals = []
