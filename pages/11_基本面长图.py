@@ -66,6 +66,7 @@ OVERLAYS = [
     ("Rule of 40 %",  "rule40",           "#d62728", "pct",    False),
     ("净利率 %",      "net_margin",       "#2ca02c", "pct",    False),
     ("毛利率 %",      "gross_margin",     "#9467bd", "pct",    False),
+    ("经营利润率 %",  "op_margin",        "#4fc3f7", "pct",    False),
     ("营收同比 %",    "rev_yoy",          "#7f7f00", "pct",    False),
     ("净利润同比 %",  "net_income_yoy",   "#aa40fc", "pct",    False),
     ("股东总回报率 %","shareholder_yield","#bcbd22", "pct",    False),
@@ -79,7 +80,7 @@ OVERLAYS = [
 ]
 sel_overlays = st.multiselect(
     "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=["ROIC %", "Rule of 40 %"],
-    help="ROIC/Rule40/净利率/毛利率/营收同比/净利润同比/股东总回报率挂左侧 % 轴；"
+    help="ROIC/Rule40/净利率/毛利率/经营利润率/营收同比/净利润同比/股东总回报率挂左侧 % 轴；"
          "EPS/PE/FCF/经营现金流/资本开支/净利润/营收 各挂独立右侧轴。"
          "FCF = 经营现金流 + 资本开支（资本开支本身是负数）",
 )
@@ -96,7 +97,8 @@ plot_right = max(0.55, 1.0 - step * len(dollar_sel))
 fig = go.Figure()
 for label, key, color, kind, log in OVERLAYS:
     if kind == "pct" and label in sel_overlays:
-        fig.add_trace(go.Scatter(x=fi, y=f[key], name=label,
+        # 用 get：新增字段（如 op_margin）在尚未重刷的旧 JSON 里不存在
+        fig.add_trace(go.Scatter(x=fi, y=f.get(key), name=label,
                                  line=dict(color=color, width=1.6), yaxis="y"))
 fig.add_trace(go.Scatter(x=pdt, y=px["closeadj"], name=f"{tk} 复权价(log)",
                          line=dict(color="#7f7f7f", width=1.1), yaxis="y2"))
