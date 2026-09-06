@@ -83,6 +83,7 @@ OVERLAYS = [
     ("营收同比 %",    "rev_yoy",          "#7f7f00", "pct",    False),
     ("净利润同比 %",  "net_income_yoy",   "#aa40fc", "pct",    False),
     ("股东总回报率 %","shareholder_yield","#bcbd22", "pct",    False),
+    ("净回购率 %",    "net_buyback_pct",  "#e15759", "pct",    False),
     ("FCF 收益率 %", "fcf_yield",        "#ffd166", "pct",    False),
     ("EPS (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", "toggle"),
     ("PE (TTM)",     "pe",               "#8c564b", "ratio",  False),
@@ -97,13 +98,16 @@ OVERLAYS = [
 OVERLAYS = [(l, k, c, kd, (use_log if lg == "toggle" else lg)) for l, k, c, kd, lg in OVERLAYS]
 sel_overlays = st.multiselect(
     "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=["ROIC %", "Rule of 40 %"],
-    help="ROIC/Rule40/净利率/毛利率/经营利润率/营收同比/净利润同比/股东总回报率/FCF 收益率挂左侧 % 轴；"
+    help="ROIC/Rule40/净利率/毛利率/经营利润率/营收同比/净利润同比/股东总回报率/净回购率/FCF 收益率挂左侧 % 轴；"
          "FCF/FCF(单季)/经营现金流/毛利润/净利润/营收共用同一根右轴（量级可比，谁高谁低是真实大小，不是各轴缩放巧合）；"
          "EPS/资本开支/PE 各自独立右侧轴（每股 $、恒负现金流出、倍数，量纲不同没法合并）。"
          "FCF = 经营现金流 + 资本开支（资本开支本身是负数）。"
          "FCF (单季) 是当季原始数，不做 4 季滚动——TTM 会把拐点推迟约 4 个月。"
          "FCF 收益率 = TTM FCF / 当期市值，越高越便宜，可当 PE 的抗干扰替代——"
-         "一次性减值会把 PE 打成负数或几十倍，FCF 收益率不受影响",
+         "一次性减值会把 PE 打成负数或几十倍，FCF 收益率不受影响。"
+         "净回购率 = 过去四季股数减少的百分比，正数在缩股、负数在增发。它只认股数真的少了没有，"
+         "不认回购花了多少钱——公司一边大额回购一边发期权时，钱花了但股数没降，这条线就贴着 0。"
+         "和 EPS 并排看，能分清每股收益上涨是赚出来的还是缩股缩出来的",
 )
 
 if use_log:
@@ -272,7 +276,7 @@ st.plotly_chart(fig, use_container_width=True)
 if tail_from:
     st.caption(f"竖虚线（{tail_from}）右边的基本面点来自 yfinance 季报——Sharadar 已在 2026-06-12 "
                "停更。披露日按该票历史「披露日 − 季度末」中位数估算，可能差几天；"
-               "ROIC / Rule40 / 毛利率 / 毛利润 / 股东总回报率 / FCF 收益率 / EPS / PE 补不了，"
+               "ROIC / Rule40 / 毛利率 / 毛利润 / 股东总回报率 / 净回购率 / FCF 收益率 / EPS / PE 补不了，"
                "那几条线到此为止。"
                "价格线也是从 Sharadar 末日起接的 yfinance。")
 
