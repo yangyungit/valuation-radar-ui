@@ -37,11 +37,17 @@ d = resp["data"]; f = d["fundamentals"]; px = d["price"]
 fi = pd.to_datetime(f["datekey"]); pdt = pd.to_datetime(px["date"])
 tail_from = d.get("yf_tail_from")
 
-# 净利润没有单独字段，用营收 * 净利率反推（Sharadar netmargin 本就是 netinc/revenue）
+# 净利润/毛利润没有单独字段，用营收 * 对应利润率反推（Sharadar 的 netmargin / grossmargin
+# 本就是 netinc/revenue、gp/revenue）
 if f.get("revenue_usd") is not None and f.get("net_margin") is not None:
     f["net_income_usd"] = [
         (r * m / 100) if (r is not None and m is not None) else None
         for r, m in zip(f["revenue_usd"], f["net_margin"])
+    ]
+if f.get("revenue_usd") is not None and f.get("gross_margin") is not None:
+    f["gross_profit_usd"] = [
+        (r * m / 100) if (r is not None and m is not None) else None
+        for r, m in zip(f["revenue_usd"], f["gross_margin"])
     ]
 
 # 净利润同比：口径对齐后端 rev_yoy（push_fundamentals_to_render.py）——按 datekey 位移 4 期
@@ -64,6 +70,7 @@ _ocf_neg = sum(1 for v in (f.get("ocf_usd") or []) if v is not None and v <= 0)
 _fcf_neg = sum(1 for v in (f.get("fcf_usd") or []) if v is not None and v <= 0)
 _fcfq_neg = sum(1 for v in (f.get("fcf_q_usd") or []) if v is not None and v <= 0)
 _ni_neg = sum(1 for v in (f.get("net_income_usd") or []) if v is not None and v <= 0)
+_gp_neg = sum(1 for v in (f.get("gross_profit_usd") or []) if v is not None and v <= 0)
 
 # 可叠加到主图的序列。pct 类挂左轴(指标值 %)，dollar/ratio 类各挂独立右轴(量纲差异大)。
 # 第 5 项："toggle" 表示这条线跟随右上角 Linear/Log 开关，False 表示恒为线性（资本开支）。
@@ -83,13 +90,14 @@ OVERLAYS = [
     ("经营现金流 (TTM,$)","ocf_usd",      "#98df8a", "dollar", "toggle"),
     ("资本开支 (TTM,$)","capex_usd",      "#c49c94", "dollar", False),
     ("净利润 (TTM,$)","net_income_usd",   "#ff9896", "dollar", "toggle"),
+    ("毛利润 (TTM,$)","gross_profit_usd", "#c5b0d5", "dollar", "toggle"),
     ("营收 (TTM,$)", "revenue_usd",      "#e377c2", "dollar", "toggle"),
 ]
 OVERLAYS = [(l, k, c, kd, (use_log if lg == "toggle" else lg)) for l, k, c, kd, lg in OVERLAYS]
 sel_overlays = st.multiselect(
     "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=["ROIC %", "Rule of 40 %"],
     help="ROIC/Rule40/净利率/毛利率/经营利润率/营收同比/净利润同比/股东总回报率挂左侧 % 轴；"
-         "FCF/FCF(单季)/经营现金流/净利润/营收共用同一根右轴（量级可比，谁高谁低是真实大小，不是各轴缩放巧合）；"
+         "FCF/FCF(单季)/经营现金流/毛利润/净利润/营收共用同一根右轴（量级可比，谁高谁低是真实大小，不是各轴缩放巧合）；"
          "EPS/资本开支/PE 各自独立右侧轴（每股 $、恒负现金流出、倍数，量纲不同没法合并）。"
          "FCF = 经营现金流 + 资本开支（资本开支本身是负数）。"
          "FCF (单季) 是当季原始数，不做 4 季滚动——TTM 会把拐点推迟约 4 个月",
@@ -107,6 +115,9 @@ if use_log:
                    f"这些点在 log 轴上画不出来，那几段线是断的。")
     if "净利润 (TTM,$)" in sel_overlays and _ni_neg:
         st.caption(f"⚠️ 净利润走 log 轴，{tk} 有 {_ni_neg} 个季度净利润为负（亏损期），"
+                   f"这些点在 log 轴上画不出来，那几段线是断的。")
+    if "毛利润 (TTM,$)" in sel_overlays and _gp_neg:
+        st.caption(f"⚠️ 毛利润走 log 轴，{tk} 有 {_gp_neg} 个季度毛利润为负（卖一件亏一件），"
                    f"这些点在 log 轴上画不出来，那几段线是断的。")
 if "资本开支 (TTM,$)" in sel_overlays:
     st.caption("ℹ️ 资本开支恒为负（现金流出），不参与 Linear/Log 开关，固定线性轴。")
@@ -129,7 +140,8 @@ dollar_sel = [o for o in OVERLAYS
 # 量级可比的几条 $ 序列共用同一根右轴，视觉高度才是真实大小可比——之前每条各自一根轴，
 # FCF 画得比 OCF 高只是各自轴缩放的巧合，不代表 FCF 真的更大（2026-09-06 对话发现）。
 # EPS（每股 $）、资本开支（恒负，不能上 log 轴）、PE（倍数）量纲不同，各自留独立轴。
-SHARE_KEYS = {"revenue_usd", "ocf_usd", "fcf_usd", "fcf_q_usd", "net_income_usd"}
+SHARE_KEYS = {"revenue_usd", "ocf_usd", "fcf_usd", "fcf_q_usd", "net_income_usd",
+              "gross_profit_usd"}
 shared_sel = [o for o in dollar_sel if o[1] in SHARE_KEYS]
 solo_sel = [o for o in dollar_sel if o[1] not in SHARE_KEYS]
 n_axes = (1 if shared_sel else 0) + len(solo_sel)
@@ -251,13 +263,13 @@ _, scale_col = st.columns([6, 1])
 with scale_col:
     st.radio("美元序列坐标轴", ["Linear", "Log"], key="fund_chart_scale",
              horizontal=True, label_visibility="collapsed",
-             help="控制 FCF/经营现金流/净利润/营收/EPS 这几条 $ 序列走线性还是对数轴；"
+             help="控制 FCF/经营现金流/毛利润/净利润/营收/EPS 这几条 $ 序列走线性还是对数轴；"
                   "复权价固定 log，资本开支固定线性，不受此开关影响。")
 st.plotly_chart(fig, use_container_width=True)
 if tail_from:
     st.caption(f"竖虚线（{tail_from}）右边的基本面点来自 yfinance 季报——Sharadar 已在 2026-06-12 "
                "停更。披露日按该票历史「披露日 − 季度末」中位数估算，可能差几天；"
-               "ROIC / Rule40 / 毛利率 / 股东总回报率 / EPS / PE 补不了，那几条线到此为止。"
+               "ROIC / Rule40 / 毛利率 / 毛利润 / 股东总回报率 / EPS / PE 补不了，那几条线到此为止。"
                "价格线也是从 Sharadar 末日起接的 yfinance。")
 
 st.divider()
