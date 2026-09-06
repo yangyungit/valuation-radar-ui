@@ -105,7 +105,7 @@ for i, (label, key, color, kind, log) in enumerate(dollar_sel):
         title=dict(text=label, font=dict(color=color)),
         tickfont=dict(color=color), overlaying="y", side="right",
         anchor="free", position=min(0.999, plot_right + step * (i + 1)),
-        showgrid=False,
+        showgrid=False, zeroline=False,
     )
     if log:
         cfg["type"] = "log"
@@ -159,8 +159,10 @@ fig.update_layout(
     hovermode="x unified",
     xaxis=dict(domain=[0.0, plot_right], showspikes=True, spikemode="across",
                spikesnap="cursor", spikedash="dash", spikecolor="#999",
-               spikethickness=1),
-    yaxis=dict(title=left_title, range=yrange, showticklabels=bool(pct_sel)),
+               spikethickness=1, gridcolor="#2a2a2a"),
+    # 没勾 % 指标时左轴刻度是空的，横线不对应任何数值，别画
+    yaxis=dict(title=left_title, range=yrange, showticklabels=bool(pct_sel),
+               showgrid=bool(pct_sel), gridcolor="#2a2a2a", zeroline=False),
     yaxis2=dict(title="复权价 (log)", type="log", overlaying="y",
                 side="right", anchor="x", showgrid=False),
     **axis_layout,
