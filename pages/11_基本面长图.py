@@ -104,10 +104,15 @@ for i, (label, key, color, kind, log) in enumerate(dollar_sel):
             hi = min(np.nanpercentile(vv, 90) * 1.8, np.nanpercentile(vv, 99.5))
             cfg["range"] = [0, hi]
     axis_layout[f"yaxis{i + 3}"] = cfg
+    # 净利润挂自己的独立右轴，标一条 0 轴看它哪年由亏转盈（log 轴下 0 画不出来，跳过）
+    if key == "net_income_usd" and not log:
+        fig.add_shape(type="line", xref="paper", x0=0, x1=1, yref=ax,
+                     y0=0, y1=0, line=dict(color=color, width=1, dash="dot"), opacity=0.6)
 
 fig.add_hline(y=40, line_dash="dash", line_color="#d62728", opacity=0.4)
 fig.add_hline(y=20, line_dash="dash", line_color="#1f6fb4", opacity=0.4)
 
+pct_sel = [label for label, key, _, kind, _ in OVERLAYS if kind == "pct" and label in sel_overlays]
 pct_vals = []
 for label, key, _, kind, _ in OVERLAYS:
     if kind == "pct" and label in sel_overlays and f.get(key) is not None:
@@ -117,6 +122,13 @@ yrange = None
 if len(vals):
     lo = min(np.nanpercentile(vals, 2), -20); hi = max(np.nanpercentile(vals, 97), 60)
     yrange = [lo - 10, hi + 15]
+# 左轴同时挂好几条 % 指标，靠图例颜色区分，轴标题就报当前挂了哪几条（太多就只报数量）
+if not pct_sel:
+    left_title = "指标值 (%)"
+elif len(pct_sel) <= 4:
+    left_title = "指标值 %（" + " / ".join(pct_sel) + "）"
+else:
+    left_title = f"指标值 %（{len(pct_sel)} 条，见图例颜色）"
 
 fig.update_layout(
     height=640, plot_bgcolor="#111", paper_bgcolor="#111",
@@ -126,7 +138,7 @@ fig.update_layout(
     xaxis=dict(domain=[0.0, plot_right], showspikes=True, spikemode="across",
                spikesnap="cursor", spikedash="dash", spikecolor="#999",
                spikethickness=1),
-    yaxis=dict(title="指标值 (%)", range=yrange),
+    yaxis=dict(title=left_title, range=yrange),
     yaxis2=dict(title="复权价 (log)", type="log", overlaying="y",
                 side="right", anchor="x", showgrid=False),
     **axis_layout,
