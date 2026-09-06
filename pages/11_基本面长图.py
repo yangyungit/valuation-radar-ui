@@ -51,12 +51,13 @@ _gap_ok = (_dk - _dk.shift(4)).dt.days.between(300, 460)
 _ni_prior = _ni.shift(4)
 f["net_income_yoy"] = np.where(_gap_ok & (_ni_prior > 0), (_ni / _ni_prior - 1) * 100, np.nan).tolist()
 
-# 净利润/经营现金流历史上只要出现过负值，log 轴就画不出那几个点，此时退回线性轴。
+# 净利润历史上只要出现过负值，log 轴就画不出那几个点，此时退回线性轴。
 # 资本开支本身恒为负（现金流出），不开 log。
 _ni_vals = [v for v in f["net_income_usd"] if v is not None]
 net_income_log = bool(_ni_vals) and min(_ni_vals) > 0
-_ocf_vals = [v for v in (f.get("ocf_usd") or []) if v is not None]
-ocf_log = bool(_ocf_vals) and min(_ocf_vals) > 0
+# 经营现金流固定 log：正值区间常跨 4 个数量级以上，线性轴会把早年压成贴地一条平线，
+# 看不出增长。代价是烧钱年份（OCF 为负）在 log 轴上画不出来，那几段会断线。
+_ocf_neg = sum(1 for v in (f.get("ocf_usd") or []) if v is not None and v <= 0)
 
 # 可叠加到主图的序列。pct 类挂左轴(指标值 %)，dollar/ratio 类各挂独立右轴(量纲差异大)。
 # 第 5 项 log=True 表示该序列右轴用对数坐标（看增长速度，和复权价的 log 轴口径一致）。
@@ -71,7 +72,7 @@ OVERLAYS = [
     ("EPS (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", False),
     ("PE (TTM)",     "pe",               "#8c564b", "ratio",  False),
     ("FCF ($)",      "fcf_usd",          "#17becf", "dollar", False),
-    ("经营现金流 (TTM,$)","ocf_usd",      "#98df8a", "dollar", ocf_log),
+    ("经营现金流 (TTM,$)","ocf_usd",      "#98df8a", "dollar", True),
     ("资本开支 (TTM,$)","capex_usd",      "#c49c94", "dollar", False),
     ("净利润 (TTM,$)","net_income_usd",   "#ff9896", "dollar", net_income_log),
     ("营收 (TTM,$)", "revenue_usd",      "#e377c2", "dollar", True),
@@ -82,6 +83,10 @@ sel_overlays = st.multiselect(
          "EPS/PE/FCF/经营现金流/资本开支/净利润/营收 各挂独立右侧轴。"
          "FCF = 经营现金流 + 资本开支（资本开支本身是负数）",
 )
+
+if "经营现金流 (TTM,$)" in sel_overlays and _ocf_neg:
+    st.caption(f"⚠️ 经营现金流走 log 轴，{tk} 有 {_ocf_neg} 个季度经营现金流为负（烧钱期），"
+               f"这些点在 log 轴上画不出来，那几段线是断的。")
 
 dollar_sel = [o for o in OVERLAYS if o[3] != "pct" and o[0] in sel_overlays]
 # 右侧轴：第 0 条永远是复权价，其余是被勾选的 $ 序列，依次向右排开
@@ -99,7 +104,12 @@ fig.add_trace(go.Scatter(x=pdt, y=px["closeadj"], name=f"{tk} 复权价(log)",
 axis_layout = {}
 for i, (label, key, color, kind, log) in enumerate(dollar_sel):
     ax = f"y{i + 3}"
-    fig.add_trace(go.Scatter(x=fi, y=f[key], name=label,
+    # log 轴上非正值画不出来，但 plotly 会把它前后两个正值点直接连成一条陡直线，
+    # 看着像毛刺。显式置 None 让线真的断在烧钱那几年。
+    ys = f[key]
+    if log:
+        ys = [v if (v is not None and v > 0) else None for v in ys]
+    fig.add_trace(go.Scatter(x=fi, y=ys, name=label,
                              line=dict(color=color, width=1.6), yaxis=ax))
     cfg = dict(
         title=dict(text=label, font=dict(color=color)),
