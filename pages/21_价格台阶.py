@@ -35,7 +35,13 @@ with c2:
     for t in pool:
         cn = tic_map.get(t, "")
         labels.append(f"{t}  |  {cn}" if cn else t)
-    picked = st.selectbox("标的", labels)
+    if "step_chart_sel" not in st.session_state or st.session_state["step_chart_sel"] not in labels:
+        st.session_state["step_chart_sel"] = labels[0] if labels else None
+    picked = st.selectbox("标的", labels, index=None, key="step_chart_sel",
+                          placeholder="输入代码或名称筛选…")
+    if picked is None:
+        st.info("请选择一只标的")
+        st.stop()
     ticker = picked.split("  |  ")[0].strip()
 with c3:
     grid = st.slider("每格涨跌 %", min_value=0.5, max_value=50.0, value=10.0, step=0.5,
@@ -87,12 +93,6 @@ fig.add_trace(go.Scatter(x=px.index, y=px.values, name="原始价格",
                          line=dict(color="#5c6577", width=1)), row=1, col=1)
 fig.add_trace(go.Scatter(x=step.index, y=step.values, name=f"台阶（每格 {grid:g}%）",
                          line=dict(color="#4da3ff", width=2.4, shape="hv")), row=1, col=1)
-
-# 格子边界线，太密就不画了，否则整张图糊成一片
-levels = sorted(step.unique())
-if len(levels) <= 30:
-    for lv_price in levels:
-        fig.add_hline(y=lv_price, line_color="#2b3242", line_width=1, row=1, col=1)
 
 xs_up, ys_up, xs_dn, ys_dn = [], [], [], []
 for ts, d in moves:

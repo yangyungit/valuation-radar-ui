@@ -164,7 +164,14 @@ with tab_fund:
         inv["_opt"] = inv.apply(
             lambda r: f"{r.get('label') or r.investorname}（{int(r.n_tickers)} 只 / "
                       f"{_money(r.total_value)}）", axis=1)
-        pick = st.selectbox("选机构", inv._opt.tolist(), index=0)
+        _inv_opts = inv._opt.tolist()
+        if "h13f_investor_sel" not in st.session_state or st.session_state["h13f_investor_sel"] not in _inv_opts:
+            st.session_state["h13f_investor_sel"] = _inv_opts[0] if _inv_opts else None
+        pick = st.selectbox("选机构", _inv_opts, index=None, key="h13f_investor_sel",
+                           placeholder="输入机构名筛选…")
+        if pick is None:
+            st.info("请选择一家机构")
+            st.stop()
         who = inv.loc[inv._opt == pick, "investorname"].iloc[0]
 
         det = fetch_h13f_holdings(who, quarter)
@@ -274,8 +281,15 @@ with tab_perf:
                   "季度胜率", "最差单季", "起", "止", "价格覆盖"]],
             use_container_width=True, hide_index=True, height=560)
 
-        pick = st.selectbox("看谁的净值曲线", lb.investorname.tolist(),
-                            format_func=lambda n: LABEL.get(n, n))
+        _lb_names = lb.investorname.tolist()
+        if "h13f_curve_sel" not in st.session_state or st.session_state["h13f_curve_sel"] not in _lb_names:
+            st.session_state["h13f_curve_sel"] = _lb_names[0] if _lb_names else None
+        pick = st.selectbox("看谁的净值曲线", _lb_names, index=None, key="h13f_curve_sel",
+                           format_func=lambda n: LABEL.get(n, n),
+                           placeholder="输入机构名筛选…")
+        if pick is None:
+            st.info("请选择一家机构")
+            st.stop()
         cur = fetch_h13f_curve(pick, years=years)
         if cur.get("success") and cur["rows"]:
             g = pd.DataFrame(cur["rows"]).set_index("nq")

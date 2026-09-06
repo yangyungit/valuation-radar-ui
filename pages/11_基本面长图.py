@@ -20,7 +20,13 @@ if not tickers:
     st.stop()
 
 opts = [f"{t['ticker']}  |  {t.get('name','')}" for t in tickers]
-sel = st.selectbox("选择标的", opts)
+if "fund_chart_sel" not in st.session_state or st.session_state["fund_chart_sel"] not in opts:
+    st.session_state["fund_chart_sel"] = opts[0]
+sel = st.selectbox("选择标的", opts, index=None, key="fund_chart_sel",
+                    placeholder="输入代码或名称筛选…")
+if sel is None:
+    st.info("请选择一只标的")
+    st.stop()
 tk = sel.split("  |  ")[0].strip()
 
 resp = fetch_fundamentals(tk)

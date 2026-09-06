@@ -825,12 +825,16 @@ for _, row in df_show_unique.iterrows():
     meta = CLASS_META[row["类别"]]
     options.append(f"{row['Ticker']}  |  {row['名称']}  |  {meta['icon']} {badges}")
 
+if "asset_detail_sel" not in st.session_state or st.session_state["asset_detail_sel"] not in options:
+    st.session_state["asset_detail_sel"] = options[0] if options else None
 selected_option = st.selectbox(
     "选择资产，查看完整档案与类别投资逻辑：",
-    options=options,
+    options=options, index=None, key="asset_detail_sel",
+    placeholder="输入代码或名称筛选…",
 )
 
 if not selected_option:
+    st.info("请选择一只资产")
     st.stop()
 
 # 加载核心数据（DEEP_INSIGHTS + MACRO_TAGS_MAP）
