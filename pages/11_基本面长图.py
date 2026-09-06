@@ -45,9 +45,12 @@ _gap_ok = (_dk - _dk.shift(4)).dt.days.between(300, 460)
 _ni_prior = _ni.shift(4)
 f["net_income_yoy"] = np.where(_gap_ok & (_ni_prior > 0), (_ni / _ni_prior - 1) * 100, np.nan).tolist()
 
-# 净利润历史上只要出现过亏损（负值），log 轴就画不出那几个点，此时退回线性轴
+# 净利润/经营现金流历史上只要出现过负值，log 轴就画不出那几个点，此时退回线性轴。
+# 资本开支本身恒为负（现金流出），不开 log。
 _ni_vals = [v for v in f["net_income_usd"] if v is not None]
 net_income_log = bool(_ni_vals) and min(_ni_vals) > 0
+_ocf_vals = [v for v in (f.get("ocf_usd") or []) if v is not None]
+ocf_log = bool(_ocf_vals) and min(_ocf_vals) > 0
 
 # 可叠加到主图的序列。pct 类挂左轴(指标值 %)，dollar/ratio 类各挂独立右轴(量纲差异大)。
 # 第 5 项 log=True 表示该序列右轴用对数坐标（看增长速度，和复权价的 log 轴口径一致）。
@@ -62,13 +65,16 @@ OVERLAYS = [
     ("EPS (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", False),
     ("PE (TTM)",     "pe",               "#8c564b", "ratio",  False),
     ("FCF ($)",      "fcf_usd",          "#17becf", "dollar", False),
+    ("经营现金流 (TTM,$)","ocf_usd",      "#98df8a", "dollar", ocf_log),
+    ("资本开支 (TTM,$)","capex_usd",      "#c49c94", "dollar", False),
     ("净利润 (TTM,$)","net_income_usd",   "#ff9896", "dollar", net_income_log),
     ("营收 (TTM,$)", "revenue_usd",      "#e377c2", "dollar", True),
 ]
 sel_overlays = st.multiselect(
     "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=["ROIC %", "Rule of 40 %"],
     help="ROIC/Rule40/净利率/毛利率/营收同比/净利润同比/股东总回报率挂左侧 % 轴；"
-         "EPS/PE/FCF/净利润/营收 各挂独立右侧轴",
+         "EPS/PE/FCF/经营现金流/资本开支/净利润/营收 各挂独立右侧轴。"
+         "FCF = 经营现金流 + 资本开支（资本开支本身是负数）",
 )
 
 dollar_sel = [o for o in OVERLAYS if o[3] != "pct" and o[0] in sel_overlays]
