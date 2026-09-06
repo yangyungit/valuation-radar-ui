@@ -129,6 +129,11 @@ if "ROIC %" in sel_overlays:
     fig.add_hline(y=20, line_dash="dash", line_color="#1f6fb4", opacity=0.4)
 
 pct_sel = [label for label, key, _, kind, _ in OVERLAYS if kind == "pct" and label in sel_overlays]
+# 一条 % 指标都没勾时左轴 y 上没有 trace，plotly 会把 y 轴整个丢掉，overlaying="y" 的
+# 复权价和 $ 序列跟着失效（实测只剩最后一条画得出来）。塞一个透明点把左轴钉住。
+if not pct_sel:
+    fig.add_trace(go.Scatter(x=fi[:1], y=[0], yaxis="y", mode="markers",
+                             marker=dict(opacity=0), showlegend=False, hoverinfo="skip"))
 pct_vals = []
 for label, key, _, kind, _ in OVERLAYS:
     if kind == "pct" and label in sel_overlays and f.get(key) is not None:
@@ -140,7 +145,8 @@ if len(vals):
     yrange = [lo - 10, hi + 15]
 # 左轴同时挂好几条 % 指标，靠图例颜色区分，轴标题就报当前挂了哪几条（太多就只报数量）
 if not pct_sel:
-    left_title = "指标值 (%)"
+    left_title = ""
+    yrange = [0, 100]
 elif len(pct_sel) <= 4:
     left_title = "指标值 %（" + " / ".join(pct_sel) + "）"
 else:
@@ -154,7 +160,7 @@ fig.update_layout(
     xaxis=dict(domain=[0.0, plot_right], showspikes=True, spikemode="across",
                spikesnap="cursor", spikedash="dash", spikecolor="#999",
                spikethickness=1),
-    yaxis=dict(title=left_title, range=yrange),
+    yaxis=dict(title=left_title, range=yrange, showticklabels=bool(pct_sel)),
     yaxis2=dict(title="复权价 (log)", type="log", overlaying="y",
                 side="right", anchor="x", showgrid=False),
     **axis_layout,
