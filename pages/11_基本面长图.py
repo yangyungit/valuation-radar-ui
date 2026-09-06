@@ -36,24 +36,39 @@ if f.get("revenue_usd") is not None and f.get("net_margin") is not None:
         for r, m in zip(f["revenue_usd"], f["net_margin"])
     ]
 
+# 净利润同比：口径对齐后端 rev_yoy（push_fundamentals_to_render.py）——按 datekey 位移 4 期
+# (季度频),但只信 300~460 天真实间隔一年的那次位移，避免财报换期导致的假同比；
+# 上期净利润 <=0（去年是亏损年）时同比 % 会失真，直接标 NaN 不画。
+_dk = pd.Series(pd.to_datetime(f["datekey"]))
+_ni = pd.Series(f.get("net_income_usd"), dtype=float)
+_gap_ok = (_dk - _dk.shift(4)).dt.days.between(300, 460)
+_ni_prior = _ni.shift(4)
+f["net_income_yoy"] = np.where(_gap_ok & (_ni_prior > 0), (_ni / _ni_prior - 1) * 100, np.nan).tolist()
+
+# 净利润历史上只要出现过亏损（负值），log 轴就画不出那几个点，此时退回线性轴
+_ni_vals = [v for v in f["net_income_usd"] if v is not None]
+net_income_log = bool(_ni_vals) and min(_ni_vals) > 0
+
 # 可叠加到主图的序列。pct 类挂左轴(指标值 %)，dollar/ratio 类各挂独立右轴(量纲差异大)。
-# 第 5 项 log=True 表示该序列右轴用对数坐标（看增长速度，和复权价的 log 轴口径一致）；
-# 净利润历史上出现过亏损（负值），log 轴画不出负值，故不开。
+# 第 5 项 log=True 表示该序列右轴用对数坐标（看增长速度，和复权价的 log 轴口径一致）。
 OVERLAYS = [
     ("ROIC %",        "roic_pct",         "#1f6fb4", "pct",    False),
     ("Rule of 40 %",  "rule40",           "#d62728", "pct",    False),
     ("净利率 %",      "net_margin",       "#2ca02c", "pct",    False),
     ("毛利率 %",      "gross_margin",     "#9467bd", "pct",    False),
+    ("营收同比 %",    "rev_yoy",          "#7f7f00", "pct",    False),
+    ("净利润同比 %",  "net_income_yoy",   "#aa40fc", "pct",    False),
     ("股东总回报率 %","shareholder_yield","#bcbd22", "pct",    False),
     ("EPS (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", False),
     ("PE (TTM)",     "pe",               "#8c564b", "ratio",  False),
     ("FCF ($)",      "fcf_usd",          "#17becf", "dollar", False),
-    ("净利润 (TTM,$)","net_income_usd",   "#ff9896", "dollar", False),
+    ("净利润 (TTM,$)","net_income_usd",   "#ff9896", "dollar", net_income_log),
     ("营收 (TTM,$)", "revenue_usd",      "#e377c2", "dollar", True),
 ]
 sel_overlays = st.multiselect(
     "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=["ROIC %", "Rule of 40 %"],
-    help="ROIC/Rule40/净利率/毛利率/股东总回报率挂左侧 % 轴；EPS/PE/FCF/营收 各挂独立右侧轴",
+    help="ROIC/Rule40/净利率/毛利率/营收同比/净利润同比/股东总回报率挂左侧 % 轴；"
+         "EPS/PE/FCF/净利润/营收 各挂独立右侧轴",
 )
 
 dollar_sel = [o for o in OVERLAYS if o[3] != "pct" and o[0] in sel_overlays]
