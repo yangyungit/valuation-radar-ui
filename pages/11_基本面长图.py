@@ -89,16 +89,28 @@ if "经营现金流 (TTM,$)" in sel_overlays and _ocf_neg:
     st.caption(f"⚠️ 经营现金流走 log 轴，{tk} 有 {_ocf_neg} 个季度经营现金流为负（烧钱期），"
                f"这些点在 log 轴上画不出来，那几段线是断的。")
 
-dollar_sel = [o for o in OVERLAYS if o[3] != "pct" and o[0] in sel_overlays]
+def _series(key):
+    """后端新增字段时，前端 fetch_fundamentals 的 1 小时缓存里可能还是旧 JSON（没这个 key）。
+    此时绝不能把 None 交给 plotly——它不报错，而是拿数组下标当 y 值画出一条假直线。"""
+    v = f.get(key)
+    return v if v and any(x is not None for x in v) else None
+
+
+missing = [o[0] for o in OVERLAYS if o[0] in sel_overlays and _series(o[1]) is None]
+if missing:
+    st.warning(f"以下指标在当前 {tk} 数据里没有值，已跳过不画：{'、'.join(missing)}。"
+               "如果后端刚加过字段，按右上角菜单 Clear cache 再刷新。")
+
+dollar_sel = [o for o in OVERLAYS
+              if o[3] != "pct" and o[0] in sel_overlays and _series(o[1]) is not None]
 # 右侧轴：第 0 条永远是复权价，其余是被勾选的 $ 序列，依次向右排开
 step = 0.055
 plot_right = max(0.55, 1.0 - step * len(dollar_sel))
 
 fig = go.Figure()
 for label, key, color, kind, log in OVERLAYS:
-    if kind == "pct" and label in sel_overlays:
-        # 用 get：新增字段（如 op_margin）在尚未重刷的旧 JSON 里不存在
-        fig.add_trace(go.Scatter(x=fi, y=f.get(key), name=label,
+    if kind == "pct" and label in sel_overlays and (ys := _series(key)) is not None:
+        fig.add_trace(go.Scatter(x=fi, y=ys, name=label,
                                  line=dict(color=color, width=1.6), yaxis="y"))
 fig.add_trace(go.Scatter(x=pdt, y=px["closeadj"], name=f"{tk} 复权价(log)",
                          line=dict(color="#7f7f7f", width=1.1), yaxis="y2"))
@@ -108,7 +120,7 @@ for i, (label, key, color, kind, log) in enumerate(dollar_sel):
     ax = f"y{i + 3}"
     # log 轴上非正值画不出来，但 plotly 会把它前后两个正值点直接连成一条陡直线，
     # 看着像毛刺。显式置 None 让线真的断在烧钱那几年。
-    ys = f[key]
+    ys = _series(key)
     if log:
         ys = [v if (v is not None and v > 0) else None for v in ys]
     fig.add_trace(go.Scatter(x=fi, y=ys, name=label,
@@ -140,7 +152,8 @@ if "Rule of 40 %" in sel_overlays:
 if "ROIC %" in sel_overlays:
     fig.add_hline(y=20, line_dash="dash", line_color="#1f6fb4", opacity=0.4)
 
-pct_sel = [label for label, key, _, kind, _ in OVERLAYS if kind == "pct" and label in sel_overlays]
+pct_sel = [label for label, key, _, kind, _ in OVERLAYS
+           if kind == "pct" and label in sel_overlays and _series(key) is not None]
 # 一条 % 指标都没勾时左轴 y 上没有 trace，plotly 会把 y 轴整个丢掉，overlaying="y" 的
 # 复权价和 $ 序列跟着失效（实测只剩最后一条画得出来）。塞一个透明点把左轴钉住。
 if not pct_sel:
@@ -148,8 +161,8 @@ if not pct_sel:
                              marker=dict(opacity=0), showlegend=False, hoverinfo="skip"))
 pct_vals = []
 for label, key, _, kind, _ in OVERLAYS:
-    if kind == "pct" and label in sel_overlays and f.get(key) is not None:
-        pct_vals += [v for v in f[key] if v is not None]
+    if kind == "pct" and label in sel_overlays and (ys := _series(key)) is not None:
+        pct_vals += [v for v in ys if v is not None]
 vals = np.array(pct_vals, dtype=float)
 yrange = None
 if len(vals):
