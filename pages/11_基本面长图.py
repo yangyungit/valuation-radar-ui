@@ -88,7 +88,8 @@ OVERLAYS = [
 sel_overlays = st.multiselect(
     "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=["ROIC %", "Rule of 40 %"],
     help="ROIC/Rule40/净利率/毛利率/经营利润率/营收同比/净利润同比/股东总回报率挂左侧 % 轴；"
-         "EPS/PE/FCF/经营现金流/资本开支/净利润/营收 各挂独立右侧轴。"
+         "FCF/FCF(单季)/经营现金流/净利润/营收共用同一根右轴（量级可比，谁高谁低是真实大小，不是各轴缩放巧合）；"
+         "EPS/资本开支/PE 各自独立右侧轴（每股 $、恒负现金流出、倍数，量纲不同没法合并）。"
          "FCF = 经营现金流 + 资本开支（资本开支本身是负数）。"
          "FCF (单季) 是当季原始数，不做 4 季滚动——TTM 会把拐点推迟约 4 个月",
 )
@@ -117,9 +118,18 @@ if missing:
 
 dollar_sel = [o for o in OVERLAYS
               if o[3] != "pct" and o[0] in sel_overlays and _series(o[1]) is not None]
-# 右侧轴：第 0 条永远是复权价，其余是被勾选的 $ 序列，依次向右排开
+
+# 量级可比的几条 $ 序列共用同一根右轴，视觉高度才是真实大小可比——之前每条各自一根轴，
+# FCF 画得比 OCF 高只是各自轴缩放的巧合，不代表 FCF 真的更大（2026-09-06 对话发现）。
+# EPS（每股 $）、资本开支（恒负，不能上 log 轴）、PE（倍数）量纲不同，各自留独立轴。
+SHARE_KEYS = {"revenue_usd", "ocf_usd", "fcf_usd", "fcf_q_usd", "net_income_usd"}
+shared_sel = [o for o in dollar_sel if o[1] in SHARE_KEYS]
+solo_sel = [o for o in dollar_sel if o[1] not in SHARE_KEYS]
+n_axes = (1 if shared_sel else 0) + len(solo_sel)
+
+# 右侧轴：第 0 条永远是复权价，其余依次向右排开
 step = 0.055
-plot_right = max(0.55, 1.0 - step * len(dollar_sel))
+plot_right = max(0.55, 1.0 - step * n_axes)
 
 fig = go.Figure()
 for label, key, color, kind, log in OVERLAYS:
@@ -130,8 +140,29 @@ fig.add_trace(go.Scatter(x=pdt, y=px["closeadj"], name=f"{tk} 复权价(log)",
                          line=dict(color="#7f7f7f", width=1.1), yaxis="y2"))
 
 axis_layout = {}
-for i, (label, key, color, kind, log) in enumerate(dollar_sel):
-    ax = f"y{i + 3}"
+axis_used = 0
+if shared_sel:
+    ax = "y3"
+    # 组内只要有一条历史上出现过非正值，整根轴退回线性——负值在 log 轴上画不出来，
+    # 宁可损失早年增长曲线的形状，也不能让某条线整段消失。
+    shared_log = all(log for *_, log in shared_sel)
+    for label, key, color, kind, log in shared_sel:
+        ys = _series(key)
+        if shared_log:
+            ys = [v if (v is not None and v > 0) else None for v in ys]
+        fig.add_trace(go.Scatter(x=fi, y=ys, name=label,
+                                 line=dict(color=color, width=1.6), yaxis=ax))
+    axis_layout["yaxis3"] = dict(
+        title=dict(text="现金流/利润 ($)", font=dict(color="#ddd")),
+        tickfont=dict(color="#ddd"), overlaying="y", side="right",
+        anchor="free", position=min(0.999, plot_right + step),
+        showgrid=False, zeroline=False,
+        **({"type": "log"} if shared_log else {}),
+    )
+    axis_used = 1
+
+for i, (label, key, color, kind, log) in enumerate(solo_sel):
+    ax = f"y{i + 3 + axis_used}"
     # log 轴上非正值画不出来，但 plotly 会把它前后两个正值点直接连成一条陡直线，
     # 看着像毛刺。显式置 None 让线真的断在烧钱那几年。
     ys = _series(key)
@@ -142,7 +173,7 @@ for i, (label, key, color, kind, log) in enumerate(dollar_sel):
     cfg = dict(
         title=dict(text=label, font=dict(color=color)),
         tickfont=dict(color=color), overlaying="y", side="right",
-        anchor="free", position=min(0.999, plot_right + step * (i + 1)),
+        anchor="free", position=min(0.999, plot_right + step * (i + 1 + axis_used)),
         showgrid=False, zeroline=False,
     )
     if log:
@@ -153,11 +184,7 @@ for i, (label, key, color, kind, log) in enumerate(dollar_sel):
         if len(vv):
             hi = min(np.nanpercentile(vv, 90) * 1.8, np.nanpercentile(vv, 99.5))
             cfg["range"] = [0, hi]
-    axis_layout[f"yaxis{i + 3}"] = cfg
-    # 净利润挂自己的独立右轴，标一条 0 轴看它哪年由亏转盈（log 轴下 0 画不出来，跳过）
-    if key == "net_income_usd" and not log:
-        fig.add_shape(type="line", xref="paper", x0=0, x1=1, yref=ax,
-                     y0=0, y1=0, line=dict(color=color, width=1, dash="dot"), opacity=0.6)
+    axis_layout[f"yaxis{i + 3 + axis_used}"] = cfg
 
 # 这两条阈值线只对 Rule40/ROIC 有意义，没勾这两个指标时不画（否则会在无关的左轴范围里
 # 显得莫名其妙——比如只看净利润同比时，左轴变成 % 同比范围，40/20 阈值线毫无意义）
