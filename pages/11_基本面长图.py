@@ -55,9 +55,10 @@ f["net_income_yoy"] = np.where(_gap_ok & (_ni_prior > 0), (_ni / _ni_prior - 1) 
 # 资本开支本身恒为负（现金流出），不开 log。
 _ni_vals = [v for v in f["net_income_usd"] if v is not None]
 net_income_log = bool(_ni_vals) and min(_ni_vals) > 0
-# 经营现金流固定 log：正值区间常跨 4 个数量级以上，线性轴会把早年压成贴地一条平线，
-# 看不出增长。代价是烧钱年份（OCF 为负）在 log 轴上画不出来，那几段会断线。
+# 经营现金流、FCF 固定 log：正值区间常跨 4 个数量级以上，线性轴会把早年压成贴地一条平线，
+# 看不出增长。代价是烧钱年份（OCF/FCF 为负）在 log 轴上画不出来，那几段会断线。
 _ocf_neg = sum(1 for v in (f.get("ocf_usd") or []) if v is not None and v <= 0)
+_fcf_neg = sum(1 for v in (f.get("fcf_usd") or []) if v is not None and v <= 0)
 
 # 可叠加到主图的序列。pct 类挂左轴(指标值 %)，dollar/ratio 类各挂独立右轴(量纲差异大)。
 # 第 5 项 log=True 表示该序列右轴用对数坐标（看增长速度，和复权价的 log 轴口径一致）。
@@ -72,7 +73,7 @@ OVERLAYS = [
     ("股东总回报率 %","shareholder_yield","#bcbd22", "pct",    False),
     ("EPS (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", False),
     ("PE (TTM)",     "pe",               "#8c564b", "ratio",  False),
-    ("FCF ($)",      "fcf_usd",          "#17becf", "dollar", False),
+    ("FCF ($)",      "fcf_usd",          "#17becf", "dollar", True),
     ("经营现金流 (TTM,$)","ocf_usd",      "#98df8a", "dollar", True),
     ("资本开支 (TTM,$)","capex_usd",      "#c49c94", "dollar", False),
     ("净利润 (TTM,$)","net_income_usd",   "#ff9896", "dollar", net_income_log),
@@ -87,6 +88,9 @@ sel_overlays = st.multiselect(
 
 if "经营现金流 (TTM,$)" in sel_overlays and _ocf_neg:
     st.caption(f"⚠️ 经营现金流走 log 轴，{tk} 有 {_ocf_neg} 个季度经营现金流为负（烧钱期），"
+               f"这些点在 log 轴上画不出来，那几段线是断的。")
+if "FCF ($)" in sel_overlays and _fcf_neg:
+    st.caption(f"⚠️ FCF 走 log 轴，{tk} 有 {_fcf_neg} 个季度 FCF 为负，"
                f"这些点在 log 轴上画不出来，那几段线是断的。")
 
 def _series(key):
