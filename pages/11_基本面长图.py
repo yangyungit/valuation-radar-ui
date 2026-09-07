@@ -97,7 +97,7 @@ OVERLAYS = [
 ]
 OVERLAYS = [(l, k, c, kd, (use_log if lg == "toggle" else lg)) for l, k, c, kd, lg in OVERLAYS]
 sel_overlays = st.multiselect(
-    "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=["ROIC %", "Rule of 40 %"],
+    "叠加到主图（自选）", [o[0] for o in OVERLAYS], default=["营收 (TTM,$)", "经营现金流 (TTM,$)"],
     help="ROIC/Rule40/净利率/毛利率/经营利润率/营收同比/净利润同比/股东总回报率/净回购率/FCF 收益率挂左侧 % 轴；"
          "FCF/FCF(单季)/经营现金流/毛利润/净利润/营收共用同一根右轴（量级可比，谁高谁低是真实大小，不是各轴缩放巧合）；"
          "EPS/资本开支/PE 各自独立右侧轴（每股 $、恒负现金流出、倍数，量纲不同没法合并）。"
