@@ -21,28 +21,33 @@ if not tickers:
     st.stop()
 
 opts = [f"{t['ticker']}  |  {t.get('name','')}" for t in tickers]
-if "fund_chart_sel" not in st.session_state or st.session_state["fund_chart_sel"] not in opts:
+# 上一轮敲进来的裸代码，这一轮 manifest 里已经有带公司名的正式条目了，换成它，
+# 免得同一只票在列表里占两行
+_cur = st.session_state.get("fund_chart_sel") or ""
+if _cur and "  |  " not in _cur:
+    if match := next((o for o in opts if o.split("  |  ")[0] == _cur.strip().upper()), None):
+        st.session_state["fund_chart_sel"] = match
+elif not _cur:
     st.session_state["fund_chart_sel"] = opts[0]
-c_sel, c_free = st.columns([3, 1])
-sel = c_sel.selectbox("选择关注股", opts, index=None, key="fund_chart_sel",
-                      placeholder="输入代码或名称筛选…")
-free = c_free.text_input(
-    "或直接输入代码", key="fund_chart_free", placeholder="如 CROX",
-    help="关注股以外的票也能画——后端现从 Sharadar 算一份，首次要等 1~4 秒，之后走缓存。"
-         "「机构持仓」页里的代码可以直接贴进来查。填了这里就以这里为准，左边的选择不生效。",
-).strip().upper()
-tk = free or (sel.split("  |  ")[0].strip() if sel else "")
-if not tk:
-    st.info("选一只关注股，或在右边直接输入代码")
+sel = st.selectbox(
+    "选择标的", opts, index=None, key="fund_chart_sel", accept_new_options=True,
+    placeholder="输入代码或名称筛选，列表里没有的票直接敲代码回车…",
+    help="关注股以外的票直接敲代码回车就行（「机构持仓」页里的代码可以直接贴进来）——"
+         "后端现从 Sharadar 算一份，首次要等 1~4 秒，算完这只票就留在列表里，之后秒开。",
+)
+if not sel:
+    st.info("选一只标的，或直接敲代码回车")
     st.stop()
+tk = sel.split("  |  ")[0].strip().upper()
 
 resp = fetch_fundamentals(tk)
 if not resp.get("success"):
     st.error(f"读取 {tk} 失败：{resp.get('error')}"); st.stop()
-# 后端现算完会把这只票并进 manifest，但前端的 manifest 缓存 1 小时，不清掉就要等一小时
-# 才在下拉列表里看到它
+# 后端现算完已经把这只票并进 manifest，但前端 manifest 缓存 1 小时。清掉并重跑一次，
+# 这只票才在本次就出现在列表里（重跑后 tk 已在 tickers 里，不会再触发，不会打转）
 if tk not in {t["ticker"] for t in tickers}:
     fetch_fundamentals_manifest.clear()
+    st.rerun()
 d = resp["data"]; f = d["fundamentals"]; px = d["price"]
 fi = pd.to_datetime(f["datekey"]); pdt = pd.to_datetime(px["date"])
 tail_from = d.get("yf_tail_from")
