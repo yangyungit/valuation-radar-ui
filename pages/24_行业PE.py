@@ -113,6 +113,13 @@ def zh(name):
     """行业/大类英文名 → 中文简称，查不到就原样返回。"""
     return INDUSTRY_ZH.get(name) or SECTOR_ZH.get(name) or name
 
+
+def loss_fill(ratio):
+    """亏损占比 → 箱体填色，蓝到橙。分位数只算正值样本，光看箱体位置看不出半个行业在亏。"""
+    t = min(max(ratio or 0, 0) / 0.5, 1.0)
+    r, g, b = (round(a + (z - a) * t) for a, z in ((158, 240), (202, 148), (225, 88)))
+    return f"rgba({r},{g},{b},0.6)"
+
 with st.sidebar:
     if st.button("🔄 清除缓存"):
         clear_valuation_caches()
@@ -202,7 +209,7 @@ for _, r in band_df.iterrows():
         x=[name_zh], q1=[r["p25"]], median=[r["p50"]], q3=[r["p75"]],
         lowerfence=[r["p10"]], upperfence=[r["p90"]],
         name=name_zh, showlegend=False,
-        marker_color="#4a7ba7", fillcolor="rgba(158,202,225,0.55)", line_width=1.4,
+        marker_color="#4a7ba7", fillcolor=loss_fill(r["loss_ratio"]), line_width=1.4,
         hovertext=(f"{name_zh}<br>中位 {r['p50']:.1f}｜"
                    f"25-75 {r['p25']:.1f}-{r['p75']:.1f}<br>"
                    f"样本 {int(r['n_pos'])} 家｜亏损 {loss}/{int(r['n_total'])}"),
@@ -258,10 +265,13 @@ if star_note:
     st.info(star_note)
 
 lo, hi = band_df.iloc[0], band_df.iloc[-1]
+sick = band_df.loc[band_df["loss_ratio"].idxmax()]
 st.markdown(
     f"<div style='font-size:13px;color:#666'>最便宜 {zh(lo['group_name'])} 中位 {lo['p50']:.1f}x，"
     f"最贵 {zh(hi['group_name'])} 中位 {hi['p50']:.1f}x，差 {hi['p50'] / lo['p50']:.1f} 倍。"
-    f"箱体 = 25-75 分位，须 = 10-90 分位。</div>",
+    f"箱体 = 25-75 分位，须 = 10-90 分位；<b>颜色越橙 = 亏损公司越多</b>"
+    f"（亏得最多的 {zh(sick['group_name'])}，{int(round(sick['loss_ratio'] * sick['n_total']))}/"
+    f"{int(sick['n_total'])} 家在亏，这些公司不进分位数计算）。</div>",
     unsafe_allow_html=True,
 )
 
@@ -312,13 +322,29 @@ else:
                                    connectgaps=False,
                                    hovertemplate="%{x|%Y-%m} " + ticker + " %{y:.1f}x<extra></extra>"))
 
+    # 中位数被幸存者偏差抹平（能源 2016 年 61% 在亏，中位数却和景气顶部一样），
+    # 亏损占比挂右轴单独画一条，才看得出行业是不是在恶化
+    if "loss_ratio" in b.columns and b["loss_ratio"].notna().any():
+        fig_b.add_trace(go.Scatter(
+            x=b["ym"], y=b["loss_ratio"].astype(float) * 100, mode="lines",
+            name="亏损公司占比（右轴）", yaxis="y2",
+            line=dict(color="#c97b3c", width=1.5, dash="dot"),
+            hovertemplate="%{y:.0f}% 的公司在亏<extra></extra>"))
+
     fig_b.update_layout(height=420, yaxis_type="log",
                         yaxis_title=f"{metrics[metric]}（对数轴）",
+                        yaxis2=dict(title="亏损占比 %", overlaying="y", side="right",
+                                    range=[0, 100], showgrid=False, ticksuffix="%"),
                         margin=dict(l=10, r=10, t=30, b=10), hovermode="x unified",
                         legend=dict(orientation="h", y=1.08, x=0))
     st.plotly_chart(fig_b, use_container_width=True)
 
     note = f"红线断开 = 当月{metrics[metric]}为负（亏损）。"
+    tail = b.dropna(subset=["loss_ratio"]) if "loss_ratio" in b.columns else b.iloc[0:0]
+    if not tail.empty:
+        last = tail.iloc[-1]
+        note += (f" {zh(focus)}当期 {int(round(last['loss_ratio'] * last['n_total']))}/"
+                 f"{int(last['n_total'])} 家在亏，只有 {int(last['n_pos'])} 家进了分位数计算。")
     if not line.empty and line["value"].notna().any():
         cur = line["value"].dropna().iloc[-1]
         rank = (line["value"].dropna() <= cur).mean() * 100
@@ -358,5 +384,44 @@ else:
     st.markdown(
         "<div style='font-size:13px;color:#666'>灰带 = 危机或加息期。"
         "全行业同步下台阶说明是环境问题，不是公司问题。3 个月平滑。</div>",
+        unsafe_allow_html=True,
+    )
+
+# ============ 图 D：亏损占比 ============
+if sec.get("success") and sec.get("loss"):
+    st.divider()
+    st.subheader("多少公司根本不赚钱")
+    st.caption("上面三张图的分位数只统计正值样本，亏损公司全被剔出去了，"
+               "中位数因此有幸存者偏差。这张图是被剔掉的那部分。")
+
+    fig_d = go.Figure()
+    for name in sorted(sec["loss"].keys()):
+        s = pd.Series(sec["loss"][name], index=idx).astype(float) * 100
+        s = s.rolling(3, min_periods=1).mean().dropna()
+        name_zh = zh(name)
+        fig_d.add_trace(go.Scatter(
+            x=s.index, y=s, mode="lines", name=name_zh,
+            line=dict(width=1.7, color=SECTOR_COLORS.get(name)),
+            hovertemplate="%{x|%Y-%m} " + name_zh + " %{y:.0f}% 在亏<extra></extra>",
+        ))
+    for x0, x1, lab in CRISES:
+        fig_d.add_vrect(x0=x0, x1=x1, fillcolor="grey", opacity=0.15, line_width=0,
+                        annotation_text=lab, annotation_position="top left",
+                        annotation_font_size=13)
+    fig_d.add_hline(y=50, line=dict(color="#c0392b", width=1, dash="dash"),
+                    annotation_text="一半公司在亏", annotation_position="right",
+                    annotation_font_size=11)
+    fig_d.update_layout(height=430, yaxis_title="亏损公司占比", yaxis_ticksuffix="%",
+                        margin=dict(l=10, r=10, t=40, b=10), hovermode="x unified",
+                        legend=dict(orientation="h", y=-0.16, font=dict(size=11)))
+    st.plotly_chart(fig_d, use_container_width=True)
+
+    last = {n: v[-1] for n, v in sec["loss"].items() if v and v[-1] is not None}
+    top = sorted(last.items(), key=lambda kv: -kv[1])[:3]
+    st.markdown(
+        "<div style='font-size:13px;color:#666'>当期亏得最多："
+        + "、".join(f"{zh(n)} {v * 100:.0f}%" for n, v in top)
+        + "。这条线独立于估值：2016-12 能源 61% 公司在亏，"
+        "但上图能源中位 PE 是 24.3x，和 2014-06 景气顶部的 25.1x 几乎一样。3 个月平滑。</div>",
         unsafe_allow_html=True,
     )
