@@ -7,7 +7,7 @@ from api_client import (fetch_fundamentals_manifest, fetch_fundamentals,
 
 st.set_page_config(page_title="基本面长图", layout="wide", page_icon="📈")
 st.title("📈 基本面长图（ROIC / Rule40 / 利润率 / 股东总回报率 / EPS / PE / FCF / 营收 vs 股价）")
-st.caption("数据源：Sharadar SF1（ART/TTM，FCF 单季走 ARQ；均按 PIT datekey 对齐）+ SEP closeadj。"
+st.caption("数据源：Sharadar SF1（ART/TTM，FCF 单季走 ARQ；均按 PIT datekey 对齐）+ SEP 周线价格。"
            "仅含已 push 的关注股。")
 
 with st.sidebar:
@@ -119,6 +119,24 @@ sel_overlays = st.multiselect(
          "和 EPS 并排看，能分清每股收益上涨是赚出来的还是缩股缩出来的",
 )
 
+# 默认只看股价：closeadj 把股息按当天价格再投入，会系统性把高股息股画得比股价实际走势好看
+# （MO 1998 年至今 closeadj 34.8 倍、只看股价 6.6 倍），拿它判断「EPS 增长有没有带动股价上涨」
+# 会误判。不含股息那条仍做拆股 + 分拆复权——MO 2008 分出 PM 那天原始价跳空 -70%，没复权会
+# 反向误判成暴跌。
+PRICE_MODES = {"只看股价（不含股息）": "close_no_div", "含股息总回报": "closeadj"}
+px_key = PRICE_MODES[st.radio(
+    "股价口径", list(PRICE_MODES), horizontal=True, key="fund_chart_px_mode",
+    help="「只看股价」做拆股 + 分拆复权但不含现金股息，对应你靠股价上涨赚到的钱；"
+         "「含股息总回报」是 Sharadar closeadj，把股息按当天价格再投入，"
+         "适合核算总回报，但税前口径、也不反映你的个人税负。"
+         "HD/JNJ/PG/SO 两个口径每年差 2.8~4.8 个百分点，MO 差 6 个以上。",
+)]
+if not (px.get(px_key) and any(v is not None for v in px[px_key])):
+    st.caption("⚠️ 拿到的 JSON 里没有不含股息的价格（缓存里还是旧数据），已回退到含股息总回报。"
+               "点左侧「🔄 清除缓存」再刷新。")
+    px_key = "closeadj"
+px_label = "股价" if px_key == "close_no_div" else "含股息总回报"
+
 if use_log:
     if "经营现金流 (TTM,$)" in sel_overlays and _ocf_neg:
         st.caption(f"⚠️ 经营现金流走 log 轴，{tk} 有 {_ocf_neg} 个季度经营现金流为负（烧钱期），"
@@ -171,7 +189,7 @@ for label, key, color, kind, log in OVERLAYS:
     if kind == "pct" and label in sel_overlays and (ys := _series(key)) is not None:
         fig.add_trace(go.Scatter(x=fi, y=ys, name=label,
                                  line=dict(color=color, width=1.6), yaxis="y"))
-fig.add_trace(go.Scatter(x=pdt, y=px["closeadj"], name=f"{tk} 复权价(log)",
+fig.add_trace(go.Scatter(x=pdt, y=px[px_key], name=f"{tk} {px_label}(log)",
                          line=dict(color="#7f7f7f", width=1.1), yaxis="y2"))
 
 axis_layout = {}
@@ -270,7 +288,7 @@ fig.update_layout(
     # 没勾 % 指标时左轴刻度是空的，横线不对应任何数值，别画
     yaxis=dict(title=left_title, range=yrange, showticklabels=bool(pct_sel),
                showgrid=bool(pct_sel), gridcolor="#2a2a2a", zeroline=False),
-    yaxis2=dict(title="复权价 (log)", type="log", overlaying="y",
+    yaxis2=dict(title=f"{px_label} (log)", type="log", overlaying="y",
                 side="right", anchor="x", showgrid=False),
     **axis_layout,
 )
@@ -280,7 +298,7 @@ with scale_col:
     st.radio("美元序列坐标轴", ["Linear", "Log"], key="fund_chart_scale",
              horizontal=True, label_visibility="collapsed",
              help="控制 FCF/经营现金流/毛利润/净利润/营收/EPS 这几条 $ 序列走线性还是对数轴；"
-                  "复权价固定 log，资本开支固定线性，不受此开关影响。")
+                  "股价固定 log，资本开支固定线性，不受此开关影响。")
 st.plotly_chart(fig, use_container_width=True)
 if tail_from:
     st.caption(f"竖虚线（{tail_from}）右边的基本面点来自 yfinance 季报——Sharadar 已在 2026-06-12 "
