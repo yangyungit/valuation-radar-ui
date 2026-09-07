@@ -37,6 +37,81 @@ SECTOR_COLORS = {
     "Industrials": "#17becf", "Real Estate": "#bcbd22",
     "Basic Materials": "#d62728", "Communication Services": "#aec7e8",
 }
+SECTOR_ZH = {
+    "Technology": "科技", "Consumer Cyclical": "消费周期",
+    "Consumer Defensive": "消费防御", "Financial Services": "金融服务",
+    "Energy": "能源", "Utilities": "公用事业", "Healthcare": "医疗保健",
+    "Industrials": "工业", "Real Estate": "房地产",
+    "Basic Materials": "基础材料", "Communication Services": "通讯服务",
+}
+# Morningstar 细分行业英文名 → 中文简称，仅用于展示，接口参数仍传英文原名
+INDUSTRY_ZH = {
+    "Advertising Agencies": "广告代理", "Aerospace & Defense": "航空航天与国防",
+    "Agricultural Inputs": "农业投入品", "Airlines": "航空公司",
+    "Airports & Air Services": "机场与航空服务", "Apparel Manufacturing": "服装制造",
+    "Apparel Retail": "服装零售", "Asset Management": "资产管理",
+    "Auto & Truck Dealerships": "汽车经销商", "Auto Manufacturers": "汽车制造",
+    "Auto Parts": "汽车零部件", "Banks - Diversified": "银行-综合",
+    "Banks - Regional": "银行-区域", "Beverages - Brewers": "饮料-啤酒",
+    "Beverages - Non-Alcoholic": "饮料-无酒精", "Biotechnology": "生物科技",
+    "Building Materials": "建材", "Building Products & Equipment": "建筑产品与设备",
+    "Capital Markets": "资本市场", "Communication Equipment": "通信设备",
+    "Computer Hardware": "计算机硬件", "Conglomerates": "综合企业",
+    "Consulting Services": "咨询服务", "Consumer Electronics": "消费电子",
+    "Credit Services": "信贷服务", "Diagnostics & Research": "诊断与研究",
+    "Discount Stores": "折扣零售", "Drug Manufacturers - General": "制药-综合",
+    "Drug Manufacturers - Specialty & Generic": "制药-专科与仿制",
+    "Education & Training Services": "教育培训",
+    "Electrical Equipment & Parts": "电气设备与零件", "Electronic Components": "电子元件",
+    "Electronic Gaming & Multimedia": "电子游戏与多媒体", "Engineering & Construction": "工程建筑",
+    "Entertainment": "娱乐", "Farm & Heavy Construction Machinery": "农用与重型机械",
+    "Financial Data & Stock Exchanges": "金融数据与交易所", "Food Distribution": "食品经销",
+    "Footwear & Accessories": "鞋类与配饰", "Furnishings Fixtures & Appliances": "家具家电",
+    "Gambling": "博彩", "Gold": "黄金", "Health Information Services": "医疗信息服务",
+    "Healthcare Plans": "医保计划", "Household & Personal Products": "家庭与个人用品",
+    "Industrial Distribution": "工业分销", "Information Technology Services": "IT 服务",
+    "Insurance - Diversified": "保险-综合", "Insurance - Life": "保险-寿险",
+    "Insurance - Property & Casualty": "保险-财产与意外", "Insurance - Reinsurance": "保险-再保险",
+    "Insurance - Specialty": "保险-专业", "Insurance Brokers": "保险经纪",
+    "Integrated Freight & Logistics": "综合货运物流",
+    "Internet Content & Information": "互联网内容与信息", "Internet Retail": "互联网零售",
+    "Leisure": "休闲", "Lodging": "酒店住宿", "Marine Shipping": "海运",
+    "Medical Care Facilities": "医疗机构", "Medical Devices": "医疗器械",
+    "Medical Instruments & Supplies": "医疗仪器与耗材", "Metal Fabrication": "金属加工",
+    "Oil & Gas Drilling": "油气钻探", "Oil & Gas E&P": "油气勘探开发",
+    "Oil & Gas Equipment & Services": "油气设备与服务", "Oil & Gas Integrated": "油气综合",
+    "Oil & Gas Midstream": "油气中游", "Oil & Gas Refining & Marketing": "油气炼化销售",
+    "Other Industrial Metals & Mining": "其他工业金属与采矿", "Packaged Foods": "包装食品",
+    "Packaging & Containers": "包装容器", "Personal Services": "个人服务",
+    "Pollution & Treatment Controls": "污染治理", "REIT - Diversified": "REIT-综合",
+    "REIT - Healthcare Facilities": "REIT-医疗设施", "REIT - Hotel & Motel": "REIT-酒店",
+    "REIT - Industrial": "REIT-工业", "REIT - Mortgage": "REIT-抵押",
+    "REIT - Office": "REIT-写字楼", "REIT - Residential": "REIT-住宅",
+    "REIT - Retail": "REIT-零售", "REIT - Specialty": "REIT-专业",
+    "Railroads": "铁路", "Real Estate Services": "房地产服务",
+    "Recreational Vehicles": "休闲车", "Rental & Leasing Services": "租赁服务",
+    "Residential Construction": "住宅建筑", "Resorts & Casinos": "度假村与赌场",
+    "Restaurants": "餐饮", "Scientific & Technical Instruments": "科学与技术仪器",
+    "Security & Protection Services": "安防服务",
+    "Semiconductor Equipment & Materials": "半导体设备与材料", "Semiconductors": "半导体",
+    "Software - Application": "软件-应用", "Software - Infrastructure": "软件-基础设施",
+    "Solar": "太阳能", "Specialty Business Services": "专业商业服务",
+    "Specialty Chemicals": "特种化学品", "Specialty Industrial Machinery": "专用工业机械",
+    "Specialty Retail": "专业零售", "Staffing & Employment Services": "人力资源服务",
+    "Steel": "钢铁", "Telecom Services": "电信服务", "Tools & Accessories": "工具配件",
+    "Travel Services": "旅游服务", "Trucking": "卡车运输",
+    "Utilities - Diversified": "公用事业-综合",
+    "Utilities - Independent Power Producers": "公用事业-独立电力",
+    "Utilities - Regulated Electric": "公用事业-电力监管",
+    "Utilities - Regulated Gas": "公用事业-燃气监管",
+    "Utilities - Regulated Water": "公用事业-水务监管",
+    "Utilities - Renewable": "公用事业-可再生能源", "Waste Management": "废物管理",
+}
+
+
+def zh(name):
+    """行业/大类英文名 → 中文简称，查不到就原样返回。"""
+    return INDUSTRY_ZH.get(name) or SECTOR_ZH.get(name) or name
 
 with st.sidebar:
     if st.button("🔄 清除缓存"):
@@ -75,7 +150,7 @@ home = info.get("industry") if info.get("success") else None
 if home:
     st.markdown(
         f"<div style='font-size:15px;padding:6px 0'>"
-        f"<b>{info['ticker']}</b> {info['name']} — 归类 <b>{info['sector']} / {home}</b></div>",
+        f"<b>{info['ticker']}</b> {info['name']} — 归类 <b>{zh(info['sector'])} / {zh(home)}</b></div>",
         unsafe_allow_html=True,
     )
 
@@ -86,7 +161,7 @@ picks = list(DEFAULT_PEERS)
 if home and home not in picks:
     picks.insert(0, home)
 picks = [p for p in picks if p in uni["industries"]]
-picks = st.multiselect("对照行业", uni["industries"], default=picks)
+picks = st.multiselect("对照行业", uni["industries"], default=picks, format_func=zh)
 
 if not picks:
     st.info("选至少一个行业。")
@@ -106,16 +181,18 @@ for col in ("p10", "p25", "p50", "p75", "p90"):
     band_df[col] = band_df[col].astype(float)
 band_df = band_df.dropna(subset=["p25", "p50", "p75"]).sort_values("p50")
 order = band_df["group_name"].tolist()
+order_zh = [zh(o) for o in order]
 
 fig_a = go.Figure()
 for _, r in band_df.iterrows():
     loss = int(round(r["loss_ratio"] * r["n_total"]))
+    name_zh = zh(r["group_name"])
     fig_a.add_trace(go.Box(
-        x=[r["group_name"]], q1=[r["p25"]], median=[r["p50"]], q3=[r["p75"]],
+        x=[name_zh], q1=[r["p25"]], median=[r["p50"]], q3=[r["p75"]],
         lowerfence=[r["p10"]], upperfence=[r["p90"]],
-        name=r["group_name"], showlegend=False,
+        name=name_zh, showlegend=False,
         marker_color="#4a7ba7", fillcolor="rgba(158,202,225,0.55)", line_width=1.4,
-        hovertext=(f"{r['group_name']}<br>中位 {r['p50']:.1f}｜"
+        hovertext=(f"{name_zh}<br>中位 {r['p50']:.1f}｜"
                    f"25-75 {r['p25']:.1f}-{r['p75']:.1f}<br>"
                    f"样本 {int(r['n_pos'])} 家｜亏损 {loss}/{int(r['n_total'])}"),
         hoverinfo="text",
@@ -124,11 +201,12 @@ for _, r in band_df.iterrows():
 star_note = ""
 if not mem_df.empty:
     mem_df = mem_df[mem_df["industry"].isin(order)].copy()
+    mem_df["industry_zh"] = mem_df["industry"].map(zh)
     mem_df["value"] = mem_df["value"].astype(float)
     pts = mem_df[mem_df["value"] > 0].dropna(subset=["value"])
     dots = pts[pts["ticker"] != ticker]
     fig_a.add_trace(go.Scatter(
-        x=dots["industry"], y=dots["value"], mode="markers", name="成分股",
+        x=dots["industry_zh"], y=dots["value"], mode="markers", name="成分股",
         marker=dict(size=6, color="rgba(120,120,120,0.55)"),
         customdata=dots[["ticker", "name"]].values,
         hovertemplate="%{customdata[0]} %{customdata[1]}<br>%{y:.1f}x<extra></extra>",
@@ -136,7 +214,7 @@ if not mem_df.empty:
     star = pts[pts["ticker"] == ticker]
     if not star.empty:
         fig_a.add_trace(go.Scatter(
-            x=star["industry"], y=star["value"], mode="markers+text", name=ticker,
+            x=star["industry_zh"], y=star["value"], mode="markers+text", name=ticker,
             marker=dict(size=17, color="#d62728", symbol="star",
                         line=dict(width=1, color="#000")),
             text=[f"  {ticker} {star.iloc[0]['value']:.0f}x"], textposition="middle right",
@@ -155,7 +233,7 @@ if not mem_df.empty:
 
 fig_a.update_layout(
     height=520, yaxis_type="log", yaxis_title=f"{metrics[metric]}（对数轴）",
-    xaxis=dict(categoryorder="array", categoryarray=order, tickangle=-28),
+    xaxis=dict(categoryorder="array", categoryarray=order_zh, tickangle=-28),
     margin=dict(l=10, r=10, t=30, b=10), hovermode="closest",
 )
 st.plotly_chart(fig_a, use_container_width=True)
@@ -165,8 +243,8 @@ if star_note:
 
 lo, hi = band_df.iloc[0], band_df.iloc[-1]
 st.markdown(
-    f"<div style='font-size:13px;color:#666'>最便宜 {lo['group_name']} 中位 {lo['p50']:.1f}x，"
-    f"最贵 {hi['group_name']} 中位 {hi['p50']:.1f}x，差 {hi['p50'] / lo['p50']:.1f} 倍。"
+    f"<div style='font-size:13px;color:#666'>最便宜 {zh(lo['group_name'])} 中位 {lo['p50']:.1f}x，"
+    f"最贵 {zh(hi['group_name'])} 中位 {hi['p50']:.1f}x，差 {hi['p50'] / lo['p50']:.1f} 倍。"
     f"箱体 = 25-75 分位，须 = 10-90 分位。</div>",
     unsafe_allow_html=True,
 )
@@ -177,7 +255,8 @@ st.subheader("历史走势：同业区间 + 个股")
 
 h1, h2 = st.columns([2.6, 1])
 with h1:
-    focus = st.selectbox("行业", order, index=order.index(home) if home in order else 0)
+    focus = st.selectbox("行业", order, index=order.index(home) if home in order else 0,
+                        format_func=zh)
 with h2:
     start = st.selectbox("起点", ["2015-01", "2010-01", "2005-01", "2000-01"], index=0)
 
@@ -239,10 +318,11 @@ else:
     for name in sorted(sec["series"].keys()):
         s = pd.Series(sec["series"][name], index=idx).astype(float)
         s = s.rolling(3, min_periods=1).mean().dropna()
+        name_zh = zh(name)
         fig_c.add_trace(go.Scatter(
-            x=s.index, y=s, mode="lines", name=name,
+            x=s.index, y=s, mode="lines", name=name_zh,
             line=dict(width=1.7, color=SECTOR_COLORS.get(name)),
-            hovertemplate="%{x|%Y-%m} " + name + " %{y:.1f}x<extra></extra>",
+            hovertemplate="%{x|%Y-%m} " + name_zh + " %{y:.1f}x<extra></extra>",
         ))
     for x0, x1, lab in CRISES:
         fig_c.add_vrect(x0=x0, x1=x1, fillcolor="grey", opacity=0.15, line_width=0,
