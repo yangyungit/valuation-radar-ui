@@ -197,6 +197,11 @@ for _, r in band_df.iterrows():
                    f"样本 {int(r['n_pos'])} 家｜亏损 {loss}/{int(r['n_total'])}"),
         hoverinfo="text",
     ))
+    # 中位线用粗横杠标记叠在箱体上，plotly box 本身不支持单独加粗 median
+    fig_a.add_trace(go.Scatter(
+        x=[name_zh], y=[r["p50"]], mode="markers", showlegend=False, hoverinfo="skip",
+        marker=dict(symbol="line-ew", size=34, line=dict(color="#c0392b", width=3)),
+    ))
 
 star_note = ""
 if not mem_df.empty:
