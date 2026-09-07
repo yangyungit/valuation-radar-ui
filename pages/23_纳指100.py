@@ -61,7 +61,7 @@ window = st.radio("时间跨度", _WINDOWS, index=2, horizontal=True, key="ndx_w
 
 
 def _merge_ndx_sp100(ndx: dict, sp: dict) -> dict:
-    """纳指100 ∪ S&P100 合并池，以 ndx 为底表（沿用 10_科技龙头.py 的合并模式）。
+    """纳指100 ∪ S&P100 合并池，以 ndx 为底表（沿用 21_科技龙头.py 的合并模式）。
     - S&P100 成分：后端无 PIT 接口，用 _SP100 当前成分筛 sp500_membership 近似。
     - close_me 两池月末轴可能不同，combine_first 对齐；membership 按月取并集。
     排名仍是 12M 绝对涨幅在合并池内横截面 rank，口径不变。

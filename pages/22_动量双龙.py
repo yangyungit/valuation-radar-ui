@@ -53,7 +53,7 @@ def _holding_label(cell: dict | None) -> str:
 
 def _slot_month_segments(timeline: list[dict], slot_i: int) -> list[tuple]:
     """把某个槽的月度持仓压成 [(ticker_or_CASH, 起始月, 结束月), ...]，BIL/空档折成 CASH，
-    喂给 holdings_viz.build_stitched_fig（与 10_科技龙头 同一套接力段渲染）。"""
+    喂给 holdings_viz.build_stitched_fig（与 21_科技龙头 同一套接力段渲染）。"""
     segs: list[tuple] = []
     prev = None
     s_m = None
@@ -398,7 +398,7 @@ def _spy_ma200_risk_off(dd: dict, dates: pd.DatetimeIndex, ma_win: int = 200):
 
 def _chaos_risk_off(dates: pd.DatetimeIndex, fwd_days: int = 20):
     """日频 chaos 闸门：GBDT horsemen_daily_chaos_trigger 触发日 + 后 fwd_days 交易日 → risk-off。
-    与「10_科技龙头」清仓信号同源。返回布尔序列 + 是否取到信号。"""
+    与「21_科技龙头」清仓信号同源。返回布尔序列 + 是否取到信号。"""
     try:
         from api_client import compute_macro_regime_api
         _cr = compute_macro_regime_api(z_window=750) or {}

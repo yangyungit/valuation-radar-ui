@@ -34,7 +34,7 @@ def _holding_label(cell: dict | None) -> str:
 
 def _slot_month_segments(timeline: list[dict], slot_i: int) -> list[tuple]:
     """把某个槽的月度持仓压成 [(ticker_or_CASH, 起始月, 结束月), ...]，BIL/空档折成 CASH，
-    喂给 holdings_viz.build_stitched_fig（与 13_动量双龙 / 10_科技龙头 同一套接力段渲染）。"""
+    喂给 holdings_viz.build_stitched_fig（与 22_动量双龙 / 21_科技龙头 同一套接力段渲染）。"""
     segs: list[tuple] = []
     prev = None
     s_m = None
