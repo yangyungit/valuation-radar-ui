@@ -3193,3 +3193,61 @@ def fetch_congress_trades(days: int = 180, ticker: str | None = None,
 def fetch_congress_hot(days: int = 90, min_members: int = 2) -> dict:
     return _h13f_get("/api/v1/congress/hot",
                      {"days": days, "min_members": min_members}, timeout=30)
+
+
+# ==========================================
+# 行业估值分位（页面 24_行业PE）
+# 后端读预计算 parquet，毫秒级，缓存放长一点
+# ==========================================
+@st.cache_data(ttl=3600 * 12)
+def fetch_valuation_universe() -> dict:
+    """下拉用：sector / industry 名单 + 指标清单 + 数据截止月。"""
+    return _h13f_get("/api/v1/valuation/universe", {}, timeout=20)
+
+
+@st.cache_data(ttl=3600 * 12)
+def fetch_valuation_snapshot(metric: str = "pe", level: str = "industry",
+                             min_n: int = 5) -> dict:
+    """当期各行业估值分位排行。"""
+    return _h13f_get("/api/v1/valuation/snapshot",
+                     {"metric": metric, "level": level, "min_n": min_n}, timeout=20)
+
+
+@st.cache_data(ttl=3600 * 12)
+def fetch_valuation_members(groups: tuple, metric: str = "pe",
+                            level: str = "industry") -> dict:
+    """指定行业当期每家公司的估值点。groups 传 tuple 才能被 st.cache_data 哈希。"""
+    return _h13f_get("/api/v1/valuation/members",
+                     {"groups": ",".join(groups), "metric": metric, "level": level},
+                     timeout=20)
+
+
+@st.cache_data(ttl=3600 * 12)
+def fetch_valuation_history(group: str, metric: str = "pe", level: str = "industry",
+                            ticker: str | None = None, start: str = "2015-01") -> dict:
+    """行业历史分位带 + 可选叠加个股线。"""
+    return _h13f_get("/api/v1/valuation/history",
+                     {"group": group, "metric": metric, "level": level,
+                      "ticker": ticker, "start": start}, timeout=20)
+
+
+@st.cache_data(ttl=3600 * 12)
+def fetch_valuation_sector_history(metric: str = "pe", start: str = "2000-01") -> dict:
+    """11 个大类行业历史中位数。"""
+    return _h13f_get("/api/v1/valuation/sector_history",
+                     {"metric": metric, "start": start}, timeout=20)
+
+
+@st.cache_data(ttl=3600 * 12)
+def fetch_valuation_lookup(ticker: str) -> dict:
+    """票 → 所属 sector / industry。"""
+    return _h13f_get("/api/v1/valuation/lookup", {"ticker": ticker}, timeout=20)
+
+
+def clear_valuation_caches():
+    fetch_valuation_universe.clear()
+    fetch_valuation_snapshot.clear()
+    fetch_valuation_members.clear()
+    fetch_valuation_history.clear()
+    fetch_valuation_sector_history.clear()
+    fetch_valuation_lookup.clear()
