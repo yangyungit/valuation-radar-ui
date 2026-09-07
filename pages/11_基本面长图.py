@@ -39,6 +39,10 @@ if not tk:
 resp = fetch_fundamentals(tk)
 if not resp.get("success"):
     st.error(f"读取 {tk} 失败：{resp.get('error')}"); st.stop()
+# 后端现算完会把这只票并进 manifest，但前端的 manifest 缓存 1 小时，不清掉就要等一小时
+# 才在下拉列表里看到它
+if tk not in {t["ticker"] for t in tickers}:
+    fetch_fundamentals_manifest.clear()
 d = resp["data"]; f = d["fundamentals"]; px = d["price"]
 fi = pd.to_datetime(f["datekey"]); pdt = pd.to_datetime(px["date"])
 tail_from = d.get("yf_tail_from")
