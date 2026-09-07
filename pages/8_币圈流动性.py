@@ -124,7 +124,7 @@ with c1:
     picked = st.selectbox("对比标的", labels)
     ticker = picked.split("  |  ")[0].strip()
 with c2:
-    years = st.selectbox("回看年数", [2, 3, 5, 10], index=2)
+    years = st.selectbox("回看年数", [2, 3, 5, 10], index=3)
 with c3:
     chg_win = st.slider("变化窗口（周）", 4, 26, 13,
                         help="算「净流动性变化」和「价格涨幅」用的回看周数。水平值容易被共同趋势带偏，变化率才是有信号的口径。")
