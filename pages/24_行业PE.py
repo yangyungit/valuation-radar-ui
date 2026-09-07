@@ -57,9 +57,13 @@ with c1:
 with c2:
     ticker = st.text_input("对标个股", value="TSLA", placeholder="美股代码").strip().upper()
 with c3:
+    live_as_of = uni.get("live_as_of")
+    if live_as_of:
+        fresh = f"当期 {live_as_of} 实时｜历史截至 {uni['as_of']}"
+    else:
+        fresh = f"数据截止 {uni['as_of']}（Sharadar 买断到此为止）"
     st.markdown(
-        f"<div style='font-size:13px;color:#888;padding-top:32px'>"
-        f"数据截止 {uni['as_of']}（Sharadar 买断到此为止，之后不再更新）</div>",
+        f"<div style='font-size:13px;color:#888;padding-top:32px'>{fresh}</div>",
         unsafe_allow_html=True,
     )
 
@@ -142,9 +146,10 @@ if not mem_df.empty:
     elif ticker:
         # 亏损股在图上没有点，不提示的话会以为图坏了
         raw = mem_df[mem_df["ticker"] == ticker]
-        if not raw.empty and raw.iloc[0]["value"] <= 0:
-            star_note = (f"{ticker} 当期{metrics[metric]}为 {raw.iloc[0]['value']:.1f}（亏损），"
-                         f"图上不画点。")
+        if not raw.empty and raw.iloc[0].get("is_loss"):
+            v = raw.iloc[0]["value"]
+            shown = f"为 {v:.1f}" if pd.notna(v) else "算不出来"
+            star_note = f"{ticker} 当期亏损（{metrics[metric]} {shown}），图上不画点。"
         elif home in order:
             star_note = f"{ticker} 当期缺{metrics[metric]}数据，或市值低于 $2B 门槛。"
 
@@ -216,6 +221,9 @@ else:
         cur = line["value"].dropna().iloc[-1]
         rank = (line["value"].dropna() <= cur).mean() * 100
         note += f" {ticker} 当前 {cur:.0f}x，处于自己 {start} 以来的 {rank:.0f}% 分位。"
+    if hist.get("live_from"):
+        note += (f" 最后一段连到 {hist['live_from']} 的实时值，"
+                 f"中间月份 Sharadar 停更后补不上，是直线连过去的。")
     st.markdown(f"<div style='font-size:13px;color:#666'>{note}</div>", unsafe_allow_html=True)
 
 # ============ 图 C：大环境 ============
