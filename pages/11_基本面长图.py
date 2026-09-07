@@ -50,15 +50,6 @@ if f.get("revenue_usd") is not None and f.get("gross_margin") is not None:
         for r, m in zip(f["revenue_usd"], f["gross_margin"])
     ]
 
-# 净利润同比：口径对齐后端 rev_yoy（push_fundamentals_to_render.py）——按 datekey 位移 4 期
-# (季度频),但只信 300~460 天真实间隔一年的那次位移，避免财报换期导致的假同比；
-# 上期净利润 <=0（去年是亏损年）时同比 % 会失真，直接标 NaN 不画。
-_dk = pd.Series(pd.to_datetime(f["datekey"]))
-_ni = pd.Series(f.get("net_income_usd"), dtype=float)
-_gap_ok = (_dk - _dk.shift(4)).dt.days.between(300, 460)
-_ni_prior = _ni.shift(4)
-f["net_income_yoy"] = np.where(_gap_ok & (_ni_prior > 0), (_ni / _ni_prior - 1) * 100, np.nan).tolist()
-
 # Rule of 40 的 FCF 口径：营收同比(rev_yoy) + FCF利润率，两个分量后端已推送，前端直接算
 # （EBITDA 口径的 rule40 是后端算好推的；FCF 口径不用改后端，fcf_usd/revenue_usd 已有）
 _rev_usd = pd.Series(f.get("revenue_usd"), dtype=float)
