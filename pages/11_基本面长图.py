@@ -87,7 +87,7 @@ OVERLAYS = [
     ("FCF 收益率 %", "fcf_yield",        "#ffd166", "pct",    False),
     ("EPS (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", "toggle"),
     ("PE (TTM)",     "pe",               "#8c564b", "ratio",  False),
-    ("FCF ($)",      "fcf_usd",          "#17becf", "dollar", "toggle"),
+    ("FCF (TTM,$)",  "fcf_usd",          "#17becf", "dollar", "toggle"),
     ("FCF (单季,$)", "fcf_q_usd",        "#00e5c0", "dollar", "toggle"),
     ("经营现金流 (TTM,$)","ocf_usd",      "#98df8a", "dollar", "toggle"),
     ("资本开支 (TTM,$)","capex_usd",      "#c49c94", "dollar", False),
@@ -114,7 +114,7 @@ if use_log:
     if "经营现金流 (TTM,$)" in sel_overlays and _ocf_neg:
         st.caption(f"⚠️ 经营现金流走 log 轴，{tk} 有 {_ocf_neg} 个季度经营现金流为负（烧钱期），"
                    f"这些点在 log 轴上画不出来，那几段线是断的。")
-    if "FCF ($)" in sel_overlays and _fcf_neg:
+    if "FCF (TTM,$)" in sel_overlays and _fcf_neg:
         st.caption(f"⚠️ FCF 走 log 轴，{tk} 有 {_fcf_neg} 个季度 FCF 为负，"
                    f"这些点在 log 轴上画不出来，那几段线是断的。")
     if "FCF (单季,$)" in sel_overlays and _fcfq_neg:
