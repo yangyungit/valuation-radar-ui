@@ -59,6 +59,13 @@ _gap_ok = (_dk - _dk.shift(4)).dt.days.between(300, 460)
 _ni_prior = _ni.shift(4)
 f["net_income_yoy"] = np.where(_gap_ok & (_ni_prior > 0), (_ni / _ni_prior - 1) * 100, np.nan).tolist()
 
+# Rule of 40 的 FCF 口径：营收同比(rev_yoy) + FCF利润率，两个分量后端已推送，前端直接算
+# （EBITDA 口径的 rule40 是后端算好推的；FCF 口径不用改后端，fcf_usd/revenue_usd 已有）
+_rev_usd = pd.Series(f.get("revenue_usd"), dtype=float)
+_rev_yoy = pd.Series(f.get("rev_yoy"), dtype=float)
+_fcf_margin = np.where(_rev_usd > 0, pd.Series(f.get("fcf_usd"), dtype=float) / _rev_usd * 100, np.nan)
+f["rule40_fcf"] = (_rev_yoy + _fcf_margin).tolist()
+
 # 美元类序列的 Linear/Log 由右上角全局开关统一控制（2026-09-06 前是每条各自判断，
 # 净利润因早年亏损被判线性后会拖累共享轴上的营收/FCF/OCF 一起变线性，体验很怪）。
 # 资本开支恒为负（现金流出），log 轴画不出任何一个点，不参与开关，固定线性。
@@ -76,7 +83,8 @@ _gp_neg = sum(1 for v in (f.get("gross_profit_usd") or []) if v is not None and 
 # 第 5 项："toggle" 表示这条线跟随右上角 Linear/Log 开关，False 表示恒为线性（资本开支）。
 OVERLAYS = [
     ("ROIC %",        "roic_pct",         "#1f6fb4", "pct",    False),
-    ("Rule of 40 %",  "rule40",           "#d62728", "pct",    False),
+    ("Rule of 40（EBITDA口径）%", "rule40",     "#d62728", "pct", False),
+    ("Rule of 40（FCF口径）%",    "rule40_fcf", "#e6a817", "pct", False),
     ("净利率 %",      "net_margin",       "#2ca02c", "pct",    False),
     ("毛利率 %",      "gross_margin",     "#9467bd", "pct",    False),
     ("经营利润率 %",  "op_margin",        "#4fc3f7", "pct",    False),
@@ -215,7 +223,7 @@ for i, (label, key, color, kind, log) in enumerate(solo_sel):
 
 # 这两条阈值线只对 Rule40/ROIC 有意义，没勾这两个指标时不画（否则会在无关的左轴范围里
 # 显得莫名其妙——比如只看净利润同比时，左轴变成 % 同比范围，40/20 阈值线毫无意义）
-if "Rule of 40 %" in sel_overlays:
+if "Rule of 40（EBITDA口径）%" in sel_overlays or "Rule of 40（FCF口径）%" in sel_overlays:
     fig.add_hline(y=40, line_dash="dash", line_color="#d62728", opacity=0.4)
 if "ROIC %" in sel_overlays:
     fig.add_hline(y=20, line_dash="dash", line_color="#1f6fb4", opacity=0.4)
