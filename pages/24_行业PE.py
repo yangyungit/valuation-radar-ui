@@ -163,6 +163,17 @@ if home and home not in picks:
 picks = [p for p in picks if p in uni["industries"]]
 picks = st.multiselect("对照行业", uni["industries"], default=picks, format_func=zh)
 
+# 消费电子这类细分行业当期同行不足 5 家，后端不输出分位数，home 压根不在候选名单里。
+# 不说明的话页面会静默把历史区间落到排序第一的无关行业（AAPL 曾被拿去和油气综合对比）。
+home_sector = info.get("sector") if info.get("success") else None
+thin = bool(home) and home not in uni["industries"]
+if thin:
+    st.warning(
+        f"{zh(home)}当期同行不到 5 家（市值 ≥ $2B 且盈利），算不出行业分位。"
+        f"下面横截面图里没有这个箱体、{ticker} 也不画点；"
+        f"历史区间已退回 {zh(home_sector)} 大类。"
+    )
+
 if not picks:
     st.info("选至少一个行业。")
     st.stop()
@@ -258,14 +269,21 @@ st.markdown(
 st.divider()
 st.subheader("历史走势：同业区间 + 个股")
 
+fallback = home_sector if thin and home_sector in uni["sectors"] else None
+opts = ([("sector", fallback)] if fallback else []) + [("industry", o) for o in order]
+
 h1, h2 = st.columns([2.6, 1])
 with h1:
-    focus = st.selectbox("行业", order, index=order.index(home) if home in order else 0,
-                        format_func=zh)
+    focus_level, focus = st.selectbox(
+        "行业", opts,
+        index=0 if fallback else (order.index(home) if home in order else 0),
+        format_func=lambda o: zh(o[1]) + ("（大类）" if o[0] == "sector" else ""),
+    )
 with h2:
     start = st.selectbox("起点", ["2015-01", "2010-01", "2005-01", "2000-01"], index=0)
 
-hist = fetch_valuation_history(focus, metric, "industry", ticker or None, start)
+peer = "同业" if focus_level == "industry" else "大类同行"
+hist = fetch_valuation_history(focus, metric, focus_level, ticker or None, start)
 if not hist.get("success"):
     st.warning(hist.get("error", "拿不到历史"))
 else:
@@ -278,10 +296,10 @@ else:
     fig_b = go.Figure()
     fig_b.add_trace(go.Scatter(x=b["ym"], y=b["p75"], mode="lines", name="75 分位",
                                line=dict(width=0), showlegend=False, hoverinfo="skip"))
-    fig_b.add_trace(go.Scatter(x=b["ym"], y=b["p25"], mode="lines", name="同业 25-75 分位",
+    fig_b.add_trace(go.Scatter(x=b["ym"], y=b["p25"], mode="lines", name=f"{peer} 25-75 分位",
                                line=dict(width=0), fill="tonexty",
                                fillcolor="rgba(158,202,225,0.45)", hoverinfo="skip"))
-    fig_b.add_trace(go.Scatter(x=b["ym"], y=b["p50"], mode="lines", name="同业中位数",
+    fig_b.add_trace(go.Scatter(x=b["ym"], y=b["p50"], mode="lines", name=f"{peer}中位数",
                                line=dict(color="#1a4d7a", width=2.2),
                                hovertemplate="%{x|%Y-%m} 中位 %{y:.1f}x<extra></extra>"))
 
