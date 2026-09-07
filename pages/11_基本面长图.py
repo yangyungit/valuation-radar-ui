@@ -23,12 +23,18 @@ if not tickers:
 opts = [f"{t['ticker']}  |  {t.get('name','')}" for t in tickers]
 if "fund_chart_sel" not in st.session_state or st.session_state["fund_chart_sel"] not in opts:
     st.session_state["fund_chart_sel"] = opts[0]
-sel = st.selectbox("选择标的", opts, index=None, key="fund_chart_sel",
-                    placeholder="输入代码或名称筛选…")
-if sel is None:
-    st.info("请选择一只标的")
+c_sel, c_free = st.columns([3, 1])
+sel = c_sel.selectbox("选择关注股", opts, index=None, key="fund_chart_sel",
+                      placeholder="输入代码或名称筛选…")
+free = c_free.text_input(
+    "或直接输入代码", key="fund_chart_free", placeholder="如 CROX",
+    help="关注股以外的票也能画——后端现从 Sharadar 算一份，首次要等 1~4 秒，之后走缓存。"
+         "「机构持仓」页里的代码可以直接贴进来查。填了这里就以这里为准，左边的选择不生效。",
+).strip().upper()
+tk = free or (sel.split("  |  ")[0].strip() if sel else "")
+if not tk:
+    st.info("选一只关注股，或在右边直接输入代码")
     st.stop()
-tk = sel.split("  |  ")[0].strip()
 
 resp = fetch_fundamentals(tk)
 if not resp.get("success"):
