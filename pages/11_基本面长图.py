@@ -93,24 +93,24 @@ OVERLAYS = [
     ("股东总回报率 %","shareholder_yield","#bcbd22", "pct",    False),
     ("净回购率 %",    "net_buyback_pct",  "#e15759", "pct",    False),
     ("FCF 收益率 %", "fcf_yield",        "#ffd166", "pct",    False),
-    ("EPS (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", "toggle"),
-    ("PE (TTM)",     "pe",               "#8c564b", "ratio",  False),
-    ("FCF (TTM,$)",  "fcf_usd",          "#17becf", "dollar", "toggle"),
-    ("FCF (单季,$)", "fcf_q_usd",        "#00e5c0", "dollar", "toggle"),
-    ("经营现金流 (TTM,$)","ocf_usd",      "#98df8a", "dollar", "toggle"),
-    ("资本开支 (TTM,$)","capex_usd",      "#c49c94", "dollar", False),
-    ("净利润 (TTM,$)","net_income_usd",   "#ff9896", "dollar", "toggle"),
-    ("毛利润 (TTM,$)","gross_profit_usd", "#c5b0d5", "dollar", "toggle"),
-    ("营收 (TTM,$)", "revenue_usd",      "#e377c2", "dollar", "toggle"),
+    ("每股收益(EPS) (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", "toggle"),
+    ("市盈率(PE) (TTM)",     "pe",               "#8c564b", "ratio",  False),
+    ("自由现金流(FCF) (TTM,$)",  "fcf_usd",          "#17becf", "dollar", "toggle"),
+    ("自由现金流(FCF) (单季,$)", "fcf_q_usd",        "#00e5c0", "dollar", "toggle"),
+    ("经营现金流(OCF) (TTM,$)","ocf_usd",      "#98df8a", "dollar", "toggle"),
+    ("资本开支(CapEx) (TTM,$)","capex_usd",      "#c49c94", "dollar", False),
+    ("净利润(NI) (TTM,$)","net_income_usd",   "#ff9896", "dollar", "toggle"),
+    ("毛利润(GP) (TTM,$)","gross_profit_usd", "#c5b0d5", "dollar", "toggle"),
+    ("营收(Rev) (TTM,$)", "revenue_usd",      "#e377c2", "dollar", "toggle"),
 ]
 OVERLAYS = [(l, k, c, kd, (use_log if lg == "toggle" else lg)) for l, k, c, kd, lg in OVERLAYS]
 sel_overlays = st.multiselect(
     "叠加到主图（自选）", [o[0] for o in OVERLAYS],
-    default=["营收 (TTM,$)", "经营现金流 (TTM,$)", "FCF (TTM,$)", "净利润 (TTM,$)"],
+    default=["营收(Rev) (TTM,$)", "经营现金流(OCF) (TTM,$)", "自由现金流(FCF) (TTM,$)", "净利润(NI) (TTM,$)"],
     help="ROIC/Rule40/净利率/毛利率/经营利润率/营收同比/净利润同比/股东总回报率/净回购率/FCF 收益率挂左侧 % 轴；"
-         "FCF/FCF(单季)/经营现金流/毛利润/净利润/营收共用同一根右轴（量级可比，谁高谁低是真实大小，不是各轴缩放巧合）；"
-         "EPS/资本开支/PE 各自独立右侧轴（每股 $、恒负现金流出、倍数，量纲不同没法合并）。"
-         "FCF = 经营现金流 + 资本开支（资本开支本身是负数）。"
+         "FCF/FCF(单季)/OCF/毛利润(GP)/净利润(NI)/营收(Rev)共用同一根右轴（量级可比，谁高谁低是真实大小，不是各轴缩放巧合）；"
+         "EPS/资本开支(CapEx)/PE 各自独立右侧轴（每股 $、恒负现金流出、倍数，量纲不同没法合并）。"
+         "FCF = OCF + CapEx（CapEx 本身是负数）。"
          "FCF (单季) 是当季原始数，不做 4 季滚动——TTM 会把拐点推迟约 4 个月。"
          "FCF 收益率 = TTM FCF / 当期市值，越高越便宜，可当 PE 的抗干扰替代——"
          "一次性减值会把 PE 打成负数或几十倍，FCF 收益率不受影响。"
@@ -138,22 +138,22 @@ if not (px.get(px_key) and any(v is not None for v in px[px_key])):
 px_label = "股价" if px_key == "close_no_div" else "含股息总回报"
 
 if use_log:
-    if "经营现金流 (TTM,$)" in sel_overlays and _ocf_neg:
-        st.caption(f"⚠️ 经营现金流走 log 轴，{tk} 有 {_ocf_neg} 个季度经营现金流为负（烧钱期），"
+    if "经营现金流(OCF) (TTM,$)" in sel_overlays and _ocf_neg:
+        st.caption(f"⚠️ OCF 走 log 轴，{tk} 有 {_ocf_neg} 个季度经营现金流为负（烧钱期），"
                    f"这些点在 log 轴上画不出来，那几段线是断的。")
-    if "FCF (TTM,$)" in sel_overlays and _fcf_neg:
+    if "自由现金流(FCF) (TTM,$)" in sel_overlays and _fcf_neg:
         st.caption(f"⚠️ FCF 走 log 轴，{tk} 有 {_fcf_neg} 个季度 FCF 为负，"
                    f"这些点在 log 轴上画不出来，那几段线是断的。")
-    if "FCF (单季,$)" in sel_overlays and _fcfq_neg:
+    if "自由现金流(FCF) (单季,$)" in sel_overlays and _fcfq_neg:
         st.caption(f"⚠️ FCF(单季) 走 log 轴，{tk} 有 {_fcfq_neg} 个季度为负，"
                    f"这些点在 log 轴上画不出来，那几段线是断的。")
-    if "净利润 (TTM,$)" in sel_overlays and _ni_neg:
+    if "净利润(NI) (TTM,$)" in sel_overlays and _ni_neg:
         st.caption(f"⚠️ 净利润走 log 轴，{tk} 有 {_ni_neg} 个季度净利润为负（亏损期），"
                    f"这些点在 log 轴上画不出来，那几段线是断的。")
-    if "毛利润 (TTM,$)" in sel_overlays and _gp_neg:
+    if "毛利润(GP) (TTM,$)" in sel_overlays and _gp_neg:
         st.caption(f"⚠️ 毛利润走 log 轴，{tk} 有 {_gp_neg} 个季度毛利润为负（卖一件亏一件），"
                    f"这些点在 log 轴上画不出来，那几段线是断的。")
-if "资本开支 (TTM,$)" in sel_overlays:
+if "资本开支(CapEx) (TTM,$)" in sel_overlays:
     st.caption("ℹ️ 资本开支恒为负（现金流出），不参与 Linear/Log 开关，固定线性轴。")
 
 def _series(key):
