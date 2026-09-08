@@ -241,8 +241,9 @@ with st.expander("📅 逐年名单"):
     for y in sorted(pools, reverse=True):
         tab = tables.get(str(y), {})
         so = {c["ticker"]: s for s, cs in tab.items() for c in cs}
+        members = sorted(pools[y], key=lambda t: (so.get(t, "~"), t))
         st.markdown(f"**{y}**（{len(pools[y])} 只）："
-                    + "　".join(f"`{t}`<sub>{so.get(t, '?')[:6]}</sub>" for t in pools[y]),
+                    + "　".join(f"`{t}`<sub>{so.get(t, '?')[:6]}</sub>" for t in members),
                     unsafe_allow_html=True)
 
 st.caption(f"数据构建于 {doc.get('built_at', '?')} · 规则：{(doc.get('rule') or {}).get('text', '')}")
