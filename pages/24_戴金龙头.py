@@ -106,7 +106,7 @@ with st.sidebar:
         st.rerun()
 
 st.title("🏅 戴金龙头 (Gold Dynasty Leader)")
-st.caption("C组戴金板块 → 板块内王朝龙头 Top2 → 下月执行。与 12M 动量守擂不是一套方法，已从 C组双龙 拆出单独成页。")
+st.caption("C组戴金板块 → 板块内市值前3选5年超额 Top2 → 下月执行。与 12M 动量守擂不是一套方法，已从 C组双龙 拆出单独成页。")
 
 _window = st.radio(
     "时间跨度",
@@ -118,7 +118,7 @@ _window = st.radio(
 )
 
 st.caption(
-    "**主线**：C组王朝接力图戴金板块 → 板块内王朝龙头区间超额 Top2 → 下月执行。"
+    "**主线**：C组王朝接力图戴金板块 → 板块内市值前3、5年超额 Top2 → 下月执行。"
     "**诚实声明**：信号**不看未来**、可执行规则模拟；股票池=**逐月真实标普500成分**"
     "（PIT，Sharadar 数据含当年被剔除/退市/收购的公司），**已去生存者偏差**。"
 )
@@ -160,6 +160,8 @@ if _gl.get("success"):
         _notes.append("BIL 历史缺失，BIL 持有段按现金 0 收益")
     if not _meta.get("rsp_available"):
         _notes.append("RSP 缺失，未画等权标普对照")
+    if not _meta.get("mcap_gate_applied"):
+        _notes.append("市值门票产物缺失，本次未按市值前3过滤")
     st.caption(
         f"池 {_meta.get('universe_size', '?')} 只 · 展示自 {_meta.get('display_start', '')}"
         f" · 价格截至 {_meta.get('price_as_of', '')} · "
@@ -201,7 +203,7 @@ if _gl.get("success"):
                 _excess_val = _sdata.get("excess_pct")
                 _excess_txt = f"{_excess_val:+.1f}%" if isinstance(_excess_val, (int, float)) else "—"
                 _slot_detail = (
-                    f"戴金板块 {_sector_txt}｜龙头第 {_sdata.get('leader_rank', '—')}｜区间超额 {_excess_txt}"
+                    f"戴金板块 {_sector_txt}｜龙头第 {_sdata.get('leader_rank', '—')}｜5Y超额 {_excess_txt}"
                     f"<br>首次持有 {_sdata.get('since', '—')}｜已持有 {_sdata.get('held_months', '—')} 月"
                 )
                 _slot_html = (
