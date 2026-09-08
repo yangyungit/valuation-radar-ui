@@ -1,3 +1,19 @@
+## 2026-09-08 新增 page 27 行业龙头：11 行业各派 1 只龙头等权月调
+
+**范围**：`pages/27_行业龙头.py`（新）、`api_client.py`（`fetch_sector_leaders`）、`app.py`（注册到「进攻类策略」组）。后端 `e128499` 已推。
+
+**页面结构**：当前持仓卡（11 只，显示入选时的 5Y 涨幅 + 所属行业）→ **各行业怎么选出来的**（每行业市值前 3 全列出，✅ 标当选，看得到落选的差多少）→ 净值图（行业龙头 / 手挑 7 只对照 / SPY，全程 5Y 3Y 切换）→ 统计卡 → 为什么能压回撤的说明框 → 稳健性四张表 + 分段表 → 留一法诊断 expander → 为什么不压到 4-6 只 expander → 逐年名单 expander。
+
+**两处刻意做的展示决定**：
+① 持仓卡的数字写成「5Y +16%」而非「16%」——首版只写百分比，容易被误读成仓位（实际 11 只各 9.1% 等权）。
+② 统计卡下加了口径说明：卡片按图上区间现算（2016-01 起）得 19.0 / −21.4 / **0.89**，caption 里的回测数字是 19.8 / −21.4 / **0.92**（统一从 2017-04 起算，与其它策略页对齐）。**同一条曲线换起点差零点几属正常，不是两套数据**，不写清楚会被当成 bug。
+
+**留一法只做展示不写进规则**：去掉 Communication Services 能把 Calmar 从 0.92 抬到 1.06（GICS 2018 把 GOOGL/META/NFLX 划进该板块，实质是科技股，与 Technology 派出的 NVDA/MSFT/AAPL 重复占格），但它是 11 次留一里挑最好的那个，属事后选择，页面上明确标注了这一点。
+
+**验证**：`streamlit.testing.v1.AppTest` 跑通，异常 0、error 0、warning 0，14 个 metric、8 个 dataframe；`launchctl kickstart -k com.yangyun.vr-frontend` 后 8501 返回 200。2026 名单 BRK.B、COST、GE、GOOGL、LLY、NVDA、TSLA、TT、VST、WELL、XOM。
+
+---
+
 ## 2026-09-08 page 14 同步 round6 回撤门改 4 年窗：持仓不变，2025 年名单从 2 只变 4 只
 
 **范围**：`pages/14_黄金带鱼.py`（顶部 caption 补两段、五条警告重写、页底规则文字标注「近 4Y maxDD」、`_AXIS_LABEL` 的 `p_dd` 改「价格近4Y maxDD%」、逐年池 caption 更新）。后端见 valuation-radar 同日 round6 条目。

@@ -962,6 +962,17 @@ def fetch_logr2_stable_pool() -> dict:
 
 
 @st.cache_data(ttl=3600 * 4)
+def fetch_sector_leaders() -> dict:
+    """行业龙头分散页：逐年名单 + 各行业候选前 3 明细 + 回测与稳健性。失败返回 {"success": False}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/sector_leaders", timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
 def fetch_tech_leader_relay_timeseries(window: str = "5Y") -> dict:
     """科技龙头池接力图时序（king_score = 纯动量 Z(RS_210d)，池内横截面排名）。
     母体 = 美股 + 美股 ADR 的科技龙头，与回购池独立。供「科技龙头」页调用。

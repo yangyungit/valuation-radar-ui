@@ -49,6 +49,7 @@ nav = st.navigation({
         st.Page("pages/23_纳指100.py", title="纳指100"),
         st.Page("pages/24_戴金龙头.py", title="戴金龙头"),
         st.Page("pages/25_另类资产.py", title="另类资产"),
+        st.Page("pages/27_行业龙头.py", title="行业龙头"),
     ],
     "总结": [
         st.Page("pages/26_组合净值.py", title="组合净值"),
