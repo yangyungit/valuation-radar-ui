@@ -59,6 +59,14 @@ CASH_RATE = 0.04
 HAND_GOLD = ["AAPL", "LLY", "TJX", "COST", "V", "BRK.B", "MA"]   # 仅对照线 + 页底对照表
 name_map = {"AAPL": "Apple", "LLY": "Eli Lilly", "TJX": "TJX", "COST": "Costco",
             "V": "Visa", "BRK.B": "Berkshire", "MA": "Mastercard"}
+# 后端 sector 字段是英文原名，仅展示时换中文简称（与 holdings_viz._SECTOR_CN 同一套词）
+SECTOR_CN = {
+    "Technology": "科技", "Industrials": "工业", "Healthcare": "医疗",
+    "Financial Services": "金融", "Consumer Cyclical": "可选消费",
+    "Consumer Defensive": "必选消费", "Communication Services": "通讯服务",
+    "Energy": "能源", "Basic Materials": "原材料",
+    "Real Estate": "房地产", "Utilities": "公用事业",
+}
 
 doc = fetch_logr2_stable_pool()
 if not doc.get("success"):
@@ -128,8 +136,9 @@ _AXIS_LABEL = {"p_r2": "价格logR²", "p_cagr": "价格CAGR%", "p_dd": "价格�
 
 def _axis_row(tk):
     a = gaxes.get(tk, {})
+    _sec = gmeta.get(tk, {}).get("sector", "")
     row = {"ticker": tk, "name": gmeta.get(tk, {}).get("name", ""),
-           "sector": gmeta.get(tk, {}).get("sector", ""),
+           "sector": SECTOR_CN.get(_sec, _sec),
            "四季达标": f"{a.get('q_pass', 0)}/4"}
     row.update({c: a.get(c) for c in _AXIS_COLS})
     return row, a

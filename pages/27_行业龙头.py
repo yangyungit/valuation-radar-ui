@@ -58,6 +58,15 @@ COST_BPS = 200.0
 CASH_RATE = 0.04
 HAND7 = ["AAPL", "LLY", "TJX", "COST", "V", "BRK.B", "MA"]      # 起点对照，后视镜产物
 
+# 后端 sector 字段是英文原名，仅展示时换中文简称（与 holdings_viz._SECTOR_CN 同一套词）
+SECTOR_CN = {
+    "Technology": "科技", "Industrials": "工业", "Healthcare": "医疗",
+    "Financial Services": "金融", "Consumer Cyclical": "可选消费",
+    "Consumer Defensive": "必选消费", "Communication Services": "通讯服务",
+    "Energy": "能源", "Basic Materials": "原材料",
+    "Real Estate": "房地产", "Utilities": "公用事业",
+}
+
 doc = fetch_sector_leaders()
 if not doc.get("success"):
     st.error(f"⚠️ 数据暂不可用：{doc.get('error', '未知错误')}")
@@ -129,7 +138,7 @@ nav_spy = _ew_nav({d: ["SPY"] for d in _months})
 
 st.markdown(f"### 📌 {cur_year} 年持仓（{len(cur)} 只 · 各 {100 / len(cur):.1f}%）")
 cur_tab = tables.get(str(cur_year), {})
-sec_of = {c["ticker"]: sec for sec, cands in cur_tab.items() for c in cands}
+sec_of = {c["ticker"]: SECTOR_CN.get(sec, sec) for sec, cands in cur_tab.items() for c in cands}
 cagr_of = {c["ticker"]: c.get("cagr5y") for cands in cur_tab.values() for c in cands}
 cols = st.columns(min(len(cur), 6))
 for i, t in enumerate(cur):
@@ -142,9 +151,9 @@ st.markdown("---")
 st.markdown(f"### 🔍 {cur_year} 年各行业怎么选出来的")
 st.caption("每行是一个行业的市值前 3，✅ 是当选那只（5 年涨幅最高）。看得到落选的是谁、差多少。")
 rows = []
-for sec in sorted(cur_tab):
+for sec in sorted(cur_tab, key=lambda s: SECTOR_CN.get(s, s)):
     for c in sorted(cur_tab[sec], key=lambda x: -(x.get("cagr5y") or -999)):
-        rows.append({"行业": sec, "": "✅" if c["picked"] else "", "ticker": c["ticker"],
+        rows.append({"行业": SECTOR_CN.get(sec, sec), "": "✅" if c["picked"] else "", "ticker": c["ticker"],
                      "公司": names.get(c["ticker"], ""), "市值($B)": c["mcap_b"],
                      "5年涨幅%": c["cagr5y"]})
 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
@@ -224,14 +233,14 @@ if seg:
 
 with st.expander("🔬 留一法诊断：去掉某个行业组合会怎样（未写进规则，仅供判断）"):
     loo = doc.get("leave_one_out") or {}
-    st.dataframe(pd.DataFrame([{"去掉的行业": k, "ΔCalmar": v} for k, v in
+    st.dataframe(pd.DataFrame([{"去掉的行业": SECTOR_CN.get(k, k), "ΔCalmar": v} for k, v in
                                sorted(loo.items(), key=lambda kv: -kv[1])]),
                  use_container_width=True, hide_index=True)
     st.caption(
-        "**能源是回撤保护不是拖累**：去掉 Energy（常派 CVX/XOM/COP）Calmar 0.92 → 0.80、"
-        "回撤 −21.4% → −25.8%。它自身波动大，但 2022 加息时是唯一上涨的板块。Healthcare 同理。"
-        "**唯一该考虑去掉的是 Communication Services**（去掉后升到 1.06）——GICS 2018 改版把 "
-        "GOOGL/META/NFLX 划进该板块，实质是科技股，与 Technology 派出的 NVDA/MSFT/AAPL 高度同步，"
+        "**能源是回撤保护不是拖累**：去掉能源（常派 CVX/XOM/COP）Calmar 0.92 → 0.80、"
+        "回撤 −21.4% → −25.8%。它自身波动大，但 2022 加息时是唯一上涨的板块。医疗同理。"
+        "**唯一该考虑去掉的是通讯服务**（去掉后升到 1.06）——GICS 2018 改版把 "
+        "GOOGL/META/NFLX 划进该板块，实质是科技股，与科技派出的 NVDA/MSFT/AAPL 高度同步，"
         "占两个格子做同一件事。**但这是 11 次留一里挑最好的那个，属事后选择，没有写死进规则。**")
 
 with st.expander("📉 为什么不压缩到 4-6 只"):
@@ -273,7 +282,7 @@ with st.expander("🧨 四组替代方案实测：全部证伪（2026-09-08 一�
     ]), use_container_width=True, hide_index=True)
     st.caption(
         "三条原因：**切细不带来分散**——同细分行业相关 0.474、同大行业不同细分 0.332、跨大行业 0.226，"
-        "Technology 切 10 个细分格子它们之间仍相关 0.33；**「选最低相关」等价于「选低 beta 低增长」**——"
+        "科技切 10 个细分格子它们之间仍相关 0.33；**「选最低相关」等价于「选低 beta 低增长」**——"
         "历年挑出 PSA/NEM/GIS/KR/HSY/PM，回撤压住了但 CAGR 只剩 12.3%；**近一半细分行业挑不动**——"
         "88 个里 23 个只有 1 只票过门槛、18 个只有 2 只，仅 47 个凑得齐前 3。"
         "放松成「够低就行」CAGR 能跳到 23.3%，但回撤深到 −31.0%，仍不敌全覆盖。")
@@ -307,10 +316,10 @@ with st.expander("🧨 四组替代方案实测：全部证伪（2026-09-08 一�
 with st.expander("📅 逐年名单"):
     for y in sorted(pools, reverse=True):
         tab = tables.get(str(y), {})
-        so = {c["ticker"]: s for s, cs in tab.items() for c in cs}
+        so = {c["ticker"]: SECTOR_CN.get(s, s) for s, cs in tab.items() for c in cs}
         members = sorted(pools[y], key=lambda t: (so.get(t, "~"), t))
         st.markdown(f"**{y}**（{len(pools[y])} 只）："
-                    + "　".join(f"`{t}`<sub>{so.get(t, '?')[:6]}</sub>" for t in members),
+                    + "　".join(f"`{t}`<sub>{so.get(t, '?')}</sub>" for t in members),
                     unsafe_allow_html=True)
 
 st.caption(f"数据构建于 {doc.get('built_at', '?')} · 规则：{(doc.get('rule') or {}).get('text', '')}")
