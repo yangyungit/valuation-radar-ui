@@ -28,6 +28,8 @@ st.caption(
     "顺着「行业互斥」做规则化，纯质量因子打分（高 ROIC + 高毛利）被证伪（Calmar 仅 0.23，"
     "它把 V 排第 2、MA 排第 4，而这两只在留一法里恰恰是拖累），最终落到本页这条按行业派人的规则。"
     "**收益端复现不了**：本策略 CAGR 19.8% 对手挑 7 只的 22.9%，差的 3.1pp 就是「今天回头看知道 LLY 会翻五倍」的价格。"
+    "**图上对照线已按留一法删掉 V/BRK.B/MA、只留 4 只**（AAPL/LLY/TJX/COST），本页净值口径 26.0 / −14.1 / 1.85，"
+    "7 只版同口径 22.4 / −14.7 / 1.53，差距因此更大。上面这段归因讲的是当初那 7 只，回测数字（22.9% / 3.1pp）不改。"
     "**五组稳健性检验全过**（`backtest_sector_leaders_robust.py`，详见页底）："
     "换调仓时点四档全在 0.92~0.97、回看窗口五档全超 SPY、前后两段都跑赢、成本翻倍仍 0.86。"
     "**但这五组都是单变量扰动**——每组只动一个参数、其余钉在现行值。把「决策日」与「行业市值前 N」"
@@ -56,7 +58,8 @@ with st.sidebar:
 
 COST_BPS = 200.0
 CASH_RATE = 0.04
-HAND7 = ["AAPL", "LLY", "TJX", "COST", "V", "BRK.B", "MA"]      # 起点对照，后视镜产物
+# 起点对照，后视镜产物。原来是 7 只，2026-09-08 删掉 V/BRK.B/MA（留一法证明这三只金融不提供分散）
+HAND4 = ["AAPL", "LLY", "TJX", "COST"]
 
 # 后端 sector 字段是英文原名，仅展示时换中文简称（与 holdings_viz._SECTOR_CN 同一套词）
 SECTOR_CN = {
@@ -91,13 +94,13 @@ cur = pools[cur_year]
 union = sorted({t for m in pools.values() for t in m})
 
 with st.spinner("📊 加载价格（Sharadar 复权）..."):
-    _raw = fetch_gbdt_oos_prices(tuple(sorted(set(union + HAND7 + ["SPY"]))))
+    _raw = fetch_gbdt_oos_prices(tuple(sorted(set(union + HAND4 + ["SPY"]))))
 close_d = {}
 for t, rows in (_raw or {}).items():
     if rows:
         arr = pd.DataFrame(rows, columns=["date", "o", "h", "l", "c", "v"])
         close_d[t] = arr.assign(date=pd.to_datetime(arr["date"])).set_index("date")["c"].astype(float)
-_missing = [t for t in sorted(set(union + HAND7 + ["SPY"])) if t not in close_d]
+_missing = [t for t in sorted(set(union + HAND4 + ["SPY"])) if t not in close_d]
 if _missing:
     st.warning(f"⚠️ 价格缓存缺票：{_missing}（本地 push_local_to_render --tables gbdt_oos_prices 后消失）")
 
@@ -133,7 +136,7 @@ def _stats(nav: pd.Series, lo=None) -> dict:
 
 _months = [d for d in close_m.index if d.year in pools]
 nav_pool = _ew_nav({d: pools[d.year] for d in _months})
-nav_hand = _ew_nav({d: HAND7 for d in _months})
+nav_hand = _ew_nav({d: HAND4 for d in _months})
 nav_spy = _ew_nav({d: ["SPY"] for d in _months})
 
 st.markdown(f"### 📌 {cur_year} 年持仓（{len(cur)} 只 · 各 {100 / len(cur):.1f}%）")
@@ -167,7 +170,7 @@ lo = None if win == "全程" else nav_pool.dropna().index[-1] - pd.DateOffset(ye
 
 fig = go.Figure()
 for nav, nm, color, dash in ((nav_pool, "行业龙头 11 只", "#4A9EFF", None),
-                             (nav_hand, "手挑 7 只（后视镜对照）", "#FFD700", "dot"),
+                             (nav_hand, "手挑 4 只（后视镜对照）", "#FFD700", "dot"),
                              (nav_spy, "SPY", "#888888", "dash")):
     s = nav.dropna()
     if lo is not None:
@@ -181,7 +184,7 @@ fig.update_layout(template="plotly_dark", height=420, hovermode="x unified",
 st.plotly_chart(fig, use_container_width=True)
 
 c1, c2, c3 = st.columns(3)
-for col, nav, nm in ((c1, nav_pool, "行业龙头 11 只"), (c2, nav_hand, "手挑 7 只"), (c3, nav_spy, "SPY")):
+for col, nav, nm in ((c1, nav_pool, "行业龙头 11 只"), (c2, nav_hand, "手挑 4 只"), (c3, nav_spy, "SPY")):
     s = _stats(nav, lo)
     with col:
         if s:
