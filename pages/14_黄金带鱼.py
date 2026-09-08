@@ -38,7 +38,9 @@ st.caption(
     "**为什么不轮动**：12M 动量 Top1/2/3 × 通道留任/出池即卖 6 变体全灭（全程 CAGR −2.6%~9.8%，全跑输等权池甚至 SPY；"
     "通道 k 0→3 扫描无稳健平台）——池子六道门已按「又陡又顺」筛过，池内再押 Top-n = 抽签，且动量排名专挑刚进池的高位票"
     "（AJG −27% / SNPS −21% / FTNT −24% 的亏损段全是这么来的）。本页不做轮动、不发奖牌。"
-    "**对照**：手挑 7 只静态等权 22.7 / −14.7 / 1.55 更漂亮，但那是 2026 年事后挑的十年最漂亮票，后视镜产物，图里只作对照线。"
+    "**对照**：手挑 4 只（AAPL/LLY/TJX/COST）静态等权 25.8 / −14.1 / 1.84 更漂亮，但那是 2026 年事后挑的十年最漂亮票，"
+    "后视镜产物，图里只作对照线。原来的手挑 7 只多了 V/BRK.B/MA 三只金融，同引擎同窗口只有 22.2 / −14.7 / 1.51——"
+    "三只挤在同一行业不提供分散（`backtest_quality_seven.py` 留一法：去掉 MA / BRK.B / V 分别 +0.23 / +0.19 / +0.16 Calmar），已删。"
     "**五条警告**：① **集中度仍是本页最大风险**：四季全达标把池均从 10.3 压到 5.2，2024 和 2026 都只有 2 只，"
     "绝不是分散组合；② 2025 年就是集中度的实测代价：老口径那年只有 GWW+SNPS 两只，SNPS 一崩当年 −1.7%（SPY +14.6%），"
     "改 4 年窗回撤门后同年变 4 只（AZO/GWW/ORLY/SNPS）、当年 +5.3%——**多两只分摊而不是提前发现坏票，SNPS 在新口径下照样进名单**；"
@@ -56,9 +58,8 @@ with st.sidebar:
 
 COST_BPS = 200.0
 CASH_RATE = 0.04
-HAND_GOLD = ["AAPL", "LLY", "TJX", "COST", "V", "BRK.B", "MA"]   # 仅对照线 + 页底对照表
-name_map = {"AAPL": "Apple", "LLY": "Eli Lilly", "TJX": "TJX", "COST": "Costco",
-            "V": "Visa", "BRK.B": "Berkshire", "MA": "Mastercard"}
+HAND_GOLD = ["AAPL", "LLY", "TJX", "COST"]   # 仅对照线 + 页底对照表
+name_map = {"AAPL": "Apple", "LLY": "Eli Lilly", "TJX": "TJX", "COST": "Costco"}
 # 后端 sector 字段是英文原名，仅展示时换中文简称（与 holdings_viz._SECTOR_CN 同一套词）
 SECTOR_CN = {
     "Technology": "科技", "Industrials": "工业", "Healthcare": "医疗",
@@ -180,7 +181,7 @@ else:
 
 st.markdown("---")
 
-# ── 2. 净值图：等权规则池 / 手挑7静态等权 / SPY ──
+# ── 2. 净值图：等权规则池 / 手挑4静态等权 / SPY ──
 window = st.radio("时间跨度", ["3Y", "5Y", "10Y"], index=2, horizontal=True, key="gold_window")
 _last = nav_pool.index.max()
 _lo = _last - pd.DateOffset(years=int(window[:-1]))
@@ -212,7 +213,7 @@ _p, _h, _s = _rebase(nav_pool), _rebase(nav_hand), _rebase(nav_spy)
 fig = go.Figure()
 for _lbl, _series, _color in [
     ("等权规则池", _p, "#FFD700"),
-    ("手挑7静态等权", _h, "#3498DB"),
+    ("手挑4静态等权", _h, "#3498DB"),
     ("SPY", _s, "rgba(170,170,170,0.7)"),
 ]:
     if _series.empty:
@@ -249,10 +250,11 @@ st.caption(
     "下表七轴是 12-31 那季的值，「四季达标」列记四季里过了几次——WAB 这类 12-31 六道门全过但只有 3/4 的，不进池。"
     "消融：纯价格 14.9%、纯基本面 11.4%——基本面轴只在陡坡端（CAGR≥20%）有增量。"
     "**手挑名单分歧是特性不是 bug**：手挑记住的是过去十年的王，规则盯的是正在王座上的——"
-    "规则说 AAPL/V/MA 的黄金阶段（5Y 口径）已淡出、LLY 卡在净利 logR² 0.52<0.60。"
+    "规则说 AAPL 的黄金阶段（5Y 口径）已淡出（价格 logR² 0.816<0.90）、LLY 卡在净利 logR² 0.52<0.60、"
+    "TJX 净利 logR² 0.40、COST 价格 logR² 0.886 差一点。"
 )
 
-st.markdown("#### 🆚 手挑 7 只对照")
+st.markdown("#### 🆚 手挑 4 只对照")
 _hand_rows = []
 for tk in HAND_GOLD:
     row, a = _axis_row(tk)
