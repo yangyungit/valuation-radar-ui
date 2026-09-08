@@ -1,3 +1,31 @@
+## 2026-09-08 前端改成保存即自动重载，不用再手动 kickstart
+
+**范围**：`start_frontend_local.sh`（`--server.fileWatcherType none` → `watchdog`，新增 `--server.runOnSave true`）。`system/venv` 装了 `watchdog 6.0.0`。
+
+**起因**：改完 page 14 / 27 的行业中文名，主理人刷新页面看不到变化。跟本文件下面那条「踩到的坑」是同一个——监听关着，常驻进程一直跑启动时那份代码。
+
+**为什么必须是 watchdog 不能用 poll**：`streamlit/watcher/polling_path_watcher.py` 的线程池写死 `_MAX_WORKERS = 4`，每个被监听文件占一个 worker 跑死循环，本 app 有 32 个 page，poll 模式下只有最先注册的 4 个文件真的被监听。装了 watchdog 才走 `EventBasedPathWatcher`（macOS FSEvents）。
+
+**imported module 也会重载**：Streamlit 1.63 的 `LocalSourcesWatcher` 会把改动过的本地模块从 `sys.modules` 里剔掉再 rerun，所以改 `api_client.py` / `holdings_viz.py` 这类被 import 的文件同样生效，不只是 page 文件。
+
+**核验**：kickstart 后进程命令行确认带 `--server.fileWatcherType watchdog --server.runOnSave true`，8501 返回 200，`get_default_path_watcher_class()` 返回 `EventBasedPathWatcher`，启动日志无「install Watchdog」警告。
+
+**仍需手动 kickstart 的两种情况**：改 `start_frontend_local.sh` 本身、以及后端 JSON 更新后要清后端 4h 缓存（那是 `com.yangyun.vr-backend`）。
+
+---
+
+## 2026-09-08 三个页面的行业名统一成中文简称
+
+**范围**：`pages/14_黄金带鱼.py`、`pages/27_行业龙头.py`（各加一份 `SECTOR_CN`，展示时映射）、`pages/10_行业PE.py`（`SECTOR_ZH` 改 5 个词）。commit `fd7ccb4` + `a8eaef0`。
+
+**用哪套词**：跟 `holdings_viz._SECTOR_CN` 对齐——科技 / 工业 / 医疗 / 金融 / 可选消费 / 必选消费 / 通讯服务 / 能源 / 原材料 / 房地产 / 公用事业。page 10 原来用的是长名（医疗保健 / 金融服务 / 消费周期 / 消费防御 / 基础材料），同一个行业全站三种叫法。
+
+**只动展示层**：后端 `sector_tables` 的 key 和 `meta.sector` 仍是英文原名，接口契约没动，映射查不到就原样返回。
+
+**顺带两处**：page 27「各行业怎么选出来的」表原来按英文字母排序，改成按中文名排；逐年名单里 ticker 下标原来 `[:6]` 截断（英文名太长会显示成「Consum」），中文简称最多 4 字，截断去掉。
+
+---
+
 ## 2026-09-08 新增 page 27 行业龙头：11 行业各派 1 只龙头等权月调
 
 **范围**：`pages/27_行业龙头.py`（新）、`api_client.py`（`fetch_sector_leaders`）、`app.py`（注册到「进攻类策略」组）。后端 `e128499` 已推。
