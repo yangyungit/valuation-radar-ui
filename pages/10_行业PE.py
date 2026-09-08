@@ -38,11 +38,11 @@ SECTOR_COLORS = {
     "Basic Materials": "#d62728", "Communication Services": "#aec7e8",
 }
 SECTOR_ZH = {
-    "Technology": "科技", "Consumer Cyclical": "消费周期",
-    "Consumer Defensive": "消费防御", "Financial Services": "金融服务",
-    "Energy": "能源", "Utilities": "公用事业", "Healthcare": "医疗保健",
+    "Technology": "科技", "Consumer Cyclical": "可选消费",
+    "Consumer Defensive": "必选消费", "Financial Services": "金融",
+    "Energy": "能源", "Utilities": "公用事业", "Healthcare": "医疗",
     "Industrials": "工业", "Real Estate": "房地产",
-    "Basic Materials": "基础材料", "Communication Services": "通讯服务",
+    "Basic Materials": "原材料", "Communication Services": "通讯服务",
 }
 # Morningstar 细分行业英文名 → 中文简称，仅用于展示，接口参数仍传英文原名
 INDUSTRY_ZH = {
