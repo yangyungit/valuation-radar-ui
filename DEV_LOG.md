@@ -12,6 +12,8 @@
 
 **核验**：不启浏览器，把改过的三段函数照抄进 `/tmp/verify_page14.py`，喂本地后端真实返回跑一遍——当前持仓 2 只各 50.0%、WAB 显示 3/4 的提示、全部候选表 4/4 排最前、手挑 7 只全部 0/4，均符合预期。后端有 4h 缓存，改完 JSON 需 `launchctl kickstart -k gui/$UID/com.yangyun.vr-backend` 才会生效。无新增 lint。
 
+**踩到的坑（以后每次改前端都会遇到）**：`start_frontend_local.sh` 里有 `--server.fileWatcherType none`，Streamlit 文件监听是关的，常驻进程会一直用启动时加载的那份代码。本次改完主理人刷新页面看到的是「新数据 + 旧代码」——持仓卡走 API 所以变成 2 只，但 caption 和「四季达标」列没出现。**改任何前端页面后必须 `launchctl kickstart -k gui/$UID/com.yangyun.vr-frontend`，光刷浏览器没用。**
+
 ---
 
 ## 2026-08-20 新增 page 21 价格台阶：把 K 线压成台阶图，量横盘占了多少时间
