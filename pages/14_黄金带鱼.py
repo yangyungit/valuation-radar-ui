@@ -18,16 +18,23 @@ st.markdown("""
 st.title("🥇 黄金带鱼（规则池等权月调）")
 st.caption(
     "**策略 = 规则池本体，等权月调**：黄金阶段六道门槛（规则与逐年名单见页底）每年 12-31 PIT 重算次年生效，"
-    "当年池内等权、月末再平衡，单边 200bps。回测（`backtest_golden_ribbon_round2.py`，2017-04→2026-07，Sharadar 复权价）："
-    "全程 CAGR 18.5% / DD −26.3% / Calmar 0.70（SPY 14.9 / −23.9 / 0.62），3Y 25.4 / −9.2 / 2.75，5Y 14.9 / −26.3 / 0.57。"
+    "且要求 3-31/6-30/9-30/12-31 **四个季末全部达标**才进池（只闪现过一两季的不要），"
+    "当年池内等权、月末再平衡，单边 200bps。回测（`backtest_golden_ribbon_round5.py`，2017-04→2026-06，Sharadar 复权价）："
+    "全程 CAGR 17.8% / DD −23.7% / Calmar 0.75（SPY 15.1 / −23.9 / 0.63），3Y 24.2 / −21.9 / 1.11，5Y 15.1 / −23.7 / 0.64。"
+    "**为什么要四季全达标**：只看 12-31 一天是 18.7 / −26.3 / 0.71，CAGR 高 0.9pp 但回撤深 2.6pp；"
+    "放宽成「四季至少 1/2/3 次达标」全部更差（Calmar 0.48 / 0.51 / 0.58）——放宽等于把闪现票收进来稀释。"
+    "**换名单频率与价格窗口都扫过**（round5）：每年换 18.7 / 0.71 完胜每半年 15.9 / 每季 12.1 / 每月 11.6"
+    "（三根价格轴是滞后指标，跌完才踢 = 在底部卖）；价格窗口 5 年是峰值，3 年窗崩到 8.3 / 0.27。"
     "**为什么不轮动**：12M 动量 Top1/2/3 × 通道留任/出池即卖 6 变体全灭（全程 CAGR −2.6%~9.8%，全跑输等权池甚至 SPY；"
     "通道 k 0→3 扫描无稳健平台）——池子六道门已按「又陡又顺」筛过，池内再押 Top-n = 抽签，且动量排名专挑刚进池的高位票"
     "（AJG −27% / SNPS −21% / FTNT −24% 的亏损段全是这么来的）。本页不做轮动、不发奖牌。"
     "**对照**：手挑 7 只静态等权 22.7 / −14.7 / 1.55 更漂亮，但那是 2026 年事后挑的十年最漂亮票，后视镜产物，图里只作对照线。"
-    "**四条警告**：① 近 3Y 收益含 AI 资本开支 beta（ANET/AVGO/GWW/PWR）；"
-    "② 池小（年均 10 只）且行业集中，2026 池仅 3 只，别当分散组合；"
-    "③ 5Y 段只比 SPY 好一点（14.9 vs 12.7）且回撤更深（−26.3 vs −23.9），价值主要在 3Y 段和纪律性；"
-    "④ 2022 池膨胀到 32 只正值市场顶部，池大小可能是过热信号，待单独验证。"
+    "**五条警告**：① **集中度是本页最大风险**：四季全达标把池均从 10.3 压到 4.9，2024~2026 连着三年只剩 2 只，"
+    "绝不是分散组合；② 近 3Y 的 −21.9% 回撤全砸在 2025-07→11 的 GWW+SNPS 上（SNPS 崩，当年 −6.1%，"
+    "同期只看 12-31 的老规则 +3.7%、SPY +14.6%）——两只票一只出事就没人分担，3Y Calmar 1.11 远差于老规则的 2.89；"
+    "③ 近 3Y 收益含 AI 资本开支 beta（GWW/PWR）；④ 2022 池膨胀到 16 只正值市场顶部，池大小可能是过热信号，待单独验证；"
+    "⑤ 规则 2026-09-08 从「只看 12-31」切到「四季全达标」，属**年中换规则**（本月卖出 WAB 转 GWW/PWR 各 50%），"
+    "而回测覆盖的是每年年初按规则建仓，年中切换不在回测范围内。"
     "**净值走后端 Sharadar 复权价（与回测同源），新鲜度到上次本地价格推送为止。**"
 )
 
@@ -103,6 +110,7 @@ if nav_pool.dropna().empty:
     st.error("⚠️ 规则池净值不可用（价格缺失过多），无法展示")
     st.stop()
 
+_QUARTERS = ("03-31", "06-30", "09-30", "12-31")   # 四季全达标才进池，后端 round5 定稿
 _AXIS_COLS = ["p_r2", "p_cagr", "p_dd", "rev_r2", "rev_cagr", "ni_r2", "ni_cagr"]
 _AXIS_LABEL = {"p_r2": "价格logR²", "p_cagr": "价格CAGR%", "p_dd": "价格maxDD%",
                "rev_r2": "营收logR²", "rev_cagr": "营收CAGR%", "ni_r2": "净利logR²", "ni_cagr": "净利CAGR%"}
@@ -110,12 +118,15 @@ _AXIS_LABEL = {"p_r2": "价格logR²", "p_cagr": "价格CAGR%", "p_dd": "价格m
 
 def _axis_row(tk):
     a = gaxes.get(tk, {})
-    row = {"ticker": tk, "name": gmeta.get(tk, {}).get("name", ""), "sector": gmeta.get(tk, {}).get("sector", "")}
+    row = {"ticker": tk, "name": gmeta.get(tk, {}).get("name", ""),
+           "sector": gmeta.get(tk, {}).get("sector", ""),
+           "四季达标": f"{a.get('q_pass', 0)}/4"}
     row.update({c: a.get(c) for c in _AXIS_COLS})
     return row, a
 
 
 def _missing_axes(a: dict) -> str:
+    """七轴只有 12-31 那季的值，六道门全过也可能因为别的季度掉链子而不进池。"""
     if not a:
         return "轴缺数据"
     miss = []
@@ -125,7 +136,10 @@ def _missing_axes(a: dict) -> str:
             miss.append(f"{_AXIS_LABEL.get(k, k)}缺数据")
         elif v < thr:
             miss.append(f"{_AXIS_LABEL.get(k, k)} {v}<{thr}")
-    return " · ".join(miss) if miss else "全达标"
+    if miss:
+        return " · ".join(miss)
+    q = a.get("q_pass", 0)
+    return "全达标" if q >= len(_QUARTERS) else f"12-31 六道门全过，但四季只达标 {q}/4"
 
 
 # ── 1. 当前持仓卡：最新生效年池等权 + 七轴详情 ──
@@ -143,7 +157,7 @@ if _cur_rows:
     st.dataframe(pd.DataFrame(_cur_rows).sort_values("p_cagr", ascending=False),
                  hide_index=True, use_container_width=True)
 else:
-    st.warning(f"{cur_year} 年无票过黄金阶段全部六道门槛")
+    st.warning(f"{cur_year} 年无票四个季末全部过六道门槛")
 
 st.markdown("---")
 
@@ -208,10 +222,13 @@ st.caption("统计卡为「等权规则池」曲线按当前选中窗口切段�
 st.markdown("---")
 st.markdown("## 📏 黄金阶段规则池（PIT 逐年重算）")
 st.caption(
-    "**规则**（回测定稿，出处 valuation-radar `backtest_golden_ribbon_round1.py`，commit 3704cba）："
+    "**规则**（阈值出处 valuation-radar `backtest_golden_ribbon_round1.py` commit 3704cba，"
+    "四季全达标出处 `backtest_golden_ribbon_round5.py`）："
     "基础闸门（市值≥$30B / TTM FCF>0 / 5Y 周线 CAGR≥8% / maxDD≥−45%）+ 价格 logR²≥0.90 + 价格 CAGR≥20% + "
     "maxDD≥−40% + 营收 logR²≥0.80 + 净利 CAGR≥10% + 净利 logR²≥0.60（尾部 20 个 ART 季，PIT），"
-    "每年 12-31 重算次年生效。消融：纯价格 14.9%、纯基本面 11.4%——基本面轴只在陡坡端（CAGR≥20%）有增量。"
+    "且 3-31/6-30/9-30/12-31 **四个季末全部达标**才进池，名单仍每年 12-31 定、次年生效。"
+    "下表七轴是 12-31 那季的值，「四季达标」列记四季里过了几次——WAB 这类 12-31 六道门全过但只有 3/4 的，不进池。"
+    "消融：纯价格 14.9%、纯基本面 11.4%——基本面轴只在陡坡端（CAGR≥20%）有增量。"
     "**手挑名单分歧是特性不是 bug**：手挑记住的是过去十年的王，规则盯的是正在王座上的——"
     "规则说 AAPL/V/MA 的黄金阶段（5Y 口径）已淡出、LLY 卡在净利 logR² 0.52<0.60。"
 )
@@ -224,14 +241,17 @@ for tk in HAND_GOLD:
     _hand_rows.append(row)
 st.dataframe(pd.DataFrame(_hand_rows), hide_index=True, use_container_width=True)
 
-with st.expander(f"全部候选（过基础闸门 {len(gaxes)} 只，含 near-miss）"):
-    _all_rows = [dict(_axis_row(tk)[0], gold=a.get("gold", False)) for tk, a in gaxes.items()]
-    _df_all = pd.DataFrame(_all_rows).sort_values("p_cagr", ascending=False)
+with st.expander(f"全部候选（12-31 过基础闸门 {len(gaxes)} 只，含 near-miss）"):
+    _all_rows = [dict(_axis_row(tk)[0], gold=a.get("gold", False), _q=a.get("q_pass", 0))
+                 for tk, a in gaxes.items()]
+    _df_all = (pd.DataFrame(_all_rows).sort_values(["_q", "p_cagr"], ascending=False)
+               .drop(columns="_q"))
     st.dataframe(_df_all, hide_index=True, use_container_width=True)
 
 with st.expander("逐年池"):
     _sizes = pd.Series({y: len(pools[y]) for y in sorted(pools)})
     st.bar_chart(_sizes)
-    st.caption("2022 年池膨胀到高位正值市场顶部，池大小可能是过热信号，待单独验证")
+    st.caption("2022 年池膨胀到 16 只正值市场顶部，池大小可能是过热信号，待单独验证；"
+               "2024 年起连着三年只剩 2 只，是四季全达标规则下的常态")
     _year_rows = [{"年": y, "n只": len(pools[y]), "名单": "、".join(pools[y])} for y in sorted(pools)]
     st.dataframe(pd.DataFrame(_year_rows), hide_index=True, use_container_width=True)
