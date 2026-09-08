@@ -4,6 +4,7 @@ import streamlit as st
 
 from api_client import (
     clear_valuation_caches,
+    fetch_valuation_concentration,
     fetch_valuation_history,
     fetch_valuation_lookup,
     fetch_valuation_members,
@@ -423,5 +424,57 @@ if sec.get("success") and sec.get("loss"):
         + "、".join(f"{zh(n)} {v * 100:.0f}%" for n, v in top)
         + "。这条线独立于估值：2016-12 能源 61% 公司在亏，"
         "但上图能源中位 PE 是 24.3x，和 2014-06 景气顶部的 25.1x 几乎一样。3 个月平滑。</div>",
+        unsafe_allow_html=True,
+    )
+
+# ============ 图 E：涨幅集中度 ============
+st.divider()
+st.subheader("板块涨幅有多集中在巨头身上")
+st.caption("市值加权 12 个月收益（≈板块 ETF）减成员收益中位数，正值 = 涨幅集中在巨头。"
+           "市值 ≥ $2B、当月至少 8 只成员。这张图不随上面的指标切换。")
+
+conc = fetch_valuation_concentration()
+if not conc.get("success"):
+    st.warning(conc.get("error", "拿不到集中度数据"))
+else:
+    cidx = pd.to_datetime(pd.Series(conc["index"]))
+    fig_e = go.Figure()
+    for name in sorted(conc["gap"].keys()):
+        g = pd.Series(conc["gap"][name], index=cidx).astype(float).rolling(3, min_periods=1).mean()
+        b = pd.Series(conc["beat"][name], index=cidx).astype(float).rolling(3, min_periods=1).mean()
+        df_e = pd.DataFrame({"g": g, "b": b}).dropna(subset=["g"])
+        name_zh = zh(name)
+        fig_e.add_trace(go.Scatter(
+            x=df_e.index, y=df_e["g"], mode="lines", name=name_zh,
+            line=dict(width=1.7, color=SECTOR_COLORS.get(name)),
+            customdata=df_e[["b"]].values,
+            hovertemplate="%{x|%Y-%m} " + name_zh
+                          + " %{y:+.1f}pp｜%{customdata[0]:.0f}% 成员跑赢<extra></extra>",
+        ))
+    # 数据 2005-12 起，互联网泡沫灰带在起点之前，画了会把 x 轴拉回 2000
+    for x0, x1, lab in CRISES:
+        if x1 < "2006-01":
+            continue
+        fig_e.add_vrect(x0=x0, x1=x1, fillcolor="grey", opacity=0.15, line_width=0,
+                        annotation_text=lab, annotation_position="top left",
+                        annotation_font_size=13)
+    fig_e.add_hline(y=0, line=dict(color="#c0392b", width=1, dash="dash"),
+                    annotation_text="ETF ≈ 典型成员", annotation_position="right",
+                    annotation_font_size=11)
+    fig_e.update_layout(height=430, yaxis_title="市值加权收益 − 成员中位收益（pp）",
+                        margin=dict(l=10, r=10, t=40, b=10), hovermode="x unified",
+                        legend=dict(orientation="h", y=-0.16, font=dict(size=11)))
+    st.plotly_chart(fig_e, use_container_width=True)
+
+    lastg = {n: v[-1] for n, v in conc["gap"].items() if v and v[-1] is not None}
+    lastb = {n: conc["beat"][n][-1] for n in lastg}
+    top = sorted(lastg.items(), key=lambda kv: -kv[1])[:3]
+    st.markdown(
+        "<div style='font-size:13px;color:#666'>gap 高 = 买该板块 ETF ≈ 押巨头；"
+        "gap 贴 0 = ETF 和典型成员差不多，买谁都行。当期最集中："
+        + "、".join(f"{zh(n)} {v:+.1f}pp（{lastb[n]:.0f}% 成员跑赢）" for n, v in top)
+        + "。权重用 12 个月前市值，避免「涨大了权重才大」的循环。"
+        "板块王朝页按 ETF 市值加权、行业龙头页按个股动量选票，"
+        "两页冠军对不上的根因就是这个差值。3 个月平滑。</div>",
         unsafe_allow_html=True,
     )

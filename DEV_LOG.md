@@ -1,3 +1,11 @@
+## 2026-09-08 行业 PE 页新增图 E：板块涨幅集中度
+
+**范围**：`api_client.py` 新增 `fetch_valuation_concentration()`；`pages/10_行业PE.py` 新增图 E，接后端 `/api/v1/valuation/concentration`。
+
+**图 E 回答的问题**：这个板块该买 ETF 还是该买龙头。市值加权 12 个月收益（≈板块 ETF）减成员收益中位数（gap，pp），正值 = 涨幅集中在巨头；hover 附带跑赢市值加权的成员占比（beat）。市值门槛 $2B、当月至少 8 只成员、权重取 12 个月前市值，起点 2005-12，与图 C/D 同款 3 个月平滑。不随页面顶部的指标切换。
+
+---
+
 ## 2026-09-08 前端改成保存即自动重载，不用再手动 kickstart
 
 **范围**：`start_frontend_local.sh`（`--server.fileWatcherType none` → `watchdog`，新增 `--server.runOnSave true`）。`system/venv` 装了 `watchdog 6.0.0`。

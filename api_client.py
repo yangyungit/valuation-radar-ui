@@ -3252,6 +3252,12 @@ def fetch_valuation_sector_history(metric: str = "pe", start: str = "2000-01") -
 
 
 @st.cache_data(ttl=3600 * 12)
+def fetch_valuation_concentration(start: str = "2005-12") -> dict:
+    """板块涨幅集中度：市值加权(≈ETF) − 成员中位收益 + 跑赢占比。"""
+    return _h13f_get("/api/v1/valuation/concentration", {"start": start}, timeout=20)
+
+
+@st.cache_data(ttl=3600 * 12)
 def fetch_valuation_lookup(ticker: str) -> dict:
     """票 → 所属 sector / industry。"""
     return _h13f_get("/api/v1/valuation/lookup", {"ticker": ticker}, timeout=20)
@@ -3263,4 +3269,5 @@ def clear_valuation_caches():
     fetch_valuation_members.clear()
     fetch_valuation_history.clear()
     fetch_valuation_sector_history.clear()
+    fetch_valuation_concentration.clear()
     fetch_valuation_lookup.clear()
