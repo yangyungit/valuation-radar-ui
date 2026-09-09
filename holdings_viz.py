@@ -244,122 +244,6 @@ def build_slot_assignments(
     return slot_assignments, hold_map, gate_closed
 
 
-def blend_relay_scores(
-    rs_month_by_w: dict,
-    adv_month: pd.DataFrame,
-    mom_windows: list,
-    blend: str = "zavg",
-    score_basis: str = "momentum",
-    cap_weight: float = 0.8,
-) -> pd.DataFrame:
-    """王朝接力净值实验台的打分层：多窗口动量 blend + 口径切换，横截面在传入的
-    选仓池（columns）内做。返回月×板块 score（越大越强），供选仓层排名。
-
-    rs_month_by_w: {window: 月×板块 原始 RS DataFrame}（已 resample("ME").last()）。
-    adv_month:     月×板块 ADV_63d（king_score 容量项用）。
-    mom_windows:   选中的动量窗口列表（63/126/252/504）。
-    blend:         'zavg'（各窗口横截面 Z 后平均）/ 'borda'（各窗口名次平均）。
-    score_basis:   'momentum'（纯动量）/ 'king_score'（动量 Z + cap_weight×Z(log10 ADV)）。
-    """
-    wins = [w for w in mom_windows if w in rs_month_by_w and not rs_month_by_w[w].empty]
-    if not wins:
-        return pd.DataFrame()
-
-    def _xs_z(df: pd.DataFrame) -> pd.DataFrame:
-        return df.sub(df.mean(axis=1), axis=0).div(
-            df.std(axis=1).replace(0, np.nan), axis=0
-        )
-
-    if blend == "borda":
-        rank_acc = None
-        for w in wins:
-            rk = rs_month_by_w[w].rank(axis=1, ascending=True)  # 越大 RS 名次越高=越强
-            rank_acc = rk if rank_acc is None else rank_acc.add(rk, fill_value=np.nan)
-        mom = _xs_z(rank_acc / len(wins))  # 平均名次再标准化，越大越强
-    else:  # zavg
-        z_acc = None
-        for w in wins:
-            z = _xs_z(rs_month_by_w[w].astype(float))
-            z_acc = z if z_acc is None else z_acc.add(z, fill_value=np.nan)
-        mom = z_acc / len(wins)
-
-    if score_basis == "king_score":
-        mom_z = _xs_z(mom)
-        adv = adv_month.reindex(index=mom.index, columns=mom.columns).astype(float)
-        log_adv = np.log10(adv.where(adv > 0))
-        adv_z = _xs_z(log_adv)
-        score = mom_z + cap_weight * adv_z
-        # 缺 ADV 的票（如 D-ext 早期）退回纯动量分，不整月被丢出排名
-        score = score.where(score.notna(), mom_z)
-        return score
-    return mom
-
-
-def select_relay_holdings(
-    score_m: pd.DataFrame,
-    n_holdings: int = 2,
-    gate: str = "seniority",
-    guard: str = "buffer",
-    buffer_n: int = 4,
-    k_delta: float = 1.0,
-    shift_months: int = 1,
-) -> dict:
-    """王朝接力净值实验台选仓层：进场门槛 + 守擂机制参数化，产出每月 N 票持仓。
-    返回 {执行月: [tickers]}（已顺延 shift_months 去 look-ahead）。
-
-    gate:  'seniority'（现状：新进场须当月前3 + 近6月进前3次数排序）/ 'pure'（纯 TopN by score）。
-    guard: 'buffer'（名次死区，在任票掉出前 buffer_n 才换）/ 'delta'（分差死区，在任票分数
-           低于「第N名门槛 − k_delta×当月横截面σ」才换）/ 'none'（每月直接换 TopN）。
-    """
-    if score_m.empty or len(score_m) < 2:
-        return {}
-    n = max(1, int(n_holdings))
-    rank_m = score_m.rank(axis=1, ascending=False, method="min")
-    ten6 = (rank_m <= 3).astype(int).rolling(6, min_periods=1).sum()
-    mh: dict = {}
-    prev: list = []
-    for ts, row in score_m.iterrows():
-        s = row.dropna()
-        if s.empty:
-            continue
-        order = s.sort_values(ascending=False).index.tolist()  # 分高在前
-        rk = rank_m.loc[ts]
-        if gate == "pure":
-            elig_sorted = order[:]
-        else:  # seniority
-            tnow = ten6.loc[ts]
-            elig = [t for t in order if rk.get(t, 99) <= 3]
-            elig_sorted = sorted(elig, key=lambda t: (-float(tnow.get(t, 0)), rk.get(t, 99)))
-        # 守擂：决定上月持仓哪些留任
-        if not prev or guard == "none":
-            hold: list = []
-        elif guard == "delta":
-            thresh = float(s[order[n - 1]]) if len(order) >= n else float(s.min())
-            sigma = float(s.std()) if len(s) > 1 else 0.0
-            keep_line = thresh - float(k_delta) * sigma
-            hold = [t for t in prev if t in s.index and float(s[t]) >= keep_line][:n]
-        else:  # buffer
-            tN = set(order[:buffer_n])
-            hold = [t for t in prev if t in tN][:n]
-        # 补足空槽：先够格池，再兜底原始 order
-        for t in elig_sorted:
-            if len(hold) >= n:
-                break
-            if t not in hold:
-                hold.append(t)
-        if len(hold) < n:
-            for t in order:
-                if len(hold) >= n:
-                    break
-                if t not in hold:
-                    hold.append(t)
-        hold = hold[:n]
-        exec_m = next_month_key(ts.strftime("%Y-%m"), shift_months)
-        mh[exec_m] = hold
-        prev = hold
-    return mh
-
-
 def relay_turnover_stats(monthly_holdings: dict) -> dict:
     """从 {执行月: [tickers]} 算换股次数 / 年均换手 / 平均持有月数（口径对齐动量双龙统计卡）。
     换股次数 = 相邻月新增标的数之和；年均换手 = 平均每月换手率×12；
@@ -558,75 +442,33 @@ DYNASTY_RIBBON_GROUPS = ["C: 核心板块 (Level 1 Sectors)", "D: 细分赛道 (
 DYNASTY_LAB_WINS = [252]
 
 
-def dynasty_lab_score(dyn_ts: dict, groups: list = None) -> pd.DataFrame:
-    """月末打分：调后端 `/api/v1/macro/dynasty/relay_selection` 取 Borda 名次平均 +
-    king_score 容量项打分（横截面只在选仓池内做），前端不再本地算。签名/返回结构
-    不变（月×板块 score DataFrame），供 render_dynasty_ribbon 消费。"""
-    from api_client import fetch_dynasty_relay_selection
-
-    window = dyn_ts.get("window")
-    if not window:
-        return pd.DataFrame()
-    groups_spec = ",".join(groups) if groups else "C,D"
-    resp = fetch_dynasty_relay_selection(
-        window=window, groups=groups_spec, n_holdings=2,
-        mom_windows=",".join(str(w) for w in DYNASTY_LAB_WINS),
-        blend="borda", basis="king_score", cap_weight=0.8,
-        gate="seniority", guard="none", buffer_n=0, k_delta=1.0,
-    )
-    months = resp.get("score_months") or []
-    scores = resp.get("scores") or {}
-    if not resp.get("success") or not months or not scores:
-        return pd.DataFrame()
-    return pd.DataFrame(scores, index=pd.to_datetime(months, errors="coerce"))
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def dynasty_lab_buffer_n(groups: tuple = (), n_holdings: int = 2) -> int:
-    """守擂 buffer_N：调后端 `/api/v1/macro/dynasty/relay_selection`（buffer_n=0 时
-    后端自己跑 3Y/5Y/10Y maximin），前端不再本地拉 27 条净值算。三段不齐或选仓池
-    缺价格时后端退回 max(4, N)（`dynasty_relay.optimal_buffer_n`）。不写死数字，
-    免得后端寻优结果变了条带跟不上。"""
-    from api_client import fetch_dynasty_relay_selection
-
-    n = max(1, int(n_holdings))
-    fallback = max(4, n)
-    groups_spec = ",".join(groups) if groups else "C,D"
-    resp = fetch_dynasty_relay_selection(
-        window="10Y", groups=groups_spec, n_holdings=n,
-        mom_windows=",".join(str(w) for w in DYNASTY_LAB_WINS),
-        blend="borda", basis="king_score", cap_weight=0.8,
-        gate="seniority", guard="buffer", buffer_n=0, k_delta=1.0,
-    )
-    if not resp.get("success"):
-        return fallback
-    return int(resp.get("buffer_n", fallback))
-
-
 def render_dynasty_ribbon(window: str, key: str, compare_hint: str = "") -> None:
     """页面顶部的「板块王朝接力（最火板块时间条带）」，21_科技龙头 / 24_戴金龙头 共用。
     口径对齐 19_板块王朝 的净值实验台：Borda 打分 + 资历进场 + buffer 守擂(maximin 寻优)
-    + 顺延 1 月执行。compare_hint 是各页自己的对照提示尾句。"""
-    from api_client import fetch_macro_radar_timeseries
+    + 顺延 1 月执行。compare_hint 是各页自己的对照提示尾句。
+
+    打分和选仓全在后端（`/api/v1/macro/dynasty/relay_selection`），一次请求就同时拿到
+    maximin 寻到的 buffer_N 和每月持仓——buffer_N 的寻优是后端自己在 3Y/5Y/10Y 上跑的，
+    与请求的 window 无关，所以不需要再单独为 10Y 打一次。前端只留槽位排序和画图。"""
+    from api_client import fetch_dynasty_relay_selection
 
     with st.spinner("📊 加载板块王朝接力条带..."):
-        dyn_ts = fetch_macro_radar_timeseries(window=window, profile="dynasty")
-        if not dyn_ts.get("success"):
-            st.info(f"板块王朝条带暂不可用：{dyn_ts.get('error', '未知错误')}")
-            return
-        score_m = dynasty_lab_score(dyn_ts, DYNASTY_RIBBON_GROUPS)
-        if score_m.empty:
-            return
-        buf_n = dynasty_lab_buffer_n(tuple(DYNASTY_RIBBON_GROUPS), 2)
-        mh = select_relay_holdings(score_m, 2, "seniority", "buffer", buf_n, 1.0)
+        resp = fetch_dynasty_relay_selection(
+            window=window, groups=",".join(DYNASTY_RIBBON_GROUPS), n_holdings=2,
+            mom_windows=",".join(str(w) for w in DYNASTY_LAB_WINS),
+            blend="borda", basis="king_score", cap_weight=0.8,
+            gate="seniority", guard="buffer", buffer_n=0, k_delta=1.0,
+        )
+    if not resp.get("success"):
+        st.info(f"板块王朝条带暂不可用：{resp.get('error', '未知错误')}")
+        return
+    mh = resp.get("monthly_holdings") or {}
     if not mh:
         return
+    buf_n = int(resp.get("buffer_n", 4))
     exec_months = sorted(mh)
     slots = build_basket_slot_assignments(mh, exec_months)
-    name_map = {
-        tk: p.get("name", tk)
-        for tk, p in (dyn_ts.get("tickers", {}) or {}).items()
-    }
+    name_map = resp.get("name_map") or {}
     st.markdown("### 🔥 板块王朝接力（最火板块时间条带）")
     st.caption(
         "两条轨道 = 王朝接力左列（龙头板块）/ 右列（次龙头板块），每段色带 = 一段连续持有的板块，"

@@ -7,6 +7,7 @@ from api_client import (
     fetch_macro_radar_timeseries,
     fetch_etf_meta,
     fetch_dynasty_leaders,
+    fetch_dynasty_relay_selection_batch,
     fetch_theme_holdings_status,
     get_global_data,
 )
@@ -453,35 +454,37 @@ with _dyn_tab1:
                             "URNM 2019-12 上市,10Y 早期缺席。"
                         )
 
-                    def _score_from_ts(_ts_dict, _wins=None):
-                        """从某窗口时序算选仓池月末 score（月×板块）。_wins=None 用当前旋钮。"""
-                        _use_wins = _mom_wins if _wins is None else _wins
-                        _tks = _ts_dict.get("tickers", {}) or {}
-                        _dates = _ts_dict.get("dates", []) or []
-                        if not _dates:
-                            return pd.DataFrame()
-                        _ix = pd.to_datetime(_dates, errors="coerce")
-                        _pl = {tk: p for tk, p in _tks.items() if tk in _pool}
-                        if not _pl:
-                            return pd.DataFrame()
-                        _rsw = {}
-                        for _w in [63, 126, 252, 504]:
-                            _cols = {}
-                            for tk, p in _pl.items():
-                                _v = p.get(f"rs_{_w}")
-                                if _v is None:
-                                    _v = p.get("rs")
-                                if _v is not None:
-                                    _cols[tk] = _v
-                            if _cols:
-                                _rsw[_w] = pd.DataFrame(_cols, index=_ix).astype(float).resample("ME").last()
-                        _advm = pd.DataFrame(
-                            {tk: p.get("adv_63d") for tk, p in _pl.items()}, index=_ix
-                        ).astype(float).resample("ME").last()
-                        return hv.blend_relay_scores(_rsw, _advm, _use_wins, _blend_code, _basis_code)
+                    # 打分 + 选仓全走后端（19/21/24 三页同一份口径），前端只留净值合成。
+                    # 后端一次请求能跑多组选仓参数、打分面板只算一遍，所以下面三处网格
+                    # （主曲线 / 守擂寻优 / 收益总览）都按「一个窗口一次请求」批量取。
+                    _pool_csv = ",".join(sorted(_pool))
+                    _wins_csv = ",".join(str(w) for w in _mom_wins)
 
-                    # 当前窗口打分
-                    _score_m = _score_from_ts(_dyn_ts)
+                    def _combo_key(_n, _gd, _bn, _kd):
+                        return (int(_n), _gd, int(_bn), round(float(_kd), 2))
+
+                    def _mh_by_combo(_hz, _wins, _combos):
+                        """一次请求拿多组选仓结果 → {(N, 守擂, buffer_n, kδ): {执行月: [票]}}。"""
+                        _resp = fetch_dynasty_relay_selection_batch(
+                            window=_hz,
+                            tickers=_pool_csv,
+                            mom_windows=",".join(str(w) for w in _wins),
+                            blend=_blend_code,
+                            basis=_basis_code,
+                            gate=_gate_code,
+                            combos=tuple(
+                                (("n_holdings", int(_n)), ("guard", _gd),
+                                 ("buffer_n", int(_bn)), ("k_delta", round(float(_kd), 2)))
+                                for (_n, _gd, _bn, _kd) in _combos
+                            ),
+                        )
+                        if not _resp.get("success"):
+                            return {}
+                        return {
+                            _combo_key(r["n_holdings"], r["guard"], r["buffer_n"], r["k_delta"]):
+                                (r.get("monthly_holdings") or {})
+                            for r in _resp.get("results") or []
+                        }
 
                     # 价格：选仓池 + SPY，周线（含 D-ext）
                     _pool_px = get_global_data(sorted(_pool.keys()) + ["SPY"], years=10)
@@ -497,15 +500,10 @@ with _dyn_tab1:
                                 if len(_s) >= 2:
                                     _pc[_tk] = _s.to_frame(name="Close")
 
-                    def _build_navc(_sm, _gd, _bn, _kd, _n=None):
-                        """选仓 → 槽位 → 各槽周线 NAV → 等权合成。_n=None 用当前旋钮。
+                    def _build_navc(_mh2, _n=None):
+                        """后端选仓结果 → 槽位 → 各槽周线 NAV → 等权合成。_n=None 用当前旋钮。
                         返回 (monthly_holdings, slots, exec_months, slot_navs, navc)。"""
                         _nn = _n_hold if _n is None else int(_n)
-                        if _sm is None or _sm.empty:
-                            return {}, {}, [], [], pd.Series(dtype=float)
-                        _mh2 = hv.select_relay_holdings(
-                            _sm, _nn, _gate_code, _gd, _bn, _kd
-                        )
                         if not _mh2:
                             return {}, {}, [], [], pd.Series(dtype=float)
                         _em = sorted(_mh2)
@@ -529,7 +527,7 @@ with _dyn_tab1:
                             _navc2 = _acc / len(_valid)
                         return _mh2, _sl, _em, _snavs, _navc2
 
-                    if _score_m.empty or not _pc:
+                    if not _pc:
                         st.info("暂无足够数据渲染净值(检查选仓池 / 动量窗口 / 价格)。")
                         return
 
@@ -560,29 +558,37 @@ with _dyn_tab1:
                     _rec_val = None
                     _sweep_grid, _sweep_norm, _sweep_cum = [], {}, {}
                     if _guard_code != "none":
-                        _score_by_hz = {
-                            hz: _score_from_ts(_dynasty_ts_by_window.get(hz, {}) or {})
-                            for hz in _HZ
-                        }
-
-                        def _cum_ret_for(hz, gd, bn, kd):
-                            _sm2 = _score_by_hz.get(hz)
-                            if _sm2 is None or _sm2.empty:
-                                return float("nan")
-                            _r = _build_navc(_sm2, gd, bn, kd)[4]
-                            if _r.empty:
-                                return float("nan")
-                            return (float(_r.iloc[-1]) / float(_r.iloc[0]) - 1.0) * 100.0
+                        if _guard_code == "delta":
+                            _sweep_grid = [round(x * 0.25, 2) for x in range(0, 13)]  # 0~3.0
+                            _sweep_combos = [
+                                (_n_hold, "delta", _buf_n, dk) for dk in _sweep_grid
+                            ]
+                        else:  # buffer
+                            _sweep_grid = list(range(int(_n_hold), 11))  # buffer N~10
+                            _sweep_combos = [
+                                (_n_hold, "buffer", bn, _kdelta) for bn in _sweep_grid
+                            ]
 
                         with st.spinner("守擂参数寻优（3Y/5Y/10Y 网格）..."):
+                            # 一段一次请求，整条网格在后端同一份打分面板上跑完
+                            _sweep_mh = {
+                                hz: _mh_by_combo(hz, _mom_wins, _sweep_combos) for hz in _HZ
+                            }
+
+                            def _cum_ret_for(hz, gd, bn, kd):
+                                _mh2 = _sweep_mh.get(hz, {}).get(
+                                    _combo_key(_n_hold, gd, bn, kd), {})
+                                _r = _build_navc(_mh2)[4]
+                                if _r.empty:
+                                    return float("nan")
+                                return (float(_r.iloc[-1]) / float(_r.iloc[0]) - 1.0) * 100.0
+
                             if _guard_code == "delta":
-                                _sweep_grid = [round(x * 0.25, 2) for x in range(0, 13)]  # 0~3.0
                                 _sweep_cum = {
                                     dk: {hz: _cum_ret_for(hz, "delta", _buf_n, dk) for hz in _HZ}
                                     for dk in _sweep_grid
                                 }
-                            else:  # buffer
-                                _sweep_grid = list(range(int(_n_hold), 11))  # buffer N~10
+                            else:
                                 _sweep_cum = {
                                     bn: {hz: _cum_ret_for(hz, "buffer", bn, _kdelta) for hz in _HZ}
                                     for bn in _sweep_grid
@@ -596,9 +602,11 @@ with _dyn_tab1:
                             else:
                                 _buf_n = int(_rec_val)
 
-                    _mh, _slots, _exec_months, _slot_navs, _navc = _build_navc(
-                        _score_m, _guard_code, _buf_n, _kdelta
-                    )
+                    _main_mh = _mh_by_combo(
+                        _dynasty_window, _mom_wins,
+                        [(_n_hold, _guard_code, _buf_n, _kdelta)],
+                    ).get(_combo_key(_n_hold, _guard_code, _buf_n, _kdelta), {})
+                    _mh, _slots, _exec_months, _slot_navs, _navc = _build_navc(_main_mh)
                     if _navc.empty:
                         st.info("价格窗口内无足够数据生成净值曲线。")
                         return
@@ -658,37 +666,35 @@ with _dyn_tab1:
                         ]
                         _ov_hz = ["3Y", "5Y", "10Y"]
                         _ov_delta_grid = [round(x * 0.25, 2) for x in range(0, 13)]
-                        _ov_ts = {hz: (_dynasty_ts_by_window.get(hz, {}) or {}) for hz in _ov_hz}
 
-                        def _ov_tot_ret(_sm, _n, _gd, _bn, _kd):
-                            _r = _build_navc(_sm, _gd, _bn, _kd, _n)[4]
+                        def _ov_tot_ret(_mh2, _n):
+                            _r = _build_navc(_mh2, _n)[4]
                             if _r is None or _r.empty:
                                 return float("nan")
                             return (float(_r.iloc[-1]) / float(_r.iloc[0]) - 1.0) * 100.0
+
+                        # 候选：N × 守擂 × 参数，7 组动量配置共用同一张网格
+                        _cands = []
+                        for _n in [1, 2, 3, 4, 5]:
+                            for _bn in range(int(_n), 11):
+                                _cands.append((_n, "buffer", _bn, 1.0))
+                            for _dk in _ov_delta_grid:
+                                _cands.append((_n, "delta", max(4, _n), _dk))
+                            _cands.append((_n, "none", max(4, _n), 1.0))
 
                         _ov_results = []
                         _ov_prog = st.progress(0.0, text="搜索各动量配置最优参数...")
                         for _ci in range(len(_ov_configs)):
                             _wins, _clabel = _ov_configs[_ci]
-                            _score_hz = {hz: _score_from_ts(_ov_ts[hz], _wins) for hz in _ov_hz}
-                            _score_disp = _score_hz.get("10Y", pd.DataFrame())
-                            if _score_disp is None or _score_disp.empty:
-                                for hz in ["5Y", "3Y"]:
-                                    if not _score_hz.get(hz, pd.DataFrame()).empty:
-                                        _score_disp = _score_hz[hz]
-                                        break
-                            # 候选：N × 守擂 × 参数
-                            _cands = []
-                            for _n in [1, 2, 3, 4, 5]:
-                                for _bn in range(int(_n), 11):
-                                    _cands.append((_n, "buffer", _bn, 1.0))
-                                for _dk in _ov_delta_grid:
-                                    _cands.append((_n, "delta", max(4, _n), _dk))
-                                _cands.append((_n, "none", max(4, _n), 1.0))
+                            # 每段一次请求，整张网格在后端同一份打分面板上跑完
+                            _ov_mh = {hz: _mh_by_combo(hz, _wins, _cands) for hz in _ov_hz}
+                            _disp_hz = "10Y" if _ov_mh.get("10Y") else next(
+                                (hz for hz in ["5Y", "3Y"] if _ov_mh.get(hz)), None)
                             _rows = []
                             for (_n, _gd, _bn, _kd) in _cands:
+                                _ck = _combo_key(_n, _gd, _bn, _kd)
                                 _rr = {
-                                    hz: _ov_tot_ret(_score_hz.get(hz, pd.DataFrame()), _n, _gd, _bn, _kd)
+                                    hz: _ov_tot_ret(_ov_mh.get(hz, {}).get(_ck, {}), _n)
                                     for hz in _ov_hz
                                 }
                                 _rows.append(((_n, _gd, _bn, _kd), _rr))
@@ -719,9 +725,10 @@ with _dyn_tab1:
                                         _best_r, _best = _v, _params
                             # 用最长可用时序建展示曲线（各自起点归一）
                             _rel, _fret = pd.Series(dtype=float), float("nan")
-                            if _best is not None and _score_disp is not None and not _score_disp.empty:
+                            if _best is not None and _disp_hz:
                                 _n, _gd, _bn, _kd = _best
-                                _navc_w = _build_navc(_score_disp, _gd, _bn, _kd, _n)[4]
+                                _navc_w = _build_navc(
+                                    _ov_mh[_disp_hz].get(_combo_key(_n, _gd, _bn, _kd), {}), _n)[4]
                                 if not _navc_w.empty:
                                     _rel = _navc_w.astype(float).dropna()
                                     _rel = _rel / float(_rel.iloc[0])
@@ -734,16 +741,16 @@ with _dyn_tab1:
 
                         # 固定对比线：252d · N=2 · buffer(4)，不参与寻优，供与各配置最优对比
                         _pin_wins, _pin_n, _pin_bn = [252], 2, 4
-                        _pin_score_hz = {hz: _score_from_ts(_ov_ts[hz], _pin_wins) for hz in _ov_hz}
-                        _pin_disp = _pin_score_hz.get("10Y", pd.DataFrame())
-                        if _pin_disp is None or _pin_disp.empty:
-                            for hz in ["5Y", "3Y"]:
-                                if not _pin_score_hz.get(hz, pd.DataFrame()).empty:
-                                    _pin_disp = _pin_score_hz[hz]
-                                    break
+                        _pin_combo = (_pin_n, "buffer", _pin_bn, 1.0)
+                        _pin_mh_hz = {
+                            hz: _mh_by_combo(hz, _pin_wins, [_pin_combo]) for hz in _ov_hz
+                        }
+                        _pin_hz = "10Y" if _pin_mh_hz.get("10Y") else next(
+                            (hz for hz in ["5Y", "3Y"] if _pin_mh_hz.get(hz)), None)
                         _pin_rel, _pin_ret = pd.Series(dtype=float), float("nan")
-                        if _pin_disp is not None and not _pin_disp.empty:
-                            _pin_navc = _build_navc(_pin_disp, "buffer", _pin_bn, 1.0, _pin_n)[4]
+                        if _pin_hz:
+                            _pin_navc = _build_navc(
+                                _pin_mh_hz[_pin_hz].get(_combo_key(*_pin_combo), {}), _pin_n)[4]
                             if not _pin_navc.empty:
                                 _pin_rel = _pin_navc.astype(float).dropna()
                                 _pin_rel = _pin_rel / float(_pin_rel.iloc[0])

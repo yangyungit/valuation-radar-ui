@@ -10,7 +10,22 @@
 
 **核验**：本机对比 5Y 窗口下 `dynasty_lab_score → dynasty_lab_buffer_n → select_relay_holdings` 本地管线 vs 直接调 `/api/v1/macro/dynasty/relay_selection` 单点端点，59 个月持仓逐月一致（`mh_local == mh_api` → `True`），两边 `buffer_n` 都是 8。
 
-**未完成，需要 Opus 判断**：19 页「王朝接力净值实验台」（`_render_relay_lab`，含主曲线打分/选仓、maximin 防抖寻优、110 组「收益总览」批量寻优三段逻辑）仍在本地直接调 `hv.blend_relay_scores` / `hv.select_relay_holdings`（`_score_from_ts` 闭包自己拼 RS DataFrame），没有按 Stage B 迁到后端——这两个函数在 `holdings_viz.py` 里仍是本地实现，plan §6.3 验收命令（`rg "ascending=True)  # 越大..."` / `"cap_weight \* adv_z"` 要求 0 命中）现在过不了，详见会话汇报。
+**未完成部分已在下一条补完**（19 页 + `holdings_viz.py` 里两份本地 Borda）。
+
+## 2026-09-09 Stage B 收尾：19 页实验台改调后端选板块，前端两份本地 Borda 删除
+
+**判断**：plan §2.2 写「19 页调用点不改代码，靠 `holdings_viz` 内部改实现透明切换」，这句做不到——`_score_from_ts` 定义在 19 页自己身上而不是 `holdings_viz` 里，没法在 `holdings_viz` 内部替换掉；而且 `select_relay_holdings` 吃的是打分 DataFrame，后端端点不收这个入参。按 §6.3（`holdings_viz.py` 里 0 命中本地 Borda）为准，改 19 页代码。
+
+**能改干净的关键**：19 页的打分面板全程只当 `_build_navc` 的入参用，没有任何地方把分数画出来或列出来。所以不是「把打分搬到后端再传回前端」，而是打分面板整个不进前端了——前端只拿每月持仓，净值合成、槽位、统计卡全留本地（plan §2.2 要求）。
+
+- `pages/19_板块王朝.py`：删掉 `_score_from_ts` 闭包，换成 `_mh_by_combo(窗口, 动量窗口, 候选参数列表)` 一次请求拿多组持仓；`_build_navc` 的第一个入参从打分面板改成每月持仓。三处网格各自按「一段一次请求」批量取：主曲线 1 次、maximin 防抖寻优 3 次、「收益总览」按钮 7 组配置 × 3 段 + 固定对比线 3 次。选仓池仍是 D 组勾选 + D-ext 开关，靠端点的 `tickers` 参数原样传过去。
+- `holdings_viz.py`：删 `blend_relay_scores` / `select_relay_holdings`（共 116 行）和 `dynasty_lab_score` / `dynasty_lab_buffer_n`。`render_dynasty_ribbon` 从三次调用（打分 + 单独为 10Y 寻 buffer_N + 本地选仓）收成一次——`buffer_n=0` 时后端的寻优本来就是自己在 3Y/5Y/10Y 上跑的，与请求的 window 无关，没必要单独再打一次 10Y。名称也直接用返回体的 `name_map`，条带不再需要单拉一次时序。`dynasty_relay_slots`（26 页 B 曲线）按 plan 保持不动。
+
+**核验**：
+- 后端 `scripts/verify_relay_selection_parity.py`：7 组动量配置 × 3 段 × 110 组选仓参数 = 2310 组持仓逐月一致。
+- 条带：5Y / 10Y 两个窗口，收成一次调用后 `buffer_N` 仍是 8、持仓逐月与原来的三步管线一致。
+- 19 页整页 `AppTest` 无头渲染，改动前后各跑两遍对 9 张统计卡：3Y / 5Y 完全一致；10Y 只有 CAGR 在 16.8/16.9 之间跳，**旧代码自己重跑两遍也在跳**（总收益同为 346.0%，是价格拉取抖动卡在四舍五入边界），换股次数 / 回撤 / Calmar / Sortino / logR² / 换手 / 持有月数全同。
+- plan §6.3：`rg "cap_weight \* adv_z|ascending=True\)  # 越大|elig_sorted" holdings_viz.py` 0 命中，`ten6` 只剩 `dynasty_relay_slots` 里那份。
 
 ## 2026-09-09 板块王朝条带对齐 19 页实验台口径 + 复制到戴金龙头页
 
