@@ -497,6 +497,7 @@ def dynasty_relay_slots(dyn_ts: dict, groups: list = None, buffer_n: int = 4):
 def build_relay_gantt(
     slot_assignments: dict, exec_months: list, name_map: dict = None,
     title: str = "王朝接力左右列时间条带",
+    track_labels: tuple = ("左列 · 龙头", "右列 · 次龙头"),
 ) -> go.Figure:
     """把左右列每月持仓画成甘特时间条带：两条轨道（左列/右列），每段连续持有同一板块
     = 一个色带，带上标中文名 + 代码。"""
@@ -539,7 +540,7 @@ def build_relay_gantt(
         showlegend=False,
     )
     fig.update_yaxes(
-        tickvals=[1.0, 0.0], ticktext=["左列 · 龙头", "右列 · 次龙头"],
+        tickvals=[1.0, 0.0], ticktext=list(track_labels),
         range=[-0.6, 1.6], showgrid=False, zeroline=False,
     )
     if exec_months:

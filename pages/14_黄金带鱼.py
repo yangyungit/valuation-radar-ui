@@ -116,7 +116,8 @@ _missing = [t for t in sorted(set(union + HAND_GOLD + ["SPY"])) if t not in clos
 if _missing:
     st.warning(f"⚠️ 价格缓存缺票：{_missing}（本地 push_local_to_render --tables gbdt_oos_prices 后消失）")
 
-close_m = pd.DataFrame(close_d).sort_index().resample("ME").last()
+close_all = pd.DataFrame(close_d).sort_index()
+close_m = close_all.resample("ME").last()
 ret_m = close_m.pct_change(fill_method=None)
 
 
@@ -265,6 +266,55 @@ _m1.metric(f"CAGR（{window}）", f"{_kpi_pool['cagr'] * 100:+.1f}%" if _kpi_poo
 _m2.metric(f"maxDD（{window}）", f"{-_kpi_pool['dd'] * 100:.1f}%" if _kpi_pool["dd"] == _kpi_pool["dd"] else "N/A")
 _m3.metric(f"Calmar（{window}）", f"{_kpi_pool['calmar']:.2f}" if _kpi_pool["calmar"] == _kpi_pool["calmar"] else "N/A")
 st.caption("统计卡为「等权规则池」曲线按当前选中窗口切段计算（月线 NAV）。")
+
+st.markdown("---")
+
+# ── 3. 左右列接力：每年 2 只，拆成两槽看哪只票扛了哪一段 ──
+st.markdown("### 🎞️ 左列 / 右列接力")
+st.caption(
+    "每年 2 只，拆成左右两槽：上月在某槽的票今年还在池里就留原槽，换人才换色带"
+    "（HD 在右槽 2016-02→2019-01 连拿 3 年，TMO 左槽连拿 2 年）。"
+    "名单 12-31 定、延迟一个月生效（与 `backtest_golden_ribbon_round5.py` 的 `by_year` 同口径），"
+    "所以色带从当年 2 月起算，2016-01 是空仓。"
+    "各槽净值是**周线单票口径**（段内不动，换票时卖出 + 买入各扣 200bps），只作归因；"
+    "「合成」那条就是上面那张月线等权再平衡曲线（与回测同源）。"
+    "两个口径差得不小：左右槽 50/50 买入后不再平衡的话全程 +350% / 回撤 −31.5%，"
+    "月末再平衡是 +485% / −16.9%——差距全在每月把跑赢的那只削回一半。本节固定看全程。"
+)
+
+_wk = close_all.resample("W-FRI").last()
+_spy_wk = (_wk[["SPY"]].rename(columns={"SPY": "Close"}).dropna()
+           if "SPY" in _wk.columns else pd.DataFrame())
+_pc = {t: _wk[t].dropna().to_frame("Close") for t in union
+       if t in _wk.columns and _wk[t].notna().sum() >= 2}
+# 执行月的持仓 = 上一个月末生效的年池（对齐 _ew_nav 里的 w.shift(1)）
+_exec_months = [d.strftime("%Y-%m") for d in _months]
+_slots = hv.build_basket_slot_assignments(
+    {d.strftime("%Y-%m"): pools.get(d.year if d.month > 1 else d.year - 1, []) for d in _months},
+    _exec_months,
+)
+_nm = {t: gmeta.get(t, {}).get("name", t) for t in union}
+_slot_segs = [hv.build_slot_segments(_slots, si, _exec_months) for si in range(2)]
+_slot_navs = [(lbl, hv.calc_slot_stats(seg, _pc, _spy_wk, CASH_RATE, COST_BPS)[2])
+              for lbl, seg in zip(("左列", "右列"), _slot_segs)]
+
+st.plotly_chart(
+    hv.build_relay_gantt(_slots, _exec_months, _nm,
+                         title="黄金带鱼左右列 · 持仓时间条带",
+                         track_labels=("左列 · Slot 0", "右列 · Slot 1")),
+    use_container_width=True, key="gold_gantt",
+)
+st.plotly_chart(
+    hv.build_combined_fig_n(_slot_navs, nav_pool, _spy_wk,
+                            "黄金带鱼 — 左右列各自净值 vs 月线等权合成 vs SPY"),
+    use_container_width=True, key="gold_slot_combined",
+)
+for _si, (_lbl, _) in enumerate(_slot_navs):
+    st.plotly_chart(
+        hv.build_stitched_fig(_slot_segs[_si], f"黄金带鱼 {_lbl} (Slot {_si})",
+                              _spy_wk, _pc, _nm, cost_bps=COST_BPS),
+        use_container_width=True, key=f"gold_slot_{_si}",
+    )
 
 st.markdown("---")
 st.markdown("## 📏 黄金阶段规则池（PIT 逐年重算）")
