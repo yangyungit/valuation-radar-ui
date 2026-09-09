@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
+import holdings_viz as hv
 from api_client import fetch_logr2_stable_pool, fetch_gbdt_oos_prices
 
 st.set_page_config(page_title="黄金带鱼", layout="wide")
@@ -57,7 +58,7 @@ with st.sidebar:
         st.rerun()
 
 COST_BPS = 200.0
-CASH_RATE = 0.04
+CASH_RATE = hv.CASH_APY
 HAND_GOLD = ["AAPL", "LLY", "TJX", "COST"]   # 仅对照线 + 页底对照表
 name_map = {"AAPL": "Apple", "LLY": "Eli Lilly", "TJX": "TJX", "COST": "Costco"}
 # 后端 sector 字段是英文原名，仅展示时换中文简称（与 holdings_viz._SECTOR_CN 同一套词）

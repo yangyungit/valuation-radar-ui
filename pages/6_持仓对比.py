@@ -62,7 +62,7 @@ for _bk in ("buf_a", "buf_b", "buf_c", "buf_d"):
         else max(2, min(int(_v), _max_buffer_n))
     )
 
-_CASH_RATE = 0.04
+_CASH_RATE = hv.CASH_APY
 
 
 def _collect_tickers(hist: dict, grade: str, top_n: int) -> set:

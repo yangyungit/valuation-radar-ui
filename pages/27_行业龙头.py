@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
+import holdings_viz as hv
 from api_client import fetch_sector_leaders, fetch_gbdt_oos_prices
 
 st.set_page_config(page_title="行业龙头", layout="wide")
@@ -57,7 +58,7 @@ with st.sidebar:
         st.rerun()
 
 COST_BPS = 200.0
-CASH_RATE = 0.04
+CASH_RATE = hv.CASH_APY
 # 起点对照，后视镜产物。原来是 7 只，2026-09-08 删掉 V/BRK.B/MA（留一法证明这三只金融不提供分散）
 HAND4 = ["AAPL", "LLY", "TJX", "COST"]
 

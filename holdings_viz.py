@@ -13,6 +13,10 @@ SLOT_COLORS = [
     "#1ABC9C", "#E74C3C", "#F1C40F", "#8E44AD",
 ]
 
+# 回测里空仓/持现金期间的年化收益。测试阶段一律按 0，只看选股本身的效果；
+# 要恢复货币基金那 4%，改这一个数即可（26_组合净值 的最终组合腿单独维护，不走这里）。
+CASH_APY = 0.0
+
 # GICS 板块英文 → 中文（做接力图顶部「ticker · 主营业务」标签用；后端 group 字段即英文 sector）
 _SECTOR_CN = {
     "Technology": "科技",
@@ -680,11 +684,11 @@ def build_stitched_fig(
         n = len(closes)
         x_vals = list(range(x_offset, x_offset + n))
         color = SLOT_COLORS[ci % len(SLOT_COLORS)]
-        # 熊市防御：清仓 bar 收益换现金(年化4%)净值走平，减半 bar 换 0.5×个股+0.5×现金，
+        # 熊市防御：清仓 bar 收益换现金(年化 CASH_APY)净值走平，减半 bar 换 0.5×个股+0.5×现金，
         # 其余 bar 照旧跟随个股。cumprod(pct_change) 起点等于 running_nav，与原口径一致。
         _state = None  # 0=满仓 1=减仓一半 2=清仓
         if danger_daily is not None or danger_half_daily is not None:
-            _cash_wr = 1.04 ** (1.0 / 52) - 1.0
+            _cash_wr = (1.0 + CASH_APY) ** (1.0 / 52) - 1.0
             _dg = (danger_daily.reindex(closes.index, method="ffill").fillna(False).astype(bool)
                    if danger_daily is not None else pd.Series(False, index=closes.index))
             _dh = (danger_half_daily.reindex(closes.index, method="ffill").fillna(False).astype(bool)
@@ -812,7 +816,7 @@ def calc_slot_stats(
     segs: list,
     price_cache: dict = None,
     spy_wk: pd.DataFrame = None,
-    cash_rate: float = 0.04,
+    cash_rate: float = CASH_APY,
     cost_bps: float = 0.0,
 ) -> tuple:
     """cost_bps：单边换仓成本（手续费+滑点）。每次卖出旧标的、买入新标的各扣一次；
@@ -939,7 +943,7 @@ def build_basket_nav(
     price_cache_daily: dict,
     spy_daily: pd.DataFrame,
     top_n: int = 2,
-    cash_rate: float = 0.04,
+    cash_rate: float = CASH_APY,
     buffer_n: int | None = None,
     cost_bps: float = 0.0,
     rebalance_step: int = 1,
@@ -1052,7 +1056,7 @@ def build_nav_from_holdings(
     price_cache_daily: dict,
     spy_daily: pd.DataFrame,
     top_n: int | None = 1,
-    cash_rate: float = 0.04,
+    cash_rate: float = CASH_APY,
     cost_bps: float = 10.0,
 ) -> dict:
     """日线净值：每个执行月首个交易日 Open 买入、持有到月末 Close，按换手只数扣单边 cost_bps。
@@ -1196,7 +1200,7 @@ def build_nav_from_daily_positions(
     daily_close_cache: dict,
     spy_daily: pd.Series,
     rule: dict,
-    cash_rate: float = 0.04,
+    cash_rate: float = CASH_APY,
     reentry_ma_cache: dict = None,
     cost_bps: float = 0.0,
 ) -> dict:

@@ -32,7 +32,7 @@ def build_slot_segments(slot_assignments: dict, slot_idx: int, tm_months: list) 
 
 def calc_slot_stats(
     segs: list, price_cache: dict = None, spy_wk: pd.DataFrame = None,
-    cash_rate: float = 0.04,
+    cash_rate: float = 0.0,  # 与 holdings_viz.CASH_APY 同步；本模块刻意不依赖 streamlit
 ) -> tuple:
     """持仓段序列 → 周线 NAV（含 CASH 段按年化复利），返回 (总收益%, 最大回撤%, NAV Series)。
 

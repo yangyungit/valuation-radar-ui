@@ -629,7 +629,7 @@ def render_group(
         if nav_engine == "daily":
             _r = hv.build_nav_from_holdings(
                 _mh, daily_price_cache or {}, spy_daily,
-                top_n=None if dynamic_n_hold else n_hold, cash_rate=0.04, cost_bps=cost_bps,
+                top_n=None if dynamic_n_hold else n_hold, cash_rate=hv.CASH_APY, cost_bps=cost_bps,
             )
             _navc = _r["nav"]
             if dynamic_n_hold:
@@ -640,11 +640,11 @@ def render_group(
             _mh_r = {m: [_slots.get(m, ["CASH", "CASH"])[1]] for m in _exec_months}
             _nav_l = hv.build_nav_from_holdings(
                 _mh_l, daily_price_cache or {}, spy_daily,
-                top_n=1, cash_rate=0.04, cost_bps=cost_bps,
+                top_n=1, cash_rate=hv.CASH_APY, cost_bps=cost_bps,
             )["nav"]
             _nav_r = hv.build_nav_from_holdings(
                 _mh_r, daily_price_cache or {}, spy_daily,
-                top_n=1, cash_rate=0.04, cost_bps=cost_bps,
+                top_n=1, cash_rate=hv.CASH_APY, cost_bps=cost_bps,
             )["nav"]
             return _exec_months, _slots, _slot_segs, _nav_l, _nav_r, _navc
         if not price_cache:
@@ -671,12 +671,12 @@ def render_group(
             return out
 
         _seg_l = _split_by_weight(_slot_segs[0])
-        _nav_l = hv.calc_slot_stats(_seg_l, price_cache, spy_wk, 0.04, cost_bps)[2]
+        _nav_l = hv.calc_slot_stats(_seg_l, price_cache, spy_wk, hv.CASH_APY, cost_bps)[2]
         if n_hold < 2:
             # 单仓：满仓 Top1，净值 = 左列，不掺现金、不做 50/50。
             return _exec_months, _slots, _slot_segs, _nav_l, pd.Series(dtype=float), _nav_l.copy()
         _seg_r = _split_by_weight(_slot_segs[1])
-        _nav_r = hv.calc_slot_stats(_seg_r, price_cache, spy_wk, 0.04, cost_bps)[2]
+        _nav_r = hv.calc_slot_stats(_seg_r, price_cache, spy_wk, hv.CASH_APY, cost_bps)[2]
         _navc = pd.Series(dtype=float)
         if not _nav_l.empty and not _nav_r.empty:
             _uidx = _nav_l.index.union(_nav_r.index)
@@ -886,12 +886,12 @@ def render_group(
     _bear_on = False
     if danger_daily is not None and not _navc.empty:
         _bear_on = st.toggle(
-            "🐻 熊市防御（红段 GBDT 清仓持现金 · 橙段旧闸门减仓一半 · 现金年化 4%）",
+            "🐻 熊市防御（红段 GBDT 清仓持现金 · 橙段旧闸门减仓一半 · 现金不计息）",
             value=bear_default, key=f"{kp}_bear_cash",
         )
     if _bear_on:
         _dg = danger_daily.reindex(_navc.index, method="ffill").fillna(False).astype(bool)
-        _cash_dr = 1.04 ** (1.0 / 252) - 1.0
+        _cash_dr = (1.0 + hv.CASH_APY) ** (1.0 / 252) - 1.0
         _ret_d = _navc.pct_change().fillna(0.0)
         if danger_half_daily is not None:
             _dh = (danger_half_daily.reindex(_navc.index, method="ffill")
@@ -900,14 +900,14 @@ def render_group(
         _ret_d = _ret_d.where(~_dg, _cash_dr)
         _navc = (1.0 + _ret_d).cumprod() * float(_navc.iloc[0])
 
-    # 波动率目标仓位：仓位 = min(1, 目标波动 ÷ 近20日已实现波动)，缩掉部分持现金（年化 4%）。
+    # 波动率目标仓位：仓位 = min(1, 目标波动 ÷ 近20日已实现波动)，缩掉部分持现金（年化 CASH_APY）。
     # 与 GBDT 闸门互补——闸门是预测式全有全无，这层是反应式连续降仓，垫在满仓/清仓之间。
     # 波动率 shift 1 天：当日收益乘的是前一日就能算出的仓位，无未来函数。叠加在熊市防御之后。
     _navc_bear = _navc
     _vt_on = False
     if nav_engine == "daily" and not _navc.empty and len(_navc) > 40:
         _vt_on = st.toggle(
-            "🌊 波动率目标仓位（近20日波动超目标 → 按比例降仓，缩掉部分持现金 4%）",
+            "🌊 波动率目标仓位（近20日波动超目标 → 按比例降仓，缩掉部分持现金，不计息）",
             value=False, key=f"{kp}_vt_on",
         )
     if _vt_on:
@@ -919,7 +919,7 @@ def render_group(
             5, 80, min(max(_vt_def, 5), 80), 1, key=f"{kp}_vt_target",
         ) / 100.0
         _scale = (_vt_target / _vol20.replace(0.0, float("nan"))).clip(upper=1.0).shift(1).fillna(1.0)
-        _cash_dr = 1.04 ** (1.0 / 252) - 1.0
+        _cash_dr = (1.0 + hv.CASH_APY) ** (1.0 / 252) - 1.0
         _navc = (1.0 + _scale * _ret_vt + (1.0 - _scale) * _cash_dr).cumprod() * float(_navc.iloc[0])
         _vol_now = float(_vol20.iloc[-1])
         _scale_now = min(1.0, _vt_target / _vol_now) if _vol_now == _vol_now and _vol_now > 0 else 1.0

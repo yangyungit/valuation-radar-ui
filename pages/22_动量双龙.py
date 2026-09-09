@@ -200,7 +200,7 @@ def _dd_orig_port(base: dict) -> pd.Series:
     return _dd_combine(base, base["orig_slots"])
 
 
-def _stop_on_base(base: dict, stop_pct: float, cash_annual: float = 0.04) -> pd.Series:
+def _stop_on_base(base: dict, stop_pct: float, cash_annual: float = hv.CASH_APY) -> pd.Series:
     """我最初的通用做法：每槽自净值峰值回撤达阈值→止损转现金，下月首日按当月持仓重进。"""
     dates = base["dates"]
     n = len(dates)
@@ -275,7 +275,7 @@ def _dd_fetch_held_prices(dd: dict) -> dict:
     return out
 
 
-def _ma4_on_base(base: dict, held: dict, ma_months: int = 4, cash_annual: float = 0.04) -> pd.Series:
+def _ma4_on_base(base: dict, held: dict, ma_months: int = 4, cash_annual: float = hv.CASH_APY) -> pd.Series:
     """系统机制①MA4留任（抄 render_group.retention_mask）：在任票月末价 > 自己4月均线才留，
     跌破换现金；用上月末信号去前视。缺该票日线时默认留任。"""
     dates = base["dates"]
@@ -307,7 +307,7 @@ def _ma4_on_base(base: dict, held: dict, ma_months: int = 4, cash_annual: float 
 
 
 def _execdd_on_base(base: dict, held: dict, stop_pct: float,
-                    reentry_ma: int = 100, cash_annual: float = 0.04) -> pd.Series:
+                    reentry_ma: int = 100, cash_annual: float = hv.CASH_APY) -> pd.Series:
     """系统机制②exec_rule 回撤止损：距持有段高点(个股价)回撤>阈值出场，
     日线收盘站回自身 MA{reentry_ma} 上方才买回。缺该票日线时不做止损。"""
     dates = base["dates"]
@@ -415,7 +415,7 @@ def _chaos_risk_off(dates: pd.DatetimeIndex, fwd_days: int = 20):
         return pd.Series(False, index=dates), False
 
 
-def _apply_regime(nav: pd.Series, risk_off: pd.Series, mode: str = "清仓", cash_annual: float = 0.04) -> pd.Series:
+def _apply_regime(nav: pd.Series, risk_off: pd.Series, mode: str = "清仓", cash_annual: float = hv.CASH_APY) -> pd.Series:
     """把组合日收益在 risk-off 日替换为现金(清仓)或半仓(减半)，重建净值。"""
     nav = nav.astype(float)
     cash_daily = (1.0 + cash_annual) ** (1.0 / 252.0) - 1.0
