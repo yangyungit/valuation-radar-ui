@@ -874,6 +874,7 @@ with _dyn_tab1:
                             hv.build_stitched_fig(
                                 _seg, f"王朝接力 仓{_si + 1} (Slot {_si})",
                                 _spy_wk, _pc, _pool_name_map,
+                                cost_bps=200.0,
                             ),
                             use_container_width=True,
                             key=f"lab_slot{_si}_{key_suffix}",

@@ -593,7 +593,11 @@ def build_stitched_fig(
     danger_daily: pd.Series = None,
     danger_half_daily: pd.Series = None,
     weight_by_month: dict = None,
+    cost_bps: float = 0.0,
 ) -> go.Figure:
+    """cost_bps：单边换仓成本，口径与 calc_slot_stats 一致（卖出+买入各扣一次，
+    CASH 不算成本资产）。首段不扣——calc_slot_stats 的总收益用首点做分母，
+    首次买入成本被约掉，这里跟着约掉，两图末值才对得上。"""
     pc = price_cache if price_cache is not None else {}
     nm = name_map if name_map is not None else {}
     gm = grade_map if grade_map is not None else {}
@@ -611,7 +615,10 @@ def build_stitched_fig(
     )
     spy_x_all: list = []
     spy_y_all: list = []
-    spy_running_nav = 1.0
+    # SPY 全程用同一个基准价归一，不逐段重新归一——否则段与段之间那一周的 SPY
+    # 收益会被丢掉，基准线被系统性算低（9 段的槽能低 9 个百分点）。
+    spy_base = None
+    last_tk = None
 
     for ci, (tk, s_m, e_m) in enumerate(segs):
         if tk == "CASH":
@@ -620,6 +627,8 @@ def build_stitched_fig(
                 ed = pd.Timestamp(f"{e_m}-01") + pd.offsets.MonthEnd(1)
                 cash_idx = spy_wk.index[(spy_wk.index >= sd) & (spy_wk.index <= ed)]
                 if len(cash_idx) >= 1:
+                    if cost_bps and last_tk is not None and last_tk != "CASH":
+                        running_nav *= max(0.0, 1.0 - cost_bps / 10000.0)
                     n = len(cash_idx)
                     x_vals = list(range(x_offset, x_offset + n))
                     fig.add_trace(go.Scatter(
@@ -643,12 +652,14 @@ def build_stitched_fig(
                     if spy_close is not None:
                         spy_seg = spy_close.reindex(cash_idx, method="ffill").bfill().dropna()
                         if len(spy_seg) >= 2:
-                            spy_nav = (spy_seg / float(spy_seg.iloc[0])) * spy_running_nav
+                            if spy_base is None:
+                                spy_base = float(spy_seg.iloc[0])
+                            spy_nav = spy_seg / spy_base
                             for si, sdt in enumerate(cash_idx):
                                 if sdt in spy_seg.index:
                                     spy_x_all.append(x_offset + si)
                                     spy_y_all.append(max(0.001, float(spy_nav.loc[sdt])))
-                            spy_running_nav = float(spy_nav.iloc[-1])
+                    last_tk = "CASH"
                     x_offset += n
             continue
 
@@ -661,6 +672,10 @@ def build_stitched_fig(
         closes = wkd[mask]["Close"].astype(float).dropna()
         if len(closes) < 2:
             continue
+
+        if cost_bps and last_tk is not None and last_tk != tk:
+            sides = 2 if last_tk != "CASH" else 1
+            running_nav *= max(0.0, 1.0 - sides * cost_bps / 10000.0)
 
         n = len(closes)
         x_vals = list(range(x_offset, x_offset + n))
@@ -729,16 +744,18 @@ def build_stitched_fig(
                 showlegend=False,
             ))
         running_nav = float(seg_nav.iloc[-1])
+        last_tk = tk
 
         if spy_close is not None:
             spy_seg = spy_close.reindex(closes.index, method="ffill").bfill().dropna()
             if len(spy_seg) >= 2:
-                spy_nav = (spy_seg / float(spy_seg.iloc[0])) * spy_running_nav
+                if spy_base is None:
+                    spy_base = float(spy_seg.iloc[0])
+                spy_nav = spy_seg / spy_base
                 for si, sdt in enumerate(closes.index):
                     if sdt in spy_seg.index:
                         spy_x_all.append(x_offset + si)
                         spy_y_all.append(max(0.001, float(spy_nav.loc[sdt])))
-                spy_running_nav = float(spy_nav.iloc[-1])
 
         tick_vals.append(x_offset + n // 2)
         tick_texts.append(f"{s_m}→{e_m}")
@@ -763,7 +780,7 @@ def build_stitched_fig(
         fig.add_trace(go.Scatter(
             x=spy_x_all, y=spy_y_all, mode="lines",
             line=dict(color="rgba(180,180,180,0.4)", width=2, dash="dot"),
-            name=f"SPY 同期 {(spy_running_nav - 1) * 100:+.1f}%",
+            name=f"SPY 同期 {(spy_y_all[-1] - 1) * 100:+.1f}%",
         ))
         fig.data = fig.data[-1:] + fig.data[:-1]
 
