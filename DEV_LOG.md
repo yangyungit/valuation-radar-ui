@@ -1,3 +1,17 @@
+## 2026-09-09 板块王朝条带对齐 19 页实验台口径 + 复制到戴金龙头页
+
+**范围**：`holdings_viz.py` 新增 `dynasty_lab_score` / `dynasty_lab_buffer_n` / `render_dynasty_ribbon`；`pages/21_科技龙头.py`（原地的条带胶水代码换成调共用函数）、`pages/24_戴金龙头.py`（时间跨度 radio 下方新增条带）。`dynasty_relay_slots` 保持原样不动，`pages/26_组合净值.py` 的 B 曲线仍用它。
+
+**起因**：主理人发现 19 页显示最强的是科技 + 半导体，条带却显示能源 + 半导体。查出来是两套打分：条带原来直接用后端的 `king_score` 字段（Z(RS_252d) 原值），19 页实验台用 `blend_relay_scores` 自己按 Borda 名次重算。后端口径下 URA 铀矿 2025-08 到 2026-04 长期排前 2 占着槽位，2026-05 它掉到第 11 才换人，按资历补的是 XLE；Borda 口径下 URA 从没进前 2，XLK 从 2025-10 就进仓一直留任。分歧全在 RS 用原值还是用名次——原值让 RS 爆表的小众盘顶到 Top1。
+
+**两套口径的收益实测**（同引擎 N=2 / 资历进场 / 扣 200bps，buffer 都固定 4）：累计收益 3Y 99.3% → 104.8%、5Y 174.4% → 186.6%、10Y 267.2% → 271.1%（后端 king_score → Borda）。Borda 三段都略高但幅度接近噪音。换成 maximin 寻优的 buffer=8 后 Borda 拉开到 3Y 139.1% / 10Y 344.7%，年换手降到 0.88——但那个参数是在同一批数据上挑的，不算能兑现的优势。改口径的理由是两个页面别自相矛盾，不是为了多赚。附带一笔：10Y 里 SPY 是 287.8%，只有 Borda + buffer 8 那一档跑赢。
+
+**buffer_N 不写死**：`dynasty_lab_buffer_n` 把 19 页那次 3Y/5Y/10Y maximin 寻优搬过来复用（`st.cache_data` ttl=1h），当前解 = 8。写死数字的话实验台寻优结果一变条带又对不上。代价是每个 session 首次进 21 / 24 页多等约 8 秒（要拉 3 个窗口时序 + 全池 10 年价格算 27 条净值）。
+
+**核验**：寻优返回 8，条带 5Y / 10Y 最近三个月都是 XLK + SMH，与 19 页实验台主曲线持仓一致。
+
+---
+
 ## 2026-09-08 行业 PE 页新增图 E：板块涨幅集中度
 
 **范围**：`api_client.py` 新增 `fetch_valuation_concentration()`；`pages/10_行业PE.py` 新增图 E，接后端 `/api/v1/valuation/concentration`。

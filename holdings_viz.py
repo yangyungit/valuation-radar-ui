@@ -554,27 +554,157 @@ def build_relay_gantt(
 
 
 DYNASTY_RIBBON_GROUPS = ["C: 核心板块 (Level 1 Sectors)", "D: 细分赛道 (Level 2/Themes)"]
+DYNASTY_LAB_WINS = [252]
+_DYNASTY_LAB_HZ = ["3Y", "5Y", "10Y"]
+
+
+def dynasty_lab_score(dyn_ts: dict, groups: list = None) -> pd.DataFrame:
+    """月末打分，与 19_板块王朝 实验台的 _score_from_ts 同口径：Borda 名次平均 +
+    king_score 容量项，横截面只在选仓池内做。注意与后端直接给的 king_score 字段不同——
+    后端用 Z(RS_252d) 原值，这里用名次，URA/TAN 这类 RS 爆表的小众盘不会被顶到 Top1。"""
+    tickers = dyn_ts.get("tickers", {}) or {}
+    dates = dyn_ts.get("dates", []) or []
+    if not dates:
+        return pd.DataFrame()
+    pool = {
+        tk: p for tk, p in tickers.items()
+        if not groups or p.get("group", "") in groups
+    }
+    if not pool:
+        return pd.DataFrame()
+    idx = pd.to_datetime(dates, errors="coerce")
+    rs_by_w: dict = {}
+    for w in (63, 126, 252, 504):
+        cols = {}
+        for tk, p in pool.items():
+            v = p.get(f"rs_{w}")
+            if v is None:
+                v = p.get("rs")
+            if v is not None:
+                cols[tk] = v
+        if cols:
+            rs_by_w[w] = pd.DataFrame(cols, index=idx).astype(float).resample("ME").last()
+    adv_m = pd.DataFrame(
+        {tk: p.get("adv_63d") for tk, p in pool.items()}, index=idx
+    ).astype(float).resample("ME").last()
+    return blend_relay_scores(rs_by_w, adv_m, DYNASTY_LAB_WINS, "borda", "king_score")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def dynasty_lab_buffer_n(groups: tuple = (), n_holdings: int = 2) -> int:
+    """守擂 buffer_N：在 3Y/5Y/10Y 上跑 N~10 网格，各段归一化后取 maximin（并列取跨段
+    std 最小），与 19_板块王朝 实验台回填主曲线的那次寻优同一套算法。三段不齐时退回
+    max(4, N)。不写死数字，免得实验台寻优结果变了条带跟不上。"""
+    from api_client import fetch_macro_radar_timeseries, get_global_data
+
+    n = max(1, int(n_holdings))
+    fallback = max(4, n)
+    g = list(groups) or None
+    score_by_hz: dict = {}
+    pool_tks: set = set()
+    for hz in _DYNASTY_LAB_HZ:
+        ts = fetch_macro_radar_timeseries(window=hz, profile="dynasty")
+        if not ts.get("success"):
+            continue
+        sm = dynasty_lab_score(ts, g)
+        if not sm.empty:
+            score_by_hz[hz] = sm
+            pool_tks |= set(sm.columns)
+    if len(score_by_hz) < len(_DYNASTY_LAB_HZ):
+        return fallback
+
+    px = get_global_data(sorted(pool_tks) + ["SPY"], years=10)
+    if px is None or px.empty:
+        return fallback
+    wk = px.resample("W-FRI").last()
+    spy_wk = (
+        wk[["SPY"]].rename(columns={"SPY": "Close"}).dropna()
+        if "SPY" in wk.columns else pd.DataFrame()
+    )
+    pc: dict = {}
+    for tk in pool_tks:
+        if tk in wk.columns:
+            s = wk[tk].dropna()
+            if len(s) >= 2:
+                pc[tk] = s.to_frame(name="Close")
+    if not pc:
+        return fallback
+
+    def _cum_ret(sm: pd.DataFrame, bn: int) -> float:
+        mh = select_relay_holdings(sm, n, "seniority", "buffer", bn, 1.0)
+        if not mh:
+            return float("nan")
+        em = sorted(mh)
+        sl = build_basket_slot_assignments(mh, em)
+        navs = []
+        for si in range(max((len(v) for v in sl.values()), default=n)):
+            nv = calc_slot_stats(build_slot_segments(sl, si, em), pc, spy_wk, 0.04, 200.0)[2]
+            if not nv.empty:
+                navs.append(nv)
+        if not navs:
+            return float("nan")
+        uidx = navs[0].index
+        for nv in navs[1:]:
+            uidx = uidx.union(nv.index)
+        acc = None
+        for nv in navs:
+            r = nv.reindex(uidx).ffill().bfill()
+            acc = r if acc is None else acc + r
+        navc = acc / len(navs)
+        if navc.empty or float(navc.iloc[0]) == 0:
+            return float("nan")
+        return (float(navc.iloc[-1]) / float(navc.iloc[0]) - 1.0) * 100.0
+
+    grid = list(range(n, 11))
+    cum = {bn: {hz: _cum_ret(score_by_hz[hz], bn) for hz in _DYNASTY_LAB_HZ} for bn in grid}
+    norm: dict = {}
+    for hz in _DYNASTY_LAB_HZ:
+        vals = [cum[bn][hz] for bn in grid]
+        mx = max([v for v in vals if v == v], default=float("nan"))
+        norm[hz] = [
+            (v / mx) if (mx == mx and mx > 0 and v == v) else float("nan")
+            for v in vals
+        ]
+    best, best_key = None, None
+    for i, bn in enumerate(grid):
+        sc = [norm[hz][i] for hz in _DYNASTY_LAB_HZ]
+        if any(x != x for x in sc):
+            continue
+        key = (min(sc), -float(np.std(sc)))
+        if best_key is None or key > best_key:
+            best_key, best = key, bn
+    return int(best) if best is not None else fallback
 
 
 def render_dynasty_ribbon(window: str, key: str, compare_hint: str = "") -> None:
     """页面顶部的「板块王朝接力（最火板块时间条带）」，21_科技龙头 / 24_戴金龙头 共用。
-    与「板块王朝」页 king_score 接力同源。compare_hint 是各页自己的对照提示尾句。"""
+    口径对齐 19_板块王朝 的净值实验台：Borda 打分 + 资历进场 + buffer 守擂(maximin 寻优)
+    + 顺延 1 月执行。compare_hint 是各页自己的对照提示尾句。"""
     from api_client import fetch_macro_radar_timeseries
 
     with st.spinner("📊 加载板块王朝接力条带..."):
         dyn_ts = fetch_macro_radar_timeseries(window=window, profile="dynasty")
-    if not dyn_ts.get("success"):
-        st.info(f"板块王朝条带暂不可用：{dyn_ts.get('error', '未知错误')}")
+        if not dyn_ts.get("success"):
+            st.info(f"板块王朝条带暂不可用：{dyn_ts.get('error', '未知错误')}")
+            return
+        score_m = dynasty_lab_score(dyn_ts, DYNASTY_RIBBON_GROUPS)
+        if score_m.empty:
+            return
+        buf_n = dynasty_lab_buffer_n(tuple(DYNASTY_RIBBON_GROUPS), 2)
+        mh = select_relay_holdings(score_m, 2, "seniority", "buffer", buf_n, 1.0)
+    if not mh:
         return
-    slots, name_map, exec_months = dynasty_relay_slots(
-        dyn_ts, groups=DYNASTY_RIBBON_GROUPS, buffer_n=4,
-    )
-    if not slots:
-        return
+    exec_months = sorted(mh)
+    slots = build_basket_slot_assignments(mh, exec_months)
+    name_map = {
+        tk: p.get("name", tk)
+        for tk, p in (dyn_ts.get("tickers", {}) or {}).items()
+    }
     st.markdown("### 🔥 板块王朝接力（最火板块时间条带）")
     st.caption(
         "两条轨道 = 王朝接力左列（龙头板块）/ 右列（次龙头板块），每段色带 = 一段连续持有的板块，"
-        f"带上标中文名 + ETF 代码。与「板块王朝」页 {window} king_score 接力同源。"
+        f"带上标中文名 + ETF 代码。与「板块王朝」页 {window} 净值实验台同口径"
+        f"（Borda 打分 · 资历进场 · buffer 守擂 N={buf_n} 由 3Y/5Y/10Y maximin 寻优 · 顺延 1 月执行）。"
         + compare_hint
     )
     st.plotly_chart(
