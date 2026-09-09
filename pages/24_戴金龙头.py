@@ -204,7 +204,8 @@ _window = st.radio(
 
 hv.render_dynasty_ribbon(
     _window, key="gl_dynasty_gantt",
-    compare_hint="本页只在 C 组核心板块的戴金板块里选龙头，条带里的 D 组细分赛道仅作参照。",
+    compare_hint="本页下方回测只在 C 组 11 个 SPDR 里按 king_score 原值取第 1 名，"
+                 "实测 5 年 55 个月里只有 17 个月和条带左列是同一个板块。",
 )
 
 st.caption(
@@ -239,10 +240,24 @@ with st.expander("交易假设"):
              "调大=更常分两个板块；调到 0 以下≈退回现行的金牌 Top2。"
              "默认 6.7 = 10 年期 RS 差的中位数。",
     )
+    _gl_rs_gap_exit = st.slider(
+        "对照口径：滞回退出阈（RS 差回到这个点数以上才合回一个板块）",
+        min_value=0.0, max_value=45.0, value=float(_gl_rs_gap), step=0.5,
+        key="gl_rs_gap_exit",
+        help="等于进场阈时无滞回（现状）；调大=已经分开后更黏，减少阈值边界反复横跳。"
+             "实测对照口径 5Y 的 29 次槽1换手里有 20 次来自这种横跳。",
+    )
+    _gl_silver_buf = st.slider(
+        "对照口径：银牌板块名次死区", 0, 6, 0, key="gl_silver_buf",
+        help="0=关闭（每月取 king_score 第 2 名）；N>0=上月的银牌板块只要今月名次还在前 N "
+             "且 RS>0 就留任。实测银牌板块 5 年换 34 次、跨 8 个板块，零粘性。",
+    )
 
 _gl = fetch_dynasty_gold_leader(
     window=_window, rebalance=_gl_rebal, cost_bps=float(_gl_cost),
     silver_rs_gap=float(_gl_rs_gap),
+    silver_rs_gap_exit=float(_gl_rs_gap_exit),
+    silver_buffer_n=int(_gl_silver_buf),
 )
 
 if not _gl.get("success"):
@@ -322,12 +337,30 @@ if _gl.get("success"):
             _split_n = _two.get("split_months", 0)
             _total_n = _two.get("total_months", 0)
             _gap = _two.get("silver_rs_gap", 6.7)
+            _gap_exit = _two.get("silver_rs_gap_exit")
+            _buf_n = _two.get("silver_buffer_n", 0) or 0
+            _held_n = _two.get("held_over_months", 0) or 0
             st.caption(
                 f"**这个 tab 只是对照，不是线上规则。** 金牌板块 RS 领先银牌不到 "
                 f"**{_gap:g}** 个点时，第二个槽改从**银牌板块**选龙头；领先够多就和现行一样"
                 f"（金牌板块 Top2）。展示期内 **{_split_n}/{_total_n}** 个月真的分了两个板块。"
                 "当月没有戴金板块时仍持 BIL，不因为有银牌板块就破例持股。"
             )
+            _anti = []
+            if _gap_exit is not None and _gap_exit > _gap:
+                _anti.append(
+                    f"滞回生效：没分开时 RS 差 < **{_gap:g}** 才分，已分开时要回到 "
+                    f"**{_gap_exit:g}** 以上才合回"
+                )
+            else:
+                _anti.append("滞回未生效（退出阈 = 进场阈），每月按同一个硬阈值判断")
+            if _buf_n > 0:
+                _anti.append(
+                    f"银牌名次死区 N=**{_buf_n}**，展示期内 **{_held_n}** 个月的银牌板块是留任的"
+                )
+            else:
+                _anti.append("银牌名次死区关闭，每月改选 king_score 第 2 名")
+            st.caption("｜".join(_anti))
             st.caption(
                 "**别只看收益**：这套口径的超额几乎全部来自 2021 年之后，2016-2021 那段"
                 "只是和现行打平。阈值 6.7 是 10 年期 RS 差的中位数，密扫下来 5.0~15.0 都是"

@@ -705,6 +705,8 @@ def render_dynasty_ribbon(window: str, key: str, compare_hint: str = "") -> None
         "两条轨道 = 王朝接力左列（龙头板块）/ 右列（次龙头板块），每段色带 = 一段连续持有的板块，"
         f"带上标中文名 + ETF 代码。与「板块王朝」页 {window} 净值实验台同口径"
         f"（Borda 打分 · 资历进场 · buffer 守擂 N={buf_n} 由 3Y/5Y/10Y maximin 寻优 · 顺延 1 月执行）。"
+        "**这条条带和本页下方的回测不是同一套选板块口径**——条带母体是 C+D 共 25 个 ETF、"
+        "按 Borda 名次打分，别把左列当成下方回测选中的板块。"
         + compare_hint
     )
     st.plotly_chart(

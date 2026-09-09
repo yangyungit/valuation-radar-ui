@@ -1304,6 +1304,8 @@ def fetch_dynasty_gold_leader(
     rebalance: bool = False,
     cost_bps: float = 10.0,
     silver_rs_gap: float = 6.7,
+    silver_rs_gap_exit: float | None = None,
+    silver_buffer_n: int = 0,
 ) -> dict:
     """从后端获取戴金龙头 Top2 独立回测（研究原型），供「🏅 戴金龙头」页用。
 
@@ -1313,6 +1315,9 @@ def fetch_dynasty_gold_leader(
 
     返回里的 `two_sector` 是对照口径：金牌板块 RS 领先银牌不到 silver_rs_gap 个点时，
     第二个槽改从银牌板块选龙头。阈值调大 → 更常分两个板块。现行口径不受影响。
+
+    对照口径的两个防抖开关（默认关闭 = 与旧结果一致）：silver_rs_gap_exit 是滞回退出阈
+    （已分开后 RS 差要回到它以上才合回），silver_buffer_n 是银牌板块名次死区深度。
 
     诚实定位：信号无前视、次日成交、扣成本；但池含生存者偏差，非真实业绩。
     Render 冷启动 502/504 自动重试一次。失败返回 {"success": False, "error": ...}。
@@ -1328,6 +1333,9 @@ def fetch_dynasty_gold_leader(
                 params={
                     "window": window, "rebalance": rebalance, "cost_bps": cost_bps,
                     "silver_rs_gap": silver_rs_gap,
+                    "silver_buffer_n": silver_buffer_n,
+                    **({} if silver_rs_gap_exit is None
+                       else {"silver_rs_gap_exit": silver_rs_gap_exit}),
                 },
                 timeout=180,
             )
