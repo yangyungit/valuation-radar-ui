@@ -58,10 +58,8 @@ def _slot_month_segments(timeline: list[dict], slot_i: int) -> list[tuple]:
     return segs
 
 
-def render_slot_segment_returns(dd: dict) -> bool:
-    slot_equity = dd.get("slot_equity") or []
-    timeline = dd.get("holdings_timeline") or []
-    dates = pd.to_datetime(dd.get("dates", []), errors="coerce")
+def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
+                                spy_values: list, key_prefix: str) -> bool:
     if not slot_equity or not timeline or len(dates) == 0:
         return False
 
@@ -72,12 +70,12 @@ def render_slot_segment_returns(dd: dict) -> bool:
         _sel = st.slider(
             "分段图时间窗口（拖动重设起点，各段与 SPY 在窗口最左端对齐归一）",
             min_value=_lo_py, max_value=_hi_py, value=(_lo_py, _hi_py),
-            format="YYYY-MM", key=f"gl_slot_window_{_lo_py:%Y%m}_{_hi_py:%Y%m}",
+            format="YYYY-MM", key=f"{key_prefix}_slot_window_{_lo_py:%Y%m}_{_hi_py:%Y%m}",
         )
         win_lo, win_hi = pd.Timestamp(_sel[0]), pd.Timestamp(_sel[1])
     lo_m, hi_m = win_lo.strftime("%Y-%m"), win_hi.strftime("%Y-%m")
 
-    spy = _norm_series((dd.get("equity") or {}).get("spy", []), dates)
+    spy = _norm_series(spy_values, dates)
     spy = spy[(spy.index >= win_lo) & (spy.index <= win_hi)]
     spy_wk = pd.DataFrame({"Close": spy}) if not spy.empty else pd.DataFrame()
 
@@ -96,8 +94,95 @@ def render_slot_segment_returns(dd: dict) -> bool:
         fig = hv.build_stitched_fig(
             segs, f"{slot_name}接力 持仓段", spy_wk, price_cache, {}, {},
         )
-        st.plotly_chart(fig, use_container_width=True, key=f"gl_slot_segment_{slot_i}")
+        st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_slot_segment_{slot_i}")
     return True
+
+
+def render_holding_cards(slots: list, bil_reason: str) -> None:
+    cols = st.columns(max(len(slots), 1))
+    for si in range(len(slots)):
+        label = _SLOT_LABELS[si] if si < len(_SLOT_LABELS) else f"槽{si+1}"
+        data = slots[si] or {}
+        with cols[si]:
+            if not data or data.get("bil"):
+                html = (
+                    f"<div class='insight-box'><div class='insight-title'>{label}</div>"
+                    f"<div style='font-size:15px;color:#bbb;'>BIL（{bil_reason}）</div></div>"
+                )
+            else:
+                sector_txt = (
+                    f"{data.get('sector_name', data.get('sector_etf', '—'))}"
+                    f"({data.get('sector_etf', '—')})"
+                )
+                excess = data.get("excess_pct")
+                excess_txt = f"{excess:+.1f}%" if isinstance(excess, (int, float)) else "—"
+                detail = (
+                    f"板块 {sector_txt}｜龙头第 {data.get('leader_rank', '—')}｜5Y超额 {excess_txt}"
+                    f"<br>首次持有 {data.get('since', '—')}｜已持有 {data.get('held_months', '—')} 月"
+                )
+                html = (
+                    f"<div class='insight-box'><div class='insight-title'>{label}</div>"
+                    f"<div style='font-size:16px;color:#fff;font-weight:bold;'>"
+                    f"{data.get('name', '')} ({data.get('ticker', '')})</div>"
+                    f"<div style='font-size:14px;color:#bbb;margin-top:6px;'>{detail}</div></div>"
+                )
+            st.markdown(html, unsafe_allow_html=True)
+
+
+def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str) -> None:
+    fig = go.Figure()
+    for key, name, color, vis_default in series_cfg:
+        vals = equity.get(key, []) or []
+        if not vals:
+            continue
+        s = pd.Series(vals, index=dates).astype(float).dropna()
+        if s.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=s.index, y=s.values, name=name,
+            line=dict(color=color, width=2 if vis_default else 1.4),
+            visible=True if vis_default else "legendonly",
+        ))
+    fig.update_layout(
+        height=420, hovermode="x unified", template="plotly_dark",
+        margin=dict(l=10, r=10, t=30, b=10),
+        legend=dict(orientation="h", y=1.08),
+        yaxis_title="净值（对数轴）", yaxis_type="log",
+    )
+    st.plotly_chart(fig, use_container_width=True, key=chart_key)
+
+
+def render_stats_cards(stats: dict, baseline: dict | None = None) -> None:
+    """baseline 非空时，第二行指标附上与现行口径的差值。"""
+    def _delta_pct(key):
+        if not baseline:
+            return None
+        return f"{(stats.get(key, 0) - baseline.get(key, 0)) * 100:+.0f}% vs 现行"
+
+    def _delta_num(key, fmt="{:+.2f} vs 现行"):
+        if not baseline:
+            return None
+        return fmt.format(stats.get(key, 0) - baseline.get(key, 0))
+
+    row_a = [
+        ("累计收益", f"{stats.get('cum_return', 0) * 100:.0f}%", _delta_pct("cum_return")),
+        ("年化收益", f"{stats.get('cagr', 0) * 100:.0f}%", _delta_pct("cagr")),
+        ("最大回撤", f"{stats.get('max_dd', 0) * 100:.0f}%", _delta_pct("max_dd")),
+        ("收益回撤比", f"{stats.get('calmar', 0):.2f}", _delta_num("calmar")),
+        ("比SPY多赚", f"{stats.get('excess_vs_spy', 0) * 100:.0f}%", _delta_pct("excess_vs_spy")),
+    ]
+    row_b = [
+        ("换股次数", f"{stats.get('n_swaps', 0)}", _delta_num("n_swaps", "{:+.0f} vs 现行")),
+        ("平均一只拿几个月", f"{stats.get('avg_hold_months', 0)}", None),
+        ("年均换手", f"{stats.get('ann_turnover', 0):.2f}", _delta_num("ann_turnover")),
+        ("累计成本", f"{stats.get('cum_cost', 0) * 100:.1f}%", _delta_pct("cum_cost")),
+        ("Sortino 比率", f"{stats.get('sortino', 0):.2f}", _delta_num("sortino")),
+    ]
+    for row in (row_a, row_b):
+        cols = st.columns(5)
+        for mi, (label, value, delta) in enumerate(row):
+            with cols[mi]:
+                st.metric(label, value, delta=delta, delta_color="off" if delta else "normal")
 
 
 with st.sidebar:
@@ -106,7 +191,7 @@ with st.sidebar:
         st.rerun()
 
 st.title("🏅 戴金龙头 (Gold Dynasty Leader)")
-st.caption("C组戴金板块 → 板块内市值前3选5年超额 Top2 → 下月执行。与 12M 动量守擂不是一套方法，已从 C组双龙 拆出单独成页。")
+st.caption("C组戴金板块 → 板块内市值前3选5年超额 Top2 → 下月执行。与 12M 动量守擂不是一套方法，已从 C组双龙 拆出单独成页。第二个 tab 是「强弱接近时分两个板块」的对照口径，线上规则仍是第一个 tab。")
 
 _window = st.radio(
     "时间跨度",
@@ -147,9 +232,17 @@ with st.expander("交易假设"):
         "单边成本 (bps)", 0, 50, 10, key="gl_cost",
         help="买/卖各算一次，扣在成交名义额上；影响回测净值和统计。",
     )
+    _gl_rs_gap = st.slider(
+        "对照口径：RS 差阈值（只影响「分两个板块」那个 tab）",
+        min_value=-5.0, max_value=40.0, value=6.7, step=0.5, key="gl_rs_gap",
+        help="金牌板块 RS 领先银牌不到这个点数时，第二个槽改从银牌板块选龙头。"
+             "调大=更常分两个板块；调到 0 以下≈退回现行的金牌 Top2。"
+             "默认 6.7 = 10 年期 RS 差的中位数。",
+    )
 
 _gl = fetch_dynasty_gold_leader(
     window=_window, rebalance=_gl_rebal, cost_bps=float(_gl_cost),
+    silver_rs_gap=float(_gl_rs_gap),
 )
 
 if not _gl.get("success"):
@@ -184,105 +277,103 @@ if _gl.get("success"):
             "以下持仓仅代表该历史信号时点。"
         )
 
-    # ── 当前持仓卡
     _signal_as_of = str(_meta.get("signal_as_of", "") or "")
     _signal_month = _signal_as_of[:7] if _signal_as_of else "最近信号"
-    st.markdown(f"##### 截至 {_signal_month} 信号的模拟持仓｜戴金龙头Top2")
-    _cur_slots = _gl.get("current_holdings", {}).get("slots", [])
-    _hold_cols = st.columns(max(len(_cur_slots), 1))
-    for _si in range(len(_cur_slots)):
-        _slabel = _SLOT_LABELS[_si] if _si < len(_SLOT_LABELS) else f"槽{_si+1}"
-        _sdata = _cur_slots[_si] or {}
-        with _hold_cols[_si]:
-            if not _sdata or _sdata.get("bil"):
-                _slot_html = (
-                    f"<div class='insight-box'><div class='insight-title'>{_slabel}</div>"
-                    "<div style='font-size:15px;color:#bbb;'>"
-                    "BIL（当月无 C 组戴金板块或无足够龙头候选）</div></div>"
-                )
-            else:
-                _sector_txt = (
-                    f"{_sdata.get('sector_name', _sdata.get('sector_etf', '—'))}"
-                    f"({_sdata.get('sector_etf', '—')})"
-                )
-                _excess_val = _sdata.get("excess_pct")
-                _excess_txt = f"{_excess_val:+.1f}%" if isinstance(_excess_val, (int, float)) else "—"
-                _slot_detail = (
-                    f"戴金板块 {_sector_txt}｜龙头第 {_sdata.get('leader_rank', '—')}｜5Y超额 {_excess_txt}"
-                    f"<br>首次持有 {_sdata.get('since', '—')}｜已持有 {_sdata.get('held_months', '—')} 月"
-                )
-                _slot_html = (
-                    f"<div class='insight-box'><div class='insight-title'>{_slabel}</div>"
-                    f"<div style='font-size:16px;color:#fff;font-weight:bold;'>"
-                    f"{_sdata.get('name', '')} ({_sdata.get('ticker', '')})</div>"
-                    f"<div style='font-size:14px;color:#bbb;margin-top:6px;'>{_slot_detail}</div></div>"
-                )
-            st.markdown(_slot_html, unsafe_allow_html=True)
-
-    # ── 净值曲线
-    st.markdown("##### 组合收益（起点归一为 1）")
     _eq = _gl.get("equity", {})
     _dates = pd.to_datetime(_gl.get("dates", []), errors="coerce")
-    _series_cfg = [
-        ("gold_leader_top2", "戴金龙头Top2", "#E74C3C", True),
-        ("spy", "SPY", "#3498DB", True),
-        ("rsp", "RSP 等权标普", "#9B59B6", False),
-        ("eqw11", "11行业ETF等权", "#16A085", False),
-    ]
-    _fig_eq = go.Figure()
-    for _key, _name, _color, _vis_default in _series_cfg:
-        _vals = _eq.get(_key, []) or []
-        if not _vals:
-            continue
-        _s = pd.Series(_vals, index=_dates).astype(float).dropna()
-        if _s.empty:
-            continue
-        _fig_eq.add_trace(go.Scatter(
-            x=_s.index, y=_s.values, name=_name,
-            line=dict(color=_color, width=2 if _vis_default else 1.4),
-            visible=True if _vis_default else "legendonly",
-        ))
-    _fig_eq.update_layout(
-        height=420, hovermode="x unified", template="plotly_dark",
-        margin=dict(l=10, r=10, t=30, b=10),
-        legend=dict(orientation="h", y=1.08),
-        yaxis_title="净值（对数轴）",
-        yaxis_type="log",
-    )
-    st.plotly_chart(_fig_eq, use_container_width=True)
-    st.caption("主图为戴金龙头Top2 与 SPY；点图例可展开 RSP / 11行业ETF等权对照")
-
-    # ── 统计卡
-    st.markdown("##### 统计卡")
     _stats = _gl.get("stats", {})
-    _metrics_a = [
-        ("累计收益", f"{_stats.get('cum_return', 0) * 100:.0f}%"),
-        ("年化收益", f"{_stats.get('cagr', 0) * 100:.0f}%"),
-        ("最大回撤", f"{_stats.get('max_dd', 0) * 100:.0f}%"),
-        ("收益回撤比", f"{_stats.get('calmar', 0):.2f}"),
-        ("比SPY多赚", f"{_stats.get('excess_vs_spy', 0) * 100:.0f}%"),
-    ]
-    _metrics_b = [
-        ("换股次数", f"{_stats.get('n_swaps', 0)}"),
-        ("平均一只拿几个月", f"{_stats.get('avg_hold_months', 0)}"),
-        ("年均换手", f"{_stats.get('ann_turnover', 0):.2f}"),
-        ("累计成本", f"{_stats.get('cum_cost', 0) * 100:.1f}%"),
-        ("Sortino 比率", f"{_stats.get('sortino', 0):.2f}"),
-    ]
-    _row_a = st.columns(5)
-    for _mi in range(len(_metrics_a)):
-        with _row_a[_mi]:
-            st.metric(_metrics_a[_mi][0], _metrics_a[_mi][1])
-    _row_b = st.columns(5)
-    for _mi in range(len(_metrics_b)):
-        with _row_b[_mi]:
-            st.metric(_metrics_b[_mi][0], _metrics_b[_mi][1])
-    st.caption(
-        "戴金龙头 Top2 无 K 守擂，换手由 C 组戴金板块切换和板块内 Top2 变化决定。"
-    )
+    _two = _gl.get("two_sector", {}) or {}
 
-    # ── Slot 分段收益
-    st.markdown("##### Slot 分段收益")
-    _has_slot_returns = render_slot_segment_returns(_gl)
-    if not _has_slot_returns:
-        st.caption("后端暂未返回 slot_equity。")
+    _tab_now, _tab_two = st.tabs(["现行：金牌板块 Top2", "对照：强弱接近时分两个板块"])
+
+    with _tab_now:
+        st.markdown(f"##### 截至 {_signal_month} 信号的模拟持仓｜戴金龙头Top2")
+        render_holding_cards(
+            _gl.get("current_holdings", {}).get("slots", []),
+            "当月无 C 组戴金板块或无足够龙头候选",
+        )
+
+        st.markdown("##### 组合收益（起点归一为 1）")
+        render_equity_chart(_dates, _eq, [
+            ("gold_leader_top2", "戴金龙头Top2", "#E74C3C", True),
+            ("spy", "SPY", "#3498DB", True),
+            ("rsp", "RSP 等权标普", "#9B59B6", False),
+            ("eqw11", "11行业ETF等权", "#16A085", False),
+        ], "gl_eq_now")
+        st.caption("主图为戴金龙头Top2 与 SPY；点图例可展开 RSP / 11行业ETF等权对照")
+
+        st.markdown("##### 统计卡")
+        render_stats_cards(_stats)
+        st.caption(
+            "戴金龙头 Top2 无 K 守擂，换手由 C 组戴金板块切换和板块内 Top2 变化决定。"
+        )
+
+        st.markdown("##### Slot 分段收益")
+        if not render_slot_segment_returns(
+            _gl.get("slot_equity") or [], _gl.get("holdings_timeline") or [],
+            _dates, _eq.get("spy", []), "gl_now",
+        ):
+            st.caption("后端暂未返回 slot_equity。")
+
+    with _tab_two:
+        if not _two.get("available"):
+            st.info("后端未返回对照口径（`two_sector`），可能是后端版本较旧。")
+        else:
+            _split_n = _two.get("split_months", 0)
+            _total_n = _two.get("total_months", 0)
+            _gap = _two.get("silver_rs_gap", 6.7)
+            st.caption(
+                f"**这个 tab 只是对照，不是线上规则。** 金牌板块 RS 领先银牌不到 "
+                f"**{_gap:g}** 个点时，第二个槽改从**银牌板块**选龙头；领先够多就和现行一样"
+                f"（金牌板块 Top2）。展示期内 **{_split_n}/{_total_n}** 个月真的分了两个板块。"
+                "当月没有戴金板块时仍持 BIL，不因为有银牌板块就破例持股。"
+            )
+            st.caption(
+                "**别只看收益**：这套口径的超额几乎全部来自 2021 年之后，2016-2021 那段"
+                "只是和现行打平。阈值 6.7 是 10 年期 RS 差的中位数，密扫下来 5.0~15.0 都是"
+                "收益回撤比 0.88~0.92 的平台，所以它不是精调出来的数，但也只有一段有效样本。"
+            )
+
+            st.markdown(f"##### 截至 {_signal_month} 信号的模拟持仓｜对照口径")
+            render_holding_cards(
+                _two.get("current_holdings", {}).get("slots", []),
+                "当月无 C 组戴金板块或无足够龙头候选",
+            )
+
+            st.markdown("##### 组合收益（与现行口径同图对比）")
+            render_equity_chart(_dates, _eq, [
+                ("two_sector", "对照：分两个板块", "#F39C12", True),
+                ("gold_leader_top2", "现行：金牌Top2", "#E74C3C", True),
+                ("spy", "SPY", "#3498DB", True),
+                ("rsp", "RSP 等权标普", "#9B59B6", False),
+                ("eqw11", "11行业ETF等权", "#16A085", False),
+            ], "gl_eq_two")
+            st.caption("橙线=对照口径，红线=现行口径，同一起点归一，可直接比斜率和回撤深度")
+
+            st.markdown("##### 统计卡（差值 = 对照 − 现行）")
+            render_stats_cards(_two.get("stats", {}), baseline=_stats)
+
+            st.markdown("##### 哪些月份走了银牌板块")
+            _ts_rows = [
+                r for r in (_gl.get("two_sector_timeline") or [])
+                if r.get("month", "") >= str(_meta.get("display_start", ""))[:7]
+            ]
+            if _ts_rows:
+                _tbl = pd.DataFrame([{
+                    "月份": r.get("month"),
+                    "金牌板块": r.get("sector_etf") or "—",
+                    "银牌板块": r.get("silver_sector_etf") or "—",
+                    "RS 差": r.get("rs_gap"),
+                    "分两个板块": "是" if r.get("split_sectors") else "",
+                    "持仓": " + ".join(r.get("picks") or []),
+                } for r in reversed(_ts_rows)])
+                st.dataframe(_tbl, use_container_width=True, hide_index=True, height=320)
+            else:
+                st.caption("后端暂未返回对照口径的月度明细。")
+
+            st.markdown("##### Slot 分段收益")
+            if not render_slot_segment_returns(
+                _two.get("slot_equity") or [], _two.get("holdings_timeline") or [],
+                _dates, _eq.get("spy", []), "gl_two",
+            ):
+                st.caption("后端暂未返回 slot_equity。")

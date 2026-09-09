@@ -1303,12 +1303,17 @@ def fetch_dynasty_gold_leader(
     window: str = "5Y",
     rebalance: bool = False,
     cost_bps: float = 10.0,
+    silver_rs_gap: float = 6.7,
 ) -> dict:
     """从后端获取戴金龙头 Top2 独立回测（研究原型），供「🏅 戴金龙头」页用。
 
     戴金龙头 = C 组戴金板块 → 板块内王朝龙头 Top2 → 下月执行，与 12M 动量守擂不是一套
     方法，已从 C组双龙 拆出。后端只跑戴金 1 次模拟（不扫动量守擂/防抖网格），比 double_dragon
     快数百倍，不再 502。返回净值曲线 / 当前持仓 / 持仓时间线 / Slot 分段 / 统计卡。
+
+    返回里的 `two_sector` 是对照口径：金牌板块 RS 领先银牌不到 silver_rs_gap 个点时，
+    第二个槽改从银牌板块选龙头。阈值调大 → 更常分两个板块。现行口径不受影响。
+
     诚实定位：信号无前视、次日成交、扣成本；但池含生存者偏差，非真实业绩。
     Render 冷启动 502/504 自动重试一次。失败返回 {"success": False, "error": ...}。
     """
@@ -1322,6 +1327,7 @@ def fetch_dynasty_gold_leader(
                 f"{API_BASE_URL}/api/v1/macro/dynasty/gold_leader",
                 params={
                     "window": window, "rebalance": rebalance, "cost_bps": cost_bps,
+                    "silver_rs_gap": silver_rs_gap,
                 },
                 timeout=180,
             )
