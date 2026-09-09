@@ -117,6 +117,11 @@ _window = st.radio(
     help="月末快照：3Y/5Y/10Y 约对应 36/60/120 个格子",
 )
 
+hv.render_dynasty_ribbon(
+    _window, key="gl_dynasty_gantt",
+    compare_hint="本页只在 C 组核心板块的戴金板块里选龙头，条带里的 D 组细分赛道仅作参照。",
+)
+
 st.caption(
     "**主线**：C组王朝接力图戴金板块 → 板块内市值前3、5年超额 Top2 → 下月执行。"
     "**诚实声明**：信号**不看未来**、可执行规则模拟；股票池=**逐月真实标普500成分**"

@@ -549,6 +549,41 @@ def build_relay_gantt(
     return fig
 
 
+DYNASTY_RIBBON_GROUPS = ["C: 核心板块 (Level 1 Sectors)", "D: 细分赛道 (Level 2/Themes)"]
+
+
+def render_dynasty_ribbon(window: str, key: str, compare_hint: str = "") -> None:
+    """页面顶部的「板块王朝接力（最火板块时间条带）」，21_科技龙头 / 24_戴金龙头 共用。
+    与「板块王朝」页 king_score 接力同源。compare_hint 是各页自己的对照提示尾句。"""
+    from api_client import fetch_macro_radar_timeseries
+
+    with st.spinner("📊 加载板块王朝接力条带..."):
+        dyn_ts = fetch_macro_radar_timeseries(window=window, profile="dynasty")
+    if not dyn_ts.get("success"):
+        st.info(f"板块王朝条带暂不可用：{dyn_ts.get('error', '未知错误')}")
+        return
+    slots, name_map, exec_months = dynasty_relay_slots(
+        dyn_ts, groups=DYNASTY_RIBBON_GROUPS, buffer_n=4,
+    )
+    if not slots:
+        return
+    st.markdown("### 🔥 板块王朝接力（最火板块时间条带）")
+    st.caption(
+        "两条轨道 = 王朝接力左列（龙头板块）/ 右列（次龙头板块），每段色带 = 一段连续持有的板块，"
+        f"带上标中文名 + ETF 代码。与「板块王朝」页 {window} king_score 接力同源。"
+        + compare_hint
+    )
+    st.plotly_chart(
+        build_relay_gantt(
+            slots, exec_months, name_map,
+            title=f"{window} 王朝接力左右列 · 板块时间条带",
+        ),
+        use_container_width=True,
+        key=key,
+    )
+    st.markdown("---")
+
+
 def build_stitched_fig(
     segs: list, slot_name: str,
     spy_wk: pd.DataFrame = None,
