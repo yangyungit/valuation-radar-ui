@@ -1352,6 +1352,88 @@ def fetch_dynasty_gold_leader(
     return {"success": False, "error": str(last_exc)}
 
 
+@st.cache_data(ttl=3600 * 4)
+def fetch_dynasty_relay_selection(
+    window: str = "5Y",
+    groups: str = "C,D",
+    tickers: str | None = None,
+    n_holdings: int = 2,
+    mom_windows: str = "252",
+    blend: str = "borda",
+    basis: str = "king_score",
+    cap_weight: float = 0.8,
+    gate: str = "seniority",
+    guard: str = "buffer",
+    buffer_n: int = 0,
+    k_delta: float = 1.0,
+) -> dict:
+    """王朝接力选板块口径（Borda 打分 + 资历进场 + 守擂），19/21/24 三页共用。
+
+    `groups`：逗号分隔组别简写（'C,D'）或完整组名；`tickers` 非空时压过 groups
+    （19 页 D 组勾选 + D-ext 开关走这条）。`buffer_n=0` 且 `guard='buffer'` 时后端
+    跑 3Y/5Y/10Y maximin 自己定，返回体 `buffer_n` 是实际生效值，
+    `buffer_n_optimized` 说明是不是真寻到的。
+
+    返回 {"success", "buffer_n", "buffer_n_optimized", "buffer_n_note",
+         "score_months": [...], "scores": {ticker: [...]},
+         "monthly_holdings": {执行月: [tickers]}, "name_map", "meta"}。
+    失败返回 {"success": False, "error": ...}。
+    """
+    try:
+        r = requests.get(
+            f"{API_BASE_URL}/api/v1/macro/dynasty/relay_selection",
+            params={
+                "window": window, "groups": groups, "n_holdings": n_holdings,
+                "mom_windows": mom_windows, "blend": blend, "basis": basis,
+                "cap_weight": cap_weight, "gate": gate, "guard": guard,
+                "buffer_n": buffer_n, "k_delta": k_delta,
+                **({"tickers": tickers} if tickers else {}),
+            },
+            timeout=60,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
+def fetch_dynasty_relay_selection_batch(
+    window: str = "5Y",
+    groups: str = "C,D",
+    tickers: str | None = None,
+    mom_windows: str = "252",
+    blend: str = "borda",
+    basis: str = "king_score",
+    cap_weight: float = 0.8,
+    gate: str = "seniority",
+    combos: tuple = (),
+) -> dict:
+    """一次请求跑多组选仓参数，打分面板只算一遍（19 页「收益总览」用，避免逐组打请求）。
+
+    `combos`：({"n_holdings", "guard", "buffer_n", "k_delta"}, ...)，缺项用默认值；
+    `buffer_n` 必须显式给——批量模式不做 maximin 寻优。传 tuple 供 st.cache_data 哈希。
+    返回 {"success", "score_months", "scores", "results": [{n_holdings, guard,
+    buffer_n, k_delta, monthly_holdings}, ...], "name_map", "meta"}。
+    """
+    try:
+        payload = {
+            "window": window, "groups": groups, "mom_windows": mom_windows,
+            "blend": blend, "basis": basis, "cap_weight": cap_weight, "gate": gate,
+            "combos": [dict(c) for c in combos],
+        }
+        if tickers:
+            payload["tickers"] = tickers
+        r = requests.post(
+            f"{API_BASE_URL}/api/v1/macro/dynasty/relay_selection/batch",
+            json=payload, timeout=60,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @st.cache_data(ttl=6 * 3600)
 def fetch_theme_holdings_status() -> dict:
     """从后端获取 14 个主题 ETF 的 holdings 数据源状态（source/provider/as_of_date/is_fallback/is_stale）。

@@ -1,3 +1,17 @@
+## 2026-09-09 戴金龙头板块层重构 Stage A+B（前端）：24 页防抖滑块跟上后端定值 + 21/24 页条带改调后端选板块端点
+
+**Stage A**：`pages/24_戴金龙头.py` 对照 tab 加滞回退出阈 / 银牌名次死区两个滑块（默认位=现状），三个 `silver_*` 参数改成 `None` 不传，让后端定值（`gap_enter=5.0 gap_exit=10.0 buffer_n=6`）说话，前端不再写死 6.7；再平衡默认从关改开——对照口径的防抖参数是在开着再平衡的前提下寻优出来的，关掉三段 Calmar 从 1.36/1.48/1.12 掉到 1.12/1.32/1.03。条带 caption 订正：原来说「与板块王朝页同口径」容易让人以为左列 == 下方回测选中的金牌板块，实测 5 年 55 个月只有 17 个月两者第一名相同，caption 直接把差异写出来（21/24 两页共用文案只放这句，C 组 11 个 SPDR 那部分放进 24 页自己的 compare_hint，避免在 21 页变成假话）。
+
+**Stage B**：`api_client.py` 新增 `fetch_dynasty_relay_selection`（单点）/ `fetch_dynasty_relay_selection_batch`（批量），对齐后端 `dynasty_relay.py` 新增的两个端点。`holdings_viz.py` 的 `dynasty_lab_score` / `dynasty_lab_buffer_n` 内部改调后端端点，签名和返回结构不变：
+- `dynasty_lab_score` 原来本地拼 4 个窗口的 RS DataFrame + 调本地 `blend_relay_scores` 算 Borda 打分，现在直接拿后端 `score_months`/`scores` 字段重建同形状的 DataFrame。
+- `dynasty_lab_buffer_n` 原来本地拉 3Y/5Y/10Y 三个窗口时序 + 全池 10 年 yfinance 周线跑 27 条净值网格算 maximin，现在一次 API 调用（`guard=buffer, buffer_n=0`）拿后端 maximin 解，`_DYNASTY_LAB_HZ` 常量随之删除（不再需要本地枚举三段）。
+
+`render_dynasty_ribbon` 内部结构不变（仍是 `dynasty_lab_score → dynasty_lab_buffer_n → select_relay_holdings` 三步），`select_relay_holdings` 继续本地跑一次选仓——用的是后端算好的 score 数据，逐位验证与后端直接返回的 `monthly_holdings` 完全一致，不是本地重新实现 Borda 逻辑。21/24 页调用点（`hv.render_dynasty_ribbon(...)`）零改动。
+
+**核验**：本机对比 5Y 窗口下 `dynasty_lab_score → dynasty_lab_buffer_n → select_relay_holdings` 本地管线 vs 直接调 `/api/v1/macro/dynasty/relay_selection` 单点端点，59 个月持仓逐月一致（`mh_local == mh_api` → `True`），两边 `buffer_n` 都是 8。
+
+**未完成，需要 Opus 判断**：19 页「王朝接力净值实验台」（`_render_relay_lab`，含主曲线打分/选仓、maximin 防抖寻优、110 组「收益总览」批量寻优三段逻辑）仍在本地直接调 `hv.blend_relay_scores` / `hv.select_relay_holdings`（`_score_from_ts` 闭包自己拼 RS DataFrame），没有按 Stage B 迁到后端——这两个函数在 `holdings_viz.py` 里仍是本地实现，plan §6.3 验收命令（`rg "ascending=True)  # 越大..."` / `"cap_weight \* adv_z"` 要求 0 命中）现在过不了，详见会话汇报。
+
 ## 2026-09-09 板块王朝条带对齐 19 页实验台口径 + 复制到戴金龙头页
 
 **范围**：`holdings_viz.py` 新增 `dynasty_lab_score` / `dynasty_lab_buffer_n` / `render_dynasty_ribbon`；`pages/21_科技龙头.py`（原地的条带胶水代码换成调共用函数）、`pages/24_戴金龙头.py`（时间跨度 radio 下方新增条带）。`dynasty_relay_slots` 保持原样不动，`pages/26_组合净值.py` 的 B 曲线仍用它。

@@ -556,125 +556,51 @@ def build_relay_gantt(
 
 DYNASTY_RIBBON_GROUPS = ["C: 核心板块 (Level 1 Sectors)", "D: 细分赛道 (Level 2/Themes)"]
 DYNASTY_LAB_WINS = [252]
-_DYNASTY_LAB_HZ = ["3Y", "5Y", "10Y"]
 
 
 def dynasty_lab_score(dyn_ts: dict, groups: list = None) -> pd.DataFrame:
-    """月末打分，与 19_板块王朝 实验台的 _score_from_ts 同口径：Borda 名次平均 +
-    king_score 容量项，横截面只在选仓池内做。注意与后端直接给的 king_score 字段不同——
-    后端用 Z(RS_252d) 原值，这里用名次，URA/TAN 这类 RS 爆表的小众盘不会被顶到 Top1。"""
-    tickers = dyn_ts.get("tickers", {}) or {}
-    dates = dyn_ts.get("dates", []) or []
-    if not dates:
+    """月末打分：调后端 `/api/v1/macro/dynasty/relay_selection` 取 Borda 名次平均 +
+    king_score 容量项打分（横截面只在选仓池内做），前端不再本地算。签名/返回结构
+    不变（月×板块 score DataFrame），供 render_dynasty_ribbon 消费。"""
+    from api_client import fetch_dynasty_relay_selection
+
+    window = dyn_ts.get("window")
+    if not window:
         return pd.DataFrame()
-    pool = {
-        tk: p for tk, p in tickers.items()
-        if not groups or p.get("group", "") in groups
-    }
-    if not pool:
+    groups_spec = ",".join(groups) if groups else "C,D"
+    resp = fetch_dynasty_relay_selection(
+        window=window, groups=groups_spec, n_holdings=2,
+        mom_windows=",".join(str(w) for w in DYNASTY_LAB_WINS),
+        blend="borda", basis="king_score", cap_weight=0.8,
+        gate="seniority", guard="none", buffer_n=0, k_delta=1.0,
+    )
+    months = resp.get("score_months") or []
+    scores = resp.get("scores") or {}
+    if not resp.get("success") or not months or not scores:
         return pd.DataFrame()
-    idx = pd.to_datetime(dates, errors="coerce")
-    rs_by_w: dict = {}
-    for w in (63, 126, 252, 504):
-        cols = {}
-        for tk, p in pool.items():
-            v = p.get(f"rs_{w}")
-            if v is None:
-                v = p.get("rs")
-            if v is not None:
-                cols[tk] = v
-        if cols:
-            rs_by_w[w] = pd.DataFrame(cols, index=idx).astype(float).resample("ME").last()
-    adv_m = pd.DataFrame(
-        {tk: p.get("adv_63d") for tk, p in pool.items()}, index=idx
-    ).astype(float).resample("ME").last()
-    return blend_relay_scores(rs_by_w, adv_m, DYNASTY_LAB_WINS, "borda", "king_score")
+    return pd.DataFrame(scores, index=pd.to_datetime(months, errors="coerce"))
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def dynasty_lab_buffer_n(groups: tuple = (), n_holdings: int = 2) -> int:
-    """守擂 buffer_N：在 3Y/5Y/10Y 上跑 N~10 网格，各段归一化后取 maximin（并列取跨段
-    std 最小），与 19_板块王朝 实验台回填主曲线的那次寻优同一套算法。三段不齐时退回
-    max(4, N)。不写死数字，免得实验台寻优结果变了条带跟不上。"""
-    from api_client import fetch_macro_radar_timeseries, get_global_data
+    """守擂 buffer_N：调后端 `/api/v1/macro/dynasty/relay_selection`（buffer_n=0 时
+    后端自己跑 3Y/5Y/10Y maximin），前端不再本地拉 27 条净值算。三段不齐或选仓池
+    缺价格时后端退回 max(4, N)（`dynasty_relay.optimal_buffer_n`）。不写死数字，
+    免得后端寻优结果变了条带跟不上。"""
+    from api_client import fetch_dynasty_relay_selection
 
     n = max(1, int(n_holdings))
     fallback = max(4, n)
-    g = list(groups) or None
-    score_by_hz: dict = {}
-    pool_tks: set = set()
-    for hz in _DYNASTY_LAB_HZ:
-        ts = fetch_macro_radar_timeseries(window=hz, profile="dynasty")
-        if not ts.get("success"):
-            continue
-        sm = dynasty_lab_score(ts, g)
-        if not sm.empty:
-            score_by_hz[hz] = sm
-            pool_tks |= set(sm.columns)
-    if len(score_by_hz) < len(_DYNASTY_LAB_HZ):
-        return fallback
-
-    px = get_global_data(sorted(pool_tks) + ["SPY"], years=10)
-    if px is None or px.empty:
-        return fallback
-    wk = px.resample("W-FRI").last()
-    spy_wk = (
-        wk[["SPY"]].rename(columns={"SPY": "Close"}).dropna()
-        if "SPY" in wk.columns else pd.DataFrame()
+    groups_spec = ",".join(groups) if groups else "C,D"
+    resp = fetch_dynasty_relay_selection(
+        window="10Y", groups=groups_spec, n_holdings=n,
+        mom_windows=",".join(str(w) for w in DYNASTY_LAB_WINS),
+        blend="borda", basis="king_score", cap_weight=0.8,
+        gate="seniority", guard="buffer", buffer_n=0, k_delta=1.0,
     )
-    pc: dict = {}
-    for tk in pool_tks:
-        if tk in wk.columns:
-            s = wk[tk].dropna()
-            if len(s) >= 2:
-                pc[tk] = s.to_frame(name="Close")
-    if not pc:
+    if not resp.get("success"):
         return fallback
-
-    def _cum_ret(sm: pd.DataFrame, bn: int) -> float:
-        mh = select_relay_holdings(sm, n, "seniority", "buffer", bn, 1.0)
-        if not mh:
-            return float("nan")
-        em = sorted(mh)
-        sl = build_basket_slot_assignments(mh, em)
-        navs = []
-        for si in range(max((len(v) for v in sl.values()), default=n)):
-            nv = calc_slot_stats(build_slot_segments(sl, si, em), pc, spy_wk, 0.04, 200.0)[2]
-            if not nv.empty:
-                navs.append(nv)
-        if not navs:
-            return float("nan")
-        uidx = navs[0].index
-        for nv in navs[1:]:
-            uidx = uidx.union(nv.index)
-        acc = None
-        for nv in navs:
-            r = nv.reindex(uidx).ffill().bfill()
-            acc = r if acc is None else acc + r
-        navc = acc / len(navs)
-        if navc.empty or float(navc.iloc[0]) == 0:
-            return float("nan")
-        return (float(navc.iloc[-1]) / float(navc.iloc[0]) - 1.0) * 100.0
-
-    grid = list(range(n, 11))
-    cum = {bn: {hz: _cum_ret(score_by_hz[hz], bn) for hz in _DYNASTY_LAB_HZ} for bn in grid}
-    norm: dict = {}
-    for hz in _DYNASTY_LAB_HZ:
-        vals = [cum[bn][hz] for bn in grid]
-        mx = max([v for v in vals if v == v], default=float("nan"))
-        norm[hz] = [
-            (v / mx) if (mx == mx and mx > 0 and v == v) else float("nan")
-            for v in vals
-        ]
-    best, best_key = None, None
-    for i, bn in enumerate(grid):
-        sc = [norm[hz][i] for hz in _DYNASTY_LAB_HZ]
-        if any(x != x for x in sc):
-            continue
-        key = (min(sc), -float(np.std(sc)))
-        if best_key is None or key > best_key:
-            best_key, best = key, bn
-    return int(best) if best is not None else fallback
+    return int(resp.get("buffer_n", fallback))
 
 
 def render_dynasty_ribbon(window: str, key: str, compare_hint: str = "") -> None:
