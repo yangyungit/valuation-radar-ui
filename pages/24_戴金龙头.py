@@ -218,14 +218,16 @@ _gl_c1, _gl_c2 = st.columns([1.1, 2.0])
 with _gl_c1:
     _gl_rebal = st.toggle(
         "月度等权再平衡",
-        value=False,
+        value=True,
         key="gl_rebal",
-        help="每月把两个槽位重新拉回50/50；关闭时各槽位独立复利。",
+        help="每月把两个槽位重新拉回50/50；关闭时各槽位独立复利。"
+             "默认打开：对照口径的防抖参数是在开着再平衡的前提下寻优出来的。",
     )
 with _gl_c2:
     st.caption(
         "固定持有 Top2；再平衡=每月卖一点涨多的槽位、补一点涨少的槽位，"
-        "重新回到两个槽位各 50%。"
+        "重新回到两个槽位各 50%。对照口径的三段 Calmar 在开着时是 1.36/1.48/1.12，"
+        "关掉只剩 1.12/1.32/1.03——防抖的收益有一部分要靠再平衡才兑现。"
     )
 
 with st.expander("交易假设"):
@@ -234,23 +236,28 @@ with st.expander("交易假设"):
         help="买/卖各算一次，扣在成交名义额上；影响回测净值和统计。",
     )
     _gl_rs_gap = st.slider(
-        "对照口径：RS 差阈值（只影响「分两个板块」那个 tab）",
-        min_value=-5.0, max_value=40.0, value=6.7, step=0.5, key="gl_rs_gap",
+        "对照口径：RS 差进场阈（只影响「分两个板块」那个 tab）",
+        min_value=-5.0, max_value=40.0, value=5.0, step=0.5, key="gl_rs_gap",
         help="金牌板块 RS 领先银牌不到这个点数时，第二个槽改从银牌板块选龙头。"
-             "调大=更常分两个板块；调到 0 以下≈退回现行的金牌 Top2。"
-             "默认 6.7 = 10 年期 RS 差的中位数。",
+             "调大=更常分两个板块；调到 0 以下≈退回现行的金牌 Top2。",
     )
     _gl_rs_gap_exit = st.slider(
         "对照口径：滞回退出阈（RS 差回到这个点数以上才合回一个板块）",
-        min_value=0.0, max_value=45.0, value=float(_gl_rs_gap), step=0.5,
+        min_value=0.0, max_value=45.0, value=10.0, step=0.5,
         key="gl_rs_gap_exit",
-        help="等于进场阈时无滞回（现状）；调大=已经分开后更黏，减少阈值边界反复横跳。"
-             "实测对照口径 5Y 的 29 次槽1换手里有 20 次来自这种横跳。",
+        help="拖到等于进场阈就没有滞回；调大=已经分开后更黏，减少阈值边界反复横跳。"
+             "改前对照口径 5Y 的 29 次槽1换手里有 20 次来自这种横跳。",
     )
     _gl_silver_buf = st.slider(
-        "对照口径：银牌板块名次死区", 0, 6, 0, key="gl_silver_buf",
-        help="0=关闭（每月取 king_score 第 2 名）；N>0=上月的银牌板块只要今月名次还在前 N "
-             "且 RS>0 就留任。实测银牌板块 5 年换 34 次、跨 8 个板块，零粘性。",
+        "对照口径：银牌板块名次死区", 0, 6, 6, key="gl_silver_buf",
+        help="0=关闭（每月改选 king_score 第 2 名）；N>0=上月的银牌板块只要今月名次还在前 N "
+             "且 RS>0 就留任。关掉时银牌板块 5 年换 34 次、跨 8 个板块，零粘性。",
+    )
+    st.caption(
+        "上面三个默认值 5.0 / 10.0 / 6 是 scripts/sweep_dd_silver_antiwhipsaw.py 在一份 "
+        "10Y 面板上切 3Y/5Y/10Y 三段、504 组网格、按三段归一化 Calmar 的 maximin 选出来的。"
+        "目标用 Calmar 而不是累计收益，因为累计收益里 2023-05 单月就贡献 +18.1%，"
+        "拿它当目标等于对那一个月过拟合。"
     )
 
 _gl = fetch_dynasty_gold_leader(
@@ -336,7 +343,7 @@ if _gl.get("success"):
         else:
             _split_n = _two.get("split_months", 0)
             _total_n = _two.get("total_months", 0)
-            _gap = _two.get("silver_rs_gap", 6.7)
+            _gap = _two.get("silver_rs_gap", 5.0)
             _gap_exit = _two.get("silver_rs_gap_exit")
             _buf_n = _two.get("silver_buffer_n", 0) or 0
             _held_n = _two.get("held_over_months", 0) or 0
@@ -362,9 +369,11 @@ if _gl.get("success"):
                 _anti.append("银牌名次死区关闭，每月改选 king_score 第 2 名")
             st.caption("｜".join(_anti))
             st.caption(
-                "**别只看收益**：这套口径的超额几乎全部来自 2021 年之后，2016-2021 那段"
-                "只是和现行打平。阈值 6.7 是 10 年期 RS 差的中位数，密扫下来 5.0~15.0 都是"
-                "收益回撤比 0.88~0.92 的平台，所以它不是精调出来的数，但也只有一段有效样本。"
+                "**别只看收益**：这套口径的超额里 2023-05 单月就贡献 +18.1%，收益比值一步"
+                "从 0.98 跳到 1.158 之后再没回落，所以三个防抖参数是按 Calmar 而不是按累计"
+                "收益寻优的。三段 Calmar 从 1.14/1.24/0.92 提到 1.36/1.48/1.12，同时换股"
+                "次数从 31/39/72 降到 26/34/63（同一份 10Y 面板切三段实测，"
+                "和上面按窗口分别拉的数字不是一个口径，短窗口不是长窗口的尾部切片）。"
             )
 
             st.markdown(f"##### 截至 {_signal_month} 信号的模拟持仓｜对照口径")
