@@ -276,10 +276,15 @@ st.caption(
     "（HD 在右槽 2016-02→2019-01 连拿 3 年，TMO 左槽连拿 2 年）。"
     "名单 12-31 定、延迟一个月生效（与 `backtest_golden_ribbon_round5.py` 的 `by_year` 同口径），"
     "所以色带从当年 2 月起算，2016-01 是空仓。"
-    "各槽净值是**周线单票口径**（段内不动，换票时卖出 + 买入各扣 200bps），只作归因；"
-    "「合成」那条就是上面那张月线等权再平衡曲线（与回测同源）。"
-    "两个口径差得不小：左右槽 50/50 买入后不再平衡的话全程 +350% / 回撤 −31.5%，"
-    "月末再平衡是 +485% / −16.9%——差距全在每月把跑赢的那只削回一半。本节固定看全程。"
+    "**再平衡时点**：合成线上每一个点 = 一个月末，那一刻两只票削回 50/50；"
+    "灰竖线 = 每年 2 月换名单生效（卖旧买新）。年内漂移不大——月末削回前的偏离中位只有 2.0pp、"
+    "最高 10.9pp（2026-04 GWW 44.5% / PWR 55.5%），逐月实际权重见下方展开表。"
+    "各槽净值是**周线单票口径**（段内不动，换票时卖出 + 买入各扣 200bps），只作归因，"
+    "不是你的实际仓位路径；实际路径是「合成」那条月线等权再平衡曲线（与回测同源）。"
+    "两条差 135pp，但**不是月度削回的功劳**：同一份月线价格上把「每月末削回」换成「只在换名单时重置」，"
+    "全程从 +458.5% 只掉到 +449.6%（年内最多漂到 60/40，一年重置一次就够）。"
+    "差距主要在成本口径——槽位图每次换票卖 200 + 买 200 各扣一次，比月线引擎多一倍："
+    "同样从不重置，换票免费是 +525.5%、双边 400bps 只剩 +379.2%。本节固定看全程。"
 )
 
 _wk = close_all.resample("W-FRI").last()
@@ -304,11 +309,43 @@ st.plotly_chart(
                          track_labels=("左列 · Slot 0", "右列 · Slot 1")),
     use_container_width=True, key="gold_gantt",
 )
-st.plotly_chart(
-    hv.build_combined_fig_n(_slot_navs, nav_pool, _spy_wk,
-                            "黄金带鱼 — 左右列各自净值 vs 月线等权合成 vs SPY"),
-    use_container_width=True, key="gold_slot_combined",
-)
+_fig_c = hv.build_combined_fig_n(_slot_navs, nav_pool, _spy_wk,
+                                 "黄金带鱼 — 左右列各自净值 vs 月线等权合成 vs SPY")
+# 合成线每个点 = 一个月末再平衡时刻；竖线 = 换名单生效月
+for _tr in _fig_c.data:
+    if str(_tr.name).startswith("合成"):
+        _tr.mode = "lines+markers"
+        _tr.marker = dict(size=4, color="#F1C40F")
+        _tr.hovertemplate = "%{x|%Y-%m} 月末再平衡<br>NAV %{y:.2f}<extra></extra>"
+for _y in sorted(pools):
+    _x = pd.Timestamp(f"{_y}-02-01")
+    if nav_pool.index.min() <= _x <= nav_pool.index.max():
+        _fig_c.add_vline(x=_x, line=dict(color="rgba(150,150,150,0.35)", width=1, dash="dot"),
+                         annotation_text=str(_y), annotation_position="top",
+                         annotation_font=dict(size=9, color="#999"))
+st.plotly_chart(_fig_c, use_container_width=True, key="gold_slot_combined")
+
+_drift = []
+for _i, _d in enumerate(_months):
+    _held = pools.get(_months[_i - 1].year, []) if _i > 0 else []
+    if len(_held) != 2:
+        continue
+    _a, _b = _held
+    _ra, _rb = ret_m.at[_d, _a], ret_m.at[_d, _b]
+    if pd.isna(_ra) or pd.isna(_rb):
+        continue
+    _wa = 0.5 * (1 + _ra) / (0.5 * (1 + _ra) + 0.5 * (1 + _rb))
+    _drift.append({
+        "月末": _d.strftime("%Y-%m"),
+        "持仓": f"{_a} / {_b}",
+        "削回前权重": f"{_wa * 100:.1f}% / {(1 - _wa) * 100:.1f}%",
+        "偏离": f"{abs(_wa - 0.5) * 200:.1f}pp",
+        "事件": "🔄 新名单第一个月" if _d.month == 2 else "",
+    })
+with st.expander(f"逐月实际仓位（{len(_drift)} 个月末，倒序）"):
+    st.caption("「削回前权重」= 该月两只票走完之后、月末再平衡之前的实际占比，"
+               "月末一律削回 50/50。偏离大 = 那个月两只票走势分岔得厉害。")
+    st.dataframe(pd.DataFrame(_drift).iloc[::-1], hide_index=True, use_container_width=True)
 for _si, (_lbl, _) in enumerate(_slot_navs):
     st.plotly_chart(
         hv.build_stitched_fig(_slot_segs[_si], f"黄金带鱼 {_lbl} (Slot {_si})",
