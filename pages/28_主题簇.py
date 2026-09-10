@@ -141,7 +141,15 @@ max_n = max(n["n"] for n in draw)
 dot_px = {n["node_id"]: 5.0 + (bubble_px - 5.0) * (n["n"] / max_n) ** 0.5 for n in shoot}
 dot_px.update({n["node_id"]: 4.0 for n in oneshot})
 
-px_x = 760.0 / (top_h + 2.5)
+# 横轴初始只铺到 95% 的链够用的宽度：近三年（链 ≥4 个月）最长那条活了 29 个月，
+# 但 95 分位只有 11，按 29 铺会把 25 条链里的大半挤在左边三分之一。超出的拖动可见。
+vis_h: dict[str, int] = {}
+for n in draw:
+    k = n.get("chain_key")
+    vis_h[k] = max(vis_h.get(k, 0), height[n["node_id"]])
+x_max = min(top_h, max(7, int(np.percentile(list(vis_h.values()), 95))))
+
+px_x = 760.0 / (x_max + 2.5)
 px_y = (fig_h - 40.0) / (len(mshow) + 1.2)
 
 rng = np.random.default_rng(0)
@@ -233,7 +241,7 @@ if kept:
         textposition="middle right", textfont=dict(size=11, color="rgba(230,230,230,0.92)")))
 
 step = max(1, len(mshow) // 40)
-hstep = 1 if top_h <= 14 else 2
+hstep = 1 if x_max <= 14 else 2
 fig.update_layout(
     height=fig_h, dragmode="pan", hovermode="closest",
     margin=dict(l=10, r=240, t=30, b=10),
@@ -242,7 +250,7 @@ fig.update_layout(
     xaxis=dict(title="长到第几个月", showgrid=True, gridcolor="rgba(128,128,128,0.12)",
                tickmode="array", tickvals=list(range(0, top_h + 1, hstep)),
                ticktext=[f"第 {i + 1} 月" for i in range(0, top_h + 1, hstep)],
-               range=[-0.6, top_h + 0.6]),
+               range=[-0.6, x_max + 0.6]),
     yaxis=dict(title="", showgrid=True, gridcolor="rgba(128,128,128,0.15)",
                tickmode="array", tickvals=list(range(0, len(mshow), step)),
                ticktext=[mshow[i] for i in range(0, len(mshow), step)],
@@ -254,6 +262,8 @@ st.caption(
     "**滚轮缩放、按住拖动**，双击回到全图。挤在一起的气泡会互相推开：纵向不出所在月份 ±0.4，"
     "横向不出所属月龄 ±0.45，所以时间轴对得上，左右位置是晃动过的。"
     "纵轴刻度是那个月的最后一个交易日，点就落在这一天。"
+    f"横轴初始只铺到第 {x_max + 1} 月（95% 的链都活不过这里），"
+    f"最长那条活了 {top_h + 1} 个月，往右拖能看完。"
     "每支从自己诞生那个月的最左边起步，下个月还找得到成员重合 ≥ 20% 的后继就往右上斜一格，"
     "找不到就停在原地。点越大成员越多，越绿这 63 天超额越高；"
     "斜线连着的是同一支，从旧簇裂出来的新簇接着父节点继续往右长，不回最左列；"
