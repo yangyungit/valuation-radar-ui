@@ -259,7 +259,7 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True,
                 config={"scrollZoom": True, "displaylogo": False})
 st.caption(
-    "**滚轮缩放、按住拖动**，双击回到全图。挤在一起的气泡会互相推开：纵向不出所在月份 ±0.4，"
+    "**滚轮缩放、按住拖动**，双击回到初始视野。挤在一起的气泡会互相推开：纵向不出所在月份 ±0.4，"
     "横向不出所属月龄 ±0.45，所以时间轴对得上，左右位置是晃动过的。"
     "纵轴刻度是那个月的最后一个交易日，点就落在这一天。"
     f"横轴初始只铺到第 {x_max + 1} 月（95% 的链都活不过这里），"
