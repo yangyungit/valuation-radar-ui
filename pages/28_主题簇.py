@@ -18,10 +18,10 @@ st.caption(
 st.caption(
     "纵轴是时间，越往上越近，每支的起点就落在它诞生那个月；横轴不是主题编号，"
     "是这一支从诞生算起长到第几个月，所以一条链是往右上角斜着长的，名字写在链的末端。"
-    "**链只看成员重合、不看涨跌**——上个月的簇和这个月的簇成员重合过半就算同一条链续上了，"
-    "所以「云软件杀跌」这种从头跌到尾的（2026-01~05 超额 −23% 一路走到 −15%）照样能串成 5 个月的链。"
-    "颜色才是涨跌：红 = 超额为负，绿 = 为正。一条长红链的意思是「这批票被当成一伙一起被卖」，"
-    "不是「这批票在涨」。"
+    "**连线根据成员重合建立，名字描述成员业务，颜色才表示超额涨跌**——上个月的簇和这个月的簇"
+    "成员重合过半就算同一条链续上了，所以一路杀跌的链照样能串成好几个月。"
+    "红 = 超额为负，绿 = 为正。一条长红链的意思是「这批票被当成一伙一起被卖」，"
+    "不是「这批票在涨」，链继续生长也不等于上涨。"
 )
 
 WINDOWS = {"最近 3 年": 36, "最近 5 年": 60, "最近 10 年": 120, "全部": None}
@@ -60,11 +60,11 @@ st.caption(
     f"数据止于 {doc.get('sep_last_date')}，构建于 {doc.get('generated_at')}。"
 )
 st.caption(
-    "**名字怎么来的**：活过 3 个月的 391 条链是人看着成员票起的中文名（存后端 "
-    "`theme_names.json`），像「疫情居家软件」「AI 数据中心产业链」「大选行情：加密与金融科技」——"
-    "这类横跨行业的叙事，行业分类给不出来（2020-03 那个 ZM/TDOC/ZS 的簇，行业众数是"
-    "「Electronic Gaming & Multimedia」）。剩下只活 1~2 个月的簇没起名，退回「行业 占比｜代表票」，"
-    "占比低于 25% 就直接显示涨得最猛的三只。鼠标悬停能看到完整行业构成，自己判断名靠不靠谱。"
+    "**名字怎么来的**：391 个根名称已逐条复核，并在 229 处成员变化或分叉处另起名称。"
+    "名称按当期成员业务归纳，沿后继继承；混合簇直接列出主要业务，"
+    "不把涨跌或事件原因写进名字。短链沿用行业与代表票显示。"
+    "同一业务在不同时期可以重现；同一棵树的不同分支按各自成员区分。"
+    "这些名称用于回看成员变化，不是对事件原因的验证。"
 )
 
 by_vine: dict[int, list] = defaultdict(list)
@@ -100,12 +100,12 @@ for n in nodes_by_month:
     chain_h[k] = max(chain_h.get(k, 0), height[n["node_id"]] + 1)
 
 def cluster_name(n: dict) -> str:
-    """优先用人起的叙事名，没有才退回行业，行业也不够格就用涨得最猛的三只。
+    """优先用后端按节点解析的名称，没有则按行业与代表票回退。
 
-    叙事名存在后端 theme_names.json，只给活过 3 个月的链起，覆盖约一半节点。
-    行业分类给不出「疫情居家软件」这种名字——2020-03 那个簇的行业众数是
-    「Electronic Gaming & Multimedia 16%」，纯凑数。占比写出来是让人自己判断
-    这个名靠不靠谱：「Healthcare Plans 88%」可信，16% 就该看票。
+    名称存在后端 theme_names.json，覆盖约一半节点，分叉与中途成员变化处按各自
+    成员另起名称。行业分类给不出横跨行业的名字——2020-03 那个 ZM/TDOC/ZS 的簇
+    行业众数是「Electronic Gaming & Multimedia 16%」，纯凑数。占比写出来是让人
+    自己判断这个名靠不靠谱：「Healthcare Plans 88%」可信，16% 就该看票。
     """
     if n.get("theme_name"):
         return n["theme_name"]
@@ -261,7 +261,12 @@ if shoot:
         marker=dict(
             size=[dot_px[n["node_id"]] for n in shoot],
             color=[n["excess_median"] for n in shoot], coloraxis="coloraxis",
-            symbol=["x" if n["node_id"] not in has_child else "circle" for n in shoot],
+            symbol=[
+                "circle-open" if n["month"] == last_month
+                else "x" if n["node_id"] not in has_child
+                else "circle"
+                for n in shoot
+            ],
             line=dict(width=0.5, color="rgba(0,0,0,0.55)"),
         ), **hover(shoot)))
 
@@ -312,9 +317,11 @@ st.caption(
     "每支从自己诞生那个月起步，下个月还找得到成员重合 ≥ 20% 的后继就往右上接一根杆，"
     "找不到就停在原地。点越大成员越多，越绿这 63 天超额越高；"
     "杆连着的是同一支，从旧簇裂出来的新簇接着父节点继续往右上长；"
-    "× = 这一支到此为止，下个月再没有成员对得上的后继。"
+    "**× = 未连出后继**，可能是匹配时选了别的父节点，也可能未达到连接条件，"
+    "不代表投资失败。**空心圆 = 样本最后一个月**，尚无下月数据。"
     "名字写在每支末端，互相压住的自动省略——放大就都出来了。"
-    "并排的两条斜线是两条互不相干的链，不是分叉——近三年真正的分叉只有 12 处。"
+    "并排的两条斜线各自是一条链，不是分叉；但当前图每个节点只画一个父节点，"
+    "合流呈现不完整，别只靠位置就断定两条线互不相关。"
 )
 
 st.subheader("单条链的成员进出")
@@ -323,15 +330,21 @@ opts = sorted([v for v in vines if v["n_nodes"] >= 2 and by_vine[v["vine_id"]][0
 if not opts:
     st.info("这个窗口里没有活过两个月的簇，把左边窗口调长。")
     st.stop()
-pick = st.selectbox(
-    "选一条链", opts,
-    format_func=lambda v: f'{cluster_name(by_vine[v["vine_id"]][0])}'
-                          f'（{v["born_month"]} 起 {v["n_nodes"]} 个月）')
+def vine_label(v: dict) -> str:
+    """中途改过名的链显示「首名 → 末名」，没改过只显示一次。"""
+    seq = by_vine[v["vine_id"]]
+    first, last = cluster_name(seq[0]), cluster_name(seq[-1])
+    label = first if first == last else f"{first} → {last}"
+    return f'{label}（{v["born_month"]} 起 {v["n_nodes"]} 个月）'
+
+
+pick = st.selectbox("选一条链", opts, format_func=vine_label)
 seq = by_vine[pick["vine_id"]]
 rows, prev = [], set()
 for n in seq:
     cur = set(n["members"])
     rows.append({"月份": n["month"],
+                 "主题": cluster_name(n),
                  "新进": ", ".join(sorted(cur - prev)) if prev else ", ".join(sorted(cur)),
                  "退出": ", ".join(sorted(prev - cur)),
                  "留存": ", ".join(sorted(cur & prev))})
