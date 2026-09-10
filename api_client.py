@@ -973,6 +973,18 @@ def fetch_sector_leaders() -> dict:
 
 
 @st.cache_data(ttl=3600 * 4)
+def fetch_theme_clusters(start: str = "2016-01") -> dict:
+    """主题簇演化页：逐月合格簇 + 藤的延续/分叉/死亡。失败返回 {"success": False}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/theme_clusters",
+                         params={"start": start}, timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
 def fetch_tech_leader_relay_timeseries(window: str = "5Y") -> dict:
     """科技龙头池接力图时序（king_score = 纯动量 Z(RS_210d)，池内横截面排名）。
     母体 = 美股 + 美股 ADR 的科技龙头，与回购池独立。供「科技龙头」页调用。
