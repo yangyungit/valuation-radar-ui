@@ -16,9 +16,11 @@ st.caption(
     "这页用来看市场当下按什么在分组，不用来选股。"
 )
 st.caption(
-    "y 轴不是主题编号，是这一支从诞生那个月算起长到第几个月。要求成员原样延续（重合 ≥ 50%）的话，"
-    "87% 的簇活不过一个月；但把成员换掉一半的分叉也算接着长，最长一支能连 29 个月——"
-    "2022-08 到 2024-12 的中概股，从 PDD/FUTU 一路到 BABA/JD/XPEV/NIO，首尾还有 11 只票重合。"
+    "y 轴不是主题编号，是这一支从诞生那个月算起长到第几个月。名字是**行业占比**不是主题词——"
+    "行业分类给不出「AI 芯片」「疫情居家」这种横跨行业的叙事名。命中的例子：2023-06 的 "
+    "「Semiconductors 48%｜SMCI/VRT/NVDA」就是 AI 芯片；不命中的例子：2020-03 那个 38 只、"
+    "超额 +16.5% 的疫情居家簇（ZM/TDOC/ZS）被标成「Electronic Gaming & Multimedia 16%」。"
+    "占比写出来就是让你自己判断这个名靠不靠谱，真正的信息在领跑票和 hover 里的成员上。"
 )
 
 WINDOWS = {"最近 3 年": 36, "最近 5 年": 60, "最近 10 年": 120, "全部": None}
@@ -79,13 +81,23 @@ for n in nodes_by_month:
 has_child = {n["parent_node_id"] for n in nodes if n.get("parent_node_id")}
 
 def cluster_name(n: dict) -> str:
-    """名字只用领跑三只（这是事实）；行业只在簇确实集中时才加前缀。
+    """行业占主导时用「行业 占比｜代表票」，否则退回涨得最猛的三只。
 
-    top_industry 是众数，而中位簇 12 只票横跨 8 个行业，直接当名字会编出
-    「Insurance Brokers = NEM/FDS/CIEN」这种。
+    占比写出来是让人自己判断这个名靠不靠谱：「Healthcare Plans 88%」可信，
+    「Electronic Gaming 16%」就是凑数——那个簇其实是 2020-03 的疫情居家，
+    行业分类给不出叙事名，这时候 ZM/TDOC/ZS 比行业名有用。
     """
-    lead = "/".join(n["leaders"])
-    return f'{n["top_industry"]}｜{lead}' if n["n_industries"] <= max(2, n["n"] * 0.3) else lead
+    mix = n.get("industry_mix") or []
+    if mix and mix[0]["share"] >= 0.25:
+        return f'{mix[0]["name"]} {mix[0]["share"]:.0%}｜{"/".join(n.get("biggest") or n["leaders"])}'
+    return "/".join(n["leaders"])
+
+
+def mix_line(n: dict) -> str:
+    """hover 里的行业构成：只数 + 相对母体的富集倍数。"""
+    return " / ".join(f'{m["name"]} {m["n"]}只'
+                      + (f'（{m["lift"]:.1f}倍）' if m.get("lift") else "")
+                      for m in (n.get("industry_mix") or [])[:3]) or "—"
 
 
 span = WINDOWS[win_name]
@@ -152,10 +164,12 @@ if lx:
 def hover(ns: list[dict]) -> dict:
     return dict(
         customdata=[[cluster_name(n), n["month"], n["n"], n["internal_corr"],
-                     n["excess_median"], height[n["node_id"]] + 1] for n in ns],
+                     n["excess_median"], height[n["node_id"]] + 1, mix_line(n),
+                     "/".join(n.get("biggest") or []), "/".join(n["leaders"])] for n in ns],
         hovertemplate=("%{customdata[0]}<br>%{customdata[1]}　第 %{customdata[5]} 个月<br>"
                        "成员 %{customdata[2]} 只 ｜ 簇内相关 %{customdata[3]:.2f}<br>"
-                       "超额中位 %{customdata[4]:.1%}<extra></extra>"),
+                       "超额中位 %{customdata[4]:.1%}<br>行业 %{customdata[6]}<br>"
+                       "代表 %{customdata[7]} ｜ 领跑 %{customdata[8]}<extra></extra>"),
     )
 
 
@@ -199,13 +213,13 @@ step = max(1, len(mshow) // 24)
 ystep = 1 if top_h <= 14 else 2
 fig.update_layout(
     height=fig_h, dragmode="pan", hovermode="closest",
-    margin=dict(l=10, r=180, t=30, b=10),
+    margin=dict(l=10, r=240, t=30, b=10),
     coloraxis=dict(colorscale="RdYlGn", cmin=-0.3, cmax=0.3,
                    colorbar=dict(title="超额中位", tickformat=".0%")),
     xaxis=dict(title="", showgrid=True, gridcolor="rgba(128,128,128,0.15)",
                tickmode="array", tickvals=list(range(0, len(mshow), step)),
                ticktext=[mshow[i][:7] for i in range(0, len(mshow), step)],
-               range=[-1, len(mshow) + 0.5]),
+               range=[-1, len(mshow) + 1.5]),
     yaxis=dict(title="长到第几个月", showgrid=True, gridcolor="rgba(128,128,128,0.12)",
                tickmode="array", tickvals=list(range(0, top_h + 1, ystep)),
                ticktext=[f"第 {i + 1} 月" for i in range(0, top_h + 1, ystep)],
@@ -217,7 +231,7 @@ st.caption(
     "**滚轮缩放、按住拖动**，双击回到全图。挤在一起的气泡会互相推开：横向不出所在月份 ±0.4，"
     "纵向不出所属月龄 ±0.45，所以时间轴对得上，上下位置是晃动过的。"
     "每支从最底下一行（诞生那个月）起步，下个月还找得到成员重合 ≥ 20% 的后继就斜着往上长一格，"
-    "找不到就停在原地。灰色小点 = 冒出来一个月就散了、没有后继的簇（近三年 135 个）；"
+    "找不到就停在原地。灰色小点 = 冒出来一个月就散了、没有后继的簇（近三年 132 个）；"
     "彩色气泡 = 长上去了的，点越大成员越多、越绿这 63 天超额越高；"
     "斜线连着的是同一支，从旧簇裂出来的新簇接着父节点继续往上长，不回底行；"
     "× = 这一支到此为止，下个月再没有成员对得上的后继。"
@@ -258,9 +272,9 @@ st.subheader(f"{last_month} 的合格簇")
 cur_nodes = sorted([n for n in nodes if n["month"] == last_month],
                    key=lambda n: -n["excess_median"])
 st.dataframe(pd.DataFrame([{
-    "行业": n["top_industry"], "行业数": n["n_industries"], "成员数": n["n"],
+    "行业构成": mix_line(n), "成员数": n["n"],
     "簇内相关": n["internal_corr"], "超额中位%": round(n["excess_median"] * 100, 1),
-    "领跑": ", ".join(n["leaders"]),
+    "代表": ", ".join(n.get("biggest") or []), "领跑": ", ".join(n["leaders"]),
     "已活月数": height[n["node_id"]] + 1,
 } for n in cur_nodes]), use_container_width=True, hide_index=True,
     column_config={"超额中位%": st.column_config.NumberColumn(format="%.1f"),
