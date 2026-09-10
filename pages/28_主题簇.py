@@ -1,5 +1,6 @@
 from collections import defaultdict
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -25,6 +26,7 @@ WINDOWS = {"最近 3 年": 36, "最近 5 年": 60, "最近 10 年": 120, "全部
 with st.sidebar:
     win_name = st.selectbox("显示窗口", list(WINDOWS), index=0)
     min_label_month = st.slider("长到第 N 个月才写名字", min_value=2, max_value=12, value=4)
+    bubble_px = st.slider("最大气泡直径（像素）", min_value=8, max_value=40, value=18)
     if st.button("🔄 强制刷新数据"):
         fetch_theme_clusters.clear()
         st.rerun()
@@ -75,8 +77,6 @@ for n in nodes_by_month:
     p = n.get("parent_node_id")
     height[n["node_id"]] = height[p] + 1 if p in height else 0
 has_child = {n["parent_node_id"] for n in nodes if n.get("parent_node_id")}
-died_at = {(v["vine_id"], v["died_month"]) for v in vines if v.get("died_month")}
-
 
 def cluster_name(n: dict) -> str:
     """名字只用领跑三只（这是事实）；行业只在簇确实集中时才加前缀。
@@ -96,19 +96,46 @@ if not draw:
     st.warning("这个窗口里没有合格簇。")
     st.stop()
 
-bucket = defaultdict(list)
-for n in draw:
-    bucket[(midx[n["month"]], height[n["node_id"]])].append(n)
-xy: dict[int, tuple[float, int]] = {}
-for (mi, h), g in bucket.items():
-    g.sort(key=lambda n: -n["excess_median"])
-    k = len(g)
-    for i, n in enumerate(g):
-        xy[n["node_id"]] = (mi + (0.0 if k == 1 else (i / (k - 1) - 0.5) * 0.7), h)
-
 shoot = [n for n in draw if height[n["node_id"]] > 0 or n["node_id"] in has_child]
 shoot_ids = {n["node_id"] for n in shoot}
 oneshot = [n for n in draw if n["node_id"] not in shoot_ids]
+
+top_h = max(height[n["node_id"]] for n in draw)
+fig_h = max(460, min(1200, 28 * (top_h + 1) + 150))
+max_n = max(n["n"] for n in draw)
+dot_px = {n["node_id"]: 5.0 + (bubble_px - 5.0) * (n["n"] / max_n) ** 0.5 for n in shoot}
+dot_px.update({n["node_id"]: 4.0 for n in oneshot})
+
+px_x = 760.0 / (len(mshow) + 1.5)
+px_y = (fig_h - 40.0) / (top_h + 1.2)
+
+rng = np.random.default_rng(0)
+by_col = defaultdict(list)
+for n in draw:
+    by_col[midx[n["month"]]].append(n)
+xy: dict[int, tuple[float, float]] = {}
+for mi, g in by_col.items():
+    tx = np.full(len(g), float(mi))
+    ty = np.array([float(height[n["node_id"]]) for n in g])
+    r = np.array([dot_px[n["node_id"]] / 2.0 for n in g])
+    x = tx + rng.uniform(-0.06, 0.06, len(g))
+    y = ty + rng.uniform(-0.06, 0.06, len(g))
+    for _ in range(80):
+        dx = (x[:, None] - x[None, :]) * px_x
+        dy = (y[:, None] - y[None, :]) * px_y
+        d = np.hypot(dx, dy)
+        np.fill_diagonal(d, np.inf)
+        push = (r[:, None] + r[None, :]) * 1.12 - d
+        if not (push > 0).any():
+            break
+        push = np.where(push > 0, push, 0.0) * 0.5
+        safe = np.where(np.isfinite(d) & (d > 1e-9), d, 1.0)
+        x += (push * dx / safe).sum(axis=1) / px_x * 0.6 + (tx - x) * 0.04
+        y += (push * dy / safe).sum(axis=1) / px_y * 0.6 + (ty - y) * 0.04
+        np.clip(x, tx - 0.40, tx + 0.40, out=x)
+        np.clip(y, ty - 0.45, ty + 0.45, out=y)
+    for i, n in enumerate(g):
+        xy[n["node_id"]] = (float(x[i]), float(y[i]))
 
 fig = go.Figure()
 lx, ly = [], []
@@ -134,35 +161,44 @@ def hover(ns: list[dict]) -> dict:
 
 if oneshot:
     fig.add_trace(go.Scatter(
-        x=[xy[n["node_id"]][0] for n in oneshot], y=[0] * len(oneshot),
+        x=[xy[n["node_id"]][0] for n in oneshot], y=[xy[n["node_id"]][1] for n in oneshot],
         mode="markers", showlegend=False,
-        marker=dict(size=5, color="rgba(140,140,140,0.35)"), **hover(oneshot)))
+        marker=dict(size=[dot_px[n["node_id"]] for n in oneshot],
+                    color="rgba(150,150,150,0.4)"), **hover(oneshot)))
 
 if shoot:
-    size_ref = 2.0 * max(n["n"] for n in shoot) / (34.0 ** 2)
     fig.add_trace(go.Scatter(
-        x=[xy[n["node_id"]][0] for n in shoot], y=[height[n["node_id"]] for n in shoot],
-        mode="markers", showlegend=False,
+        x=[xy[n["node_id"]][0] for n in shoot], y=[xy[n["node_id"]][1] for n in shoot],
+        mode="markers", showlegend=False, opacity=0.88,
         marker=dict(
-            size=[n["n"] for n in shoot], sizemode="area", sizeref=size_ref, sizemin=8,
+            size=[dot_px[n["node_id"]] for n in shoot],
             color=[n["excess_median"] for n in shoot], coloraxis="coloraxis",
-            symbol=["x" if (n["vine_id"], n["month"]) in died_at else "circle" for n in shoot],
-            line=dict(width=0.5, color="rgba(0,0,0,0.5)"),
+            symbol=["x" if n["node_id"] not in has_child else "circle" for n in shoot],
+            line=dict(width=0.5, color="rgba(0,0,0,0.55)"),
         ), **hover(shoot)))
 
 tops = [n for n in shoot
         if n["node_id"] not in has_child and height[n["node_id"]] + 1 >= min_label_month]
-if tops:
+tops.sort(key=lambda n: -height[n["node_id"]])
+kept, boxes = [], []
+for n in tops:
+    x0, y0 = xy[n["node_id"]]
+    w = len(cluster_name(n)) * 6.4 + 10
+    lo, hi, yy = x0 * px_x + 6, x0 * px_x + 6 + w, y0 * px_y
+    if any(abs(yy - b[2]) < 13 and lo < b[1] and b[0] < hi for b in boxes):
+        continue
+    boxes.append((lo, hi, yy))
+    kept.append(n)
+if kept:
     fig.add_trace(go.Scatter(
-        x=[xy[n["node_id"]][0] for n in tops], y=[height[n["node_id"]] for n in tops],
-        mode="text", text=[cluster_name(n) for n in tops], hoverinfo="skip", showlegend=False,
-        textposition="middle right", textfont=dict(size=11, color="rgba(220,220,220,0.9)")))
+        x=[xy[n["node_id"]][0] for n in kept], y=[xy[n["node_id"]][1] for n in kept],
+        mode="text", text=[cluster_name(n) for n in kept], hoverinfo="skip", showlegend=False,
+        textposition="middle right", textfont=dict(size=11, color="rgba(230,230,230,0.92)")))
 
-top_h = max(height[n["node_id"]] for n in draw)
 step = max(1, len(mshow) // 24)
 ystep = 1 if top_h <= 14 else 2
 fig.update_layout(
-    height=max(460, min(1200, 28 * (top_h + 1) + 150)),
+    height=fig_h, dragmode="pan", hovermode="closest",
     margin=dict(l=10, r=180, t=30, b=10),
     coloraxis=dict(colorscale="RdYlGn", cmin=-0.3, cmax=0.3,
                    colorbar=dict(title="超额中位", tickformat=".0%")),
@@ -175,13 +211,17 @@ fig.update_layout(
                ticktext=[f"第 {i + 1} 月" for i in range(0, top_h + 1, ystep)],
                range=[-0.6, top_h + 0.6]),
 )
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, use_container_width=True,
+                config={"scrollZoom": True, "displaylogo": False})
 st.caption(
+    "**滚轮缩放、按住拖动**，双击回到全图。挤在一起的气泡会互相推开：横向不出所在月份 ±0.4，"
+    "纵向不出所属月龄 ±0.45，所以时间轴对得上，上下位置是晃动过的。"
     "每支从最底下一行（诞生那个月）起步，下个月还找得到成员重合 ≥ 20% 的后继就斜着往上长一格，"
     "找不到就停在原地。灰色小点 = 冒出来一个月就散了、没有后继的簇（近三年 135 个）；"
-    "大气泡 = 长上去了的，点越大成员越多、越绿这 63 天超额越高；"
+    "彩色气泡 = 长上去了的，点越大成员越多、越绿这 63 天超额越高；"
     "斜线连着的是同一支，从旧簇裂出来的新簇接着父节点继续往上长，不回底行；"
-    "× = 原来的口径判它死在这里。名字写在每支的顶端，只写领跑三只票。"
+    "× = 这一支到此为止，下个月再没有成员对得上的后继。"
+    "名字写在每支顶端，只写领跑三只票，互相压住的自动省略——放大就都出来了。"
 )
 
 st.subheader("单条链的成员进出")
