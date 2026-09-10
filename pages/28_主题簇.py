@@ -54,6 +54,13 @@ st.caption(
     f"连续 {params.get('death_months')} 个月超额中位 ≤ 0 或当月没有后继就算死。"
     f"数据止于 {doc.get('sep_last_date')}，构建于 {doc.get('generated_at')}。"
 )
+st.caption(
+    "**名字怎么来的**：活过 3 个月的 391 条链是人看着成员票起的中文名（存后端 "
+    "`theme_names.json`），像「疫情居家软件」「AI 数据中心产业链」「大选行情：加密与金融科技」——"
+    "这类横跨行业的叙事，行业分类给不出来（2020-03 那个 ZM/TDOC/ZS 的簇，行业众数是"
+    "「Electronic Gaming & Multimedia」）。剩下只活 1~2 个月的簇没起名，退回「行业 占比｜代表票」，"
+    "占比低于 25% 就直接显示涨得最猛的三只。鼠标悬停能看到完整行业构成，自己判断名靠不靠谱。"
+)
 
 by_vine: dict[int, list] = defaultdict(list)
 for n in nodes:
@@ -81,12 +88,15 @@ for n in nodes_by_month:
 has_child = {n["parent_node_id"] for n in nodes if n.get("parent_node_id")}
 
 def cluster_name(n: dict) -> str:
-    """行业占主导时用「行业 占比｜代表票」，否则退回涨得最猛的三只。
+    """优先用人起的叙事名，没有才退回行业，行业也不够格就用涨得最猛的三只。
 
-    占比写出来是让人自己判断这个名靠不靠谱：「Healthcare Plans 88%」可信，
-    「Electronic Gaming 16%」就是凑数——那个簇其实是 2020-03 的疫情居家，
-    行业分类给不出叙事名，这时候 ZM/TDOC/ZS 比行业名有用。
+    叙事名存在后端 theme_names.json，只给活过 3 个月的链起，覆盖约一半节点。
+    行业分类给不出「疫情居家软件」这种名字——2020-03 那个簇的行业众数是
+    「Electronic Gaming & Multimedia 16%」，纯凑数。占比写出来是让人自己判断
+    这个名靠不靠谱：「Healthcare Plans 88%」可信，16% 就该看票。
     """
+    if n.get("theme_name"):
+        return n["theme_name"]
     mix = n.get("industry_mix") or []
     if mix and mix[0]["share"] >= 0.25:
         return f'{mix[0]["name"]} {mix[0]["share"]:.0%}｜{"/".join(n.get("biggest") or n["leaders"])}'
@@ -193,11 +203,12 @@ if shoot:
 
 tops = [n for n in shoot
         if n["node_id"] not in has_child and height[n["node_id"]] + 1 >= min_label_month]
-tops.sort(key=lambda n: -height[n["node_id"]])
+tops.sort(key=lambda n: (not n.get("theme_name"), -height[n["node_id"]]))
 kept, boxes = [], []
 for n in tops:
     x0, y0 = xy[n["node_id"]]
-    w = len(cluster_name(n)) * 6.4 + 10
+    label = cluster_name(n)
+    w = sum(11 if ord(c) > 0x2E80 else 6.4 for c in label) + 10
     lo, hi, yy = x0 * px_x + 6, x0 * px_x + 6 + w, y0 * px_y
     if any(abs(yy - b[2]) < 13 and lo < b[1] and b[0] < hi for b in boxes):
         continue
@@ -272,7 +283,7 @@ st.subheader(f"{last_month} 的合格簇")
 cur_nodes = sorted([n for n in nodes if n["month"] == last_month],
                    key=lambda n: -n["excess_median"])
 st.dataframe(pd.DataFrame([{
-    "行业构成": mix_line(n), "成员数": n["n"],
+    "主题": n.get("theme_name") or "—", "行业构成": mix_line(n), "成员数": n["n"],
     "簇内相关": n["internal_corr"], "超额中位%": round(n["excess_median"] * 100, 1),
     "代表": ", ".join(n.get("biggest") or []), "领跑": ", ".join(n["leaders"]),
     "已活月数": height[n["node_id"]] + 1,
