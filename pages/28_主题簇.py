@@ -16,7 +16,8 @@ st.caption(
     "这页用来看市场当下按什么在分组，不用来选股。"
 )
 st.caption(
-    "y 轴不是主题编号，是这一支从诞生那个月算起长到第几个月，名字写在链的末端。"
+    "纵轴是时间，越往上越近；横轴不是主题编号，是这一支从诞生那个月算起长到第几个月，"
+    "所以一条链是往右上角斜着长的，名字写在链的末端。"
     "**链只看成员重合、不看涨跌**——上个月的簇和这个月的簇成员重合过半就算同一条链续上了，"
     "所以「云软件杀跌」这种从头跌到尾的（2026-01~05 超额 −23% 一路走到 −15%）照样能串成 5 个月的链。"
     "颜色才是涨跌：红 = 超额为负，绿 = 为正。一条长红链的意思是「这批票被当成一伙一起被卖」，"
@@ -135,13 +136,13 @@ shoot_ids = {n["node_id"] for n in shoot}
 oneshot = [n for n in draw if n["node_id"] not in shoot_ids]
 
 top_h = max(height[n["node_id"]] for n in draw)
-fig_h = max(460, min(1200, 28 * (top_h + 1) + 150))
+fig_h = max(520, min(1800, 26 * len(mshow) + 140))
 max_n = max(n["n"] for n in draw)
 dot_px = {n["node_id"]: 5.0 + (bubble_px - 5.0) * (n["n"] / max_n) ** 0.5 for n in shoot}
 dot_px.update({n["node_id"]: 4.0 for n in oneshot})
 
-px_x = 760.0 / (len(mshow) + 1.5)
-px_y = (fig_h - 40.0) / (top_h + 1.2)
+px_x = 760.0 / (top_h + 2.5)
+px_y = (fig_h - 40.0) / (len(mshow) + 1.2)
 
 rng = np.random.default_rng(0)
 by_col = defaultdict(list)
@@ -149,8 +150,8 @@ for n in draw:
     by_col[midx[n["month"]]].append(n)
 xy: dict[int, tuple[float, float]] = {}
 for mi, g in by_col.items():
-    tx = np.full(len(g), float(mi))
-    ty = np.array([float(height[n["node_id"]]) for n in g])
+    tx = np.array([float(height[n["node_id"]]) for n in g])
+    ty = np.full(len(g), float(mi))
     r = np.array([dot_px[n["node_id"]] / 2.0 for n in g])
     x = tx + rng.uniform(-0.06, 0.06, len(g))
     y = ty + rng.uniform(-0.06, 0.06, len(g))
@@ -166,8 +167,8 @@ for mi, g in by_col.items():
         safe = np.where(np.isfinite(d) & (d > 1e-9), d, 1.0)
         x += (push * dx / safe).sum(axis=1) / px_x * 0.6 + (tx - x) * 0.04
         y += (push * dy / safe).sum(axis=1) / px_y * 0.6 + (ty - y) * 0.04
-        np.clip(x, tx - 0.40, tx + 0.40, out=x)
-        np.clip(y, ty - 0.45, ty + 0.45, out=y)
+        np.clip(x, tx - 0.45, tx + 0.45, out=x)
+        np.clip(y, ty - 0.40, ty + 0.40, out=y)
     for i, n in enumerate(g):
         xy[n["node_id"]] = (float(x[i]), float(y[i]))
 
@@ -231,32 +232,33 @@ if kept:
         mode="text", text=[cluster_name(n) for n in kept], hoverinfo="skip", showlegend=False,
         textposition="middle right", textfont=dict(size=11, color="rgba(230,230,230,0.92)")))
 
-step = max(1, len(mshow) // 24)
-ystep = 1 if top_h <= 14 else 2
+step = max(1, len(mshow) // 40)
+hstep = 1 if top_h <= 14 else 2
 fig.update_layout(
     height=fig_h, dragmode="pan", hovermode="closest",
     margin=dict(l=10, r=240, t=30, b=10),
     coloraxis=dict(colorscale="RdYlGn", cmin=-0.3, cmax=0.3,
                    colorbar=dict(title="超额中位", tickformat=".0%")),
-    xaxis=dict(title="", showgrid=True, gridcolor="rgba(128,128,128,0.15)",
-               tickmode="array", tickvals=list(range(0, len(mshow), step)),
-               ticktext=[mshow[i][:7] for i in range(0, len(mshow), step)],
-               range=[-1, len(mshow) + 1.5]),
-    yaxis=dict(title="长到第几个月", showgrid=True, gridcolor="rgba(128,128,128,0.12)",
-               tickmode="array", tickvals=list(range(0, top_h + 1, ystep)),
-               ticktext=[f"第 {i + 1} 月" for i in range(0, top_h + 1, ystep)],
+    xaxis=dict(title="长到第几个月", showgrid=True, gridcolor="rgba(128,128,128,0.12)",
+               tickmode="array", tickvals=list(range(0, top_h + 1, hstep)),
+               ticktext=[f"第 {i + 1} 月" for i in range(0, top_h + 1, hstep)],
                range=[-0.6, top_h + 0.6]),
+    yaxis=dict(title="", showgrid=True, gridcolor="rgba(128,128,128,0.15)",
+               tickmode="array", tickvals=list(range(0, len(mshow), step)),
+               ticktext=[mshow[i] for i in range(0, len(mshow), step)],
+               range=[-1, len(mshow) + 1.5], automargin=True),
 )
 st.plotly_chart(fig, use_container_width=True,
                 config={"scrollZoom": True, "displaylogo": False})
 st.caption(
-    "**滚轮缩放、按住拖动**，双击回到全图。挤在一起的气泡会互相推开：横向不出所在月份 ±0.4，"
-    "纵向不出所属月龄 ±0.45，所以时间轴对得上，上下位置是晃动过的。"
-    "每支从最底下一行（诞生那个月）起步，下个月还找得到成员重合 ≥ 20% 的后继就斜着往上长一格，"
+    "**滚轮缩放、按住拖动**，双击回到全图。挤在一起的气泡会互相推开：纵向不出所在月份 ±0.4，"
+    "横向不出所属月龄 ±0.45，所以时间轴对得上，左右位置是晃动过的。"
+    "纵轴刻度是那个月的最后一个交易日，点就落在这一天。"
+    "每支从自己诞生那个月的最左边起步，下个月还找得到成员重合 ≥ 20% 的后继就往右上斜一格，"
     "找不到就停在原地。点越大成员越多，越绿这 63 天超额越高；"
-    "斜线连着的是同一支，从旧簇裂出来的新簇接着父节点继续往上长，不回底行；"
+    "斜线连着的是同一支，从旧簇裂出来的新簇接着父节点继续往右长，不回最左列；"
     "× = 这一支到此为止，下个月再没有成员对得上的后继。"
-    "名字写在每支顶端，互相压住的自动省略——放大就都出来了。"
+    "名字写在每支末端，互相压住的自动省略——放大就都出来了。"
     "线绞成麻花是因为同一个格子（同月同月龄）能挤十来条互不相干的链，"
     "碰撞算法把它们推开后连线就交叉了，不是分叉——近三年真正的分叉只有 12 处。"
 )
