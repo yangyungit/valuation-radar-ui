@@ -27,11 +27,11 @@ WINDOWS = {"最近 3 年": 36, "最近 5 年": 60, "最近 10 年": 120, "全部
 
 with st.sidebar:
     win_name = st.selectbox("显示窗口", list(WINDOWS), index=0)
-    named_only = st.checkbox(
-        "只看起了名的链", value=True,
-        help="没起名的都是只活 1~2 个月的簇，占近三年画出的点三成。它们跟长链挤在同一格里"
-             "被碰撞算法推得东倒西歪，连线就绞成麻花，去掉后图能清爽不少。")
-    min_label_month = st.slider("长到第 N 个月才写名字", min_value=2, max_value=12, value=4)
+    min_chain = st.slider(
+        "链至少活 N 个月才画", min_value=1, max_value=12, value=4,
+        help="按整条链的寿命过滤，不是按单个点。调到 1 = 全画（含只冒一个月就散的簇）。"
+             "短链扎堆在底部两三行，被碰撞算法推得东倒西歪，连线绞成麻花。"
+             "最近 3 年：≥3 个月有 22 条链，≥4 个月只剩 7 条。")
     bubble_px = st.slider("最大气泡直径（像素）", min_value=8, max_value=40, value=18)
     if st.button("🔄 强制刷新数据"):
         fetch_theme_clusters.clear()
@@ -91,6 +91,13 @@ for n in nodes_by_month:
     height[n["node_id"]] = height[p] + 1 if p in height else 0
 has_child = {n["parent_node_id"] for n in nodes if n.get("parent_node_id")}
 
+# 链的寿命 = 这条链爬到的最大月龄。不用后端的 chain_len（那是整棵树的节点数，
+# 分叉的链会虚高：3 个节点可能只有 2 个月高）。按全历史算，跨窗口边界的长链不误伤。
+chain_h: dict[str, int] = {}
+for n in nodes_by_month:
+    k = n.get("chain_key")
+    chain_h[k] = max(chain_h.get(k, 0), height[n["node_id"]] + 1)
+
 def cluster_name(n: dict) -> str:
     """优先用人起的叙事名，没有才退回行业，行业也不够格就用涨得最猛的三只。
 
@@ -118,10 +125,9 @@ span = WINDOWS[win_name]
 mshow = months if span is None else months[-span:]
 midx = {m: i for i, m in enumerate(mshow)}
 draw = [n for n in nodes_by_month if n["month"] in midx]
-if named_only:
-    draw = [n for n in draw if n.get("theme_name")]
+draw = [n for n in draw if chain_h.get(n.get("chain_key"), 1) >= min_chain]
 if not draw:
-    st.warning("这个窗口里没有合格簇（若勾了「只看起了名的链」，试着取消）。")
+    st.warning(f"这个窗口里没有活过 {min_chain} 个月的链，把左边滑块调小。")
     st.stop()
 
 shoot = [n for n in draw if height[n["node_id"]] > 0 or n["node_id"] in has_child]
@@ -207,8 +213,7 @@ if shoot:
             line=dict(width=0.5, color="rgba(0,0,0,0.55)"),
         ), **hover(shoot)))
 
-tops = [n for n in shoot
-        if n["node_id"] not in has_child and height[n["node_id"]] + 1 >= min_label_month]
+tops = [n for n in shoot if n["node_id"] not in has_child]
 tops.sort(key=lambda n: (not n.get("theme_name"), -height[n["node_id"]]))
 kept, boxes = [], []
 for n in tops:
