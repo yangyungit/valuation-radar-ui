@@ -149,36 +149,64 @@ for n in draw:
     vis_h[k] = max(vis_h.get(k, 0), height[n["node_id"]])
 x_max = min(top_h, max(7, int(np.percentile(list(vis_h.values()), 95))))
 
-px_x = 760.0 / (x_max + 2.5)
+px_x = 760.0 / (x_max + 2.2)
 px_y = (fig_h - 40.0) / (len(mshow) + 1.2)
 
-rng = np.random.default_rng(0)
+# 纵向是日期，一格都不能挪。横向的月龄从链的起止行就能读出来，是冗余信息，
+# 所以让整条链一起左右平移来避让：同月出生的几条链本来压在同一条斜线上，
+# 现在摊成几条平行斜线。按单个点各自抖动才是麻花的成因——一条链会被抖成锯齿。
+# 每条链一条道；分叉时先来的那支继承父节点的道，另一支开新道。
+lane: dict[int, int] = {}
+gave: set[int] = set()
+n_lanes = 0
+for n in draw:
+    p = n.get("parent_node_id")
+    pl = lane.get(p)
+    if pl is None or p in gave:
+        lane[n["node_id"]] = n_lanes
+        n_lanes += 1
+    else:
+        lane[n["node_id"]] = pl
+        gave.add(p)
+
 by_col = defaultdict(list)
 for n in draw:
     by_col[midx[n["month"]]].append(n)
-xy: dict[int, tuple[float, float]] = {}
-for mi, g in by_col.items():
-    tx = np.array([float(height[n["node_id"]]) for n in g])
-    ty = np.full(len(g), float(mi))
-    r = np.array([dot_px[n["node_id"]] / 2.0 for n in g])
-    x = tx + rng.uniform(-0.06, 0.06, len(g))
-    y = ty + rng.uniform(-0.06, 0.06, len(g))
-    for _ in range(80):
-        dx = (x[:, None] - x[None, :]) * px_x
-        dy = (y[:, None] - y[None, :]) * px_y
-        d = np.hypot(dx, dy)
-        np.fill_diagonal(d, np.inf)
-        push = (r[:, None] + r[None, :]) * 1.12 - d
-        if not (push > 0).any():
-            break
-        push = np.where(push > 0, push, 0.0) * 0.5
-        safe = np.where(np.isfinite(d) & (d > 1e-9), d, 1.0)
-        x += (push * dx / safe).sum(axis=1) / px_x * 0.6 + (tx - x) * 0.04
-        y += (push * dy / safe).sum(axis=1) / px_y * 0.6 + (ty - y) * 0.04
-        np.clip(x, tx - 0.45, tx + 0.45, out=x)
-        np.clip(y, ty - 0.40, ty + 0.40, out=y)
-    for i, n in enumerate(g):
-        xy[n["node_id"]] = (float(x[i]), float(y[i]))
+# 相邻两个月一起算避让：10 年窗口行距只有 15 像素，比气泡还小，只算同一行的话
+# 上下月的点照样压在一起。
+bands = []
+for mi in sorted(by_col):
+    g = by_col[mi] + by_col.get(mi + 1, [])
+    if len(g) < 2:
+        continue
+    ij = np.arange(len(g))
+    ys = np.array([float(midx[n["month"]]) for n in g]) * px_y
+    bands.append((np.array([lane[n["node_id"]] for n in g]),
+                  np.array([float(height[n["node_id"]]) for n in g]),
+                  np.array([dot_px[n["node_id"]] / 2.0 for n in g]),
+                  ys[:, None] - ys[None, :],
+                  np.where(ij[:, None] < ij[None, :], -1.0, 1.0)))
+
+off = np.random.default_rng(0).uniform(-0.05, 0.05, n_lanes)
+for _ in range(240):
+    acc, cnt, hit = np.zeros(n_lanes), np.zeros(n_lanes), False
+    for li, hi, r, dy, tie in bands:
+        xs = (hi + off[li]) * px_x
+        dx = xs[:, None] - xs[None, :]
+        gap = (r[:, None] + r[None, :]) * 1.5 - np.hypot(dx, dy)
+        np.fill_diagonal(gap, 0.0)
+        if (gap > 0).any():
+            hit = True
+        f = np.where(gap > 0, gap, 0.0) * np.where(np.abs(dx) > 1e-9, np.sign(dx), tie)
+        np.add.at(acc, li, f.sum(axis=1))
+        np.add.at(cnt, li, 1.0)
+    if not hit:
+        break
+    off += acc / np.maximum(cnt, 1.0) / px_x * 0.35 - off * 0.004
+    np.clip(off, -1.6, 1.6, out=off)
+
+xy = {n["node_id"]: (height[n["node_id"]] + float(off[lane[n["node_id"]]]),
+                     float(midx[n["month"]])) for n in draw}
 
 fig = go.Figure()
 lx, ly = [], []
@@ -250,7 +278,7 @@ fig.update_layout(
     xaxis=dict(title="长到第几个月", showgrid=True, gridcolor="rgba(128,128,128,0.12)",
                tickmode="array", tickvals=list(range(0, top_h + 1, hstep)),
                ticktext=[f"第 {i + 1} 月" for i in range(0, top_h + 1, hstep)],
-               range=[-0.6, x_max + 0.6]),
+               range=[-1.0, x_max + 1.2]),
     yaxis=dict(title="", showgrid=True, gridcolor="rgba(128,128,128,0.15)",
                tickmode="array", tickvals=list(range(0, len(mshow), step)),
                ticktext=[mshow[i] for i in range(0, len(mshow), step)],
@@ -259,9 +287,10 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True,
                 config={"scrollZoom": True, "displaylogo": False})
 st.caption(
-    "**滚轮缩放、按住拖动**，双击回到初始视野。挤在一起的气泡会互相推开：纵向不出所在月份 ±0.4，"
-    "横向不出所属月龄 ±0.45，所以时间轴对得上，左右位置是晃动过的。"
-    "纵轴刻度是那个月的最后一个交易日，点就落在这一天。"
+    "**滚轮缩放、按住拖动**，双击回到初始视野。"
+    "纵轴刻度是那个月的最后一个交易日，点就落在这一天，纵向一格都没挪。"
+    "挤在一起的链靠横向摊开：同月出生的几条链本来压在同一条斜线上，"
+    "现在整条链一起左右平移（最多 1.6 个月龄格）摊成几条平行斜线，准确月龄看悬停。"
     f"横轴初始只铺到第 {x_max + 1} 月（95% 的链都活不过这里），"
     f"最长那条活了 {top_h + 1} 个月，往右拖能看完。"
     "每支从自己诞生那个月的最左边起步，下个月还找得到成员重合 ≥ 20% 的后继就往右上斜一格，"
@@ -269,8 +298,7 @@ st.caption(
     "斜线连着的是同一支，从旧簇裂出来的新簇接着父节点继续往右长，不回最左列；"
     "× = 这一支到此为止，下个月再没有成员对得上的后继。"
     "名字写在每支末端，互相压住的自动省略——放大就都出来了。"
-    "线绞成麻花是因为同一个格子（同月同月龄）能挤十来条互不相干的链，"
-    "碰撞算法把它们推开后连线就交叉了，不是分叉——近三年真正的分叉只有 12 处。"
+    "平行的两条斜线是两条互不相干的链，不是分叉——近三年真正的分叉只有 12 处。"
 )
 
 st.subheader("单条链的成员进出")
