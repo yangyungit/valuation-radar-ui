@@ -16,8 +16,8 @@ st.caption(
     "这页用来看市场当下按什么在分组，不用来选股。"
 )
 st.caption(
-    "纵轴是时间，越往上越近；横轴不是主题编号，是这一支从诞生那个月算起长到第几个月，"
-    "所以一条链是往右上角斜着长的，名字写在链的末端。"
+    "纵轴是时间，越往上越近，每支的起点就落在它诞生那个月；横轴不是主题编号，"
+    "是这一支从诞生算起长到第几个月，所以一条链是往右上角斜着长的，名字写在链的末端。"
     "**链只看成员重合、不看涨跌**——上个月的簇和这个月的簇成员重合过半就算同一条链续上了，"
     "所以「云软件杀跌」这种从头跌到尾的（2026-01~05 超额 −23% 一路走到 −15%）照样能串成 5 个月的链。"
     "颜色才是涨跌：红 = 超额为负，绿 = 为正。一条长红链的意思是「这批票被当成一伙一起被卖」，"
@@ -152,10 +152,10 @@ x_max = min(top_h, max(7, int(np.percentile(list(vis_h.values()), 95))))
 px_x = 760.0 / (x_max + 2.2)
 px_y = (fig_h - 40.0) / (len(mshow) + 1.2)
 
-# 位置是受力解出来的，不锁在格子上：父子之间是一根定长的杆（每根 = 一个月，
-# 所以数段数就知道活了几个月，横轴不用严格对齐），气泡两两相斥。
-# 纵向留一个弱回拉，起点那个月拉得紧——起点站对了行，后面数杆就行。
-# 上一版把点锁死在整数月龄上，同月出生的链只能左右平移，还是叠在一条斜线附近。
+# 位置是受力解出来的，横纵都不锁格子：只有起点那个球钉在自己的日期上，后面的球
+# 受四条约束——跟父节点之间一根定长的杆（一根 = 一个月，数杆数就知道活了几个月）、
+# 在父节点的右上方、被前一根杆的延长线拉着（不然密集处会折成锯齿）、跟别的球互斥。
+# 链往哪个方向舒展随它，纵向只留 0.02 的回拉，免得整条链飘到几年以外。
 idx = {n["node_id"]: i for i, n in enumerate(draw)}
 X = np.array([float(height[n["node_id"]]) for n in draw]) * px_x
 Y = np.array([float(midx[n["month"]]) for n in draw]) * px_y
@@ -165,22 +165,30 @@ X += np.random.default_rng(0).uniform(-0.1, 0.1, len(draw)) * px_x
 
 ei = np.array([idx[n["node_id"]] for n in draw if n.get("parent_node_id") in idx], dtype=int)
 ej = np.array([idx[n["parent_node_id"]] for n in draw if n.get("parent_node_id") in idx], dtype=int)
+# 爷爷-父亲-孩子三连：孩子被拉向前一根杆的延长线，链才是平滑弧线不是锯齿
+par = {n["node_id"]: n.get("parent_node_id") for n in draw}
+tri = [(idx[k], idx[par[k]], idx[par[par[k]]]) for k in idx
+       if par.get(k) in idx and par.get(par.get(k)) in idx]
+ti, tj, tk = (np.array(a, dtype=int) for a in zip(*tri)) if tri else (np.empty(0, int),) * 3
 is_root = np.ones(len(draw), dtype=bool)
 is_root[ei] = False
 rod = float(np.hypot(px_x, px_y))
-pull = np.where(is_root, 0.20, 0.05)
+pull_y = np.where(is_root, 0.5, 0.02)   # 起点钉在自己的日期上，后面的只轻轻拽
+pull_x = np.where(is_root, 0.05, 0.0)   # 横向只轻轻拽一下：同月出生的几条链起点
+                                        # 坐标一模一样，横向钉死就必然压在一起
 
-# 只跟前后两个月的点比避让：再远的点被纵向回拉挡着，碰不上。
-by_col = defaultdict(list)
-for n in draw:
-    by_col[midx[n["month"]]].append(n)
-bands = []
-for mi in sorted(by_col):
-    g = sum((by_col.get(mi + k, []) for k in (0, 1, 2)), [])
-    if len(g) > 1:
-        bands.append(np.array([idx[n["node_id"]] for n in g], dtype=int))
-
-for _ in range(220):
+for it in range(260):
+    # 球能上下飘了，就不能再按「所属月份」分组比避让——隔五个月的两个球可能飘到
+    # 同一高度。每 10 轮按当前纵坐标重新分桶，桶高取最大气泡直径的 1.5 倍，
+    # 只跟同桶和上邻桶比：两球够近到会重叠，纵距必然小于桶高，不会漏。
+    if it % 10 == 0:
+        bin_h = 3.0 * R.max()
+        buckets = defaultdict(list)
+        for i, bi in enumerate(np.floor(Y / bin_h).astype(int)):
+            buckets[bi].append(i)
+        bands = [np.array(buckets[k] + buckets.get(k + 1, []), dtype=int)
+                 for k in sorted(buckets)]
+        bands = [b for b in bands if len(b) > 1]
     fx, fy = np.zeros(len(draw)), np.zeros(len(draw))
     for b in bands:
         dx = X[b][:, None] - X[b][None, :]
@@ -199,15 +207,21 @@ for _ in range(220):
     np.add.at(fx, ej, stretch * ex)
     np.add.at(fy, ei, -stretch * ey)
     np.add.at(fy, ej, stretch * ey)
-    gapy = 0.35 * px_y - (Y[ei] - Y[ej])       # 孩子必须在父节点上方，别把时间画倒
-    np.add.at(fy, ei, np.maximum(gapy, 0.0) * 0.5)
-    np.add.at(fy, ej, -np.maximum(gapy, 0.0) * 0.5)
-    X += fx * 0.45 + (X0 - X) * 0.01
-    Y += fy * 0.45 + (Y0 - Y) * pull
-    np.clip(X, X0 - 3.0 * px_x, X0 + 3.0 * px_x, out=X)
-    np.clip(Y, Y0 - 0.45 * px_y, Y0 + 0.45 * px_y, out=Y)
+    np.add.at(fx, ti, (2 * X[tj] - X[tk] - X[ti]) * 0.25)
+    np.add.at(fy, ti, (2 * Y[tj] - Y[tk] - Y[ti]) * 0.25)
+    gapy = np.maximum(0.30 * px_y - (Y[ei] - Y[ej]), 0.0)   # 孩子在父节点上方
+    gapx = np.maximum(0.30 * px_x - (X[ei] - X[ej]), 0.0)   # 也在父节点右边
+    np.add.at(fy, ei, gapy * 0.5)
+    np.add.at(fy, ej, -gapy * 0.5)
+    np.add.at(fx, ei, gapx * 0.5)
+    np.add.at(fx, ej, -gapx * 0.5)
+    X += fx * 0.45 + (X0 - X) * pull_x
+    Y += fy * 0.45 + (Y0 - Y) * pull_y
+    np.clip(X, X0 - 5.0 * px_x, X0 + 5.0 * px_x, out=X)     # 只防解飞掉
+    np.clip(Y, Y0 - 5.0 * px_y, Y0 + 5.0 * px_y, out=Y)
 
 xy = {k: (float(X[i] / px_x), float(Y[i] / px_y)) for k, i in idx.items()}
+drift = max(abs(xy[n["node_id"]][1] - midx[n["month"]]) for n in draw)
 
 fig = go.Figure()
 lx, ly = [], []
@@ -289,10 +303,10 @@ st.plotly_chart(fig, use_container_width=True,
                 config={"scrollZoom": True, "displaylogo": False})
 st.caption(
     "**滚轮缩放、按住拖动**，双击回到初始视野。"
-    "气泡不锁在格子上，位置是算出来的：相连两个气泡之间是一根定长的杆（一根 = 一个月，"
-    "数杆数就知道活了几个月），气泡互相排斥着摊开，纵向再被自己那个月轻轻拉回去。"
-    "所以纵轴日期和横轴月龄都只对到大概——纵向最多差半个月，横向最多差一格，"
-    "准确的月份和月龄看悬停。起点那个月拉得最紧，站在正确的行上。"
+    "气泡不锁在格子上，位置是算出来的：**只有每支的起点钉在自己的日期上**，"
+    "后面的球为了互相让开可以随便飘，靠杆认亲——相连两个球之间是一根定长的杆，"
+    f"一根 = 一个月，数杆数就知道活了几个月。这个窗口里飘得最远的球偏了 {drift:.1f} 个月，"
+    "所以后半段对着纵轴读日期只能读个大概，准确月份和月龄看悬停。"
     f"横轴初始只铺到第 {x_max + 1} 月（95% 的链都活不过这里），"
     f"最长那条活了 {top_h + 1} 个月，往右拖能看完。"
     "每支从自己诞生那个月起步，下个月还找得到成员重合 ≥ 20% 的后继就往右上接一根杆，"
