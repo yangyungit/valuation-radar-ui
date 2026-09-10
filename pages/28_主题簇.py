@@ -331,10 +331,16 @@ if not opts:
     st.info("这个窗口里没有活过两个月的簇，把左边窗口调长。")
     st.stop()
 def vine_label(v: dict) -> str:
-    """中途改过名的链显示「首名 → 末名」，没改过只显示一次。"""
+    """中途改过名的链显示「首名 → 末名」，没改过只显示一次。
+
+    只看后端起的 theme_name 变没变。回退名（行业 + 代表票）里代表票每月都在换，
+    拿它比就到处都是「Steel 36%｜SHW/SNAP/PPG → Steel 36%｜TXN/SNAP/NUE」这种
+    又长又没信息的标签。
+    """
     seq = by_vine[v["vine_id"]]
-    first, last = cluster_name(seq[0]), cluster_name(seq[-1])
-    label = first if first == last else f"{first} → {last}"
+    label = cluster_name(seq[0])
+    if seq[0].get("theme_name") != seq[-1].get("theme_name"):
+        label = f"{label} → {cluster_name(seq[-1])}"
     return f'{label}（{v["born_month"]} 起 {v["n_nodes"]} 个月）'
 
 
