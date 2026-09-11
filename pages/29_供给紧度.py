@@ -5,6 +5,8 @@ import streamlit as st
 from api_client import (
     clear_tightness_caches,
     fetch_tightness_alerts,
+    fetch_tightness_carriers,
+    fetch_tightness_events,
     fetch_tightness_history,
     fetch_tightness_latest,
 )
@@ -42,6 +44,25 @@ if not rows:
 df = pd.DataFrame(rows)
 st.caption(f"数据日期 **{latest.get('snap_date')}**，{len(df)} 个品类。每天 7:40 由 `tightness_scan.py` 写入。")
 
+carriers_resp = fetch_tightness_carriers()
+rigid = carriers_resp.get("data") or {}
+kinds = carriers_resp.get("kinds") or {}
+markets = carriers_resp.get("markets") or {}
+gaps = carriers_resp.get("gaps") or {}
+# 紧度表的「品类」列有两种来源：有期货的走 tight_cats 反查（如「小麦」→ key「谷物」），
+# 没期货的代理行「品类」本身就是 RIGID 的 key（如「VLCC 原油油轮运费」）
+cat_to_key: dict[str, str] = {}
+carrier_map: dict[str, list[str]] = {}
+for _key, _info in rigid.items():
+    _tcs = _info.get("tight_cats") or []
+    if _tcs:
+        for _tc in _tcs:
+            cat_to_key[_tc] = _key
+            carrier_map[_tc] = _info.get("carriers") or []
+    else:
+        cat_to_key[_key] = _key
+        carrier_map[_key] = _info.get("carriers") or []
+
 # ── 1. 当前处在倒挂的品类 ──
 back = df[df["prem"].notna() & (df["prem"] > 0)].sort_values("prem", ascending=False)
 st.markdown("## 现在谁在倒挂")
@@ -63,22 +84,35 @@ st.markdown("## 紧度读数")
 tbl = df.copy()
 tbl["_sort"] = tbl["prem"].fillna(-9)
 tbl = tbl.sort_values(["_sort", "q5"], ascending=False)
+def _carrier_cell(cat: str) -> str:
+    tickers = carrier_map.get(cat) or []
+    cell = " · ".join(tickers[:3])
+    return cell + "…" if len(tickers) > 3 else cell
+
+
+def _prem_cell(row) -> str:
+    if pd.isna(row["prem"]):
+        return "无期货" if row.get("source") == "proxy" else "—"
+    return f"{row['prem']:+.1%}"
+
+
 show = pd.DataFrame({
     "品类": tbl["category"],
     "最新": tbl["price"].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "—"),
-    "近月溢价": tbl["prem"].map(lambda v: "—" if pd.isna(v) else f"{v:+.1%}"),
+    "近月溢价": tbl.apply(_prem_cell, axis=1),
     "一月前溢价": tbl["prem_prev"].map(lambda v: "—" if pd.isna(v) else f"{v:+.1%}"),
     "5 年分位": tbl["q5"].map(lambda v: "—" if pd.isna(v) else f"{v:.0%}"),
     "一月前分位": tbl["q5_prev"].map(lambda v: "—" if pd.isna(v) else f"{v:.0%}"),
     "近一月": tbl["r1m"].map(lambda v: "—" if pd.isna(v) else f"{v:+.0%}"),
     "近一年": tbl["r1y"].map(lambda v: "—" if pd.isna(v) else f"{v:+.0%}"),
     "判读": tbl["verdict"],
+    "载体": tbl["category"].map(_carrier_cell),
 })
 st.dataframe(show, hide_index=True, use_container_width=True)
 st.caption(
     "天然气的期限结构不可信——冬季合约天然贵过夏季，它的近月溢价要跟往年同月比才有意义，"
     "不能直接当宽松读。原油和金属没有这个问题。"
-    "铀、各类运费、稀土没有活跃的美股期货合约，这里看不到，只能从载体价格间接看。"
+    "运费、铀、稀土没有期货合约，这里显示的是主载体的代理读数，不是现货紧度。"
 )
 
 # ── 3. 时间序列：md 看不到的那部分 ──
@@ -136,7 +170,60 @@ else:
     if cat in SEASONAL:
         st.warning("天然气的近月溢价带强季节性，横向比零线意义有限，要跟往年同月比。")
 
-# ── 4. 报警流水 ──
+# ── 4. 这个品类能买什么 ──
+st.markdown("## 这个品类能买什么")
+rigid_key = cat_to_key.get(cat)
+info = rigid.get(rigid_key) or {}
+if not info:
+    st.info(f"{cat} 还没有登记到载体清单里。")
+else:
+    st.markdown(
+        f"**商品** {info.get('commodity', '—')} ｜ **环节** {info.get('stage') or '非实物'} ｜ "
+        f"**响应时间** {info.get('respond', '—')}"
+    )
+    st.caption(f"卡在哪：{info.get('stuck', '—')}")
+    if info.get("indicator"):
+        st.caption(f"真紧度指标：{info['indicator']}")
+    cat_row = tbl[tbl["category"] == cat]
+    if not cat_row.empty and cat_row.iloc[0].get("source") == "proxy":
+        st.warning(cat_row.iloc[0]["verdict"])
+    carrier_rows = []
+    for t in info.get("carriers") or []:
+        m = markets.get(t, "美国")
+        carrier_rows.append({
+            "载体": t,
+            "市场": m if m == "美国" else f"🌐 {m}",
+            "类型": kinds.get(t, "股票/股票ETF"),
+        })
+    st.dataframe(pd.DataFrame(carrier_rows), hide_index=True, use_container_width=True)
+
+# ── 5. 历史上这个品类遇到过什么 ──
+st.markdown("## 历史上这个品类遇到过什么")
+ev = fetch_tightness_events(rigid_key) if rigid_key else {"events": [], "perf": []}
+events = ev.get("events") or []
+perf = pd.DataFrame(ev.get("perf") or [])
+if not events:
+    st.info("这个品类还没有回测过的事件")
+else:
+    for e in events:
+        e_perf = perf[perf["event_id"] == e["event_id"]] if not perf.empty else perf
+        st.markdown(f"### {e['name']}（{e['event_date']}）— 卡的是「{e['stage_hit']}」")
+        st.caption(e.get("stage_note", ""))
+        if not e_perf.empty:
+            baseline = e_perf["ex_t60"].mean()
+            st.markdown(f"这次全买等权 T+60 超额 **{baseline:+.1%}**")
+            detail = e_perf.sort_values("ex_t60", ascending=False)
+            st.dataframe(
+                pd.DataFrame({
+                    "载体": detail["ticker"],
+                    "类型": detail["kind"],
+                    "T+60 超额": detail["ex_t60"].map(lambda v: "—" if pd.isna(v) else f"{v:+.1%}"),
+                    "T+120 超额": detail["ex_t120"].map(lambda v: "—" if pd.isna(v) else f"{v:+.1%}"),
+                }),
+                hide_index=True, use_container_width=True,
+            )
+
+# ── 6. 报警流水 ──
 st.markdown("## 报警流水")
 st.markdown("报警建在紧度变化上，不是建在价格涨跌上——价格异动是结果，紧度异动才是提前量。同一品类同一类型 30 天内只报一次。")
 adays = st.selectbox("回看天数", [30, 90, 180, 365], index=1, key="alert_days")
@@ -152,3 +239,50 @@ else:
         hide_index=True, use_container_width=True, height=min(520, 40 + 36 * len(adf)),
     )
     st.caption("标了「回填」的是建表时用同一套规则从历史价格重算出来的，当时并没有真的推过 Discord。")
+
+# ── 7. 清单自己的洞 ──
+st.markdown("## 清单自己的洞")
+st.caption("漏一格会在这里显示成一行空白，而不是等到有东西涨了 47 倍才发现。")
+
+st.markdown("**商品缺哪些环节**")
+missing = gaps.get("missing_stages") or []
+if missing:
+    st.dataframe(
+        pd.DataFrame({
+            "商品": [m["commodity"] for m in missing],
+            "已有环节": [" · ".join(m["has"]) for m in missing],
+            "缺的环节": [" · ".join(m["missing"]) for m in missing],
+        }),
+        hide_index=True, use_container_width=True,
+    )
+else:
+    st.info("每个商品的六个环节都有品类覆盖。")
+
+st.markdown("**根因写下来了但不是品类**")
+orphans = gaps.get("orphan_entities") or []
+if orphans:
+    st.dataframe(
+        pd.DataFrame({
+            "根因实体": [o["entity"] for o in orphans],
+            "它导致了哪些品类": [" · ".join(o["caused"]) for o in orphans],
+        }),
+        hide_index=True, use_container_width=True,
+    )
+else:
+    st.info("笔记里提到的根因实体都已经单独成为品类。")
+
+st.markdown("**只能买股票 / 买不到的品类**")
+no_shelter = gaps.get("no_shelter") or []
+absent = gaps.get("absent_commodities") or []
+gap_rows = [
+    {"品类/商品": n["category"], "情况": "只能买股票（无期货/无实物信托）",
+     "说明": " · ".join(n.get("markets") or [])}
+    for n in no_shelter
+] + [
+    {"品类/商品": a["commodity"], "情况": "买不到（无品类）", "说明": a["why"]}
+    for a in absent
+]
+if gap_rows:
+    st.dataframe(pd.DataFrame(gap_rows), hide_index=True, use_container_width=True)
+else:
+    st.info("没有品类处在「只能买股票」或「买不到」状态。")

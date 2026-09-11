@@ -3412,7 +3412,22 @@ def fetch_tightness_alerts(days: int = 90) -> dict:
     return _tightness_get("/api/v1/tightness/alerts", {"days": days})
 
 
+@st.cache_data(ttl=1800)
+def fetch_tightness_carriers() -> dict:
+    """品类 -> 载体映射。"""
+    return _tightness_get("/api/v1/tightness/carriers", {})
+
+
+@st.cache_data(ttl=1800)
+def fetch_tightness_events(category: str | None = None) -> dict:
+    """事件回测，可按品类过滤。"""
+    return _tightness_get("/api/v1/tightness/events",
+                          {"category": category} if category else {})
+
+
 def clear_tightness_caches():
     fetch_tightness_latest.clear()
     fetch_tightness_history.clear()
     fetch_tightness_alerts.clear()
+    fetch_tightness_carriers.clear()
+    fetch_tightness_events.clear()
