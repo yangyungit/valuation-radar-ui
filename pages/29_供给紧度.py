@@ -245,18 +245,54 @@ st.markdown("## 清单自己的洞")
 st.caption("漏一格会在这里显示成一行空白，而不是等到有东西涨了 47 倍才发现。")
 
 st.markdown("**商品缺哪些环节**")
+st.caption(
+    "环节按商品类型定制，不是所有商品都套六环——农产品只有采和加工，海运只有运和设备，"
+    "黄金只有采。所以这里列出来的空格都是真缺，不会再出现「可可缺设备」这种可可根本没有的环节。"
+)
 missing = gaps.get("missing_stages") or []
 if missing:
     st.dataframe(
         pd.DataFrame({
             "商品": [m["commodity"] for m in missing],
+            "这个商品有哪几环": [" · ".join(m.get("applies") or []) for m in missing],
             "已有环节": [" · ".join(m["has"]) for m in missing],
             "缺的环节": [" · ".join(m["missing"]) for m in missing],
         }),
         hide_index=True, use_container_width=True,
     )
 else:
-    st.info("每个商品的六个环节都有品类覆盖。")
+    st.info("每个商品适用的环节都有品类覆盖。")
+
+st.markdown("**共用瓶颈：哪几个品类其实是同一注**")
+st.caption(
+    "同一个根因卡着多个品类时，分别买这几个品类不是分散几注，是同一注下几遍。"
+    "商品维度会把它们拆开——船台卡着的四个品类分属原油、成品油、干散货、天然气，看着像四注。"
+)
+shared = gaps.get("shared_bottlenecks") or []
+if shared:
+    for s in [x for x in shared if len(x["categories"]) > 1]:
+        tail = (f"瓶颈本身的载体是 {' · '.join(s['carriers'][:4])}（`{s['own_category']}`）"
+                if s.get("carriers") else "瓶颈本身还没有独立品类，只能通过这几个品类间接下注")
+        st.warning(
+            f"**{s['entity']}** 卡着 {len(s['categories'])} 个品类："
+            f"{' · '.join(s['categories'])}——分属 {len(s['commodities'])} 个商品"
+            f"（{' · '.join(s['commodities'])}）。这不是 {len(s['categories'])} 注，"
+            f"是同一注下 {len(s['categories'])} 遍。{tail}"
+        )
+    st.dataframe(
+        pd.DataFrame({
+            "瓶颈": [s["entity"] for s in shared],
+            "卡着的品类": [" · ".join(s["categories"]) for s in shared],
+            "跨几个品类": [len(s["categories"]) for s in shared],
+            "分属商品": [" · ".join(s["commodities"]) for s in shared],
+            "是不是同一注": ["是" if len(s["categories"]) > 1 else "只卡 1 个，不算"
+                        for s in shared],
+            "瓶颈自己的品类": [s.get("own_category") or "—" for s in shared],
+        }),
+        hide_index=True, use_container_width=True,
+    )
+else:
+    st.info("没有任何根因同时卡着多个品类。")
 
 st.markdown("**根因写下来了但不是品类**")
 orphans = gaps.get("orphan_entities") or []
