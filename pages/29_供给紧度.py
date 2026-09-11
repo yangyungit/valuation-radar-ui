@@ -1,0 +1,154 @@
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+
+from api_client import (
+    clear_tightness_caches,
+    fetch_tightness_alerts,
+    fetch_tightness_history,
+    fetch_tightness_latest,
+)
+
+st.set_page_config(page_title="供给紧度", layout="wide", page_icon="🛢️")
+st.title("🛢️ 供给紧度")
+st.caption(
+    "供给两三年内改不了的品类，遇上一周内能改变需求的事件，才出非线性行情。"
+    "这页回答「现在这个品类的垫子有多厚」。"
+    "**判读以期限结构为主、价格分位为辅**：分位高只说明贵，近月对远月倒挂才说明缺。"
+    "品类清单、卡在哪、响应时间在 obsidian 的《供给刚性清单》里，这页只管每天变的读数。"
+)
+
+# 倒挂超过这个数算现货紧张，与 system/scripts/tightness_scan.py 同口径
+TIGHT_PREM = 0.05
+TIGHT_Q = 0.85
+# 天然气有强季节性（冬季合约天然贵过夏季），近月溢价要跟往年同月比才有意义
+SEASONAL = {"美国天然气"}
+
+with st.sidebar:
+    if st.button("🔄 强制刷新紧度数据"):
+        clear_tightness_caches()
+        st.rerun()
+
+latest = fetch_tightness_latest()
+if not latest.get("success"):
+    st.error(f"⚠️ 紧度数据暂不可用：{latest.get('error', '未知错误')}")
+    st.stop()
+
+rows = latest.get("data") or []
+if not rows:
+    st.warning("⚠️ 还没有任何快照。先跑 `system/scripts/tightness_scan.py`。")
+    st.stop()
+
+df = pd.DataFrame(rows)
+st.caption(f"数据日期 **{latest.get('snap_date')}**，{len(df)} 个品类。每天 7:40 由 `tightness_scan.py` 写入。")
+
+# ── 1. 当前处在倒挂的品类 ──
+back = df[df["prem"].notna() & (df["prem"] > 0)].sort_values("prem", ascending=False)
+st.markdown("## 现在谁在倒挂")
+if back.empty:
+    st.info("当前没有任何品类处在倒挂，全部 contango。事件打进来也容易被库存吸收掉。")
+else:
+    st.markdown(
+        f"{len(back)} 个品类近月贵过远月——市场在为「立刻拿到货」付溢价。"
+        f"溢价 > {TIGHT_PREM:.0%} 算现货紧张。"
+    )
+    for chunk in [back.iloc[i:i + 6] for i in range(0, len(back), 6)]:
+        for col, (_, r) in zip(st.columns(len(chunk)), chunk.iterrows()):
+            delta = None if pd.isna(r["prem_prev"]) else f"{(r['prem'] - r['prem_prev']) * 100:+.1f}pp"
+            name = r["category"] + ("（季节性）" if r["category"] in SEASONAL else "")
+            col.metric(name, f"{r['prem']:+.1%}", delta, help="括号里是相对一个月前的变化")
+
+# ── 2. 主表 ──
+st.markdown("## 紧度读数")
+tbl = df.copy()
+tbl["_sort"] = tbl["prem"].fillna(-9)
+tbl = tbl.sort_values(["_sort", "q5"], ascending=False)
+show = pd.DataFrame({
+    "品类": tbl["category"],
+    "最新": tbl["price"].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "—"),
+    "近月溢价": tbl["prem"].map(lambda v: "—" if pd.isna(v) else f"{v:+.1%}"),
+    "一月前溢价": tbl["prem_prev"].map(lambda v: "—" if pd.isna(v) else f"{v:+.1%}"),
+    "5 年分位": tbl["q5"].map(lambda v: "—" if pd.isna(v) else f"{v:.0%}"),
+    "一月前分位": tbl["q5_prev"].map(lambda v: "—" if pd.isna(v) else f"{v:.0%}"),
+    "近一月": tbl["r1m"].map(lambda v: "—" if pd.isna(v) else f"{v:+.0%}"),
+    "近一年": tbl["r1y"].map(lambda v: "—" if pd.isna(v) else f"{v:+.0%}"),
+    "判读": tbl["verdict"],
+})
+st.dataframe(show, hide_index=True, use_container_width=True)
+st.caption(
+    "天然气的期限结构不可信——冬季合约天然贵过夏季，它的近月溢价要跟往年同月比才有意义，"
+    "不能直接当宽松读。原油和金属没有这个问题。"
+    "铀、各类运费、稀土没有活跃的美股期货合约，这里看不到，只能从载体价格间接看。"
+)
+
+# ── 3. 时间序列：md 看不到的那部分 ──
+st.markdown("## 变紧的过程")
+st.markdown(
+    "笔记里只有今天这一行读数，看不出是在变紧还是变松。"
+    "**穿越零线是最强的信号**——从 contango 翻成倒挂，说明市场从「愿意囤」变成「等不及」。"
+)
+cats = latest.get("categories") or sorted(df["category"].tolist())
+_default = back["category"].iloc[0] if not back.empty else cats[0]
+c1, c2 = st.columns([3, 1])
+cat = c1.selectbox("品类", cats, index=cats.index(_default) if _default in cats else 0)
+days = c2.selectbox("回看", [60, 125, 250, 500], index=1, format_func=lambda d: f"{d} 个交易日")
+
+hist = fetch_tightness_history(cat, days)
+h = pd.DataFrame(hist.get("data") or [])
+if h.empty:
+    st.warning(f"⚠️ {cat} 还没有历史快照")
+else:
+    h["snap_date"] = pd.to_datetime(h["snap_date"])
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=h["snap_date"], y=h["prem"] * 100, name="近月溢价 %",
+        line=dict(color="#FFD700", width=2),
+        hovertemplate="%{x|%Y-%m-%d}<br>近月溢价 %{y:.1f}%<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=h["snap_date"], y=h["q5"] * 100, name="5 年价格分位 %", yaxis="y2",
+        line=dict(color="#4C9BE8", width=2, dash="dot"),
+        hovertemplate="%{x|%Y-%m-%d}<br>分位 %{y:.0f}%<extra></extra>",
+    ))
+    fig.add_hline(y=0, line=dict(color="#888", width=1))
+    fig.add_hline(y=TIGHT_PREM * 100, line=dict(color="#E74C3C", width=1, dash="dash"),
+                  annotation_text=f"现货紧张线 {TIGHT_PREM:.0%}", annotation_position="top left")
+    fig.update_layout(
+        height=440, hovermode="x unified", template="plotly_dark",
+        margin=dict(l=10, r=10, t=30, b=10),
+        yaxis=dict(title="近月溢价 %（正 = 倒挂 = 缺货）", zeroline=False),
+        yaxis2=dict(title="5 年价格分位 %", overlaying="y", side="right",
+                    range=[0, 100], showgrid=False),
+        legend=dict(orientation="h", y=1.12, x=0),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    last, first = h.iloc[-1], h.iloc[0]
+    bits = []
+    if pd.notna(last["prem"]) and pd.notna(first["prem"]):
+        bits.append(f"近月溢价从 {first['prem']:+.1%} 走到 {last['prem']:+.1%}")
+    if pd.notna(last["q5"]) and pd.notna(first["q5"]):
+        bits.append(f"5 年分位从 {first['q5']:.0%} 到 {last['q5']:.0%}")
+    if pd.notna(last["far_code"]):
+        bits.append(f"当前远月合约 `{last['far_code']}`")
+    if bits:
+        st.caption(f"{first['snap_date']:%Y-%m-%d} 至 {last['snap_date']:%Y-%m-%d}：" + "；".join(bits) + "。")
+    if cat in SEASONAL:
+        st.warning("天然气的近月溢价带强季节性，横向比零线意义有限，要跟往年同月比。")
+
+# ── 4. 报警流水 ──
+st.markdown("## 报警流水")
+st.markdown("报警建在紧度变化上，不是建在价格涨跌上——价格异动是结果，紧度异动才是提前量。同一品类同一类型 30 天内只报一次。")
+adays = st.selectbox("回看天数", [30, 90, 180, 365], index=1, key="alert_days")
+al = fetch_tightness_alerts(adays)
+arows = al.get("data") or []
+if not arows:
+    st.info(f"最近 {adays} 天没有紧度异动。")
+else:
+    adf = pd.DataFrame(arows)
+    st.dataframe(
+        pd.DataFrame({"日期": adf["alert_date"], "品类": adf["category"],
+                      "类型": adf["kind"], "说明": adf["text"]}),
+        hide_index=True, use_container_width=True, height=min(520, 40 + 36 * len(adf)),
+    )
+    st.caption("标了「回填」的是建表时用同一套规则从历史价格重算出来的，当时并没有真的推过 Discord。")

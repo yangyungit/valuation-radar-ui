@@ -3381,3 +3381,38 @@ def clear_valuation_caches():
     fetch_valuation_sector_history.clear()
     fetch_valuation_concentration.clear()
     fetch_valuation_lookup.clear()
+
+
+# ==========================================
+# 供给紧度（供给刚性清单迁到前端的动态部分）
+# ==========================================
+def _tightness_get(path: str, params: dict) -> dict:
+    try:
+        r = requests.get(f"{API_BASE_URL}{path}", params=params, timeout=30)
+        r.raise_for_status(); return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "data": []}
+
+
+@st.cache_data(ttl=1800)
+def fetch_tightness_latest() -> dict:
+    """最新一天全部品类的紧度读数。"""
+    return _tightness_get("/api/v1/tightness/latest", {})
+
+
+@st.cache_data(ttl=1800)
+def fetch_tightness_history(category: str, days: int = 250) -> dict:
+    """单品类的近月溢价 / 价格分位时间序列。"""
+    return _tightness_get("/api/v1/tightness/history", {"category": category, "days": days})
+
+
+@st.cache_data(ttl=1800)
+def fetch_tightness_alerts(days: int = 90) -> dict:
+    """紧度报警流水。"""
+    return _tightness_get("/api/v1/tightness/alerts", {"days": days})
+
+
+def clear_tightness_caches():
+    fetch_tightness_latest.clear()
+    fetch_tightness_history.clear()
+    fetch_tightness_alerts.clear()
