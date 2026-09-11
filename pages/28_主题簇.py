@@ -1,7 +1,6 @@
 import html
 from collections import Counter, defaultdict
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -17,8 +16,8 @@ st.caption(
     "这页用来看市场当下按什么在分组，不用来选股。"
 )
 st.caption(
-    "纵轴是时间，越往上越近，每支的起点就落在它诞生那个月；横轴不是主题编号，"
-    "是这一支从诞生算起长到第几个月，所以一条链是往右上角斜着长的，每个气泡都写当月的名字。"
+    "横轴是日历月份，每个气泡钉在自己那个月；一条链每个月往右走一格，所以链是水平的。"
+    "纵轴没有含义，只用来把同一时期的链上下错开，分叉就斜着岔出去一条。"
     "**连线根据成员重合建立，颜色才表示超额涨跌**——上个月的簇和这个月的簇"
     "成员重合过半优先续成同一条链，所以一路杀跌的链照样能串成好几个月。"
     "红 = 超额为负，绿 = 为正。一条长红链的意思是「这批票被当成一伙一起被卖」，"
@@ -32,9 +31,13 @@ with st.sidebar:
     min_chain = st.slider(
         "链至少活 N 个月才画", min_value=1, max_value=12, value=4,
         help="按整条链的寿命过滤，不是按单个点。调到 1 = 全画（含只冒一个月就散的簇）。"
-             "短链扎堆在底部两三行，被碰撞算法推得东倒西歪，连线绞成麻花。"
+             "每条链单独占一行，短链全放进来行数会翻好几倍，图变得很高。"
              "最近 3 年：≥3 个月有 22 条链，≥4 个月只剩 7 条。")
     bubble_px = st.slider("最大气泡直径（像素）", min_value=8, max_value=40, value=18)
+    label_all = st.checkbox(
+        "每个月都写名字", value=False,
+        help="默认只在名字变化的那个月写一次——链连着几个月同名，逐月重复写会横向叠成一团。"
+             "勾上则每个气泡都写，密集处靠放大看。")
     if st.button("🔄 强制刷新数据"):
         fetch_theme_clusters.clear()
         st.rerun()
@@ -146,92 +149,62 @@ shoot_ids = {n["node_id"] for n in shoot}
 oneshot = [n for n in draw if n["node_id"] not in shoot_ids]
 
 top_h = max(height[n["node_id"]] for n in draw)
-fig_h = max(520, min(1800, 26 * len(mshow) + 140))
 max_n = max(n["n"] for n in draw)
 dot_px = {n["node_id"]: 5.0 + (bubble_px - 5.0) * (n["n"] / max_n) ** 0.5 for n in shoot}
 dot_px.update({n["node_id"]: 4.0 for n in oneshot})
 
-# 横轴初始只铺到 95% 的链够用的宽度：近三年（链 ≥4 个月）最长那条活了 29 个月，
-# 但 95 分位只有 11，按 29 铺会把 25 条链里的大半挤在左边三分之一。超出的拖动可见。
-vis_h: dict[str, int] = {}
+# 横坐标就是日历月份，一个月一格，气泡钉死在自己那个月。链每个月往右走一格，
+# 所以画出来是水平的，不需要解位置。纵坐标没有含义，只是行号。
+#
+# 排行不能按 chain_key 分组——那是整棵树的编号，一棵树分叉后同一个月有两个节点，
+# 按它分组两个气泡会叠在同一格。先把树拆成一条条水平路径：子树最深的那个孩子接着
+# 原路往右走，其余的各起一条新路径。
+ids = {n["node_id"] for n in draw}
+kids: dict[int, list] = defaultdict(list)
+roots = []
 for n in draw:
-    k = n.get("chain_key")
-    vis_h[k] = max(vis_h.get(k, 0), height[n["node_id"]])
-x_max = min(top_h, max(7, int(np.percentile(list(vis_h.values()), 95))))
+    p = n.get("parent_node_id")
+    (kids[p] if p in ids else roots).append(n)
+depth: dict[int, int] = {}
+for n in sorted(draw, key=lambda n: n["month"], reverse=True):
+    depth[n["node_id"]] = 1 + max((depth[c["node_id"]]
+                                   for c in kids.get(n["node_id"], [])), default=0)
 
-px_x = 760.0 / (x_max + 2.2)
-px_y = (fig_h - 40.0) / (len(mshow) + 1.2)
+paths: list[tuple[list, int | None]] = []
+node_path: dict[int, int] = {}
+stack = [(r, None) for r in sorted(roots, key=lambda n: n["month"], reverse=True)]
+while stack:
+    start, from_path = stack.pop()
+    pi = len(paths)
+    seq, cur = [], start
+    while cur is not None:
+        seq.append(cur)
+        node_path[cur["node_id"]] = pi
+        cs = sorted(kids.get(cur["node_id"], []), key=lambda c: -depth[c["node_id"]])
+        cur = cs[0] if cs else None
+        stack.extend((c, pi) for c in cs[1:])
+    paths.append((seq, from_path))
 
-# 位置是受力解出来的，横纵都不锁格子：只有起点那个球钉在自己的日期上，后面的球
-# 受四条约束——跟父节点之间一根定长的杆（一根 = 一个月，数杆数就知道活了几个月）、
-# 在父节点的右上方、被前一根杆的延长线拉着（不然密集处会折成锯齿）、跟别的球互斥。
-# 链往哪个方向舒展随它，纵向只留 0.02 的回拉，免得整条链飘到几年以外。
-idx = {n["node_id"]: i for i, n in enumerate(draw)}
-X = np.array([float(height[n["node_id"]]) for n in draw]) * px_x
-Y = np.array([float(midx[n["month"]]) for n in draw]) * px_y
-X0, Y0 = X.copy(), Y.copy()
-R = np.array([dot_px[n["node_id"]] / 2.0 for n in draw])
-X += np.random.default_rng(0).uniform(-0.1, 0.1, len(draw)) * px_x
+# 先出生的先占行，同月出生的长路径优先。分叉一定晚于父路径出生，轮到它时父行已定，
+# 挑离父行最近的空行，岔出去就是一条斜线。
+pspan = [(midx[s[0]["month"]], midx[s[-1]["month"]]) for s, _ in paths]
+row_end: list[int] = []
+row_of = [0] * len(paths)
+for i in sorted(range(len(paths)), key=lambda i: (pspan[i][0], pspan[i][0] - pspan[i][1])):
+    a, b = pspan[i]
+    free = [r for r, e in enumerate(row_end) if e < a - 1]   # 同行两条链之间空一个月
+    if not free:
+        free = [len(row_end)]
+        row_end.append(a)
+    home = row_of[paths[i][1]] if paths[i][1] is not None else None
+    pick = min(free, key=lambda r: abs(r - home)) if home is not None else free[0]
+    row_of[i] = pick
+    row_end[pick] = b
 
-ei = np.array([idx[n["node_id"]] for n in draw if n.get("parent_node_id") in idx], dtype=int)
-ej = np.array([idx[n["parent_node_id"]] for n in draw if n.get("parent_node_id") in idx], dtype=int)
-# 爷爷-父亲-孩子三连：孩子被拉向前一根杆的延长线，链才是平滑弧线不是锯齿
-par = {n["node_id"]: n.get("parent_node_id") for n in draw}
-tri = [(idx[k], idx[par[k]], idx[par[par[k]]]) for k in idx
-       if par.get(k) in idx and par.get(par.get(k)) in idx]
-ti, tj, tk = (np.array(a, dtype=int) for a in zip(*tri)) if tri else (np.empty(0, int),) * 3
-is_root = np.ones(len(draw), dtype=bool)
-is_root[ei] = False
-rod = float(np.hypot(px_x, px_y))
-pull_y = np.where(is_root, 0.5, 0.02)   # 起点钉在自己的日期上，后面的只轻轻拽
-pull_x = np.where(is_root, 0.05, 0.0)   # 横向只轻轻拽一下：同月出生的几条链起点
-                                        # 坐标一模一样，横向钉死就必然压在一起
-
-for it in range(260):
-    # 球能上下飘了，就不能再按「所属月份」分组比避让——隔五个月的两个球可能飘到
-    # 同一高度。每 10 轮按当前纵坐标重新分桶，桶高取最大气泡直径的 1.5 倍，
-    # 只跟同桶和上邻桶比：两球够近到会重叠，纵距必然小于桶高，不会漏。
-    if it % 10 == 0:
-        bin_h = 3.0 * R.max()
-        buckets = defaultdict(list)
-        for i, bi in enumerate(np.floor(Y / bin_h).astype(int)):
-            buckets[bi].append(i)
-        bands = [np.array(buckets[k] + buckets.get(k + 1, []), dtype=int)
-                 for k in sorted(buckets)]
-        bands = [b for b in bands if len(b) > 1]
-    fx, fy = np.zeros(len(draw)), np.zeros(len(draw))
-    for b in bands:
-        dx = X[b][:, None] - X[b][None, :]
-        dy = Y[b][:, None] - Y[b][None, :]
-        d = np.hypot(dx, dy)
-        np.fill_diagonal(d, np.inf)
-        push = np.where(d < (R[b][:, None] + R[b][None, :]) * 1.5,
-                        (R[b][:, None] + R[b][None, :]) * 1.5 - d, 0.0)
-        safe = np.where(d > 1e-6, d, 1.0)      # 完全重合的靠 X 的初始扰动分开
-        np.add.at(fx, b, (push * dx / safe).sum(axis=1) * 0.5)
-        np.add.at(fy, b, (push * dy / safe).sum(axis=1) * 0.5)
-    ex, ey = X[ei] - X[ej], Y[ei] - Y[ej]
-    ed = np.maximum(np.hypot(ex, ey), 1e-6)
-    stretch = (ed - rod) / ed * 0.5             # 杆拉回定长，两端各分一半
-    np.add.at(fx, ei, -stretch * ex)
-    np.add.at(fx, ej, stretch * ex)
-    np.add.at(fy, ei, -stretch * ey)
-    np.add.at(fy, ej, stretch * ey)
-    np.add.at(fx, ti, (2 * X[tj] - X[tk] - X[ti]) * 0.25)
-    np.add.at(fy, ti, (2 * Y[tj] - Y[tk] - Y[ti]) * 0.25)
-    gapy = np.maximum(0.30 * px_y - (Y[ei] - Y[ej]), 0.0)   # 孩子在父节点上方
-    gapx = np.maximum(0.30 * px_x - (X[ei] - X[ej]), 0.0)   # 也在父节点右边
-    np.add.at(fy, ei, gapy * 0.5)
-    np.add.at(fy, ej, -gapy * 0.5)
-    np.add.at(fx, ei, gapx * 0.5)
-    np.add.at(fx, ej, -gapx * 0.5)
-    X += fx * 0.45 + (X0 - X) * pull_x
-    Y += fy * 0.45 + (Y0 - Y) * pull_y
-    np.clip(X, X0 - 5.0 * px_x, X0 + 5.0 * px_x, out=X)     # 只防解飞掉
-    np.clip(Y, Y0 - 5.0 * px_y, Y0 + 5.0 * px_y, out=Y)
-
-xy = {k: (float(X[i] / px_x), float(Y[i] / px_y)) for k, i in idx.items()}
-drift = max(abs(xy[n["node_id"]][1] - midx[n["month"]]) for n in draw)
+n_rows = len(row_end)
+fig_h = max(420, min(2400, 74 * n_rows + 130))
+xy = {n["node_id"]: (float(midx[n["month"]]), float(-row_of[node_path[n["node_id"]]]))
+      for n in draw}
 
 fig = go.Figure()
 lx, ly = [], []
@@ -286,48 +259,51 @@ def wrap_name(s: str, width: int = 8) -> str:
     return "<br>".join(html.escape(s[i:i + width]) for i in range(0, len(s), width))
 
 
-# 每个气泡都写名字，包括中间节点和只活一个月的。同名的月份也逐月重复写，不去重。
-# 密集处会互相压住，靠缩放看——原来靠碰撞检测跳过，结果放大也不会恢复，等于把名字藏了。
+# 一格 = 一个月，横向只有几十像素，一条链连着五个月同名就会叠成一团。默认只在
+# 名字跟上个月不一样时写一次（链的第一个节点父节点不在图里，也算变化，照样写）。
+name_of = {n["node_id"]: cluster_name(n) for n in draw}
+lab = draw if label_all else [
+    n for n in draw if name_of.get(n.get("parent_node_id")) != name_of[n["node_id"]]]
 fig.add_trace(go.Scatter(
-    x=[xy[n["node_id"]][0] for n in draw], y=[xy[n["node_id"]][1] for n in draw],
-    mode="text", text=[wrap_name(cluster_name(n)) for n in draw],
+    x=[xy[n["node_id"]][0] for n in lab], y=[xy[n["node_id"]][1] for n in lab],
+    mode="text", text=[wrap_name(cluster_name(n), 7) for n in lab],
     textposition="bottom center", hoverinfo="skip", showlegend=False, cliponaxis=False,
     textfont=dict(size=13, color="rgba(230,230,230,0.92)")))
 
+# 初始只铺最近 24 个月：一格窄于 40 像素名字就全糊在一起，更早的往左拖。
+x_win = min(len(mshow), 24)
 step = max(1, len(mshow) // 40)
-hstep = 1 if x_max <= 14 else 2
 fig.update_layout(
     height=fig_h, dragmode="pan", hovermode="closest",
-    margin=dict(l=10, r=240, t=70, b=50),
+    margin=dict(l=10, r=120, t=70, b=50),
     coloraxis=dict(colorscale="RdYlGn", cmin=-0.3, cmax=0.3,
                    colorbar=dict(title="超额中位", tickformat=".0%")),
-    xaxis=dict(title="长到第几个月（大致）", showgrid=True, gridcolor="rgba(128,128,128,0.12)",
-               tickmode="array", tickvals=list(range(0, top_h + 1, hstep)),
-               ticktext=[f"第 {i + 1} 月" for i in range(0, top_h + 1, hstep)],
-               range=[-1.0, x_max + 1.2]),
-    yaxis=dict(title="", showgrid=True, gridcolor="rgba(128,128,128,0.15)",
+    xaxis=dict(title="", showgrid=True, gridcolor="rgba(128,128,128,0.12)",
                tickmode="array", tickvals=list(range(0, len(mshow), step)),
                ticktext=[mshow[i] for i in range(0, len(mshow), step)],
-               range=[-1, len(mshow) + 1.5], automargin=True),
+               range=[len(mshow) - x_win - 0.6, len(mshow) - 0.4]),
+    yaxis=dict(title="", showgrid=False, zeroline=False, showticklabels=False,
+               range=[-(n_rows - 1) - 0.85, 0.6]),
 )
 st.plotly_chart(fig, use_container_width=True,
                 config={"scrollZoom": True, "displaylogo": False})
 st.caption(
     "**滚轮缩放、按住拖动**，双击回到初始视野。"
-    "气泡不锁在格子上，位置是算出来的：**只有每支的起点钉在自己的日期上**，"
-    "后面的球为了互相让开可以随便飘，靠杆认亲——相连两个球之间是一根定长的杆，"
-    f"一根 = 一个月，数杆数就知道活了几个月。这个窗口里飘得最远的球偏了 {drift:.1f} 个月，"
-    "所以后半段对着纵轴读日期只能读个大概，准确月份和月龄看悬停。"
-    f"横轴初始只铺到第 {x_max + 1} 月（95% 的链都活不过这里），"
-    f"最长那条活了 {top_h + 1} 个月，往右拖能看完。"
-    "每支从自己诞生那个月起步，下个月还找得到成员重合 ≥ 20% 的后继就往右上接一根杆，"
-    "找不到就停在原地。点越大成员越多，越绿这 63 天超额越高；"
-    "杆连着的是同一支，从旧簇裂出来的新簇接着父节点继续往右上长；"
+    f"横坐标是真实月份，一格一个月，气泡钉死在自己那个月，初始只铺最近 {x_win} 个月，"
+    f"这个窗口一共 {len(mshow)} 个月，往左拖能看完。"
+    "**纵向位置没有含义**——每条链占一行，时间上不重叠的链会共用一行，"
+    "上下相邻的两行之间没有任何关系，别按高低比较。"
+    f"这个窗口排了 {n_rows} 行，最长那条链活了 {top_h + 1} 个月。"
+    "每支从自己诞生那个月起步，下个月还找得到成员重合 ≥ 20% 的后继就往右接一格，"
+    "找不到就停在原地；从旧簇裂出来的新簇斜着岔到另一行接着往右长。"
+    "点越大成员越多，越绿这 63 天超额越高；"
     "**× = 未连出后继**，可能是匹配时选了别的父节点，也可能未达到连接条件，"
     "不代表投资失败。**空心圆 = 样本最后一个月**，尚无下月数据。"
-    "每个气泡下面都写当月的名字，密集处会互相压住，滚轮放大能看清，不会被省略。"
-    "并排的两条斜线各自是一条链，不是分叉；但当前图每个节点只画一个父节点，"
-    "合流呈现不完整，别只靠位置就断定两条线互不相关。"
+    + ("每个气泡下面都写当月的名字，密集处会互相压住，滚轮放大能看清。"
+       if label_all else
+       "名字只在跟上个月不一样时写一次，左边栏可以改成每月都写。")
+    + "当前图每个节点只画一个父节点，合流呈现不完整，"
+    "别只靠位置就断定两条线互不相关。"
 )
 
 st.subheader("单条链的成员进出")
