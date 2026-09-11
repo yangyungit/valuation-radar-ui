@@ -1,4 +1,5 @@
-from collections import defaultdict
+import html
+from collections import Counter, defaultdict
 
 import numpy as np
 import pandas as pd
@@ -17,9 +18,9 @@ st.caption(
 )
 st.caption(
     "纵轴是时间，越往上越近，每支的起点就落在它诞生那个月；横轴不是主题编号，"
-    "是这一支从诞生算起长到第几个月，所以一条链是往右上角斜着长的，名字写在链的末端。"
-    "**连线根据成员重合建立，名字描述成员业务，颜色才表示超额涨跌**——上个月的簇和这个月的簇"
-    "成员重合过半就算同一条链续上了，所以一路杀跌的链照样能串成好几个月。"
+    "是这一支从诞生算起长到第几个月，所以一条链是往右上角斜着长的，每个气泡都写当月的名字。"
+    "**连线根据成员重合建立，颜色才表示超额涨跌**——上个月的簇和这个月的簇"
+    "成员重合过半优先续成同一条链，所以一路杀跌的链照样能串成好几个月。"
     "红 = 超额为负，绿 = 为正。一条长红链的意思是「这批票被当成一伙一起被卖」，"
     "不是「这批票在涨」，链继续生长也不等于上涨。"
 )
@@ -54,17 +55,21 @@ st.caption(
     f"{params.get('universe_top')} 且末日收盘价 ≥ ${params.get('min_price')} 的票；日超额扣 SPY 后算相关，"
     f"层次聚类切 {params.get('k_clusters')} 簇，成员数 {params.get('min_members')}~{params.get('max_members')} "
     f"且簇内平均相关 ≥ {params.get('min_internal_corr')} 才算合格。成员重合度（Jaccard）"
-    f"≥ {params.get('continue_overlap')} 算同一条链延续，"
-    f"{params.get('branch_overlap')}~{params.get('continue_overlap')} 算分叉，"
-    f"连续 {params.get('death_months')} 个月超额中位 ≤ 0 或当月没有后继就算死。"
+    f"≥ {params.get('continue_overlap')} 优先续接同一条链，"
+    f"未续接但 ≥ {params.get('branch_overlap')} 就另建一条链并连上父节点——"
+    f"一个父节点连出多个孩子才叫成员分叉。"
+    f"连续 {params.get('death_months')} 个月超额中位非正，旧规则停止续接。"
     f"数据止于 {doc.get('sep_last_date')}，构建于 {doc.get('generated_at')}。"
 )
+n_status = Counter(n.get("theme_status") or "not_reviewed" for n in nodes)
 st.caption(
-    "**名字怎么来的**：391 个根名称已逐条复核，并在 229 处成员变化或分叉处另起名称。"
-    "名称按当期成员业务归纳，沿后继继承；混合簇直接列出主要业务，"
-    "不把涨跌或事件原因写进名字。短链沿用行业与代表票显示。"
-    "同一业务在不同时期可以重现；同一棵树的不同分支按各自成员区分。"
-    "这些名称用于回看成员变化，不是对事件原因的验证。"
+    f"**名字怎么来的**：{n_status['supported']} 个节点的共同原因已用当月新闻逐条核对，"
+    f"显示正式名称。判过但查不到共同原因、或组里存在多个原因该拆开的 "
+    f"{n_status['unknown'] + n_status['mixed']} 个，显示「共同原因待确认」。"
+    f"其余 {n_status['not_reviewed']} 个还没判读，沿用按当期成员业务归纳的旧名，"
+    "短链退回行业与代表票。**待确认不等于分类错了**——本地新闻库有整月空缺"
+    "（2025-08/09、2026-03 一条都没有），那些月份判不了。"
+    "名字说明共同原因，不是涨跌预测或交易信号。逐月依据看下方「命名依据」。"
 )
 
 by_vine: dict[int, list] = defaultdict(list)
@@ -83,7 +88,7 @@ c1, c2, c3, c4 = st.columns(4)
 c1.metric("最新月份", last_month)
 c2.metric("当月活着的链", len(alive))
 c3.metric("当月新生", len(born))
-c4.metric("当月死亡", len(died))
+c4.metric("当月停止续接", len(died))
 
 nodes_by_month = sorted(nodes, key=lambda n: n["month"])
 height: dict[int, int] = {}
@@ -100,13 +105,18 @@ for n in nodes_by_month:
     chain_h[k] = max(chain_h.get(k, 0), height[n["node_id"]] + 1)
 
 def cluster_name(n: dict) -> str:
-    """优先用后端按节点解析的名称，没有则按行业与代表票回退。
+    """优先用后端判读后的 theme_title，没有则按行业与代表票回退。
 
-    名称存在后端 theme_names.json，覆盖约一半节点，分叉与中途成员变化处按各自
-    成员另起名称。行业分类给不出横跨行业的名字——2020-03 那个 ZM/TDOC/ZS 的簇
-    行业众数是「Electronic Gaming & Multimedia 16%」，纯凑数。占比写出来是让人
-    自己判断这个名靠不靠谱：「Healthcare Plans 88%」可信，16% 就该看票。
+    `theme_title` 由后端 theme_review.py 决定：判出共同原因的用正式名称，判过但没
+    结论的显示「共同原因待确认」，没判过的沿用 theme_names.json 的旧名。老后端不返回
+    这个字段时退回 theme_name。
+
+    行业分类给不出横跨行业的名字——2020-03 那个 ZM/TDOC/ZS 的簇行业众数是
+    「Electronic Gaming & Multimedia 16%」，纯凑数。占比写出来是让人自己判断这个名
+    靠不靠谱：「Healthcare Plans 88%」可信，16% 就该看票。
     """
+    if n.get("theme_title"):
+        return n["theme_title"]
     if n.get("theme_name"):
         return n["theme_name"]
     mix = n.get("industry_mix") or []
@@ -270,29 +280,25 @@ if shoot:
             line=dict(width=0.5, color="rgba(0,0,0,0.55)"),
         ), **hover(shoot)))
 
-tops = [n for n in shoot if n["node_id"] not in has_child]
-tops.sort(key=lambda n: (not n.get("theme_name"), -height[n["node_id"]]))
-kept, boxes = [], []
-for n in tops:
-    x0, y0 = xy[n["node_id"]]
-    label = cluster_name(n)
-    w = sum(11 if ord(c) > 0x2E80 else 6.4 for c in label) + 10
-    lo, hi, yy = x0 * px_x + 6, x0 * px_x + 6 + w, y0 * px_y
-    if any(abs(yy - b[2]) < 13 and lo < b[1] and b[0] < hi for b in boxes):
-        continue
-    boxes.append((lo, hi, yy))
-    kept.append(n)
-if kept:
-    fig.add_trace(go.Scatter(
-        x=[xy[n["node_id"]][0] for n in kept], y=[xy[n["node_id"]][1] for n in kept],
-        mode="text", text=[cluster_name(n) for n in kept], hoverinfo="skip", showlegend=False,
-        textposition="middle right", textfont=dict(size=11, color="rgba(230,230,230,0.92)")))
+def wrap_name(s: str, width: int = 8) -> str:
+    """每 width 个原文字符折一行。分段各自转义再拼 <br>，别先转义再切——
+    那样 &amp; 会被从中间切断，页面上冒出半个 HTML 实体。"""
+    return "<br>".join(html.escape(s[i:i + width]) for i in range(0, len(s), width))
+
+
+# 每个气泡都写名字，包括中间节点和只活一个月的。同名的月份也逐月重复写，不去重。
+# 密集处会互相压住，靠缩放看——原来靠碰撞检测跳过，结果放大也不会恢复，等于把名字藏了。
+fig.add_trace(go.Scatter(
+    x=[xy[n["node_id"]][0] for n in draw], y=[xy[n["node_id"]][1] for n in draw],
+    mode="text", text=[wrap_name(cluster_name(n)) for n in draw],
+    textposition="bottom center", hoverinfo="skip", showlegend=False, cliponaxis=False,
+    textfont=dict(size=13, color="rgba(230,230,230,0.92)")))
 
 step = max(1, len(mshow) // 40)
 hstep = 1 if x_max <= 14 else 2
 fig.update_layout(
     height=fig_h, dragmode="pan", hovermode="closest",
-    margin=dict(l=10, r=240, t=30, b=10),
+    margin=dict(l=10, r=240, t=70, b=50),
     coloraxis=dict(colorscale="RdYlGn", cmin=-0.3, cmax=0.3,
                    colorbar=dict(title="超额中位", tickformat=".0%")),
     xaxis=dict(title="长到第几个月（大致）", showgrid=True, gridcolor="rgba(128,128,128,0.12)",
@@ -319,58 +325,97 @@ st.caption(
     "杆连着的是同一支，从旧簇裂出来的新簇接着父节点继续往右上长；"
     "**× = 未连出后继**，可能是匹配时选了别的父节点，也可能未达到连接条件，"
     "不代表投资失败。**空心圆 = 样本最后一个月**，尚无下月数据。"
-    "名字写在每支末端，互相压住的自动省略——放大就都出来了。"
+    "每个气泡下面都写当月的名字，密集处会互相压住，滚轮放大能看清，不会被省略。"
     "并排的两条斜线各自是一条链，不是分叉；但当前图每个节点只画一个父节点，"
     "合流呈现不完整，别只靠位置就断定两条线互不相关。"
 )
 
 st.subheader("单条链的成员进出")
-opts = sorted([v for v in vines if v["n_nodes"] >= 2 and by_vine[v["vine_id"]][0]["month"] in midx],
+# 只要这条链有任一节点落在显示窗口里就能选，不要求出生月份在窗口内，也不要求活过两个月：
+# 判读过的 3991、4001 所在的链都只有一个节点，卡掉就没法查它们的依据。
+opts = sorted([v for v in vines if any(n["month"] in midx for n in by_vine[v["vine_id"]])],
               key=lambda v: (-v["n_nodes"], v["born_month"]))
 if not opts:
-    st.info("这个窗口里没有活过两个月的簇，把左边窗口调长。")
-    st.stop()
-def vine_label(v: dict) -> str:
-    """中途改过名的链显示「首名 → 末名」，没改过只显示一次。
-
-    只看后端起的 theme_name 变没变。回退名（行业 + 代表票）里代表票每月都在换，
-    拿它比就到处都是「Steel 36%｜SHW/SNAP/PPG → Steel 36%｜TXN/SNAP/NUE」这种
-    又长又没信息的标签。
-    """
-    seq = by_vine[v["vine_id"]]
-    label = cluster_name(seq[0])
-    if seq[0].get("theme_name") != seq[-1].get("theme_name"):
-        label = f"{label} → {cluster_name(seq[-1])}"
-    return f'{label}（{v["born_month"]} 起 {v["n_nodes"]} 个月）'
-
-
-pick = st.selectbox("选一条链", opts, format_func=vine_label)
-seq = by_vine[pick["vine_id"]]
-rows, prev = [], set()
-for n in seq:
-    cur = set(n["members"])
-    rows.append({"月份": n["month"],
-                 "主题": cluster_name(n),
-                 "新进": ", ".join(sorted(cur - prev)) if prev else ", ".join(sorted(cur)),
-                 "退出": ", ".join(sorted(prev - cur)),
-                 "留存": ", ".join(sorted(cur & prev))})
-    prev = cur
-left, right = st.columns([3, 2])
-left.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-right.line_chart(pd.DataFrame({"超额中位": [n["excess_median"] for n in seq]},
-                              index=[n["month"] for n in seq]))
-if pick.get("died_month"):
-    reason = {"no_successor": "下个月没有重合度够高的后继簇",
-              "excess_negative": "连续两个月超额中位 ≤ 0"}.get(pick["death_reason"], pick["death_reason"])
-    st.caption(f"这条链死在 {pick['died_month']}：{reason}。峰值超额中位 {pick['peak_excess_median']:.1%}。")
+    st.info("这个窗口里一个簇都没有，把左边窗口调长。")
 else:
-    st.caption(f"这条链到 {last_month} 还活着。峰值超额中位 {pick['peak_excess_median']:.1%}。")
+    def vine_label(v: dict) -> str:
+        """中途改过名的链显示「首名 → 末名」，没改过只显示一次。
+
+        只看后端给的 theme_title 变没变。回退名（行业 + 代表票）里代表票每月都在换，
+        拿它比就到处都是「Steel 36%｜SHW/SNAP/PPG → Steel 36%｜TXN/SNAP/NUE」这种
+        又长又没信息的标签。
+        """
+        seq = by_vine[v["vine_id"]]
+        label = cluster_name(seq[0])
+        if seq[0].get("theme_title") != seq[-1].get("theme_title"):
+            label = f"{label} → {cluster_name(seq[-1])}"
+        return f'{label}（{v["born_month"]} 起 {v["n_nodes"]} 个月）'
+
+    pick = st.selectbox("选一条链", opts, format_func=vine_label)
+    seq = by_vine[pick["vine_id"]]
+    rows, prev = [], set()
+    for n in seq:
+        cur = set(n["members"])
+        rows.append({"月份": n["month"],
+                     "主题": cluster_name(n),
+                     "新进": ", ".join(sorted(cur - prev)) if prev else ", ".join(sorted(cur)),
+                     "退出": ", ".join(sorted(prev - cur)),
+                     "留存": ", ".join(sorted(cur & prev))})
+        prev = cur
+    left, right = st.columns([3, 2])
+    left.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    right.line_chart(pd.DataFrame({"超额中位": [n["excess_median"] for n in seq]},
+                                  index=[n["month"] for n in seq]))
+    if pick.get("died_month"):
+        reason = {"no_successor": "下个月没有满足条件的后继簇",
+                  "excess_negative": "连续两个月超额中位非正"}.get(
+                      pick["death_reason"], pick["death_reason"])
+        st.caption(f"旧规则在 {pick['died_month']} 对这条链停止续接：{reason}。"
+                   f"峰值超额中位 {pick['peak_excess_median']:.1%}。")
+    else:
+        st.caption(f"这条链到 {last_month} 还在续接。峰值超额中位 {pick['peak_excess_median']:.1%}。")
+
+    st.markdown("**命名依据**")
+    mpick = st.selectbox("看哪个月", [n["month"] for n in seq],
+                         index=len(seq) - 1, key="review_month")
+    node = next(n for n in seq if n["month"] == mpick)
+    status = node.get("theme_status") or "not_reviewed"
+    rv = node.get("theme_review") or {}
+    if status == "config_error":
+        st.info("命名依据暂不可用：后端读判读配置失败。")
+    elif not rv:
+        st.info(f"{mpick} 这个节点还没做共同原因判读，名字沿用按成员业务归纳的旧名。"
+                "本地新闻库有整月空缺的月份判不了，不是分类有问题。")
+    else:
+        head = {"supported": "有共同逻辑", "mixed": "混合待拆",
+                "unknown": "共同原因待确认"}[status]
+        st.markdown(f"**{head}**　{cluster_name(node)}")
+        st.markdown(rv.get("reason") or "—")
+        if rv.get("inherit_from_parent"):
+            st.caption("这个月沿用了上个月同一条链的结论，不是重新找到的原因。")
+        for w in rv.get("weak_members") or []:
+            st.caption(f"不符合的成员 {w.get('ticker')}"
+                       f"（贴合度 {w.get('corr')}）：{w.get('note')}")
+        if rv.get("sources"):
+            st.markdown("来源（日期都不晚于本节点月份）：")
+            for s in rv["sources"]:
+                st.markdown(f"- {s.get('date')}　`{s.get('source')}`　"
+                            f"{s.get('title')} → {s.get('claim')}")
+        for g in rv.get("split_proposal") or []:
+            st.markdown(f"拆分建议「{g.get('name')}」（{len(g.get('members') or [])} 只）："
+                        f"{g.get('reason')}")
+            st.caption(", ".join(g.get("members") or []))
+        if rv.get("split_proposal"):
+            st.caption("建议里没列到的成员算未归类，不代表它们属于其中任何一组。"
+                       "拆分建议只是研究结果，没有改成员和连线。")
+        if rv.get("notes"):
+            st.caption(f"备注：{rv['notes']}")
 
 st.subheader(f"{last_month} 的合格簇")
 cur_nodes = sorted([n for n in nodes if n["month"] == last_month],
                    key=lambda n: -n["excess_median"])
 st.dataframe(pd.DataFrame([{
-    "主题": n.get("theme_name") or "—", "行业构成": mix_line(n), "成员数": n["n"],
+    "主题": cluster_name(n), "行业构成": mix_line(n), "成员数": n["n"],
     "簇内相关": n["internal_corr"], "超额中位%": round(n["excess_median"] * 100, 1),
     "代表": ", ".join(n.get("biggest") or []), "领跑": ", ".join(n["leaders"]),
     "已活月数": height[n["node_id"]] + 1,
