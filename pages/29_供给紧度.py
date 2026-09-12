@@ -69,6 +69,21 @@ for _key, _info in rigid.items():
         cat_to_key[_key] = _key
         carrier_map[_key] = _info.get("carriers") or []
 
+
+def _detour(cat: str, field: str = "detour") -> str:
+    return (rigid.get(cat_to_key.get(cat, "")) or {}).get(field) or ""
+
+
+def _metric_row(sub: pd.DataFrame) -> None:
+    for chunk in [sub.iloc[i:i + 6] for i in range(0, len(sub), 6)]:
+        for col, (_, r) in zip(st.columns(len(chunk)), chunk.iterrows()):
+            delta = None if pd.isna(r["prem_prev"]) else f"{(r['prem'] - r['prem_prev']) * 100:+.1f}pp"
+            name = r["category"] + ("（季节性）" if r["category"] in SEASONAL else "")
+            why = _detour(r["category"], "detour_why")
+            col.metric(name, f"{r['prem']:+.1%}", delta,
+                       help=(why + "\n\n" if why else "") + "括号里是相对一个月前的变化")
+
+
 # ── 1. 当前处在倒挂的品类 ──
 back = df[df["prem"].notna() & (df["prem"] > 0)].sort_values("prem", ascending=False)
 st.markdown("## 现在谁在倒挂")
@@ -79,11 +94,22 @@ else:
         f"{len(back)} 个品类近月贵过远月——市场在为「立刻拿到货」付溢价。"
         f"溢价 > {TIGHT_PREM:.0%} 算现货紧张。"
     )
-    for chunk in [back.iloc[i:i + 6] for i in range(0, len(back), 6)]:
-        for col, (_, r) in zip(st.columns(len(chunk)), chunk.iterrows()):
-            delta = None if pd.isna(r["prem_prev"]) else f"{(r['prem'] - r['prem_prev']) * 100:+.1f}pp"
-            name = r["category"] + ("（季节性）" if r["category"] in SEASONAL else "")
-            col.metric(name, f"{r['prem']:+.1%}", delta, help="括号里是相对一个月前的变化")
+    # 倒挂本身不区分这次是真少了还是只是改道，并排摆着会看成一回事。易绕的品类
+    # 就算倒挂通常也是短线：俄乌开战小麦第 11 天、原油第 12 天就见顶
+    _tag = back["category"].map(lambda c: _detour(c))
+    for _want, _title, _note in [
+        ("绕不掉", "绕不掉的在倒挂", "产能真的少了或没有第二家可买，补不上来，倒挂能持续"),
+        ("易绕", "易绕的在倒挂", "产能多半没消失只是改道，这种倒挂常常两周就见顶——"
+                             "真想买去买承担绕路成本的那一环"),
+    ]:
+        _sub = back[_tag == _want]
+        if not _sub.empty:
+            st.markdown(f"**{_title}** —— {_note}")
+            _metric_row(_sub)
+    _rest = back[~_tag.isin(["绕不掉", "易绕"])]
+    if not _rest.empty:
+        st.markdown("**其余在倒挂** —— 绕不绕得掉要看这次事件具体怎么走，得自己判一次")
+        _metric_row(_rest)
 
 # ── 2. 主表 ──
 st.markdown("## 紧度读数")
@@ -122,6 +148,7 @@ show = pd.DataFrame({
     "一月前分位": tbl["q5_prev"].map(lambda v: "—" if pd.isna(v) else f"{v:.0%}"),
     "近一月": tbl["r1m"].map(lambda v: "—" if pd.isna(v) else f"{v:+.0%}"),
     "近一年": tbl["r1y"].map(lambda v: "—" if pd.isna(v) else f"{v:+.0%}"),
+    "绕不绕得掉": tbl["category"].map(lambda c: _detour(c) or "未登记"),
     "判读": tbl["verdict"],
     "载体": tbl["category"].map(_carrier_cell),
 })
@@ -131,6 +158,12 @@ st.caption(
     f"金属天然 contango，所以汽油常年在 {TIGHT_PREM:.0%} 以上、黄金从没到过，"
     "这个高低本身说明不了现在缺不缺。「比自己」拿当前溢价在这个品类自己历史里的分位说话，"
     f"站上 {SELF_TIGHT:.0%} 叫比平时紧，跌破 {SELF_LOOSE:.0%} 叫比平时松。"
+)
+st.caption(
+    "**「绕不绕得掉」回答的是这次到底少没少**：制裁、禁运、出口配额断的是「谁在卖」，产能还在，"
+    "换个买家就行，标易绕；矿关了、树病死了、厂永久关停，或者压根没有第二家能供，标绕不掉。"
+    "标签只覆盖「是不是真少了」「有没有替代」这两问——**「绕路成本落在谁头上」每次事件都不一样，"
+    "这里不给答案**，得对着当次事件自己判一次。判据全文在 obsidian 的《供给刚性清单》第三节。"
 )
 st.caption(
     "天然气的期限结构不可信——冬季合约天然贵过夏季，它的近月溢价要跟往年同月比才有意义，"
@@ -226,9 +259,11 @@ if not info:
 else:
     st.markdown(
         f"**商品** {info.get('commodity', '—')} ｜ **环节** {info.get('stage') or '非实物'} ｜ "
-        f"**响应时间** {info.get('respond', '—')}"
+        f"**响应时间** {info.get('respond', '—')} ｜ **绕不绕得掉** {info.get('detour', '—')}"
     )
     st.caption(f"卡在哪：{info.get('stuck', '—')}")
+    if info.get("detour_why"):
+        st.caption(f"为什么这么判：{info['detour_why']}")
     if info.get("indicator"):
         st.caption(f"真紧度指标：{info['indicator']}")
     cat_row = tbl[tbl["category"] == cat]
