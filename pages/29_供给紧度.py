@@ -4,9 +4,11 @@ import streamlit as st
 
 from api_client import (
     clear_tightness_caches,
+    fetch_enso,
     fetch_tightness_alerts,
     fetch_tightness_carriers,
     fetch_tightness_events,
+    fetch_tightness_hitrate,
     fetch_tightness_history,
     fetch_tightness_latest,
 )
@@ -18,6 +20,7 @@ st.caption(
     "这页回答「现在这个品类的垫子有多厚」。"
     "**判读以期限结构为主、价格分位为辅**：分位高只说明贵，近月对远月倒挂才说明缺。"
     "品类清单、卡在哪、响应时间在 obsidian 的《供给刚性清单》里，这页只管每天变的读数。"
+    "报警胜率是全历史回放算的，期限结构类报警（翻转倒挂等三种）算不了——已到期合约拉不到，没有胜率列。"
 )
 
 # 倒挂超过这个数算现货紧张，与 system/scripts/tightness_scan.py 同口径
@@ -55,6 +58,12 @@ rigid = carriers_resp.get("data") or {}
 kinds = carriers_resp.get("kinds") or {}
 markets = carriers_resp.get("markets") or {}
 gaps = carriers_resp.get("gaps") or {}
+drivers = gaps.get("drivers") or []
+active_drivers = [d for d in drivers if d.get("active")]
+enso_latest = fetch_enso().get("latest") or {}
+# (品类, 报警类型) -> 历史胜率行，system/scripts/alert_hitrate.py 离线回放全历史算的
+HITRATE_MIN_N = 5
+hitrate_map = {(r["category"], r["kind"]): r for r in fetch_tightness_hitrate().get("data") or []}
 # 紧度表的「品类」列有两种来源：有期货的走 tight_cats 反查（如「小麦」→ key「谷物」），
 # 没期货的代理行「品类」本身就是 RIGID 的 key（如「VLCC 原油油轮运费」）
 cat_to_key: dict[str, str] = {}
@@ -72,6 +81,24 @@ for _key, _info in rigid.items():
 
 def _detour(cat: str, field: str = "detour") -> str:
     return (rigid.get(cat_to_key.get(cat, "")) or {}).get(field) or ""
+
+
+def _active_driver_cell(cat: str) -> str:
+    """这个品类当前有没有间歇性驱动在发作（如厄尔尼诺）。区别于绕不绕得掉——
+    驱动是外部条件在打，不是这个品类自己的供给结构变了。"""
+    key = cat_to_key.get(cat, cat)
+    names = [d["driver"] for d in active_drivers if key in (d.get("hits") or [])]
+    return " · ".join(names) if names else "—"
+
+
+def _hitrate_cell(cat: str, kind: str) -> str:
+    """这类报警历史上准不准：命中率（样本数，中位收益，闭眼买对照）。样本 < 5 条不给数。"""
+    r = hitrate_map.get((cat, kind))
+    if not r or r["n"] < HITRATE_MIN_N or r.get("win_t120") is None:
+        return "样本不足"
+    prefix = "⚠️ " if r["win_t120"] < 0.5 else ""
+    return (f"{prefix}{r['win_t120']:.0%}（{r['n']} 条，"
+            f"中位 {r['med_t120']:+.1%}，闭眼买 {r['base_t120']:+.1%}）")
 
 
 def _metric_row(sub: pd.DataFrame) -> None:
@@ -149,6 +176,7 @@ show = pd.DataFrame({
     "近一月": tbl["r1m"].map(lambda v: "—" if pd.isna(v) else f"{v:+.0%}"),
     "近一年": tbl["r1y"].map(lambda v: "—" if pd.isna(v) else f"{v:+.0%}"),
     "绕不绕得掉": tbl["category"].map(lambda c: _detour(c) or "未登记"),
+    "在发作的驱动": tbl["category"].map(_active_driver_cell),
     "判读": tbl["verdict"],
     "载体": tbl["category"].map(_carrier_cell),
 })
@@ -322,11 +350,19 @@ if not arows:
 else:
     adf = pd.DataFrame(arows)
     st.dataframe(
-        pd.DataFrame({"日期": adf["alert_date"], "品类": adf["category"],
-                      "类型": adf["kind"], "说明": adf["text"]}),
+        pd.DataFrame({
+            "日期": adf["alert_date"], "品类": adf["category"],
+            "类型": adf["kind"], "说明": adf["text"],
+            "这类历史准不准": adf.apply(lambda r: _hitrate_cell(r["category"], r["kind"]), axis=1),
+        }),
         hide_index=True, use_container_width=True, height=min(520, 40 + 36 * len(adf)),
     )
     st.caption("标了「回填」的是建表时用同一套规则从历史价格重算出来的，当时并没有真的推过 Discord。")
+    st.caption(
+        "「这类历史准不准」是全历史回放算的：命中 = T+120 绝对收益 > 0，"
+        "「闭眼买」对照组是同品类任意一天买入持有 120 天的收益中位数。"
+        "样本不足 5 条不给数，期限结构类报警（翻转倒挂等）算不了胜率。"
+    )
 
 # ── 7. 清单自己的洞 ──
 st.markdown("## 清单自己的洞")
@@ -350,6 +386,28 @@ if missing:
     )
 else:
     st.info("每个商品适用的环节都有品类覆盖。")
+
+st.markdown("**现在有哪些驱动在发作**")
+st.caption(
+    "间歇性驱动和上面的共用瓶颈不是一回事：船台常年卡着，厄尔尼诺只在外部条件成立时才发作。"
+)
+if not drivers:
+    st.info("暂无登记的间歇性驱动。")
+else:
+    for d in drivers:
+        roni, oni = d.get("roni"), enso_latest.get("oni")
+        hits = d.get("hits") or []
+        if d.get("active"):
+            st.warning(
+                f"**{d['driver']}正在发作** —— RONI {roni:+.2f}"
+                + (f"（ONI {oni:+.2f}）" if oni is not None else "")
+                + f"，{d.get('band', '—')}{d.get('phase', '')}相位，"
+                f"同时打中 {len(hits)} 个品类：{' · '.join(hits)}。"
+                "**厄尔尼诺不是做多信号**，主理人实测 T+12 月糖价中位 −4%，"
+                "它只说明这几个品类进入了高波动窗口，而且这不是几注，是同一注下几遍。"
+            )
+        else:
+            st.caption(f"{d['driver']}未发作（当前 RONI {roni:+.2f}）。")
 
 st.markdown("**共用瓶颈：哪几个品类其实是同一注**")
 st.caption(

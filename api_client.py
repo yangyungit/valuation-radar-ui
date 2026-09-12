@@ -3425,9 +3425,23 @@ def fetch_tightness_events(category: str | None = None) -> dict:
                           {"category": category} if category else {})
 
 
+@st.cache_data(ttl=1800)
+def fetch_tightness_hitrate() -> dict:
+    """每类报警的历史胜率。"""
+    return _tightness_get("/api/v1/tightness/hitrate", {})
+
+
+@st.cache_data(ttl=1800)
+def fetch_enso() -> dict:
+    """NOAA 厄尔尼诺指数。"""
+    return _tightness_get("/api/v1/tightness/enso", {})
+
+
 def clear_tightness_caches():
     fetch_tightness_latest.clear()
     fetch_tightness_history.clear()
     fetch_tightness_alerts.clear()
     fetch_tightness_carriers.clear()
     fetch_tightness_events.clear()
+    fetch_tightness_hitrate.clear()
+    fetch_enso.clear()
