@@ -25,6 +25,8 @@ TIGHT_PREM = 0.05
 TIGHT_Q = 0.85
 # 天然气有强季节性（冬季合约天然贵过夏季），近月溢价要跟往年同月比才有意义
 SEASONAL = {"美国天然气"}
+# 时间序列和报警流水都是一次拉全量再本地切，够大就行
+_MAX_DAYS = 100000
 
 with st.sidebar:
     if st.button("🔄 强制刷新紧度数据"):
@@ -125,13 +127,22 @@ cats = latest.get("categories") or sorted(df["category"].tolist())
 _default = back["category"].iloc[0] if not back.empty else cats[0]
 c1, c2 = st.columns([3, 1])
 cat = c1.selectbox("品类", cats, index=cats.index(_default) if _default in cats else 0)
-days = c2.selectbox("回看", [60, 125, 250, 500], index=1, format_func=lambda d: f"{d} 个交易日")
 
-hist = fetch_tightness_history(cat, days)
-h = pd.DataFrame(hist.get("data") or [])
-if h.empty:
+# 一次拉全量再本地切片：快照回填只有半年，选 250 / 500 会和 125 拿到完全一样的
+# 数据，看着像回看没生效。档位按这个品类实际有多少天裁，超出的不给选
+hist = fetch_tightness_history(cat, _MAX_DAYS)
+h_all = pd.DataFrame(hist.get("data") or [])
+if h_all.empty:
+    c2.selectbox("回看", ["—"], disabled=True)
     st.warning(f"⚠️ {cat} 还没有历史快照")
 else:
+    n = len(h_all)
+    opts = [d for d in (60, 125, 250) if d < n] + [n]
+    days = c2.selectbox(
+        "回看", opts, index=len(opts) - 1,
+        format_func=lambda d: f"全部 {d} 个交易日" if d == n else f"{d} 个交易日",
+    )
+    h = h_all.tail(days).copy()
     h["snap_date"] = pd.to_datetime(h["snap_date"])
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -167,6 +178,10 @@ else:
         bits.append(f"当前远月合约 `{last['far_code']}`")
     if bits:
         st.caption(f"{first['snap_date']:%Y-%m-%d} 至 {last['snap_date']:%Y-%m-%d}：" + "；".join(bits) + "。")
+    st.caption(
+        f"快照从 {pd.to_datetime(h_all['snap_date'].iloc[0]):%Y-%m-%d} 起记，"
+        f"{cat} 共 {n} 个交易日，再往前没有数据。"
+    )
     if cat in SEASONAL:
         st.warning("天然气的近月溢价带强季节性，横向比零线意义有限，要跟往年同月比。")
 
@@ -226,9 +241,15 @@ else:
 # ── 6. 报警流水 ──
 st.markdown("## 报警流水")
 st.markdown("报警建在紧度变化上，不是建在价格涨跌上——价格异动是结果，紧度异动才是提前量。同一品类同一类型 30 天内只报一次。")
-adays = st.selectbox("回看天数", [30, 90, 180, 365], index=1, key="alert_days")
-al = fetch_tightness_alerts(adays)
+al = fetch_tightness_alerts(_MAX_DAYS)
 arows = al.get("data") or []
+# 报警只从建表那天起有，选 365 和选 180 拿到的是同一批，档位按实际跨度裁
+_span = (pd.Timestamp.today().normalize() - pd.to_datetime(arows[-1]["alert_date"])).days if arows else 0
+_aopts = [d for d in (30, 90, 180) if d < _span] + [_span or 30]
+adays = st.selectbox("回看天数", _aopts, index=min(1, len(_aopts) - 1), key="alert_days",
+                     format_func=lambda d: f"全部 {d} 天" if d == _span else f"{d} 天")
+arows = [a for a in arows
+         if a["alert_date"] >= (pd.Timestamp.today().normalize() - pd.Timedelta(days=adays)).strftime("%Y-%m-%d")]
 if not arows:
     st.info(f"最近 {adays} 天没有紧度异动。")
 else:
