@@ -23,6 +23,8 @@ st.caption(
 # 倒挂超过这个数算现货紧张，与 system/scripts/tightness_scan.py 同口径
 TIGHT_PREM = 0.05
 TIGHT_Q = 0.85
+# 跟自己的历史比：当前溢价站上自身 80 分位算「比平时紧」，跌破 20 分位算「比平时松」
+SELF_TIGHT, SELF_LOOSE = 0.80, 0.20
 # 天然气有强季节性（冬季合约天然贵过夏季），近月溢价要跟往年同月比才有意义
 SEASONAL = {"美国天然气"}
 # 时间序列和报警流水都是一次拉全量再本地切，够大就行
@@ -39,6 +41,8 @@ if not latest.get("success"):
     st.stop()
 
 rows = latest.get("data") or []
+# 每个品类 prem 的自身中位 / p20 / p80 / 当前分位，后端按历史快照算
+baselines = latest.get("baselines") or {}
 if not rows:
     st.warning("⚠️ 还没有任何快照。先跑 `system/scripts/tightness_scan.py`。")
     st.stop()
@@ -98,10 +102,21 @@ def _prem_cell(row) -> str:
     return f"{row['prem']:+.1%}"
 
 
+def _self_cell(cat: str) -> str:
+    """跟自己的历史比紧不紧。绝对溢价只说明是油品还是金属，说明不了现在紧不紧。"""
+    b = baselines.get(cat)
+    if not b:
+        return "样本不足"
+    q = b["self_q"]
+    tag = "比平时紧" if q >= SELF_TIGHT else "比平时松" if q <= SELF_LOOSE else "接近常态"
+    return f"{tag}（{q:.0%}）"
+
+
 show = pd.DataFrame({
     "品类": tbl["category"],
     "最新": tbl["price"].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "—"),
     "近月溢价": tbl.apply(_prem_cell, axis=1),
+    "比自己": tbl["category"].map(_self_cell),
     "一月前溢价": tbl["prem_prev"].map(lambda v: "—" if pd.isna(v) else f"{v:+.1%}"),
     "5 年分位": tbl["q5"].map(lambda v: "—" if pd.isna(v) else f"{v:.0%}"),
     "一月前分位": tbl["q5_prev"].map(lambda v: "—" if pd.isna(v) else f"{v:.0%}"),
@@ -112,6 +127,12 @@ show = pd.DataFrame({
 })
 st.dataframe(show, hide_index=True, use_container_width=True)
 st.caption(
+    f"**「近月溢价」和「比自己」看的是两件事**：绝对溢价高低主要由品种决定——油品天然 backwardation、"
+    f"金属天然 contango，所以汽油常年在 {TIGHT_PREM:.0%} 以上、黄金从没到过，"
+    "这个高低本身说明不了现在缺不缺。「比自己」拿当前溢价在这个品类自己历史里的分位说话，"
+    f"站上 {SELF_TIGHT:.0%} 叫比平时紧，跌破 {SELF_LOOSE:.0%} 叫比平时松。"
+)
+st.caption(
     "天然气的期限结构不可信——冬季合约天然贵过夏季，它的近月溢价要跟往年同月比才有意义，"
     "不能直接当宽松读。原油和金属没有这个问题。"
     "运费、铀、稀土没有期货合约，这里显示的是主载体的代理读数，不是现货紧度。"
@@ -121,7 +142,8 @@ st.caption(
 st.markdown("## 变紧的过程")
 st.markdown(
     "笔记里只有今天这一行读数，看不出是在变紧还是变松。"
-    "**穿越零线是最强的信号**——从 contango 翻成倒挂，说明市场从「愿意囤」变成「等不及」。"
+    "**对常年在零线一侧的品类（油品一直倒挂、金属一直 contango），看的是有没有站上自己的 80 分位线**；"
+    "对会来回穿越的品类，穿越零线是最强的信号——从 contango 翻成倒挂，说明市场从「愿意囤」变成「等不及」。"
 )
 cats = latest.get("categories") or sorted(df["category"].tolist())
 _default = back["category"].iloc[0] if not back.empty else cats[0]
@@ -156,8 +178,18 @@ else:
         hovertemplate="%{x|%Y-%m-%d}<br>分位 %{y:.0f}%<extra></extra>",
     ))
     fig.add_hline(y=0, line=dict(color="#888", width=1))
-    fig.add_hline(y=TIGHT_PREM * 100, line=dict(color="#E74C3C", width=1, dash="dash"),
-                  annotation_text=f"现货紧张线 {TIGHT_PREM:.0%}", annotation_position="top left")
+    # 固定 5% 线对油品永远在下方、对金属永远在上方，看不出变化。画这个品类自己的
+    # 中位和 80 分位，才看得出「现在是不是比自己平时紧」
+    _b = baselines.get(cat)
+    if _b:
+        fig.add_hline(y=_b["median"] * 100, line=dict(color="#888", width=1, dash="dot"),
+                      annotation_text=f"自身中位 {_b['median']:+.1%}", annotation_position="bottom left")
+        fig.add_hline(y=_b["p80"] * 100, line=dict(color="#E74C3C", width=1, dash="dash"),
+                      annotation_text=f"自身 {SELF_TIGHT:.0%} 分位 {_b['p80']:+.1%}",
+                      annotation_position="top left")
+    else:
+        fig.add_hline(y=TIGHT_PREM * 100, line=dict(color="#E74C3C", width=1, dash="dash"),
+                      annotation_text=f"现货紧张线 {TIGHT_PREM:.0%}", annotation_position="top left")
     fig.update_layout(
         height=440, hovermode="x unified", template="plotly_dark",
         margin=dict(l=10, r=10, t=30, b=10),
