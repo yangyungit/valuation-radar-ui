@@ -147,9 +147,7 @@ tbl = df.copy()
 tbl["_sort"] = tbl["prem"].fillna(-9)
 tbl = tbl.sort_values(["_sort", "q5"], ascending=False)
 def _carrier_cell(cat: str) -> str:
-    tickers = carrier_map.get(cat) or []
-    cell = " · ".join(tickers[:3])
-    return cell + "…" if len(tickers) > 3 else cell
+    return " · ".join(carrier_map.get(cat) or [])
 
 
 def _prem_cell(row) -> str:
@@ -183,7 +181,10 @@ show = pd.DataFrame({
     "判读": tbl["verdict"],
     "载体": tbl["category"].map(_carrier_cell),
 })
-st.dataframe(show, hide_index=True, use_container_width=True)
+st.dataframe(
+    show, hide_index=True, use_container_width=True,
+    column_config={"载体": st.column_config.TextColumn(width="large")},
+)
 st.caption(
     f"**「近月溢价」和「比自己」看的是两件事**：绝对溢价高低主要由品种决定——油品天然 backwardation、"
     f"金属天然 contango，所以汽油常年在 {TIGHT_PREM:.0%} 以上、黄金从没到过，"
