@@ -34,6 +34,7 @@ QUARTERS = meta["quarters"]
 CATEGORIES = ["全部"] + meta["categories"]
 GURUS = pd.DataFrame(meta["gurus"])
 LABEL = dict(zip(GURUS.investorname, GURUS.label))
+COVERAGE = dict(zip(GURUS.investorname, GURUS.coverage))
 
 _MONEY = "${:,.0f}"
 
@@ -161,9 +162,16 @@ with tab_fund:
     elif inv.empty:
         st.info("这个条件下没有机构，放宽筛选试试。")
     else:
+        st.caption(
+            "**有效只数** = 按权重折算成等权后的只数。13 只里一只占 45%、"
+            "最小一只占 0.3%，有效只数只有 4——名义只数看不出这个。"
+            "**13F 覆盖** 说这份申报是不是它全部的股票仓位：「有空头」的只露出多头那一半，"
+            "「主仓不在13F里」是主仓在海外、未上市或本身是控股公司。只有「全部」能照着研究。"
+        )
         inv["_opt"] = inv.apply(
             lambda r: f"{r.get('label') or r.investorname}（{int(r.n_tickers)} 只 / "
-                      f"{_money(r.total_value)}）", axis=1)
+                      f"有效 {r.eff_tickers:,.1f} / {_money(r.total_value)}）"
+                      + (f" · {r.coverage}" if pd.notna(r.get("coverage")) else ""), axis=1)
         _inv_opts = inv._opt.tolist()
         if "h13f_investor_sel" not in st.session_state or st.session_state["h13f_investor_sel"] not in _inv_opts:
             st.session_state["h13f_investor_sel"] = _inv_opts[0] if _inv_opts else None
@@ -180,14 +188,21 @@ with tab_fund:
         else:
             hold = pd.DataFrame(det["rows"])
             outs = pd.DataFrame(det["exits"])
+            row = inv.loc[inv.investorname == who].iloc[0]
             k1, k2, k3, k4 = st.columns(4)
-            k1.metric("持仓只数", len(hold))
+            k1.metric("持仓只数", len(hold),
+                      delta=f"有效 {row.eff_tickers:,.1f} 只", delta_color="off")
             k2.metric("总市值", _money(hold.value.sum()) if len(hold) else "—")
             k3.metric("前十大占比",
                       _pct(hold.nlargest(10, "value").value.sum() / hold.value.sum())
                       if len(hold) else "—")
             k4.metric("本期清仓", f"{len(outs)} 只")
-            st.caption(f"对比上一期：{det.get('prev_quarter') or '（无）'}")
+            opt = float(row.get("option_ratio") or 0)
+            st.caption(
+                f"对比上一期：{det.get('prev_quarter') or '（无）'}"
+                + (f"　|　13F 覆盖：{row.coverage}" if pd.notna(row.get("coverage")) else "")
+                + (f"　|　同期另报了 {_pct(opt)} 的期权仓位" if opt >= 0.005 else "")
+            )
 
             if len(hold):
                 show = hold.rename(columns={
@@ -270,15 +285,18 @@ with tab_perf:
 
         show = lb.rename(columns={
             "label": "机构", "category": "类别", "quarters": "期数",
-            "start": "起", "end": "止",
-        })[["机构", "类别", "期数", "起", "止"]].copy()
+            "coverage": "13F覆盖", "start": "起", "end": "止",
+        })[["机构", "类别", "13F覆盖", "期数", "起", "止"]].copy()
         for src, dst in (("cagr", "年化"), ("spy_cagr", "同期SPY"), ("excess", "超额"),
                          ("win_rate", "季度胜率"), ("worst", "最差单季"), ("cover", "价格覆盖")):
             show[dst] = lb[src].map(_pct)
         show["累计"] = lb.cum.map(lambda v: f"{v:.2f}x")
+        show["有效只数"] = lb.investorname.map(
+            dict(zip(inv.investorname, inv.eff_tickers))).map(
+            lambda v: "—" if pd.isna(v) else f"{v:,.1f}")
         st.dataframe(
-            show[["机构", "类别", "期数", "年化", "同期SPY", "超额", "累计",
-                  "季度胜率", "最差单季", "起", "止", "价格覆盖"]],
+            show[["机构", "类别", "13F覆盖", "期数", "有效只数", "年化", "同期SPY", "超额",
+                  "累计", "季度胜率", "最差单季", "起", "止", "价格覆盖"]],
             use_container_width=True, hide_index=True, height=560)
 
         _lb_names = lb.investorname.tolist()
