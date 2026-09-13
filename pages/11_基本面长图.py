@@ -101,6 +101,7 @@ OVERLAYS = [
     ("FCF 收益率 %", "fcf_yield",        "#ffd166", "pct",    False),
     ("每股收益(EPS) (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", "toggle"),
     ("市盈率(PE) (TTM)",     "pe",               "#8c564b", "ratio",  False),
+    ("市净率(PB) (最新季)",  "pb",               "#f28e2b", "ratio",  False),
     ("自由现金流(FCF) (TTM,$)",  "fcf_usd",          "#17becf", "dollar", "toggle"),
     ("自由现金流(FCF) (单季,$)", "fcf_q_usd",        "#00e5c0", "dollar", "toggle"),
     ("经营现金流(OCF) (TTM,$)","ocf_usd",      "#98df8a", "dollar", "toggle"),
@@ -115,7 +116,7 @@ sel_overlays = st.multiselect(
     default=["营收(Rev) (TTM,$)", "经营现金流(OCF) (TTM,$)", "自由现金流(FCF) (TTM,$)", "净利润(NI) (TTM,$)"],
     help="ROIC/Rule40/净利率/毛利率/经营利润率/营收同比/净利润同比/股东总回报率/净回购率/FCF 收益率挂左侧 % 轴；"
          "FCF/FCF(单季)/OCF/毛利润(GP)/净利润(NI)/营收(Rev)共用同一根右轴（量级可比，谁高谁低是真实大小，不是各轴缩放巧合）；"
-         "EPS/资本开支(CapEx)/PE 各自独立右侧轴（每股 $、恒负现金流出、倍数，量纲不同没法合并）。"
+         "EPS/资本开支(CapEx)/PE/PB 各自独立右侧轴（每股 $、恒负现金流出、倍数，量纲不同没法合并）。"
          "FCF = OCF + CapEx（CapEx 本身是负数）。"
          "FCF (单季) 是当季原始数，不做 4 季滚动——TTM 会把拐点推迟约 4 个月。"
          "FCF 收益率 = TTM FCF / 当期市值，越高越便宜，可当 PE 的抗干扰替代——"
@@ -309,7 +310,7 @@ st.plotly_chart(fig, use_container_width=True)
 if tail_from:
     st.caption(f"竖虚线（{tail_from}）右边的基本面点来自 yfinance 季报——Sharadar 已在 2026-06-12 "
                "停更。披露日按该票历史「披露日 − 季度末」中位数估算，可能差几天；"
-               "ROIC / Rule40 / 毛利率 / 毛利润 / 股东总回报率 / 净回购率 / FCF 收益率 / EPS / PE 补不了，"
+               "ROIC / Rule40 / 毛利率 / 毛利润 / 股东总回报率 / 净回购率 / FCF 收益率 / EPS / PE / PB 补不了，"
                "那几条线到此为止。"
                "价格线也是从 Sharadar 末日起接的 yfinance。")
 
