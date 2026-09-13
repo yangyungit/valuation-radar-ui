@@ -5,6 +5,7 @@ import streamlit as st
 from api_client import (
     clear_tightness_caches,
     fetch_enso,
+    fetch_inventory_latest,
     fetch_tightness_alerts,
     fetch_tightness_carriers,
     fetch_tightness_events,
@@ -61,6 +62,8 @@ gaps = carriers_resp.get("gaps") or {}
 drivers = gaps.get("drivers") or []
 active_drivers = [d for d in drivers if d.get("active")]
 enso_latest = fetch_enso().get("latest") or {}
+# EIA 周度库存，按品类给紧度读数加一道实物确认
+inventory_map = {r["category"]: r for r in fetch_inventory_latest().get("data") or []}
 # (品类, 报警类型) -> 历史胜率行，system/scripts/alert_hitrate.py 离线回放全历史算的
 HITRATE_MIN_N = 5
 hitrate_map = {(r["category"], r["kind"]): r for r in fetch_tightness_hitrate().get("data") or []}
@@ -294,6 +297,13 @@ else:
         st.caption(f"为什么这么判：{info['detour_why']}")
     if info.get("indicator"):
         st.caption(f"真紧度指标：{info['indicator']}")
+    inv = inventory_map.get(rigid_key)
+    if inv:
+        delta = f"4周 {inv['chg_4w']:+.1%}" if inv.get("chg_4w") is not None else None
+        st.metric(inv["name"], f"{inv['value']:,.0f} {inv['unit']}", delta)
+        q5_txt = f"{inv['q5']:.0%}" if inv.get("q5") is not None else "历史不足 5 年"
+        yoy_txt = f"{inv['yoy']:+.1%}" if inv.get("yoy") is not None else "—"
+        st.caption(f"5 年分位 {q5_txt}　同比 {yoy_txt}")
     cat_row = tbl[tbl["category"] == cat]
     if not cat_row.empty and cat_row.iloc[0].get("source") == "proxy":
         st.warning(cat_row.iloc[0]["verdict"])

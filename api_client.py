@@ -3437,6 +3437,12 @@ def fetch_enso() -> dict:
     return _tightness_get("/api/v1/tightness/enso", {})
 
 
+@st.cache_data(ttl=1800)
+def fetch_inventory_latest() -> dict:
+    """EIA 周度库存最新一期，按品类给紧度读数加实物确认。"""
+    return _tightness_get("/api/v1/inventory/latest", {})
+
+
 def clear_tightness_caches():
     fetch_tightness_latest.clear()
     fetch_tightness_history.clear()
@@ -3445,3 +3451,4 @@ def clear_tightness_caches():
     fetch_tightness_events.clear()
     fetch_tightness_hitrate.clear()
     fetch_enso.clear()
+    fetch_inventory_latest.clear()
