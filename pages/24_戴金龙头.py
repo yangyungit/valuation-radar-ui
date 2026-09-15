@@ -58,21 +58,27 @@ def _slot_month_segments(timeline: list[dict], slot_i: int) -> list[tuple]:
     return segs
 
 
-def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
-                                spy_values: list, key_prefix: str) -> bool:
-    if not slot_equity or not timeline or len(dates) == 0:
-        return False
-
+def render_time_window_slider(dates, key_prefix: str) -> tuple:
+    """时间窗口滑块（拖动重设起点），供组合收益净值图和 Slot 分段图共用同一个窗口。"""
     _valid = dates.dropna()
     win_lo, win_hi = _valid.min(), _valid.max()
     if pd.notna(win_lo) and pd.notna(win_hi) and win_lo < win_hi:
         _lo_py, _hi_py = win_lo.to_pydatetime(), win_hi.to_pydatetime()
         _sel = st.slider(
-            "分段图时间窗口（拖动重设起点，各段与 SPY 在窗口最左端对齐归一）",
+            "时间窗口（拖动重设起点，组合收益净值图和下方 Slot 分段图会一起重新归一）",
             min_value=_lo_py, max_value=_hi_py, value=(_lo_py, _hi_py),
-            format="YYYY-MM", key=f"{key_prefix}_slot_window_{_lo_py:%Y%m}_{_hi_py:%Y%m}",
+            format="YYYY-MM", key=f"{key_prefix}_window_{_lo_py:%Y%m}_{_hi_py:%Y%m}",
         )
         win_lo, win_hi = pd.Timestamp(_sel[0]), pd.Timestamp(_sel[1])
+    return win_lo, win_hi
+
+
+def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
+                                spy_values: list, key_prefix: str,
+                                win_lo, win_hi) -> bool:
+    if not slot_equity or not timeline or len(dates) == 0:
+        return False
+
     lo_m, hi_m = win_lo.strftime("%Y-%m"), win_hi.strftime("%Y-%m")
 
     spy = _norm_series(spy_values, dates)
@@ -164,7 +170,8 @@ def build_sector_ribbon(timeline: list[dict], since_month: str) -> tuple[dict, d
     return {m: slots[m] for m in months}, name_map, months
 
 
-def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str) -> None:
+def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str,
+                         win_lo=None, win_hi=None) -> None:
     fig = go.Figure()
     for key, name, color, vis_default in series_cfg:
         vals = equity.get(key, []) or []
@@ -173,6 +180,11 @@ def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str) -
         s = pd.Series(vals, index=dates).astype(float).dropna()
         if s.empty:
             continue
+        if win_lo is not None and win_hi is not None:
+            s = s[(s.index >= win_lo) & (s.index <= win_hi)]
+            if s.empty:
+                continue
+            s = s / s.iloc[0]
         fig.add_trace(go.Scatter(
             x=s.index, y=s.values, name=name,
             line=dict(color=color, width=2 if vis_default else 1.4),
@@ -393,14 +405,16 @@ if _gl.get("success"):
             "当月无 C 组戴金板块或无足够龙头候选",
         )
 
+        _win_lo, _win_hi = render_time_window_slider(_dates, "gl_two")
+
         st.markdown("##### 组合收益（起点归一为 1）")
         render_equity_chart(_dates, _eq, [
             ("two_sector", "戴金龙头Top2（强弱切换）", "#F39C12", True),
             ("spy", "SPY", "#3498DB", True),
             ("rsp", "RSP 等权标普", "#9B59B6", False),
             ("eqw11", "11行业ETF等权", "#16A085", False),
-        ], "gl_eq_two")
-        st.caption("点图例可展开 RSP / 11行业ETF等权对照")
+        ], "gl_eq_two", _win_lo, _win_hi)
+        st.caption("点图例可展开 RSP / 11行业ETF等权对照；上方时间窗口同步套用到本图和下方 Slot 分段图")
 
         st.markdown("##### 统计卡")
         render_stats_cards(_two.get("stats", {}))
@@ -426,6 +440,6 @@ if _gl.get("success"):
         st.markdown("##### Slot 分段收益")
         if not render_slot_segment_returns(
             _two.get("slot_equity") or [], _two.get("holdings_timeline") or [],
-            _dates, _eq.get("spy", []), "gl_two",
+            _dates, _eq.get("spy", []), "gl_two", _win_lo, _win_hi,
         ):
             st.caption("后端暂未返回 slot_equity。")
