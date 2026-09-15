@@ -132,7 +132,10 @@ def render_holding_cards(slots: list, bil_reason: str) -> None:
 def build_sector_ribbon(timeline: list[dict], since_month: str) -> tuple[dict, dict, list]:
     """把对照口径的决策月时序拼成「金牌板块 / 第二个槽板块」两条轨道，键是执行月
     （决策月末出信号、次月第一个交易日执行，所以要顺延一格才对得上净值曲线）。
-    没分两个板块的月份第二个槽也从金牌板块里选，右列跟着显示金牌板块；BIL 月两列都空仓。"""
+    没分两个板块的月份第二个槽也从金牌板块里选，右列跟着显示金牌板块；BIL 月两列都空仓。
+
+    开头的空仓月不画：RS 要 252 个交易日才有第一个值，窗口起点往后约一年的月份查不到
+    king_score / RS，会被当成「没有戴金板块」，那段灰不是判断结果。中间的空仓月照画。"""
     slots: dict = {}
     name_map: dict = {}
     for r in timeline:
@@ -155,7 +158,10 @@ def build_sector_ribbon(timeline: list[dict], since_month: str) -> tuple[dict, d
         if right:
             name_map[right] = r.get("silver_sector_name") if r.get("split_sectors") else r.get("sector_name")
             name_map[right] = name_map[right] or right
-    return slots, name_map, sorted(slots)
+    months = sorted(slots)
+    first = next((i for i, m in enumerate(months) if slots[m] != ["CASH", "CASH"]), len(months))
+    months = months[first:]
+    return {m: slots[m] for m in months}, name_map, months
 
 
 def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str) -> None:
@@ -333,6 +339,9 @@ if _gl.get("success"):
                     "第 2 名带名次死区 = 银牌（右列），月末出信号、下月第一个交易日执行。"
                     "RS 差领先够多的月份两个槽都从金牌板块里选龙头，此时右列显示的就是金牌板块本身；"
                     "灰段 = 当月没有戴金板块、持 BIL 空仓。每段色带标中文名 + ETF 代码。"
+                    "条带从第一个有戴金板块的月份画起——RS 要满 252 个交易日才有第一个值，"
+                    "窗口起点往后约一年的月份查不到 king_score，回测那几个月也躺在 BIL 上，"
+                    "但那是数据没热起来、不是判断出来的空仓，所以不画进条带。"
                 )
                 st.plotly_chart(
                     hv.build_relay_gantt(
