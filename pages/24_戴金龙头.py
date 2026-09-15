@@ -189,18 +189,18 @@ def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str) -
 
 def render_stats_cards(stats: dict) -> None:
     row_a = [
-        ("累计收益", f"{stats.get('cum_return', 0) * 100:.0f}%"),
-        ("年化收益", f"{stats.get('cagr', 0) * 100:.0f}%"),
-        ("最大回撤", f"{stats.get('max_dd', 0) * 100:.0f}%"),
-        ("收益回撤比", f"{stats.get('calmar', 0):.2f}"),
-        ("比SPY多赚", f"{stats.get('excess_vs_spy', 0) * 100:.0f}%"),
+        ("总收益", f"{stats.get('cum_return', 0) * 100:.0f}%"),
+        ("CAGR", f"{stats.get('cagr', 0) * 100:.0f}%"),
+        ("MaxDD", f"{stats.get('max_dd', 0) * 100:.0f}%"),
+        ("Calmar", f"{stats.get('calmar', 0):.2f}"),
+        ("超额 vs SPY", f"{stats.get('excess_vs_spy', 0) * 100:.0f}%"),
     ]
     row_b = [
         ("换股次数", f"{stats.get('n_swaps', 0)}"),
-        ("平均一只拿几个月", f"{stats.get('avg_hold_months', 0)}"),
-        ("年均换手", f"{stats.get('ann_turnover', 0):.2f}"),
+        ("平均持有(月)", f"{stats.get('avg_hold_months', 0)}"),
+        ("年化换手", f"{stats.get('ann_turnover', 0):.2f}"),
         ("累计成本", f"{stats.get('cum_cost', 0) * 100:.1f}%"),
-        ("Sortino 比率", f"{stats.get('sortino', 0):.2f}"),
+        ("Sortino", f"{stats.get('sortino', 0):.2f}"),
     ]
     for row in (row_a, row_b):
         cols = st.columns(5)
