@@ -129,6 +129,35 @@ def render_holding_cards(slots: list, bil_reason: str) -> None:
             st.markdown(html, unsafe_allow_html=True)
 
 
+def build_sector_ribbon(timeline: list[dict], since_month: str) -> tuple[dict, dict, list]:
+    """把对照口径的决策月时序拼成「金牌板块 / 第二个槽板块」两条轨道，键是执行月
+    （决策月末出信号、次月第一个交易日执行，所以要顺延一格才对得上净值曲线）。
+    没分两个板块的月份第二个槽也从金牌板块里选，右列跟着显示金牌板块；BIL 月两列都空仓。"""
+    slots: dict = {}
+    name_map: dict = {}
+    for r in timeline:
+        exec_m = str(r.get("execution_date", "") or "")[:7]
+        if not exec_m or exec_m < since_month:
+            continue
+        gold = r.get("sector_etf")
+        if not gold or r.get("is_bil"):
+            slots[exec_m] = ["CASH", "CASH"]
+            continue
+        right = r.get("silver_sector_etf") if r.get("split_sectors") else gold
+        picks = r.get("picks") or []
+        left_cash = len(picks) < 1 or picks[0] == "BIL"
+        right_cash = len(picks) < 2 or picks[1] == "BIL" or not right
+        slots[exec_m] = [
+            "CASH" if left_cash else gold,
+            "CASH" if right_cash else right,
+        ]
+        name_map[gold] = r.get("sector_name") or gold
+        if right:
+            name_map[right] = r.get("silver_sector_name") if r.get("split_sectors") else r.get("sector_name")
+            name_map[right] = name_map[right] or right
+    return slots, name_map, sorted(slots)
+
+
 def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str) -> None:
     fig = go.Figure()
     for key, name, color, vis_default in series_cfg:
@@ -191,11 +220,7 @@ _window = st.radio(
     help="月末快照：3Y/5Y/10Y 约对应 36/60/120 个格子",
 )
 
-hv.render_dynasty_ribbon(
-    _window, key="gl_dynasty_gantt",
-    compare_hint="本页下方回测只在 C 组 11 个 SPDR 里按 king_score 原值取第 1 名，"
-                 "实测 5 年 55 个月里只有 17 个月和条带左列是同一个板块。",
-)
+_ribbon_box = st.container()
 
 st.caption(
     "**主线**：C组王朝接力图戴金板块 → 板块内市值前3、5年超额 Top2 → 下月执行。"
@@ -297,6 +322,28 @@ if _gl.get("success"):
     if not _two.get("available"):
         st.info("后端未返回强弱切换口径（`two_sector`），可能是后端版本较旧。")
     else:
+        _rb_slots, _rb_names, _rb_months = build_sector_ribbon(
+            _gl.get("two_sector_timeline") or [], str(_meta.get("display_start", ""))[:7]
+        )
+        if _rb_months:
+            with _ribbon_box:
+                st.markdown("### 🔥 金牌 / 银牌板块时间条带")
+                st.caption(
+                    "**和本页下方回测完全同源**：C 组 11 个 SPDR 按 king_score 排名，第 1 名 = 金牌（左列），"
+                    "第 2 名带名次死区 = 银牌（右列），月末出信号、下月第一个交易日执行。"
+                    "RS 差领先够多的月份两个槽都从金牌板块里选龙头，此时右列显示的就是金牌板块本身；"
+                    "灰段 = 当月没有戴金板块、持 BIL 空仓。每段色带标中文名 + ETF 代码。"
+                )
+                st.plotly_chart(
+                    hv.build_relay_gantt(
+                        _rb_slots, _rb_months, _rb_names,
+                        title=f"{_window} 戴金龙头 · 金牌/银牌板块时间条带",
+                        track_labels=("左列 · 金牌板块", "右列 · 第二个槽"),
+                    ),
+                    use_container_width=True,
+                    key="gl_sector_ribbon",
+                )
+                st.markdown("---")
         _split_n = _two.get("split_months", 0)
         _total_n = _two.get("total_months", 0)
         _gap = _two.get("silver_rs_gap", 5.0)
