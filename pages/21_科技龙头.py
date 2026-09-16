@@ -15,6 +15,34 @@ import holdings_viz as hv
 
 st.set_page_config(page_title="标普500+纳指100 PIT 接力", layout="wide")
 
+# 母体 750+ 只，热力图/接力图/奖牌标签只看 ticker 认不出是谁——用中文名代替英文全称
+# (同 page20 回购股页做法)。只覆盖历史上进过 Top2 的曾用票，查不到的退回后端 sector 中文名。
+_TICKER_CN_NAME = {
+    "ABMD": "雅培诊断", "ALGN": "爱齐科技", "AMD": "超威半导体", "AMZN": "亚马逊",
+    "APA": "阿帕奇", "APP": "AppLovin", "ARM": "ARM", "AVGO": "博通",
+    "BA": "波音", "BBBY": "Bed Bath & Beyond", "BBWI": "Bath & Body Works",
+    "BMRN": "百傲维昂医药", "CEG": "星座能源", "CHKAQ": "切萨皮克能源",
+    "CMG": "奇波雷", "CRWD": "CrowdStrike", "CSX": "CSX运输",
+    "CVC": "Cablevision", "DINO": "HF Sinclair", "DOCU": "DocuSign",
+    "DVN": "德文能源", "DXCM": "德康医疗", "EA": "艺电", "ENPH": "Enphase",
+    "EQT": "EQT能源", "EW": "爱德华兹生命科学", "FCX": "自由港迈克墨伦",
+    "FSLR": "第一太阳能", "HOOD": "罗宾汉", "KLAC": "科磊",
+    "LBTYA": "自由全球", "LBTYK": "自由全球", "LITE": "Lumentum",
+    "LLY": "礼来", "LRCX": "泛林集团", "LULU": "露露乐蒙", "LUV": "西南航空",
+    "MELI": "美客多", "META": "Meta", "MKTX": "MarketAxess",
+    "MNST": "怪物饮料", "MOS": "美盛", "MRNA": "莫德纳", "MRO": "马拉松石油",
+    "MU": "美光", "NEM": "纽蒙特", "NFLX": "奈飞", "NKTR": "Nektar",
+    "NRG": "NRG能源", "NVDA": "英伟达", "OKE": "Oneok", "OXY": "西方石油",
+    "PDD": "拼多多", "PLTR": "帕兰提尔", "PTON": "Peloton", "PYPL": "PayPal",
+    "RCL": "皇家加勒比", "SGEN": "Seagen", "SHPG": "夏尔制药",
+    "SMCI": "美超微", "SNDK": "闪迪", "SPLK": "Splunk", "STX": "希捷",
+    "SWKS": "思佳讯", "TE1": "TECO能源", "TGT": "塔吉特", "TPR": "泰佩思琦",
+    "TRI": "汤森路透", "TRIP": "猫途鹰", "TSLA": "特斯拉", "TSN": "泰森食品",
+    "TTWO": "Take-Two", "TWTR": "推特", "UA": "安德玛", "VOD": "沃达丰",
+    "VST": "Vistra", "WDAY": "Workday", "WDC": "西部数据", "XLNX": "赛灵思",
+    "ZM": "Zoom",
+}
+
 st.markdown("""
 <style>
     .insight-box { border-left: 4px solid #FFD700; background-color: #1a1a1a; padding: 15px; border-radius: 5px; margin-bottom: 20px; margin-top: 20px; }
@@ -254,7 +282,7 @@ st.caption(f"股池：S&P500 ∪ NASDAQ-100 PIT 历史成分并集，当前后�
 _idx = pd.to_datetime(_dates, errors="coerce")
 rs = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
 name_map = {tk: p.get("name", tk) for tk, p in _tickers.items()}
-grade_map = {tk: p.get("group", "") for tk, p in _tickers.items()}
+grade_map = {tk: _TICKER_CN_NAME.get(tk, p.get("group", "")) for tk, p in _tickers.items()}
 asof = pd.to_datetime(ts.get("asof"), errors="coerce")
 rs_m = rs.resample("ME").last()
 
@@ -361,4 +389,5 @@ render_group(_label, _cols, "tl_main",
              danger_daily=_danger_full,
              danger_half_daily=_danger_half,
              bear_default=True,
+             stitched_name_style="cn_ticker",
              **_COMMON)
