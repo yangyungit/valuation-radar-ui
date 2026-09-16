@@ -514,10 +514,14 @@ def build_stitched_fig(
     danger_half_daily: pd.Series = None,
     weight_by_month: dict = None,
     cost_bps: float = 0.0,
+    name_style: str = "full",
 ) -> go.Figure:
     """cost_bps：单边换仓成本，口径与 calc_slot_stats 一致（卖出+买入各扣一次，
     CASH 不算成本资产）。首段不扣——calc_slot_stats 的总收益用首点做分母，
-    首次买入成本被约掉，这里跟着约掉，两图末值才对得上。"""
+    首次买入成本被约掉，这里跟着约掉，两图末值才对得上。
+    name_style="full"（默认）：段上标题=英文全称(代码)·grade_map；
+    name_style="cn_ticker"：段上标题只留 grade_map 的中文名(代码)，不带英文全称
+    （grade_map 需已存的是中文名而非 sector，见 page20 FCF进攻）。"""
     pc = price_cache if price_cache is not None else {}
     nm = name_map if name_map is not None else {}
     gm = grade_map if grade_map is not None else {}
@@ -681,8 +685,11 @@ def build_stitched_fig(
         tick_texts.append(f"{s_m}→{e_m}")
         _g = gm.get(tk, "")
         _cn = nm.get(tk, "")
-        _base = f"{_cn}({tk})" if _cn and _cn != tk else tk
-        _ann_text = f"{_base}·{_g}" if _g else _base
+        if name_style == "cn_ticker":
+            _ann_text = f"{_g}({tk})" if _g and _g != tk else tk
+        else:
+            _base = f"{_cn}({tk})" if _cn and _cn != tk else tk
+            _ann_text = f"{_base}·{_g}" if _g else _base
         name_annotations.append(dict(
             x=x_offset + n // 2, y=1.0,
             xref="x", yref="paper",

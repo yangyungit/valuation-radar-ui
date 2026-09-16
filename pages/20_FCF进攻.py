@@ -148,4 +148,5 @@ render_group("纯科技股", _tech_cols, "bb_tech",
              retention_mask=_ret_mask,
              retention_price_m=_close_m,
              retention_ma_window=4,
+             stitched_name_style="cn_ticker",
              **_COMMON)

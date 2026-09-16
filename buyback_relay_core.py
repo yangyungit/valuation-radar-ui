@@ -144,6 +144,7 @@ def render_group(
     precomputed_raw: dict = None,
     precomputed_weights: dict = None,
     pick_show_name: bool = False,
+    stitched_name_style: str = "full",
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -168,6 +169,8 @@ def render_group(
              执行层在推荐区间内按 exec_rule（{"kind":"MA"|"DD","param":int,"reentry_ma":int}）
              日频价格规则进出场，产出日线 NAV。设置后忽略 retention_mask/entry_mask，
              nav_engine 须为 "daily"，daily_price_cache 须是 {ticker: 日线收盘 Series}。
+    stitched_name_style = "full"（默认，段标题=英文全称(代码)·grade_map）或
+             "cn_ticker"（段标题只留 grade_map 中文名(代码)，grade_map 需已是中文名，见 page20）。
     """
     n_hold = max(1, int(n_hold))
     max_n_hold = max(1, int(max_n_hold))
@@ -979,7 +982,7 @@ def render_group(
         )
         for _i, _seg in enumerate(_slot_segs[:max_n_hold]):
             st.plotly_chart(
-                hv.build_stitched_fig(_seg, f"{group_label}接力 槽{_i + 1}", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg),
+                hv.build_stitched_fig(_seg, f"{group_label}接力 槽{_i + 1}", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, name_style=stitched_name_style),
                 use_container_width=True, key=f"{kp}_nav_slot_{_i}",
             )
     elif n_hold < 2:
@@ -991,7 +994,7 @@ def render_group(
         if segment_window_slider and _seg0:
             _seg0, _spy_seg = _crop_segments_by_slider(_seg0, spy_wk, kp)
         st.plotly_chart(
-            hv.build_stitched_fig(_seg0, f"{group_label}接力 持仓段", _spy_seg, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, weight_by_month=precomputed_weights),
+            hv.build_stitched_fig(_seg0, f"{group_label}接力 持仓段", _spy_seg, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, weight_by_month=precomputed_weights, name_style=stitched_name_style),
             use_container_width=True, key=f"{kp}_nav_l",
         )
     elif retention_band is not None:
@@ -1020,11 +1023,11 @@ def render_group(
             use_container_width=True, key=f"{kp}_nav_combined",
         )
         st.plotly_chart(
-            hv.build_stitched_fig(_slot_segs[0], f"{group_label}接力 左列 (Slot 0)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, weight_by_month=precomputed_weights),
+            hv.build_stitched_fig(_slot_segs[0], f"{group_label}接力 左列 (Slot 0)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, weight_by_month=precomputed_weights, name_style=stitched_name_style),
             use_container_width=True, key=f"{kp}_nav_l",
         )
         st.plotly_chart(
-            hv.build_stitched_fig(_slot_segs[1], f"{group_label}接力 右列 (Slot 1)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, weight_by_month=precomputed_weights),
+            hv.build_stitched_fig(_slot_segs[1], f"{group_label}接力 右列 (Slot 1)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, weight_by_month=precomputed_weights, name_style=stitched_name_style),
             use_container_width=True, key=f"{kp}_nav_r",
         )
 
