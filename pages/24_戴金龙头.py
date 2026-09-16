@@ -240,15 +240,17 @@ def render_stats_cards(stats: dict) -> None:
         ("Calmar", f"{stats.get('calmar', 0):.2f}"),
         ("超额 vs SPY", f"{stats.get('excess_vs_spy', 0) * 100:.0f}%"),
     ]
+    _r2 = stats.get("r2")
     row_b = [
         ("换股次数", f"{stats.get('n_swaps', 0)}"),
         ("平均持有(月)", f"{stats.get('avg_hold_months', 0)}"),
         ("年化换手", f"{stats.get('ann_turnover', 0):.2f}"),
         ("累计成本", f"{stats.get('cum_cost', 0) * 100:.1f}%"),
         ("Sortino", f"{stats.get('sortino', 0):.2f}"),
+        ("logR²", f"{_r2:.2f}" if isinstance(_r2, (int, float)) and _r2 == _r2 else "—"),
     ]
     for row in (row_a, row_b):
-        cols = st.columns(5)
+        cols = st.columns(len(row))
         for mi, (label, value) in enumerate(row):
             with cols[mi]:
                 st.metric(label, value)
@@ -455,7 +457,12 @@ if _gl.get("success"):
         )
 
         st.markdown("##### 统计卡")
-        render_stats_cards(_two.get("stats", {}))
+        _stats_two = dict(_two.get("stats", {}))
+        _two_nav = _norm_series(_eq.get("two_sector", []), _dates)
+        if not _two_nav.empty:
+            _stats_two["r2"] = hv.compute_nav_kpi(_two_nav).get("r2")
+        render_stats_cards(_stats_two)
+        st.caption("logR² = 净值曲线取对数后对时间做线性回归的拟合优度，越接近 1 越是匀速上涨、越低说明涨跌越颠簸。")
 
         st.markdown("##### 哪些月份走了银牌板块")
         _ts_rows = [
