@@ -680,7 +680,9 @@ def build_stitched_fig(
         tick_vals.append(x_offset + n // 2)
         tick_texts.append(f"{s_m}→{e_m}")
         _g = gm.get(tk, "")
-        _ann_text = f"{tk}({_g})" if _g else tk
+        _cn = nm.get(tk, "")
+        _base = f"{_cn}({tk})" if _cn and _cn != tk else tk
+        _ann_text = f"{_base}·{_g}" if _g else _base
         name_annotations.append(dict(
             x=x_offset + n // 2, y=1.0,
             xref="x", yref="paper",
