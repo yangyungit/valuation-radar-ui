@@ -454,7 +454,7 @@ def build_relay_gantt(
 
 
 DYNASTY_RIBBON_GROUPS = ["C: 核心板块 (Level 1 Sectors)", "D: 细分赛道 (Level 2/Themes)"]
-DYNASTY_LAB_WINS = [252]
+DYNASTY_LAB_WINS = [504]
 
 
 def render_dynasty_ribbon(window: str, key: str, compare_hint: str = "") -> None:
