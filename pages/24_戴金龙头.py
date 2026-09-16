@@ -135,15 +135,22 @@ def render_holding_cards(slots: list, bil_reason: str) -> None:
             st.markdown(html, unsafe_allow_html=True)
 
 
-def build_sector_ribbon(timeline: list[dict], since_month: str) -> tuple[dict, dict, list]:
-    """把对照口径的决策月时序拼成「金牌板块 / 第二个槽板块」两条轨道，键是执行月
+def build_sector_ribbon(timeline: list[dict], since_month: str) -> tuple[dict, dict, list, dict, set]:
+    """把对照口径的决策月时序拼成「金牌板块 / 银牌板块」两条轨道，键是执行月
     （决策月末出信号、次月第一个交易日执行，所以要顺延一格才对得上净值曲线）。
-    没分两个板块的月份第二个槽也从金牌板块里选，右列跟着显示金牌板块；BIL 月两列都空仓。
+
+    右列始终显示当月的银牌板块候选：真分投的月份正常上色，没分投（两个槽都买金牌
+    板块龙头）的月份压暗——暗段 = 这个银牌板块当月落选，第二个槽实际买的是金牌板块
+    的第 2 只龙头。少数月份后端给不出银牌候选（silver_sector_etf 为空），右列退回
+    显示金牌板块，一样压暗，保证「右列亮着 = 真分投金银」这一条没有例外。
+    BIL 月两列都空仓。
 
     开头的空仓月不画：RS 要 252 个交易日才有第一个值，窗口起点往后约一年的月份查不到
     king_score / RS，会被当成「没有戴金板块」，那段灰不是判断结果。中间的空仓月照画。"""
     slots: dict = {}
+    dim: dict = {}
     name_map: dict = {}
+    split_months: set = set()
     for r in timeline:
         exec_m = str(r.get("execution_date", "") or "")[:7]
         if not exec_m or exec_m < since_month:
@@ -151,28 +158,54 @@ def build_sector_ribbon(timeline: list[dict], since_month: str) -> tuple[dict, d
         gold = r.get("sector_etf")
         if not gold or r.get("is_bil"):
             slots[exec_m] = ["CASH", "CASH"]
+            dim[exec_m] = [False, False]
             continue
-        right = r.get("silver_sector_etf") if r.get("split_sectors") else gold
+        silver = r.get("silver_sector_etf")
+        split = bool(r.get("split_sectors"))
+        right = silver or gold
         picks = r.get("picks") or []
         left_cash = len(picks) < 1 or picks[0] == "BIL"
-        right_cash = len(picks) < 2 or picks[1] == "BIL" or not right
+        right_cash = len(picks) < 2 or picks[1] == "BIL"
         slots[exec_m] = [
             "CASH" if left_cash else gold,
             "CASH" if right_cash else right,
         ]
+        dim[exec_m] = [False, (not split) and not right_cash]
+        if split:
+            split_months.add(exec_m)
         name_map[gold] = r.get("sector_name") or gold
-        if right:
-            name_map[right] = r.get("silver_sector_name") if r.get("split_sectors") else r.get("sector_name")
-            name_map[right] = name_map[right] or right
+        if silver:
+            name_map[silver] = r.get("silver_sector_name") or silver
     months = sorted(slots)
     first = next((i for i, m in enumerate(months) if slots[m] != ["CASH", "CASH"]), len(months))
     months = months[first:]
-    return {m: slots[m] for m in months}, name_map, months
+    return ({m: slots[m] for m in months}, name_map, months,
+            {m: dim[m] for m in months}, split_months & set(months))
+
+
+def split_month_spans(split_months: set, win_lo, win_hi) -> list:
+    """把「真分投金银」的执行月压成连续区间，给净值图画竖向背景条。相邻月份合并成
+    一段，再裁到当前时间窗口内——vrect 会把坐标轴撑开，超出窗口的段不能留。"""
+    spans: list = []
+    for m in sorted(split_months):
+        x0 = pd.Timestamp(f"{m}-01")
+        x1 = x0 + pd.offsets.MonthEnd(1)
+        if spans and x0 <= spans[-1][1] + pd.Timedelta(days=1):
+            spans[-1] = (spans[-1][0], x1)
+        else:
+            spans.append((x0, x1))
+    if win_lo is None or win_hi is None:
+        return spans
+    return [(max(a, win_lo), min(b, win_hi)) for a, b in spans
+            if b >= win_lo and a <= win_hi]
 
 
 def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str,
-                         win_lo=None, win_hi=None) -> None:
+                         win_lo=None, win_hi=None, shade_spans: list = None) -> None:
     fig = go.Figure()
+    for x0, x1 in (shade_spans or []):
+        fig.add_vrect(x0=x0, x1=x1, fillcolor="#F39C12", opacity=0.10,
+                      line_width=0, layer="below")
     for key, name, color, vis_default in series_cfg:
         vals = equity.get(key, []) or []
         if not vals:
@@ -340,7 +373,7 @@ if _gl.get("success"):
     if not _two.get("available"):
         st.info("后端未返回强弱切换口径（`two_sector`），可能是后端版本较旧。")
     else:
-        _rb_slots, _rb_names, _rb_months = build_sector_ribbon(
+        _rb_slots, _rb_names, _rb_months, _rb_dim, _rb_split = build_sector_ribbon(
             _gl.get("two_sector_timeline") or [], str(_meta.get("display_start", ""))[:7]
         )
         if _rb_months:
@@ -349,7 +382,8 @@ if _gl.get("success"):
                 st.caption(
                     "**和本页下方回测完全同源**：C 组 11 个 SPDR 按 king_score 排名，第 1 名 = 金牌（左列），"
                     "第 2 名带名次死区 = 银牌（右列），月末出信号、下月第一个交易日执行。"
-                    "RS 差领先够多的月份两个槽都从金牌板块里选龙头，此时右列显示的就是金牌板块本身；"
+                    "**右列压暗的段 = 那几个月银牌板块没被选中**，金牌 RS 领先够多，第二个槽实际买的是"
+                    "金牌板块的第 2 只龙头；右列亮着才是真的分投金银。"
                     "灰段 = 当月没有戴金板块、持 BIL 空仓。每段色带标中文名 + ETF 代码。"
                     "条带从第一个有戴金板块的月份画起——RS 要满 252 个交易日才有第一个值，"
                     "窗口起点往后约一年的月份查不到 king_score，回测那几个月也躺在 BIL 上，"
@@ -359,7 +393,8 @@ if _gl.get("success"):
                     hv.build_relay_gantt(
                         _rb_slots, _rb_months, _rb_names,
                         title=f"{_window} 戴金龙头 · 金牌/银牌板块时间条带",
-                        track_labels=("左列 · 金牌板块", "右列 · 第二个槽"),
+                        track_labels=("左列 · 金牌板块", "右列 · 银牌板块"),
+                        dim_map=_rb_dim, dim_suffix="<br>未选中",
                     ),
                     use_container_width=True,
                     key="gl_sector_ribbon",
@@ -413,8 +448,11 @@ if _gl.get("success"):
             ("spy", "SPY", "#3498DB", True),
             ("rsp", "RSP 等权标普", "#9B59B6", False),
             ("eqw11", "11行业ETF等权", "#16A085", False),
-        ], "gl_eq_two", _win_lo, _win_hi)
-        st.caption("点图例可展开 RSP / 11行业ETF等权对照；上方时间窗口同步套用到本图和下方 Slot 分段图")
+        ], "gl_eq_two", _win_lo, _win_hi, split_month_spans(_rb_split, _win_lo, _win_hi))
+        st.caption(
+            "橙色竖条 = 那段时间真的分投了金银两个板块，没底色的月份两个槽都在金牌板块里。"
+            "点图例可展开 RSP / 11行业ETF等权对照；上方时间窗口同步套用到本图和下方 Slot 分段图"
+        )
 
         st.markdown("##### 统计卡")
         render_stats_cards(_two.get("stats", {}))

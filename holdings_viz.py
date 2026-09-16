@@ -382,10 +382,16 @@ def build_relay_gantt(
     slot_assignments: dict, exec_months: list, name_map: dict = None,
     title: str = "王朝接力左右列时间条带",
     track_labels: tuple = ("左列 · 龙头", "右列 · 次龙头"),
+    dim_map: dict = None, dim_suffix: str = "",
 ) -> go.Figure:
     """把左右列每月持仓画成甘特时间条带：两条轨道（左列/右列），每段连续持有同一板块
-    = 一个色带，带上标中文名 + 代码。"""
+    = 一个色带，带上标中文名 + 代码。
+
+    dim_map={月份: [每个槽是否压暗]}：True 的月份画成半透明（底色是近黑的 #111，
+    等于盖一层黑色遮罩），用来标「这个板块当月只是候选、没真被选中」。压暗与否会
+    把色带断开，同一个板块选中段和落选段各画一段。"""
     nm = name_map if name_map is not None else {}
+    dm = dim_map if dim_map is not None else {}
     fig = go.Figure()
 
     tks: list = []
@@ -395,25 +401,34 @@ def build_relay_gantt(
                 tks.append(t)
     color_map = {t: SLOT_COLORS[i % len(SLOT_COLORS)] for i, t in enumerate(tks)}
 
+    keyed: dict = {}
+    for m in exec_months:
+        flags = dm.get(m) or []
+        keyed[m] = [
+            (t, bool(flags[i]) if i < len(flags) else False)
+            for i, t in enumerate(slot_assignments.get(m, []))
+        ]
+
     tracks = [(0, 1.0), (1, 0.0)]
     for slot_idx, yc in tracks:
-        for tk, s_m, e_m in build_slot_segments(slot_assignments, slot_idx, exec_months):
+        for item, s_m, e_m in build_slot_segments(keyed, slot_idx, exec_months):
+            tk, dim = item if isinstance(item, tuple) else (item, False)
             x0 = pd.Timestamp(f"{s_m}-01")
             x1 = pd.Timestamp(f"{e_m}-01") + pd.offsets.MonthEnd(1)
             if not tk or tk == "CASH":
-                fillc, label = "#2a2a2a", "空仓"
+                fillc, label, dim = "#2a2a2a", "空仓", False
             else:
                 fillc = color_map.get(tk, "#888")
-                label = f"{nm.get(tk, tk)}<br>{tk}"
+                label = f"{nm.get(tk, tk)}<br>{tk}" + (dim_suffix if dim else "")
             fig.add_shape(
                 type="rect", x0=x0, x1=x1, y0=yc - 0.4, y1=yc + 0.4,
-                fillcolor=fillc, opacity=0.9, line=dict(width=1, color="#111"),
-                layer="below",
+                fillcolor=fillc, opacity=0.2 if dim else 0.9,
+                line=dict(width=1, color="#111"), layer="below",
             )
             xmid = x0 + (x1 - x0) / 2
             fig.add_annotation(
                 x=xmid, y=yc, text=label, showarrow=False,
-                font=dict(size=10, color="#fff"),
+                font=dict(size=10, color="#6b6b6b" if dim else "#fff"),
             )
     fig.update_layout(
         height=240,
