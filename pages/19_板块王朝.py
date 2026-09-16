@@ -403,7 +403,7 @@ with _dyn_tab1:
                     _guard_choices = ["buffer", "δ", "无"]
                     with _ctrl_cols[0]:
                         _mom_wins = st.multiselect(
-                            "动量窗口(日)", [63, 126, 252, 504], default=[252],
+                            "动量窗口(日)", [63, 126, 252, 504], default=[504],
                             key=f"lab_wins_{key_suffix}",
                             help="多选做 blend(Borda 名次平均);单选=纯单窗口动量。",
                         )
@@ -431,7 +431,7 @@ with _dyn_tab1:
                     _kdelta = 1.0
 
                     if not _mom_wins:
-                        _mom_wins = [252]
+                        _mom_wins = [504]
                     _basis_code = "king_score"
                     _blend_code = "borda"
                     _guard_code = {"buffer": "buffer", "δ": "delta", "无": "none"}[_guard_sel]
@@ -739,8 +739,8 @@ with _dyn_tab1:
                             _ov_prog.progress((_ci + 1) / len(_ov_configs), text=f"{_clabel} 完成")
                         _ov_prog.empty()
 
-                        # 固定对比线：252d · N=2 · buffer(4)，不参与寻优，供与各配置最优对比
-                        _pin_wins, _pin_n, _pin_bn = [252], 2, 4
+                        # 固定对比线：504d · N=2 · buffer(4)，不参与寻优，供与各配置最优对比
+                        _pin_wins, _pin_n, _pin_bn = [504], 2, 4
                         _pin_combo = (_pin_n, "buffer", _pin_bn, 1.0)
                         _pin_mh_hz = {
                             hz: _mh_by_combo(hz, _pin_wins, [_pin_combo]) for hz in _ov_hz
@@ -756,7 +756,7 @@ with _dyn_tab1:
                                 _pin_rel = _pin_rel / float(_pin_rel.iloc[0])
                                 _pin_ret = (float(_pin_rel.iloc[-1]) - 1.0) * 100.0
                         _ov_results.append({
-                            "label": "252d(固定)", "params": (_pin_n, "buffer", _pin_bn, 1.0),
+                            "label": "504d(固定)", "params": (_pin_n, "buffer", _pin_bn, 1.0),
                             "rel": _pin_rel, "ret": _pin_ret, "pinned": True,
                         })
 
@@ -830,7 +830,7 @@ with _dyn_tab1:
                         st.plotly_chart(_ov_fig, use_container_width=True, key=f"{_ov_key}_fig")
                         st.caption(
                             "每条 = 该动量配置在 maximin(3Y/5Y/10Y)口径下最优的 N+守擂,图例标出选中参数。"
-                            "白色粗虚线「252d(固定)」= 固定 N=2·buffer(4),不参与寻优,作对比基线。"
+                            "白色粗虚线「504d(固定)」= 固定 N=2·buffer(4),不参与寻优,作对比基线。"
                             "各自起点归一;起点日期因窗口预热长度而异(504d 最晚)。"
                         )
 
