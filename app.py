@@ -12,12 +12,12 @@ nav = st.navigation({
     "": [
         st.Page("home.py", title="系统状态", default=True),
     ],
-    "宏观与舆情 ———": [
+    "宏观与舆情 ——————": [
         st.Page("pages/0_宏观雷达.py", title="宏观雷达"),
         st.Page("pages/1_宏观定调.py", title="宏观定调"),
         st.Page("pages/2_舆情监控.py", title="舆情监控"),
     ],
-    "旧策略链 ———": [
+    "旧策略链 ——————": [
         st.Page("pages/3_资产细筛.py", title="资产细筛"),
         st.Page("pages/3_资产细筛_GBDT.py", title="资产细筛 GBDT"),
         st.Page("pages/4_资产调研.py", title="资产调研"),
@@ -25,7 +25,7 @@ nav = st.navigation({
         st.Page("pages/6_仓位配置.py", title="仓位配置"),
         st.Page("pages/6_持仓对比.py", title="持仓对比"),
     ],
-    "大类观察 ———": [
+    "大类观察 ——————": [
         st.Page("pages/7_风险预警.py", title="风险预警"),
         st.Page("pages/8_币圈流动性.py", title="币圈流动性"),
         st.Page("pages/9_机构持仓.py", title="机构持仓"),
@@ -36,7 +36,7 @@ nav = st.navigation({
         st.Page("pages/28_主题簇.py", title="主题簇"),
         st.Page("pages/29_供给紧度.py", title="供给紧度"),
     ],
-    "稳定类策略 ———": [
+    "稳定类策略 ——————": [
         st.Page("pages/14_黄金带鱼.py", title="黄金带鱼"),
         st.Page("pages/15_带鱼斜率.py", title="带鱼斜率"),
         st.Page("pages/16_ROIC稳定.py", title="ROIC稳定"),
@@ -45,7 +45,7 @@ nav = st.navigation({
         st.Page("pages/19_板块王朝.py", title="板块王朝"),
         st.Page("pages/27_行业龙头.py", title="行业龙头"),
     ],
-    "进攻类策略 ———": [
+    "进攻类策略 ——————": [
         st.Page("pages/20_FCF进攻.py", title="FCF进攻"),
         st.Page("pages/21_科技龙头.py", title="科技龙头"),
         st.Page("pages/22_动量双龙.py", title="动量双龙"),
@@ -53,7 +53,7 @@ nav = st.navigation({
         st.Page("pages/24_戴金龙头.py", title="戴金龙头"),
         st.Page("pages/25_另类资产.py", title="另类资产"),
     ],
-    "总结 ———": [
+    "总结 ——————": [
         st.Page("pages/26_组合净值.py", title="组合净值"),
     ],
 })
