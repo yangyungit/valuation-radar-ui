@@ -160,13 +160,21 @@ def _inband_streak(rank_df: pd.DataFrame, limit: int) -> pd.DataFrame:
 
 
 def build_leg(cme: pd.DataFrame, memb: dict, L: int, MA: int,
-              since: pd.Timestamp | None = None) -> dict:
+              since: pd.Timestamp | None = None,
+              grace: int = 0, band: float = 0.0) -> dict:
     """返回该腿的 {"score", "rank", "ten6", "streak", "ret_mask"} 五张表 + 预编译的逐月行。
 
     since 只给 --anchor 的页面口径用：页面 window=10Y 时把 king_m 裁到近 10 年再排名，
     留任掩码 ret_mask 仍走未裁、未 mask 的 close_me（页面 303 行先算掩码、318 行才 mask）。
+
+    grace / band 放宽留任条件，默认 0/0 时和页面完全一致：
+    - band：跌破均线不超过 band 就还算站得住（容差带）
+    - grace：近 grace+1 个月里只要有一个月站得住就继续留（宽限期，不为第一次跌破就卖）
     """
-    ret_mask = cme > cme.rolling(MA).mean()
+    ma = cme.rolling(MA).mean()
+    ret_mask = cme > ma * (1.0 - band)
+    if grace > 0:
+        ret_mask = ret_mask.astype(float).rolling(grace + 1, min_periods=1).max() > 0
     score = mask_by_membership(cme / cme.shift(L) - 1.0, memb)
     if since is not None:
         score = score[score.index >= since]
@@ -590,6 +598,54 @@ def run_oracle(cme, memb, fast_leg, slow_legs, cache, spy_daily) -> None:
                       f"｜最优选 {'迟缓' if hold == s_tk else '灵敏'}")
 
 
+def run_retain(cme, memb, fast_leg, cache, spy_daily) -> None:
+    """只动灵敏腿的留任宽容度，不做双窗口切换。
+
+    --oracle 摊出来的 10 个决策点全是同一个形状：灵敏腿想换手、最优解是别换。
+    迟缓腿的唯一贡献就是它更慢的留任均线不会把人踢出去。所以直接在单腿上加
+    宽限期 grace 和容差带 band，对准这 10 个事件，比找切换信号短得多。
+    """
+    months = list(cme.index)
+    mh_base = select({ts: fast_leg for ts in months}, months)
+    nav_base = nav_of(mh_base, cache, spy_daily)
+    base = nav_metrics(mh_base, nav_base)
+    print("\n灵敏腿 L10/MA4 基线（grace=0 band=0，与页面同口径）："
+          + "｜".join(f"{l.upper()} {base[f'ret_{l}']:+.1f}%" for l, _ in HORIZONS)
+          + f"｜dd_10y {base['dd_10y']:.1%}｜换股 {base['swaps_10y']}")
+    print("\n放宽留任后（收益括号里是相对基线的提升）：")
+    print("  grace band | 收益 3Y / 5Y / 10Y                                    | "
+          "calmar 3Y/5Y/10Y  | 10Y 回撤 换股")
+
+    rows = []
+    for grace in (0, 1, 2, 3):
+        for band in (0.0, 0.02, 0.05, 0.08, 0.12):
+            if grace == 0 and band == 0.0:
+                r = dict(base)
+            else:
+                leg = build_leg(cme, memb, *FAST, grace=grace, band=band)
+                mh = select({ts: leg for ts in months}, months)
+                r = nav_metrics(mh, nav_of(mh, cache, spy_daily))
+            r.update({"grace": grace, "band": band})
+            up = {l: (1 + r[f"ret_{l}"] / 100) / (1 + base[f"ret_{l}"] / 100) - 1
+                  for l, _ in HORIZONS}
+            r["up"] = up
+            rows.append(r)
+            print(f"  {grace:5d} {band:5.0%} | "
+                  + " / ".join(f"{r[f'ret_{l}']:+9.1f}%({up[l]:+6.1%})" for l, _ in HORIZONS)
+                  + f" | {r['calmar_3y']:.2f}/{r['calmar_5y']:.2f}/{r['calmar_10y']:.2f} | "
+                  f"{r['dd_10y']:6.1%} {r['swaps_10y']:4d}")
+
+    ok = [r for r in rows if all(r["up"][l] >= SEG_IMPROVE_MIN for l in ("3y", "5y"))
+          and all(r[f"calmar_{l}"] >= base[f"calmar_{l}"] * (1 - CALMAR_TOL)
+                  for l, _ in HORIZONS)]
+    print(f"\n3Y 和 5Y 两段收益各自提升 ≥ {SEG_IMPROVE_MIN:.0%}、且三段 Calmar 都不劣于基线的："
+          f"{len(ok)} 组")
+    for r in sorted(ok, key=lambda r: -min(r["up"]["3y"], r["up"]["5y"])):
+        print(f"    grace={r['grace']} band={r['band']:.0%}｜"
+              f"3Y {r['up']['3y']:+.1%}、5Y {r['up']['5y']:+.1%}、10Y {r['up']['10y']:+.1%}"
+              f"｜换股 {base['swaps_10y']} → {r['swaps_10y']}")
+
+
 def run_anchor(cme, memb, fast_leg, cache, spy_daily) -> None:
     """两条口径各算一遍纯灵敏腿：一条对页面卡片，一条对 CSV 的 baseline_fast 行。"""
     months = list(cme.index)
@@ -798,11 +854,13 @@ def main() -> None:
     ap.add_argument("--sweep", action="store_true", help="跑 14 基线 + 每种信号 455 组切换网格")
     ap.add_argument("--oracle", action="store_true",
                     help="算完美切换上界（事后选腿），看两条腿近年还有没有可收割的分歧")
+    ap.add_argument("--retain", action="store_true",
+                    help="只扫灵敏腿的留任宽容度（宽限期 + 容差带），不做双窗口切换")
     ap.add_argument("--signals", default=",".join(DEFAULT_SIGNALS),
                     help=f"逗号分隔，可选 {'/'.join(SIGNALS)}，默认 {','.join(DEFAULT_SIGNALS)}")
     args = ap.parse_args()
-    if not (args.anchor or args.sweep or args.oracle):
-        ap.error("须指定 --anchor / --sweep / --oracle")
+    if not (args.anchor or args.sweep or args.oracle or args.retain):
+        ap.error("须指定 --anchor / --sweep / --oracle / --retain")
     sig_names = [s.strip() for s in args.signals.split(",") if s.strip()]
     bad = [s for s in sig_names if s not in SIGNALS]
     if bad:
@@ -828,6 +886,9 @@ def main() -> None:
         return
     if args.oracle:
         run_oracle(cme, memb, fast_leg, slow_legs, cache, spy_daily)
+        return
+    if args.retain:
+        run_retain(cme, memb, fast_leg, cache, spy_daily)
         return
     run_sweep(cme, memb, fast_leg, slow_legs, cache, spy_daily, sig_names)
 
