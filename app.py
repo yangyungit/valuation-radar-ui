@@ -43,6 +43,7 @@ nav = st.navigation({
         st.Page("pages/17_FCF收益率稳定.py", title="FCF收益率稳定"),
         st.Page("pages/18_回购稳定.py", title="回购稳定"),
         st.Page("pages/19_板块王朝.py", title="板块王朝"),
+        st.Page("pages/27_行业龙头.py", title="行业龙头"),
     ],
     "进攻类策略": [
         st.Page("pages/20_FCF进攻.py", title="FCF进攻"),
@@ -51,7 +52,6 @@ nav = st.navigation({
         st.Page("pages/23_纳指100.py", title="纳指100"),
         st.Page("pages/24_戴金龙头.py", title="戴金龙头"),
         st.Page("pages/25_另类资产.py", title="另类资产"),
-        st.Page("pages/27_行业龙头.py", title="行业龙头"),
     ],
     "总结": [
         st.Page("pages/26_组合净值.py", title="组合净值"),
