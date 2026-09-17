@@ -230,7 +230,7 @@ def render_dd_stop_tab(dd: dict, strategy_title: str, key_prefix: str = "dd") ->
 
     # 统计对照表
     _recs = []
-    for _nm, _s in _series[:1]:
+    for _nm, _s, *_ in _series[:1]:
         _cs = _curve_stats(_s)
         _recs.append({
             "组合": _nm,
