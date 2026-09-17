@@ -454,6 +454,142 @@ def _seg_stats(nav: pd.Series, holdings: dict, label: str) -> None:
           f"｜执行月 {len(exec_window_10y(holdings))}")
 
 
+def monthly_returns(cache: dict, spy_daily: pd.DataFrame) -> dict:
+    """{(票, 执行月): 该月收益}，口径对齐 build_nav_from_holdings：
+
+    月内持有——首个交易日 Open 买入、最后一个交易日 Close 结算。交易日历用 SPY，
+    和引擎一致。不含换手成本（成本在 nav_of 里按实际换手扣）。
+    """
+    cal = spy_daily.index
+    keys = pd.Series(cal.strftime("%Y-%m"), index=cal)
+    out: dict = {}
+    for tk, d in cache.items():
+        if d is None or d.empty:
+            continue
+        win = d.reindex(cal).dropna(subset=["Open", "Close"])
+        if win.empty:
+            continue
+        g = win.groupby(keys.reindex(win.index))
+        first_open = g["Open"].first().astype(float)
+        last_close = g["Close"].last().astype(float)
+        r = (last_close / first_open.where(first_open > 0) - 1.0).dropna()
+        for m, v in r.items():
+            out[(tk, m)] = float(v)
+    return out
+
+
+def _leg_pick(leg: dict, ts, prev: str):
+    """把 select() 里那段选仓判定单独拿出来，给 oracle 逐月问「这条腿这个月会拿什么」。"""
+    row = leg["rows"].get(ts)
+    if row is None:
+        return None
+    hold = prev if (prev != "CASH" and prev in row["valid"] and prev in row["keep"]) else None
+    if hold is None:
+        hold = row["elig"][0] if row["elig"] else "CASH"
+    return hold, row["exec"]
+
+
+def _cost_factor(prev: str, hold: str) -> float:
+    """换手成本，复刻引擎：n_hold=1 时 cost_denom 恒为 1，换票扣两腿共 2×COST_BPS。"""
+    a = set() if prev == "CASH" else {prev}
+    b = set() if hold == "CASH" else {hold}
+    return max(0.0, 1.0 - len(a ^ b) * COST_BPS / 10000.0)
+
+
+def dp_ceiling(fast_leg: dict, slow_leg: dict, months, init_hold: str,
+               mret: dict) -> tuple[float, list]:
+    """事后视角能拿到的最高终值，动态规划求全局最优（不是贪心）。
+
+    贪心（每月挑当月涨得多的腿）不是上界——这个月换过去会改变下个月的留任判定，
+    把人带到更差的持仓链上，实测 5Y 比纯灵敏腿还低 20%。
+    状态是「月末 + 当前持仓」，每月两条腿各给一个候选持仓，取到达同一持仓的最大财富。
+    含换手成本。返回 (财富倍数, 路径)，路径元素是 (执行月, 持仓, 两条腿各自的候选)。
+    """
+    dp = {init_hold: (1.0, ())}
+    for ts in months:
+        nxt: dict = {}
+        for prev, (w, path) in dp.items():
+            cands = {}
+            for name, leg in (("fast", fast_leg), ("slow", slow_leg)):
+                got = _leg_pick(leg, ts, prev)
+                if got is not None:
+                    cands[name] = got
+            if not cands:
+                continue
+            picks = {n: cands[n][0] for n in cands}
+            for name, (hold, ex) in cands.items():
+                r = 0.0 if hold == "CASH" else mret.get((hold, ex), 0.0)
+                w2 = w * _cost_factor(prev, hold) * (1.0 + r)
+                if w2 > nxt.get(hold, (-1.0, ()))[0]:
+                    nxt[hold] = (w2, path + ((ex, hold, picks),))
+        if nxt:
+            dp = nxt
+    w, path = max(dp.values(), key=lambda v: v[0])
+    return w, list(path)
+
+
+def fixed_leg_wealth(leg: dict, months, init_hold: str, mret: dict) -> float:
+    """同一套月度口径下只走一条腿的终值，拿来和 dp_ceiling 对比才是同尺度。"""
+    w, prev = 1.0, init_hold
+    for ts in months:
+        got = _leg_pick(leg, ts, prev)
+        if got is None:
+            continue
+        hold, ex = got
+        r = 0.0 if hold == "CASH" else mret.get((hold, ex), 0.0)
+        w *= _cost_factor(prev, hold) * (1.0 + r)
+        prev = hold
+    return w
+
+
+def run_oracle(cme, memb, fast_leg, slow_legs, cache, spy_daily) -> None:
+    """对每条迟缓腿算「完美切换」的收益天花板。
+
+    天花板要是没比纯灵敏腿高多少，说明两条腿近年没有可收割的分歧，换什么信号都白搭；
+    天花板要是高很多，说明有肉、只是信号没找对，那就该继续找信号。
+    """
+    months = list(cme.index)
+    mret = monthly_returns(cache, spy_daily)
+    mh_fast = select({ts: fast_leg for ts in months}, months)
+    ts_exec = {ts: fast_leg["rows"][ts]["exec"] for ts in months if ts in fast_leg["rows"]}
+    last_exec = max(ts_exec.values())
+
+    print("\n完美切换天花板（动态规划，事后视角，含 200bps 换手成本）：")
+    print("  口径：同段内只走灵敏腿的终值 → 每月可自由选腿的最优终值")
+    for lbl, yrs in HORIZONS:
+        cut = pd.Timestamp(f"{last_exec}-01") - pd.DateOffset(years=yrs)
+        win = [ts for ts in months if ts in ts_exec
+               and pd.Timestamp(f"{ts_exec[ts]}-01") >= cut]
+        prior = [m for m in sorted(mh_fast) if pd.Timestamp(f"{m}-01") < cut]
+        init = mh_fast[prior[-1]][0] if prior else "CASH"
+        w_fast = fixed_leg_wealth(fast_leg, win, init, mret)
+        print(f"\n  {lbl.upper()}（{len(win)} 个执行月，段初持仓 {init}）"
+              f"｜只走灵敏腿 {(w_fast - 1) * 100:+.1f}%")
+        best = None
+        for (L, MA), leg in slow_legs.items():
+            w_orc, path = dp_ceiling(fast_leg, leg, win, init, mret)
+            up = w_orc / w_fast - 1
+            n_div = sum(1 for _, _, p in path if len(set(p.values())) > 1)
+            n_slow = sum(1 for _, h, p in path
+                         if len(set(p.values())) > 1 and h == p.get("slow"))
+            print(f"    L{L}/MA{MA:<3d} 天花板 {(w_orc - 1) * 100:+10.1f}%"
+                  f"｜较灵敏腿 {up:+7.1%}｜最优路径上两腿分歧 {n_div} 月、"
+                  f"其中该走迟缓 {n_slow} 月")
+            if best is None or up > best[0]:
+                best = (up, (L, MA), path)
+        if lbl == "3y" and best is not None:
+            up, (L, MA), path = best
+            print(f"\n    近 3Y 天花板最高的 L{L}/MA{MA}，最优路径上的分歧月：")
+            for ex, hold, p in path:
+                if len(set(p.values())) <= 1:
+                    continue
+                f_tk, s_tk = p.get("fast", "—"), p.get("slow", "—")
+                f_r = 0.0 if f_tk == "CASH" else mret.get((f_tk, ex), float("nan"))
+                s_r = 0.0 if s_tk == "CASH" else mret.get((s_tk, ex), float("nan"))
+                print(f"      {ex}｜灵敏 {f_tk:<5s} {f_r:+7.1%}｜迟缓 {s_tk:<5s} {s_r:+7.1%}"
+                      f"｜最优选 {'迟缓' if hold == s_tk else '灵敏'}")
+
+
 def run_anchor(cme, memb, fast_leg, cache, spy_daily) -> None:
     """两条口径各算一遍纯灵敏腿：一条对页面卡片，一条对 CSV 的 baseline_fast 行。"""
     months = list(cme.index)
@@ -660,11 +796,13 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="科技龙头双窗口切换离线扫描")
     ap.add_argument("--anchor", action="store_true", help="只跑纯灵敏腿自验，不跑网格")
     ap.add_argument("--sweep", action="store_true", help="跑 14 基线 + 每种信号 455 组切换网格")
+    ap.add_argument("--oracle", action="store_true",
+                    help="算完美切换上界（事后选腿），看两条腿近年还有没有可收割的分歧")
     ap.add_argument("--signals", default=",".join(DEFAULT_SIGNALS),
                     help=f"逗号分隔，可选 {'/'.join(SIGNALS)}，默认 {','.join(DEFAULT_SIGNALS)}")
     args = ap.parse_args()
-    if not (args.anchor or args.sweep):
-        ap.error("须指定 --anchor 或 --sweep")
+    if not (args.anchor or args.sweep or args.oracle):
+        ap.error("须指定 --anchor / --sweep / --oracle")
     sig_names = [s.strip() for s in args.signals.split(",") if s.strip()]
     bad = [s for s in sig_names if s not in SIGNALS]
     if bad:
@@ -687,6 +825,9 @@ def main() -> None:
 
     if args.anchor:
         run_anchor(cme, memb, fast_leg, cache, spy_daily)
+        return
+    if args.oracle:
+        run_oracle(cme, memb, fast_leg, slow_legs, cache, spy_daily)
         return
     run_sweep(cme, memb, fast_leg, slow_legs, cache, spy_daily, sig_names)
 
