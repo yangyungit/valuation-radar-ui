@@ -473,28 +473,33 @@ if _dd.get("success"):
     # ── 统计卡
     st.markdown("##### 统计卡")
     _stats = _dd.get("stats", {})
+    _primary_key = "momentum_delta_guard" if _primary_strategy == _DD_DELTA_STRATEGY else "momentum_k_guard"
+    _primary_nav = _norm_series((_dd.get("equity") or {}).get(_primary_key, []), _dd_dates)
+    _r2 = hv.compute_nav_kpi(_primary_nav).get("r2") if not _primary_nav.empty else float("nan")
     _metrics_a = [
-        ("Cumulative Return", f"{_stats.get('cum_return', 0) * 100:.0f}%"),
+        ("总收益", f"{_stats.get('cum_return', 0) * 100:.0f}%"),
         ("CAGR", f"{_stats.get('cagr', 0) * 100:.0f}%"),
-        ("Max Drawdown", f"{_stats.get('max_dd', 0) * 100:.0f}%"),
-        ("Calmar Ratio", f"{_stats.get('calmar', 0):.2f}"),
-        ("Excess vs SPY", f"{_stats.get('excess_vs_spy', 0) * 100:.0f}%"),
+        ("MaxDD", f"{_stats.get('max_dd', 0) * 100:.0f}%"),
+        ("Calmar", f"{_stats.get('calmar', 0):.2f}"),
+        ("超额 vs SPY", f"{_stats.get('excess_vs_spy', 0) * 100:.0f}%"),
     ]
     _metrics_b = [
-        ("Swaps", f"{_stats.get('n_swaps', 0)}"),
-        ("Avg Hold (Months)", f"{_stats.get('avg_hold_months', 0)}"),
-        ("Ann. Turnover", f"{_stats.get('ann_turnover', 0):.2f}"),
-        ("Cum. Cost", f"{_stats.get('cum_cost', 0) * 100:.1f}%"),
-        ("Sortino Ratio", f"{_stats.get('sortino', 0):.2f}"),
+        ("换股次数", f"{_stats.get('n_swaps', 0)}"),
+        ("平均持有(月)", f"{_stats.get('avg_hold_months', 0)}"),
+        ("年化换手", f"{_stats.get('ann_turnover', 0):.2f}"),
+        ("累计成本", f"{_stats.get('cum_cost', 0) * 100:.1f}%"),
+        ("Sortino", f"{_stats.get('sortino', 0):.2f}"),
+        ("logR²", f"{_r2:.2f}" if isinstance(_r2, (int, float)) and _r2 == _r2 else "—"),
     ]
     _row_a = st.columns(5)
     for _mi in range(len(_metrics_a)):
         with _row_a[_mi]:
             st.metric(_metrics_a[_mi][0], _metrics_a[_mi][1])
-    _row_b = st.columns(5)
+    _row_b = st.columns(len(_metrics_b))
     for _mi in range(len(_metrics_b)):
         with _row_b[_mi]:
             st.metric(_metrics_b[_mi][0], _metrics_b[_mi][1])
+    st.caption("logR² = 净值曲线取对数后对时间做线性回归的拟合优度，越接近 1 越是匀速上涨、越低说明涨跌越颠簸。")
     if _primary_strategy == _DD_MOMENTUM_STRATEGY:
         _k_note = (
             "K 由系统按当前窗口年化收益最高自动选择"
