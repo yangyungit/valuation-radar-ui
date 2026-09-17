@@ -233,13 +233,13 @@ def render_dd_stop_tab(dd: dict, strategy_title: str, key_prefix: str = "dd") ->
     for _nm, _s, *_ in _series[:1]:
         _cs = _curve_stats(_s)
         _recs.append({
-            "组合": _nm,
-            "最大回撤": f"{_cs['max_dd']*100:.0f}%",
-            "累计收益": f"{_cs['cum']*100:.0f}%",
-            "年化收益": f"{_cs['cagr']*100:.1f}%",
-            "收益回撤比": f"{_cs['calmar']:.2f}",
+            "Portfolio": _nm,
+            "Max Drawdown": f"{_cs['max_dd']*100:.0f}%",
+            "Cumulative Return": f"{_cs['cum']*100:.0f}%",
+            "CAGR": f"{_cs['cagr']*100:.1f}%",
+            "Calmar Ratio": f"{_cs['calmar']:.2f}",
         })
-    st.table(pd.DataFrame(_recs).set_index("组合"))
+    st.table(pd.DataFrame(_recs).set_index("Portfolio"))
 
     _dd_dt = _orig / _orig.cummax() - 1.0
     _trough = _dd_dt.idxmin()
@@ -320,10 +320,10 @@ with _mom_c1:
 with _mom_c2:
     if _dd_signal == _DD_MOMENTUM_STRATEGY:
         _dd_k_display = st.empty()
-        _dd_k_display.caption("自动守擂K：加载后显示")
+        _dd_k_display.caption("Auto K：加载后显示")
     else:
         _dd_delta_display = st.empty()
-        _dd_delta_display.caption("自动防抖强度：加载后显示")
+        _dd_delta_display.caption("Auto δ：加载后显示")
 if _dd_signal == _DD_MOMENTUM_STRATEGY:
     st.caption(
         "固定不再平衡：每个槽位独立复利，持仓仍在前 K 就留任，跌出前 K 才换；"
@@ -349,9 +349,9 @@ _dd = fetch_dynasty_double_dragon(
 
 if not _dd.get("success"):
     if _dd_k_display is not None:
-        _dd_k_display.metric("自动守擂K", "—")
+        _dd_k_display.metric("Auto K", "—")
     if _dd_delta_display is not None:
-        _dd_delta_display.metric("自动防抖强度", "—")
+        _dd_delta_display.metric("Auto δ", "—")
     st.warning(f"⚠️ 12M动量双龙回测暂不可用：{_dd.get('error', '未知错误')}")
 
 if _dd.get("success"):
@@ -368,9 +368,9 @@ if _dd.get("success"):
     _delta_k_txt = f"kδ={_delta_k_val:.2f}" if _delta_k_val is not None else "kδ自动"
     _delta_k_mode = str(_delta_params.get("delta_mode", "manual") or "manual")
     if _dd_k_display is not None:
-        _dd_k_display.metric("自动守擂K", _legacy_k_txt)
+        _dd_k_display.metric("Auto K", _legacy_k_txt)
     if _dd_delta_display is not None:
-        _dd_delta_display.metric("自动防抖强度", _delta_k_txt)
+        _dd_delta_display.metric("Auto δ", _delta_k_txt)
 
     _notes = []
     if _meta.get("pit_membership_gated"):
@@ -474,18 +474,18 @@ if _dd.get("success"):
     st.markdown("##### 统计卡")
     _stats = _dd.get("stats", {})
     _metrics_a = [
-        ("累计收益", f"{_stats.get('cum_return', 0) * 100:.0f}%"),
-        ("年化收益", f"{_stats.get('cagr', 0) * 100:.0f}%"),
-        ("最大回撤", f"{_stats.get('max_dd', 0) * 100:.0f}%"),
-        ("收益回撤比", f"{_stats.get('calmar', 0):.2f}"),
-        ("比SPY多赚", f"{_stats.get('excess_vs_spy', 0) * 100:.0f}%"),
+        ("Cumulative Return", f"{_stats.get('cum_return', 0) * 100:.0f}%"),
+        ("CAGR", f"{_stats.get('cagr', 0) * 100:.0f}%"),
+        ("Max Drawdown", f"{_stats.get('max_dd', 0) * 100:.0f}%"),
+        ("Calmar Ratio", f"{_stats.get('calmar', 0):.2f}"),
+        ("Excess vs SPY", f"{_stats.get('excess_vs_spy', 0) * 100:.0f}%"),
     ]
     _metrics_b = [
-        ("换股次数", f"{_stats.get('n_swaps', 0)}"),
-        ("平均一只拿几个月", f"{_stats.get('avg_hold_months', 0)}"),
-        ("年均换手", f"{_stats.get('ann_turnover', 0):.2f}"),
-        ("累计成本", f"{_stats.get('cum_cost', 0) * 100:.1f}%"),
-        ("Sortino 比率", f"{_stats.get('sortino', 0):.2f}"),
+        ("Swaps", f"{_stats.get('n_swaps', 0)}"),
+        ("Avg Hold (Months)", f"{_stats.get('avg_hold_months', 0)}"),
+        ("Ann. Turnover", f"{_stats.get('ann_turnover', 0):.2f}"),
+        ("Cum. Cost", f"{_stats.get('cum_cost', 0) * 100:.1f}%"),
+        ("Sortino Ratio", f"{_stats.get('sortino', 0):.2f}"),
     ]
     _row_a = st.columns(5)
     for _mi in range(len(_metrics_a)):
