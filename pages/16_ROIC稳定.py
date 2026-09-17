@@ -96,13 +96,13 @@ with st.spinner("📊 加载价格..."):
 _price_cache: dict = {}
 _daily_close_cache: dict = {}
 _spy_wk = pd.DataFrame()
-_spy_daily = pd.Series(dtype=float)
+_spy_daily = pd.DataFrame()
 if _px is not None and not _px.empty:
     _wk = _px.resample("W-FRI").last()
     if "SPY" in _wk.columns:
         _spy_wk = _wk[["SPY"]].rename(columns={"SPY": "Close"}).dropna()
     if "SPY" in _px.columns:
-        _spy_daily = _px["SPY"].dropna()
+        _spy_daily = _px[["SPY"]].rename(columns={"SPY": "Close"}).dropna()
     for _tk in _pool:
         if _tk in _wk.columns:
             _s = _wk[_tk].dropna()
