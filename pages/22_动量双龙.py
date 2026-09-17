@@ -110,13 +110,9 @@ def render_slot_segment_returns(dd: dict, key_prefix: str = "dd") -> bool:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 【本地实验】抗回撤对照台（纯前端在 slot_equity 上模拟，不改后端口径）
-# 三类对照组：
-#   · 我最初的通用做法：持有段「净值峰值回撤%」止损 → 现金 → 下月首日重进（_stop_on_base）
-#   · 系统现成机制①MA4留任：在任票月末价 > 自己4月均线才留，跌破换现金（_ma4_on_base，抄 render_group.retention_mask）
-#   · 系统现成机制②exec_rule 回撤止损：距持有段高点回撤>阈值出场，日线收盘站回 MA{reentry} 上方才买回（_execdd_on_base）
+# 【本地实验】原版组合净值曲线（纯前端在 slot_equity 上重建，不改后端口径）
 # 组合净值 = 各槽在展示窗起点真实权重加权和；slot_equity 被后端各自归一到 1.0 丢了起点权重，
-#            用最小二乘从后端组合净值反解 wᵢ（关掉风控时与后端逐点对齐）。逻辑集中，好迭代。
+#            用最小二乘从后端组合净值反解 wᵢ（与后端逐点对齐）。
 # ══════════════════════════════════════════════════════════════════════
 def _dd_holding_label_for_stop(cell: dict | None) -> str:
     if not cell or cell.get("bil"):
@@ -183,164 +179,6 @@ def _dd_orig_port(base: dict) -> pd.Series:
     return _dd_combine(base, base["orig_slots"])
 
 
-def _stop_on_base(base: dict, stop_pct: float, cash_annual: float = hv.CASH_APY) -> pd.Series:
-    """我最初的通用做法：每槽自净值峰值回撤达阈值→止损转现金，下月首日按当月持仓重进。"""
-    dates = base["dates"]
-    n = len(dates)
-    cash_daily = (1.0 + cash_annual) ** (1.0 / 252.0) - 1.0
-    out: list[pd.Series] = []
-    for si in range(len(base["orig_slots"])):
-        s = base["orig_slots"][si]
-        labs = base["labels"][si]
-        r = s.pct_change().fillna(0.0).values
-        nav = 1.0
-        navs = []
-        pos_val = 1.0
-        pos_peak = 1.0
-        stopped = False
-        prev_label = None
-        prev_ym = None
-        for t in range(n):
-            lab = labs[t]
-            ym = base["day_ym"][t]
-            if prev_ym is not None and ym != prev_ym and stopped:
-                stopped = False
-                pos_val = 1.0
-                pos_peak = 1.0
-            if lab != prev_label:
-                pos_val = 1.0
-                pos_peak = 1.0
-                stopped = False
-            rt = float(r[t])
-            if stopped:
-                eff_r = cash_daily
-            else:
-                eff_r = rt
-                if lab != "CASH":
-                    pos_val *= (1.0 + rt)
-                    pos_peak = max(pos_peak, pos_val)
-                    if pos_peak > 0 and (pos_val / pos_peak - 1.0) <= -abs(stop_pct):
-                        stopped = True
-            nav *= (1.0 + eff_r)
-            navs.append(nav)
-            prev_label = lab
-            prev_ym = ym
-        out.append(pd.Series(navs, index=dates))
-    return _dd_combine(base, out)
-
-
-def _dd_fetch_held_prices(dd: dict) -> dict:
-    """取 holdings_timeline 里全部持仓票的 Sharadar 日线 close（供 MA4/exec 规则算均线）。"""
-    tks: set[str] = set()
-    for h in dd.get("holdings_timeline") or []:
-        for cell in h.get("slots") or []:
-            lab = _dd_holding_label_for_stop(cell)
-            if lab != "CASH":
-                tks.add(lab)
-    out: dict[str, pd.Series] = {}
-    if not tks:
-        return out
-    try:
-        from api_client import fetch_gbdt_oos_prices
-        hv.prime_sharadar_prices(fetch_gbdt_oos_prices(tuple(sorted(tks))))
-    except Exception:
-        pass
-    for tk in tks:
-        try:
-            d = hv.fetch_daily_ohlcv(tk)
-            if d is not None and not d.empty:
-                c = d["Close"].astype(float).dropna()
-                if c.index.tz is not None:
-                    c.index = c.index.tz_localize(None)
-                out[tk] = c
-        except Exception:
-            pass
-    return out
-
-
-def _ma4_on_base(base: dict, held: dict, ma_months: int = 4, cash_annual: float = hv.CASH_APY) -> pd.Series:
-    """系统机制①MA4留任（抄 render_group.retention_mask）：在任票月末价 > 自己4月均线才留，
-    跌破换现金；用上月末信号去前视。缺该票日线时默认留任。"""
-    dates = base["dates"]
-    n = len(dates)
-    cash_daily = (1.0 + cash_annual) ** (1.0 / 252.0) - 1.0
-    ret_ok: dict[str, dict] = {}
-    for tk, c in held.items():
-        mc = c.resample("ME").last().dropna()
-        ok = (mc > mc.rolling(ma_months).mean()).shift(1)
-        ret_ok[tk] = {ts.strftime("%Y-%m"): (bool(v) if pd.notna(v) else True) for ts, v in ok.items()}
-    out: list[pd.Series] = []
-    for si in range(len(base["orig_slots"])):
-        s = base["orig_slots"][si]
-        labs = base["labels"][si]
-        r = s.pct_change().fillna(0.0).values
-        nav = 1.0
-        navs = []
-        for t in range(n):
-            lab = labs[t]
-            if lab == "CASH":
-                eff_r = float(r[t])
-            else:
-                ok = ret_ok.get(lab, {}).get(base["day_ym"][t], True)
-                eff_r = float(r[t]) if ok else cash_daily
-            nav *= (1.0 + eff_r)
-            navs.append(nav)
-        out.append(pd.Series(navs, index=dates))
-    return _dd_combine(base, out)
-
-
-def _execdd_on_base(base: dict, held: dict, stop_pct: float,
-                    reentry_ma: int = 100, cash_annual: float = hv.CASH_APY) -> pd.Series:
-    """系统机制②exec_rule 回撤止损：距持有段高点(个股价)回撤>阈值出场，
-    日线收盘站回自身 MA{reentry_ma} 上方才买回。缺该票日线时不做止损。"""
-    dates = base["dates"]
-    n = len(dates)
-    cash_daily = (1.0 + cash_annual) ** (1.0 / 252.0) - 1.0
-    px: dict[str, np.ndarray] = {}
-    ma: dict[str, np.ndarray] = {}
-    for tk, c in held.items():
-        cc = c.reindex(dates, method="ffill")
-        px[tk] = cc.values
-        ma[tk] = cc.rolling(reentry_ma, min_periods=reentry_ma).mean().values
-    out: list[pd.Series] = []
-    for si in range(len(base["orig_slots"])):
-        s = base["orig_slots"][si]
-        labs = base["labels"][si]
-        r = s.pct_change().fillna(0.0).values
-        nav = 1.0
-        navs = []
-        stopped = False
-        peak = None
-        prev_label = None
-        for t in range(n):
-            lab = labs[t]
-            if lab != prev_label:
-                stopped = False
-                peak = None
-            arr = px.get(lab)
-            if lab == "CASH" or arr is None:
-                eff_r = float(r[t])
-            else:
-                c_t = arr[t]
-                m_t = ma[lab][t]
-                if stopped:
-                    eff_r = cash_daily
-                    if pd.notna(c_t) and pd.notna(m_t) and c_t > m_t:
-                        stopped = False
-                        peak = c_t
-                else:
-                    eff_r = float(r[t])
-                    if pd.notna(c_t):
-                        peak = c_t if peak is None else max(peak, c_t)
-                        if peak > 0 and (c_t / peak - 1.0) <= -abs(stop_pct):
-                            stopped = True
-            nav *= (1.0 + eff_r)
-            navs.append(nav)
-            prev_label = lab
-        out.append(pd.Series(navs, index=dates))
-    return _dd_combine(base, out)
-
-
 def _curve_stats(nav: pd.Series) -> dict:
     nav = nav.astype(float).dropna()
     if len(nav) < 2:
@@ -354,95 +192,8 @@ def _curve_stats(nav: pd.Series) -> dict:
     return {"cum": cum, "cagr": cagr, "max_dd": max_dd, "calmar": calmar}
 
 
-def _spy_ma200_risk_off(dd: dict, dates: pd.DatetimeIndex, ma_win: int = 200):
-    """SPY 收盘 < 自身 MA200 → risk-off。优先用全历史 Sharadar 日线(窗口起点即有信号)，
-    失败回退 payload 内 spy(窗口内近似，前 ma_win 日无信号)。返回已 shift(1) 去前视的布尔序列。"""
-    _close = None
-    try:
-        from api_client import fetch_gbdt_oos_prices
-        hv.prime_sharadar_prices(fetch_gbdt_oos_prices(("SPY",)))
-        _spy_d = hv.fetch_daily_ohlcv("SPY")
-        if _spy_d is not None and not _spy_d.empty:
-            _close = _spy_d["Close"].astype(float).dropna()
-            if _close.index.tz is not None:
-                _close.index = _close.index.tz_localize(None)
-    except Exception:
-        _close = None
-    if _close is None or _close.empty:
-        _close = pd.Series((dd.get("equity", {}) or {}).get("spy", []), index=dates).astype(float).dropna()
-    if _close.empty:
-        return pd.Series(False, index=dates), False
-    _ma = _close.rolling(ma_win, min_periods=ma_win).mean()
-    _ro = (_close < _ma)
-    _ro = _ro.reindex(dates, method="ffill").fillna(False).astype(bool)
-    _ro = _ro.shift(1).fillna(False).astype(bool)
-    return _ro, True
-
-
-def _chaos_risk_off(dates: pd.DatetimeIndex, fwd_days: int = 20):
-    """日频 chaos 闸门：GBDT horsemen_daily_chaos_trigger 触发日 + 后 fwd_days 交易日 → risk-off。
-    与「21_科技龙头」清仓信号同源。返回布尔序列 + 是否取到信号。"""
-    try:
-        from api_client import compute_macro_regime_api
-        _cr = compute_macro_regime_api(z_window=750) or {}
-        _trig = _cr.get("horsemen_daily_chaos_trigger", {}) or {}
-        _td = pd.to_datetime([k for k, v in _trig.items() if v], errors="coerce").dropna()
-        _cal = pd.DatetimeIndex(dates)
-        _ro = pd.Series(False, index=dates)
-        for _t in _td:
-            _pos = int(_cal.searchsorted(_t))
-            if _pos < len(_cal):
-                _ro.iloc[_pos:_pos + fwd_days + 1] = True
-        return _ro.astype(bool), bool(len(_td) > 0)
-    except Exception:
-        return pd.Series(False, index=dates), False
-
-
-def _apply_regime(nav: pd.Series, risk_off: pd.Series, mode: str = "清仓", cash_annual: float = hv.CASH_APY) -> pd.Series:
-    """把组合日收益在 risk-off 日替换为现金(清仓)或半仓(减半)，重建净值。"""
-    nav = nav.astype(float)
-    cash_daily = (1.0 + cash_annual) ** (1.0 / 252.0) - 1.0
-    _r = nav.pct_change().fillna(0.0)
-    _ro = risk_off.reindex(nav.index).fillna(False).astype(bool)
-    if mode == "减半":
-        _eff = _r.where(~_ro, 0.5 * _r + 0.5 * cash_daily)
-    else:
-        _eff = _r.where(~_ro, cash_daily)
-    return (1.0 + _eff).cumprod() * float(nav.iloc[0])
-
-
 def render_dd_stop_tab(dd: dict, strategy_title: str, key_prefix: str = "dd") -> None:
-    st.caption(
-        f"在**{strategy_title}**的每槽净值上模拟「持有段回撤止损」，纯前端估算，不改后端口径。"
-        "规则：某槽从进场起算，净值较自身峰值回撤达阈值即当日止损转现金(年化4%)，"
-        "持现金到下月首个交易日再按当月持仓重进；换名也重置峰值。"
-    )
-    _c1, _c2, _c3 = st.columns([1.2, 1.0, 1.4])
-    with _c1:
-        _stop = st.slider(
-            "回撤止损阈值", 5, 40, 20, step=1, format="%d%%",
-            key=f"{key_prefix}_stop_pct",
-            help="方向1：某槽自峰值回撤达此值即止损。越小越早离场但可能错杀反弹。",
-        ) / 100.0
-    with _c2:
-        _mode = st.selectbox(
-            "择时降仓方式", ["清仓", "减半"], index=0,
-            key=f"{key_prefix}_regime_mode",
-            help="方向2：risk-off 日整体转现金(清仓)或半仓半现金(减半)。",
-        )
-    with _c3:
-        _use_chaos = st.checkbox(
-            "叠加日频 chaos 闸门（较慢，需拉宏观 regime）",
-            value=False, key=f"{key_prefix}_use_chaos",
-            help="GBDT 日频崩盘信号触发后 20 交易日清仓，与「科技龙头」同源。",
-        )
-
-    _use_sys = st.checkbox(
-        "叠加系统现成机制对照：MA4留任 / exec_rule 回撤止损（需拉持仓票日线）",
-        value=True, key=f"{key_prefix}_use_sys",
-        help="MA4留任=在任票跌破自己4月线换现金(抄 render_group.retention_mask)；"
-             "exec回撤止损=距高点回撤>阈值出场、收盘站回日线MA100 才买回。",
-    )
+    st.caption(f"重建**{strategy_title}**的原版组合净值（纯前端在 slot_equity 上重建，不改后端口径）。")
 
     _base = _dd_reconstruct(dd)
     if _base is None:
@@ -450,7 +201,6 @@ def render_dd_stop_tab(dd: dict, strategy_title: str, key_prefix: str = "dd") ->
         return
     _dts = _base["dates"]
     _orig = _dd_orig_port(_base)
-    _stopped = _stop_on_base(_base, _stop)
     _sanity = (
         float((_orig - _base["backend"]).abs().max())
         if not _base["backend"].dropna().empty else float("nan")
@@ -460,36 +210,7 @@ def render_dd_stop_tab(dd: dict, strategy_title: str, key_prefix: str = "dd") ->
     if not _spy.dropna().empty:
         _spy = _spy / float(_spy.dropna().iloc[0])
 
-    _ro_ma, _ma_ok = _spy_ma200_risk_off(dd, _dts)
-    _regime_ma = _apply_regime(_orig, _ro_ma, _mode)
-    _ro_chaos = None
-    _regime_chaos = None
-    if _use_chaos:
-        with st.spinner("拉取宏观 regime（日频 chaos 闸门）..."):
-            _ro_chaos, _chaos_ok = _chaos_risk_off(_dts)
-        if _chaos_ok:
-            _regime_chaos = _apply_regime(_orig, _ro_chaos, _mode)
-
-    _ma4_port = None
-    _execdd_port = None
-    if _use_sys:
-        with st.spinner("拉取持仓票日线（MA4留任 / exec 回撤止损）..."):
-            _held = _dd_fetch_held_prices(dd)
-        if _held:
-            _ma4_port = _ma4_on_base(_base, _held)
-            _execdd_port = _execdd_on_base(_base, _held, _stop)
-
-    _series = [
-        ("原版(无风控)", _orig, "#F39C12", 2),
-        (f"我的做法 峰值止损 -{int(_stop*100)}%", _stopped, "#2ECC71", 2),
-        (f"方向2 SPY<MA200 {_mode}", _regime_ma, "#E74C3C", 2),
-    ]
-    if _regime_chaos is not None:
-        _series.append((f"方向2 chaos闸门 {_mode}", _regime_chaos, "#F1C40F", 2))
-    if _ma4_port is not None:
-        _series.append(("系统 MA4留任", _ma4_port, "#1ABC9C", 2))
-    if _execdd_port is not None:
-        _series.append((f"系统 exec止损 -{int(_stop*100)}%/MA100买回", _execdd_port, "#9B59B6", 2))
+    _series = [("原版(无风控)", _orig, "#F39C12", 2)]
     if not _spy.dropna().empty:
         _series.append(("SPY", _spy, "#3498DB", 1.4))
 
@@ -508,17 +229,8 @@ def render_dd_stop_tab(dd: dict, strategy_title: str, key_prefix: str = "dd") ->
     st.plotly_chart(_fig, use_container_width=True, key=f"{key_prefix}_stop_curve")
 
     # 统计对照表
-    _table_rows = [("原版(无风控)", _orig),
-                   (f"我的做法 峰值止损 -{int(_stop*100)}%", _stopped),
-                   ("方向2 SPY<MA200", _regime_ma)]
-    if _regime_chaos is not None:
-        _table_rows.append(("方向2 chaos闸门", _regime_chaos))
-    if _ma4_port is not None:
-        _table_rows.append(("系统 MA4留任", _ma4_port))
-    if _execdd_port is not None:
-        _table_rows.append(("系统 exec回撤止损", _execdd_port))
     _recs = []
-    for _nm, _s in _table_rows:
+    for _nm, _s in _series[:1]:
         _cs = _curve_stats(_s)
         _recs.append({
             "组合": _nm,
@@ -536,24 +248,10 @@ def render_dd_stop_tab(dd: dict, strategy_title: str, key_prefix: str = "dd") ->
         _span = int(list(_dts).index(_trough) - list(_dts).index(_peak))
         st.caption(
             f"原版最大回撤 {_dd_dt.min()*100:.0f}%，发生在 {_peak.date()}→{_trough.date()}"
-            f"（峰谷仅 {_span} 交易日）。回撤越快，慢均线越接不住，日频 chaos 闸门才可能有效。"
+            f"（峰谷仅 {_span} 交易日）。"
         )
-    st.caption(
-        f"SPY<MA200 的 risk-off 天数占比 {_ro_ma.mean()*100:.0f}%"
-        + (f" · chaos 闸门 risk-off 占比 {_ro_chaos.mean()*100:.0f}%" if _ro_chaos is not None else "")
-    )
     if _sanity == _sanity:
         st.caption(f"自检：重建原版组合 vs 后端净值最大绝对偏差 {_sanity:.4f}（越接近0越可信）。")
-    if _ma4_port is not None:
-        st.caption(
-            "结论：MA4留任 / exec回撤止损（抄 relay 家族现成机制）在本策略上**回撤更深、收益更差**——"
-            "Top2 持的是超高波动动量票，跌破均线时已砸 20%+ 才割，站回均线才买回=接在反弹高位，来回打脸。"
-            "急跌用均线类信号救不了，只有方向2（整本账按 SPY<MA200 / chaos 日频降仓）才有戏。"
-        )
-    st.caption(
-        "⚠️ 纯前端 what-if：止损未扣换仓成本、重进用「下月」近似；择时按当日信号次日执行(已去前视)。"
-        "只作方向判断，落地需在后端 `_dd_run` 实现并按 3Y/5Y/10Y 三段验证。"
-    )
 
 
 with st.sidebar:
