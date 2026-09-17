@@ -1,19 +1,10 @@
 import streamlit as st
-from contextlib import ExitStack
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
 import holdings_viz as hv
-from api_client import (
-    fetch_dynasty_double_dragon,
-    fetch_dynasty_double_dragon_ma_exit_reentry,
-    fetch_dynasty_double_dragon_momentum_periods,
-    fetch_dynasty_double_dragon_walk_forward,
-)
-from double_dragon_ma_exit_reentry_viz import render_ma_exit_reentry_research
-from double_dragon_momentum_period_viz import render_momentum_period_research
-from double_dragon_research_viz import render_sp500_walk_forward_research
+from api_client import fetch_dynasty_double_dragon
 
 st.set_page_config(page_title="12M动量双龙", layout="wide")
 
@@ -25,14 +16,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 _DYNASTY_TAB_WINDOWS = ["3Y", "5Y", "10Y"]
-_D_THEME_TAB_WINDOWS = ["3Y", "5Y", "ALL"]
-_POOL_TAB_LABELS = [
-    "标普500选股池",
-    "D组ETF历史成分池",
-    "🧪 标普500无前视实验",
-    "🧪 动量周期实验",
-    "🧪 MA退出与再入实验",
-]
 _SLOT_LABELS = ["槽A", "槽B", "槽C", "槽D", "槽E"]
 _DD_MOMENTUM_STRATEGY = "sp500_12m_ma200_k_guard"
 _DD_DELTA_STRATEGY = "sp500_12m_ma200_delta_guard"
@@ -569,91 +552,39 @@ def render_dd_stop_tab(dd: dict, strategy_title: str, key_prefix: str = "dd") ->
         )
     st.caption(
         "⚠️ 纯前端 what-if：止损未扣换仓成本、重进用「下月」近似；择时按当日信号次日执行(已去前视)。"
-        "只作方向判断，落地需在后端 `_dd_run` 实现并按 "
-        + ("3Y/5Y/全历史" if "dtheme" in key_prefix else "3Y/5Y/10Y")
-        + " 三段验证。"
+        "只作方向判断，落地需在后端 `_dd_run` 实现并按 3Y/5Y/10Y 三段验证。"
     )
 
 
 with st.sidebar:
     if st.button("🔄 强制刷新"):
         fetch_dynasty_double_dragon.clear()
-        fetch_dynasty_double_dragon_ma_exit_reentry.clear()
-        fetch_dynasty_double_dragon_walk_forward.clear()
-        fetch_dynasty_double_dragon_momentum_periods.clear()
         st.rerun()
 
 st.title("📈 12M动量双龙 (Momentum Guard)")
-# 必须启用 rerun 才会把当前活动标签写入 Session State；否则前端虽然能切换
-# 标签，Python 端仍一直按默认标签渲染，第二个标签就会呈现为空白。
-_pool_tabs = st.tabs(_POOL_TAB_LABELS, key="dd_pool_tab", on_change="rerun")
-_active_pool_label = st.session_state.get("dd_pool_tab", _POOL_TAB_LABELS[0])
-if _active_pool_label not in _POOL_TAB_LABELS:
-    _active_pool_label = _POOL_TAB_LABELS[0]
-_active_pool_idx = _POOL_TAB_LABELS.index(_active_pool_label)
-_active_tab_stack = ExitStack()
-_active_tab_stack.enter_context(_pool_tabs[_active_pool_idx])
-
-if _active_pool_idx == 2:
-    render_sp500_walk_forward_research()
-    _active_tab_stack.close()
-    st.stop()
-
-if _active_pool_idx == 3:
-    render_momentum_period_research()
-    _active_tab_stack.close()
-    st.stop()
-
-if _active_pool_idx == 4:
-    render_ma_exit_reentry_research()
-    _active_tab_stack.close()
-    st.stop()
-
-_pool_mode = "d_theme_pit" if _active_pool_idx == 1 else "sp500_pit"
-_is_d_theme = _pool_mode == "d_theme_pit"
-_key_prefix = "dd_dtheme" if _is_d_theme else "dd_sp500"
-_window_options = _D_THEME_TAB_WINDOWS if _is_d_theme else _DYNASTY_TAB_WINDOWS
-if _is_d_theme:
-    st.caption(
-        "D组14只ETF历史Top15成分 · 12M动量K守擂 · 12M动量防抖守擂。"
-        "标普500成员资格既不加分，也不构成排除条件。"
-    )
-else:
-    st.caption(
-        "标普500动量K守擂 · 标普500动量防抖守擂 · 两策略对照。"
-        "戴金龙头已拆到「🏅 戴金龙头」单独一页。"
-        "当前自动K为完整窗口样本内最佳，仅作参考；严格无前视结果见实验Tab。"
-    )
+_key_prefix = "dd_sp500"
+st.caption(
+    "标普500动量K守擂 · 标普500动量防抖守擂 · 两策略对照。"
+    "戴金龙头已拆到「🏅 戴金龙头」单独一页。"
+    "当前自动K为完整窗口样本内最佳，仅作参考。"
+)
 
 _dynasty_window = st.radio(
     "时间跨度",
-    options=_window_options,
-    index=_window_options.index("5Y"),
+    options=_DYNASTY_TAB_WINDOWS,
+    index=_DYNASTY_TAB_WINDOWS.index("5Y"),
     horizontal=True,
     key=f"{_key_prefix}_window",
-    format_func=lambda value: "全历史" if value == "ALL" else value,
-    help=(
-        "月末快照：3年/5年/全历史；全历史从14只ETF首次完整公开覆盖开始"
-        if _is_d_theme else
-        "月末快照：3Y/5Y/10Y 约对应 36/60/120 个格子"
-    ),
+    help="月末快照：3Y/5Y/10Y 约对应 36/60/120 个格子",
 )
 
 st.markdown("#### 📈 12M动量双龙持仓 — 两策略对照")
-if _is_d_theme:
-    st.caption(
-        "**主线A**：当时已公开的D组ETF历史成分池 → 12M动量 + MA200 → TopN/K守擂 → 下月执行。"
-        "**主线B**：同一候选池 → TopN/分差δ防抖守擂 → 下月执行。"
-        "**真实数据口径**：SEC N-PORT公开后下一交易日才可用；先筛美国交易所普通股/ADR，"
-        "再取每只ETF权重Top15并去重；快照超过120天或任一ETF缺失则整月不可用。"
-    )
-else:
-    st.caption(
-        "**主线A**：逐月真实标普500股票池 → 12M 动量 + MA200 → TopN/K 守擂 → 下月执行。"
-        "**主线B**：同一套 12M 动量候选池 → TopN/分差 δ 防抖守擂 → 下月执行。"
-        "**诚实声明**：信号**不看未来**、可执行规则模拟；股票池=**逐月真实标普500成分**"
-        "（PIT，Sharadar 数据含当年被剔除/退市/收购的公司），**已去生存者偏差**。"
-    )
+st.caption(
+    "**主线A**：逐月真实标普500股票池 → 12M 动量 + MA200 → TopN/K 守擂 → 下月执行。"
+    "**主线B**：同一套 12M 动量候选池 → TopN/分差 δ 防抖守擂 → 下月执行。"
+    "**诚实声明**：信号**不看未来**、可执行规则模拟；股票池=**逐月真实标普500成分**"
+    "（PIT，Sharadar 数据含当年被剔除/退市/收购的公司），**已去生存者偏差**。"
+)
 
 _strategy_options = {
     "12M动量K守擂": "sp500_12m_ma200_k_guard",
@@ -715,7 +646,7 @@ with st.expander("交易假设（作用于两条策略）"):
 _dd = fetch_dynasty_double_dragon(
     window=_dynasty_window, signal=_dd_signal, k=_dd_k, delta_k=_dd_delta_k,
     risk_protect=_dd_risk, rebalance=_dd_rebal, cost_bps=float(_dd_cost),
-    n_holdings=int(_dd_legacy_n), pool_mode=_pool_mode,
+    n_holdings=int(_dd_legacy_n), pool_mode="sp500_pit",
 )
 
 if not _dd.get("success"):
@@ -745,11 +676,7 @@ if _dd.get("success"):
 
     _notes = []
     if _meta.get("pit_membership_gated"):
-        _notes.append(
-            "已按SEC公开日使用D14历史成分（PIT，含退市）"
-            if _is_d_theme else
-            "已按逐月真实成分选股（PIT，含退市，去生存者偏差）"
-        )
+        _notes.append("已按逐月真实成分选股（PIT，含退市，去生存者偏差）")
     if not _meta.get("bil_available"):
         _notes.append("BIL 历史缺失，BIL 持有段按现金 0 收益")
     if not _meta.get("rsp_available"):
@@ -761,23 +688,9 @@ if _dd.get("success"):
         f" · 价格截至 {_meta.get('price_as_of', '')} · "
         + ("⚠️ " + "；".join(_notes) if _notes else "数据完整")
     )
-    if _is_d_theme:
-        _covered = _meta.get("covered_etfs") or []
-        st.caption(
-            f"N-PORT覆盖 {_meta.get('coverage_start', '—')} 至今 · "
-            f"当前公开持仓报告截至 {_meta.get('holdings_report_asof', '—')} · "
-            f"公开可用日截至 {_meta.get('public_asof', '—')} · "
-            f"ETF覆盖 {len(_covered)}/14 · 数据哈希 {str(_meta.get('data_hash', ''))[:12]}"
-        )
-        st.info(
-            "D组当前池也只使用SEC N-PORT公开文件，因此可能比发行商官网最新持仓滞后一季；"
-            "这种滞后与历史回测完全同口径。SPY、RSP和11行业ETF仅作比较，不参与D组选股。",
-            icon="ℹ️",
-        )
     if not _meta.get("window_complete", True):
-        _window_label = "全历史" if _dynasty_window == "ALL" else _dynasty_window
         st.caption(
-            f"请求{_window_label}｜实际约 {_meta.get('actual_years', 0):.1f}Y"
+            f"请求{_dynasty_window}｜实际约 {_meta.get('actual_years', 0):.1f}Y"
             f"（{_meta.get('actual_days', 0)} 个交易日）"
         )
     if _meta.get("is_stale"):
@@ -812,20 +725,10 @@ if _dd.get("success"):
             else:
                 _mom_val = _sdata.get("momentum_12m_pct")
                 _mom_txt = f"{_mom_val:+.1f}%" if isinstance(_mom_val, (int, float)) else "—"
-                _source_rows = _sdata.get("source_etfs") or []
-                _source_names = [
-                    row.get("etf") if isinstance(row, dict) else str(row)
-                    for row in _source_rows
-                ]
-                _source_line = (
-                    f"<br>D组来源 {' / '.join(x for x in _source_names if x)}"
-                    if _is_d_theme and _source_names else ""
-                )
                 _slot_detail = (
                     f"12M排名 第 {_sdata.get('rank', '—')}｜12M涨幅 {_mom_txt}"
                     f"｜MA200上方 {'是' if _sdata.get('above_ma200') else '—'}"
                     f"<br>首次持有 {_sdata.get('since', '—')}｜已持有 {_sdata.get('held_months', '—')} 月"
-                    f"{_source_line}"
                 )
                 _slot_html = (
                     f"<div class='insight-box'><div class='insight-title'>{_slabel}</div>"
@@ -907,11 +810,9 @@ if _dd.get("success"):
     elif _primary_strategy == _DD_DELTA_STRATEGY:
         _delta_horizons = (
             (_delta_params.get("selection", {}) or {}).get("horizons")
-            or (["3Y", "5Y", "ALL"] if _is_d_theme else ["3Y", "5Y", "10Y"])
+            or _DYNASTY_TAB_WINDOWS
         )
-        _delta_horizon_text = "/".join(
-            "全历史" if value == "ALL" else value for value in _delta_horizons
-        )
+        _delta_horizon_text = "/".join(_delta_horizons)
         _delta_note = (
             f"kδ 由系统按 {_delta_horizon_text} 稳健平台自动选择"
             if _delta_k_mode == "robust_maximin"
@@ -938,14 +839,14 @@ if _dd.get("success"):
     if not _has_slot_returns:
         st.caption("后端暂未返回 slot_equity。")
 
-    # ── 防抖守擂 δ 稳健性（D组用 3Y/5Y/全历史；标普保留 3Y/5Y/10Y）
+    # ── 防抖守擂 δ 稳健性（3Y/5Y/10Y）
     _sweep = (_delta_params.get("selection", {}) or {}).get("sweep_grid", {}) or {}
     if _sweep:
         _HZ = (
             (_delta_params.get("selection", {}) or {}).get("horizons")
-            or (["3Y", "5Y", "ALL"] if _is_d_theme else ["3Y", "5Y", "10Y"])
+            or _DYNASTY_TAB_WINDOWS
         )
-        _hz_title = "/".join("全历史" if value == "ALL" else value for value in _HZ)
+        _hz_title = "/".join(_HZ)
         st.markdown(f"##### 防抖守擂 δ 稳健性（{_hz_title}）")
         _dk_grid = sorted(_sweep.keys(), key=lambda s: float(s))
         _x = [float(s) for s in _dk_grid]
@@ -955,15 +856,14 @@ if _dd.get("success"):
             _c = pd.Series(_curves[hz])
             _mx = _c.max()
             _norm[hz] = (_c / _mx) if (_mx == _mx and _mx > 0) else _c * float("nan")
-        _COLOR = {"3Y": "#5DADE2", "5Y": "#FFD700", "10Y": "#E67E22", "ALL": "#E67E22"}
+        _COLOR = {"3Y": "#5DADE2", "5Y": "#FFD700", "10Y": "#E67E22"}
         _fig_sweep = go.Figure()
         for hz in _HZ:
             if pd.Series(_curves[hz]).notna().sum() < 2:
                 continue
             _lw = 4 if hz == "3Y" else 2
             _fig_sweep.add_trace(go.Scatter(
-                x=_x, y=list(_norm[hz]), mode="lines+markers",
-                name="全历史" if hz == "ALL" else hz,
+                x=_x, y=list(_norm[hz]), mode="lines+markers", name=hz,
                 line=dict(color=_COLOR.get(hz, "#E67E22"), width=_lw), marker=dict(size=5),
                 customdata=_curves[hz],
                 hovertemplate=f"{hz} δ=%{{x}} → 总收益 %{{customdata:.1f}}%<extra></extra>",
@@ -991,7 +891,7 @@ if _dd.get("success"):
             _c = pd.Series(_curves[hz])
             return _dk_grid[int(_c.idxmax())] if _c.notna().any() else None
         _peaks = " · ".join(
-            f"{'全历史' if hz == 'ALL' else hz} 单峰 δ={_argmax_delta(hz)}"
+            f"{hz} 单峰 δ={_argmax_delta(hz)}"
             for hz in _HZ if _argmax_delta(hz) is not None
         )
         if _delta_k_val is not None:
@@ -1000,10 +900,7 @@ if _dd.get("success"):
                 f"对照各段单独最优：{_peaks}——单段峰值各不相同正是过拟合的症状，别照搬。"
             )
 
-    # ── 【本地实验】回撤止损原型（独立 tab，便于后续迭代/删除）──
+    # ── 【本地实验】回撤止损原型 ──
     st.markdown("---")
-    _proto_tabs = st.tabs(["📉 回撤止损原型（本地实验）"])
-    with _proto_tabs[0]:
-        render_dd_stop_tab(_dd, _strategy_title, _key_prefix)
-
-_active_tab_stack.close()
+    st.markdown("##### 📉 回撤止损原型（本地实验）")
+    render_dd_stop_tab(_dd, _strategy_title, _key_prefix)
