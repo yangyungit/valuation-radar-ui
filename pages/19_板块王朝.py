@@ -500,8 +500,9 @@ with _dyn_tab1:
                                 if len(_s) >= 2:
                                     _pc[_tk] = _s.to_frame(name="Close")
 
-                    def _build_navc(_mh2, _n=None):
+                    def _build_navc(_mh2, _n=None, _cost_bps=200.0):
                         """后端选仓结果 → 槽位 → 各槽周线 NAV → 等权合成。_n=None 用当前旋钮。
+                        _cost_bps=0 用于累计成本 shadow 对照重算。
                         返回 (monthly_holdings, slots, exec_months, slot_navs, navc)。"""
                         _nn = _n_hold if _n is None else int(_n)
                         if not _mh2:
@@ -512,7 +513,7 @@ with _dyn_tab1:
                         _snavs = []
                         for _si in range(_ns):
                             _sg = hv.build_slot_segments(_sl, _si, _em)
-                            _nv = hv.calc_slot_stats(_sg, _pc, _spy_wk, hv.CASH_APY, 200.0)[2]
+                            _nv = hv.calc_slot_stats(_sg, _pc, _spy_wk, hv.CASH_APY, _cost_bps)[2]
                             _snavs.append((f"仓{_si + 1}", _nv))
                         _valid = [nv for _, nv in _snavs if not nv.empty]
                         _navc2 = pd.Series(dtype=float)
@@ -611,7 +612,7 @@ with _dyn_tab1:
                         st.info("价格窗口内无足够数据生成净值曲线。")
                         return
 
-                    # 统计卡（两排，第二排抄动量双龙口径：换股 / 换手 / 持有月数）
+                    # 统计卡（5+6 两排，口径对齐戴金龙头/动量双龙统计卡）
                     _ret_c = (float(_navc.iloc[-1]) / float(_navc.iloc[0]) - 1) * 100
                     _peak_c = _navc.cummax()
                     _dd_c = float(((_peak_c - _navc) / _peak_c.replace(0, float("nan"))).max()) * 100
@@ -623,6 +624,22 @@ with _dyn_tab1:
                     )
                     _turn = hv.relay_turnover_stats(_mh)
 
+                    # 超额 vs SPY：同期 _spy_wk 收益，与 _navc 同一周线窗口对齐。
+                    _excess_c = float("nan")
+                    if _spy_wk is not None and not _spy_wk.empty and "Close" in _spy_wk.columns:
+                        _spy_cc = _spy_wk["Close"].reindex(_navc.index, method="ffill").dropna()
+                        if len(_spy_cc) >= 2 and float(_spy_cc.iloc[0]) > 0:
+                            _excess_c = _ret_c - (float(_spy_cc.iloc[-1]) / float(_spy_cc.iloc[0]) - 1) * 100
+
+                    # 累计成本：同一套持仓用 cost_bps=0 重算一遍净值，终值比值差即成本吃掉的收益占比。
+                    _cum_cost_c = 0.0
+                    _navc0_c = _build_navc(_mh, _cost_bps=0.0)[4]
+                    if not _navc0_c.empty and float(_navc0_c.iloc[0]) > 0 and float(_navc0_c.iloc[-1]) > 0:
+                        _cum_cost_c = 1.0 - (
+                            (float(_navc.iloc[-1]) / float(_navc.iloc[0]))
+                            / (float(_navc0_c.iloc[-1]) / float(_navc0_c.iloc[0]))
+                        )
+
                     def _fmt_k(v, f=".2f"):
                         try:
                             if isinstance(v, float) and (v != v or abs(v) == float("inf")):
@@ -631,25 +648,28 @@ with _dyn_tab1:
                         except (TypeError, ValueError):
                             return "—"
 
-                    _row_a = st.columns(6)
+                    _row_a = st.columns(5)
                     _metrics_a = [
-                        ("总收益", f"{_ret_c:+.1f}%"),
-                        ("CAGR", f"{_cagr_c:+.1f}%" if _cagr_c == _cagr_c else "—"),
-                        ("最大回撤", f"-{_dd_c:.1f}%"),
+                        ("总收益", f"{_ret_c:.0f}%"),
+                        ("CAGR", f"{_cagr_c:.0f}%" if _cagr_c == _cagr_c else "—"),
+                        ("MaxDD", f"-{_dd_c:.0f}%"),
                         ("Calmar", _fmt_k(_kpi.get("calmar", float("nan")))),
-                        ("Sortino", _fmt_k(_kpi.get("sortino", float("nan")))),
-                        ("logR²", _fmt_k(_kpi.get("r2", float("nan")))),
+                        ("超额 vs SPY", f"{_excess_c:.0f}%" if _excess_c == _excess_c else "—"),
                     ]
                     for _mi in range(len(_metrics_a)):
                         _row_a[_mi].metric(_metrics_a[_mi][0], _metrics_a[_mi][1])
-                    _row_b = st.columns(3)
+                    _row_b = st.columns(6)
                     _metrics_b = [
                         ("换股次数", f"{_turn['n_swaps']}"),
-                        ("年均换手", f"{_turn['ann_turnover']:.2f}"),
-                        ("平均持有月数", f"{_turn['avg_hold_months']}"),
+                        ("平均持有(月)", f"{_turn['avg_hold_months']}"),
+                        ("年化换手", f"{_turn['ann_turnover']:.2f}"),
+                        ("累计成本", f"{_cum_cost_c * 100:.1f}%"),
+                        ("Sortino", _fmt_k(_kpi.get("sortino", float("nan")))),
+                        ("logR²", _fmt_k(_kpi.get("r2", float("nan")))),
                     ]
                     for _mi in range(len(_metrics_b)):
                         _row_b[_mi].metric(_metrics_b[_mi][0], _metrics_b[_mi][1])
+                    st.caption("logR² = 净值曲线取对数后对时间做线性回归的拟合优度，越接近 1 越是匀速上涨、越低说明涨跌越颠簸。")
 
                     # ── 收益总览：各动量配置各自最优 N+守擂 的合成净值对比（maximin 选优,各自起点归一）
                     st.markdown("---")

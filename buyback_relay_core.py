@@ -495,10 +495,12 @@ def render_group(
             _prev_h = _hold
         return _mh, _mh_raw
 
-    def _execute(mh, daily_close_cache, spy_daily, rule):
+    def _execute(mh, daily_close_cache, spy_daily, rule, _cost_bps=None):
         """执行层：推荐区间内按日线价格规则进出场（round10 execute() 一比一移植）。
         返回 (exec_months, slots, slot_segs, nav_l, nav_r, navc, exec_results)——
-        exec_results = 每槽 build_nav_from_daily_positions() 的原始返回（供进出场表/positions用）。"""
+        exec_results = 每槽 build_nav_from_daily_positions() 的原始返回（供进出场表/positions用）。
+        _cost_bps 传入时覆盖外层 cost_bps（累计成本 shadow 重算：传 0 得到零成本对照净值）。"""
+        _cb = cost_bps if _cost_bps is None else _cost_bps
         _exec_months = sorted(mh)
         if not _exec_months:
             return None
@@ -514,7 +516,7 @@ def render_group(
         _results = [
             hv.build_nav_from_daily_positions(
                 seg, daily_close_cache or {}, spy_daily, rule,
-                reentry_ma_cache=_reentry_cache, cost_bps=cost_bps,
+                reentry_ma_cache=_reentry_cache, cost_bps=_cb,
             )
             for seg in _slot_segs
         ]
@@ -614,17 +616,20 @@ def render_group(
 
     _exec_state: dict = {}
 
-    def _build_nav(_mh):
+    def _build_nav(_mh, _cost_bps=None):
+        """_cost_bps 传入时覆盖外层 cost_bps（累计成本 shadow 重算：传 0 得到零成本对照净值）。"""
+        _cb = cost_bps if _cost_bps is None else _cost_bps
         _exec_months = sorted(_mh)
         if not _exec_months:
             return None
         if retention_band is not None and exec_rule is not None:
-            _res = _execute(_mh, daily_price_cache, spy_daily, exec_rule)
+            _res = _execute(_mh, daily_price_cache, spy_daily, exec_rule, _cost_bps=_cb)
             if _res is None:
                 return None
             _em2, _slots2, _slot_segs2, _nav_l2, _nav_r2, _navc2, _results2 = _res
-            _exec_state["results"] = _results2
-            _exec_state["slot_segs"] = _slot_segs2
+            if _cb == cost_bps:
+                _exec_state["results"] = _results2
+                _exec_state["slot_segs"] = _slot_segs2
             return _em2, _slots2, _slot_segs2, _nav_l2, _nav_r2, _navc2
         _slot_count = max(1, max((len(v) for v in _mh.values()), default=n_hold))
         _slots = hv.build_basket_slot_assignments(_mh, _exec_months)
@@ -632,7 +637,7 @@ def render_group(
         if nav_engine == "daily":
             _r = hv.build_nav_from_holdings(
                 _mh, daily_price_cache or {}, spy_daily,
-                top_n=None if dynamic_n_hold else n_hold, cash_rate=hv.CASH_APY, cost_bps=cost_bps,
+                top_n=None if dynamic_n_hold else n_hold, cash_rate=hv.CASH_APY, cost_bps=_cb,
             )
             _navc = _r["nav"]
             if dynamic_n_hold:
@@ -643,11 +648,11 @@ def render_group(
             _mh_r = {m: [_slots.get(m, ["CASH", "CASH"])[1]] for m in _exec_months}
             _nav_l = hv.build_nav_from_holdings(
                 _mh_l, daily_price_cache or {}, spy_daily,
-                top_n=1, cash_rate=hv.CASH_APY, cost_bps=cost_bps,
+                top_n=1, cash_rate=hv.CASH_APY, cost_bps=_cb,
             )["nav"]
             _nav_r = hv.build_nav_from_holdings(
                 _mh_r, daily_price_cache or {}, spy_daily,
-                top_n=1, cash_rate=hv.CASH_APY, cost_bps=cost_bps,
+                top_n=1, cash_rate=hv.CASH_APY, cost_bps=_cb,
             )["nav"]
             return _exec_months, _slots, _slot_segs, _nav_l, _nav_r, _navc
         if not price_cache:
@@ -674,12 +679,12 @@ def render_group(
             return out
 
         _seg_l = _split_by_weight(_slot_segs[0])
-        _nav_l = hv.calc_slot_stats(_seg_l, price_cache, spy_wk, hv.CASH_APY, cost_bps)[2]
+        _nav_l = hv.calc_slot_stats(_seg_l, price_cache, spy_wk, hv.CASH_APY, _cb)[2]
         if n_hold < 2:
             # 单仓：满仓 Top1，净值 = 左列，不掺现金、不做 50/50。
             return _exec_months, _slots, _slot_segs, _nav_l, pd.Series(dtype=float), _nav_l.copy()
         _seg_r = _split_by_weight(_slot_segs[1])
-        _nav_r = hv.calc_slot_stats(_seg_r, price_cache, spy_wk, hv.CASH_APY, cost_bps)[2]
+        _nav_r = hv.calc_slot_stats(_seg_r, price_cache, spy_wk, hv.CASH_APY, _cb)[2]
         _navc = pd.Series(dtype=float)
         if not _nav_l.empty and not _nav_r.empty:
             _uidx = _nav_l.index.union(_nav_r.index)
@@ -883,9 +888,23 @@ def render_group(
         st.info("价格窗口内无足够数据生成净值曲线。")
         return
 
+    # 累计成本：同一套持仓用 cost_bps=0 重算一遍净值（shadow 对照），终值比值差
+    # 即换仓成本吃掉的收益占比。按熊市防御/波动率目标叠加前的原始净值算，与这两个
+    # 展示开关解耦——它们不改变换仓次数，不该混进成本统计。
+    _navc_raw = _navc
+    _cum_cost = 0.0
+    if cost_bps and not _navc_raw.empty:
+        _nav0 = _build_nav(_mh, _cost_bps=0.0)
+        if _nav0 is not None:
+            _navc0 = _nav0[-1]
+            if not _navc0.empty and float(_navc0.iloc[0]) > 0 and float(_navc0.iloc[-1]) > 0:
+                _cum_cost = 1.0 - (
+                    (float(_navc_raw.iloc[-1]) / float(_navc_raw.iloc[0]))
+                    / (float(_navc0.iloc[-1]) / float(_navc0.iloc[0]))
+                )
+
     # 熊市防御开关：红段(GBDT)清仓改持现金（年化 4%），橙段(旧闸门)减仓一半
     # （0.5×持仓收益 + 0.5×现金），其余日照旧满仓。用来量化防御能规避多少回撤。
-    _navc_raw = _navc
     _bear_on = False
     if danger_daily is not None and not _navc.empty:
         _bear_on = st.toggle(
@@ -945,14 +964,39 @@ def render_group(
         except (TypeError, ValueError):
             return "—"
 
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("总收益", f"{_ret_c:+.1f}%")
-    c2.metric("最大回撤", f"-{_dd_c:.1f}%")
+    # 超额 vs SPY：同期 SPY 收益（daily 引擎对 spy_daily，weekly 引擎对 spy_wk），对齐 _navc 展示口径。
+    _spy_ref = spy_daily if nav_engine == "daily" else spy_wk
+    _excess = float("nan")
+    if _spy_ref is not None and not _spy_ref.empty and "Close" in _spy_ref.columns:
+        _spy_c = _spy_ref["Close"].reindex(_navc.index, method="ffill").dropna()
+        if len(_spy_c) >= 2 and float(_spy_c.iloc[0]) > 0:
+            _excess = _ret_c - (float(_spy_c.iloc[-1]) / float(_spy_c.iloc[0]) - 1) * 100
+
+    _turn = hv.relay_turnover_stats(_slots)
+
     _cagr_v = _kpi.get("cagr", float("nan"))
-    c3.metric("CAGR", f"{_cagr_v * 100:+.1f}%" if not (_cagr_v != _cagr_v) else "—")
-    c4.metric("Calmar", _fmt(_kpi.get("calmar", float("nan"))))
-    c5.metric("Sortino", _fmt(_kpi.get("sortino", float("nan"))))
-    c6.metric("logR²", _fmt(_kpi.get("r2", float("nan"))))
+    _row_a = st.columns(5)
+    _metrics_a = [
+        ("总收益", f"{_ret_c:.0f}%"),
+        ("CAGR", f"{_cagr_v * 100:.0f}%" if _cagr_v == _cagr_v else "—"),
+        ("MaxDD", f"-{_dd_c:.0f}%"),
+        ("Calmar", _fmt(_kpi.get("calmar", float("nan")))),
+        ("超额 vs SPY", f"{_excess:.0f}%" if _excess == _excess else "—"),
+    ]
+    for _mi, (_lbl, _val) in enumerate(_metrics_a):
+        _row_a[_mi].metric(_lbl, _val)
+    _row_b = st.columns(6)
+    _metrics_b = [
+        ("换股次数", f"{_turn['n_swaps']}"),
+        ("平均持有(月)", f"{_turn['avg_hold_months']}"),
+        ("年化换手", f"{_turn['ann_turnover']:.2f}"),
+        ("累计成本", f"{_cum_cost * 100:.1f}%"),
+        ("Sortino", _fmt(_kpi.get("sortino", float("nan")))),
+        ("logR²", _fmt(_kpi.get("r2", float("nan")))),
+    ]
+    for _mi, (_lbl, _val) in enumerate(_metrics_b):
+        _row_b[_mi].metric(_lbl, _val)
+    st.caption("logR² = 净值曲线取对数后对时间做线性回归的拟合优度，越接近 1 越是匀速上涨、越低说明涨跌越颠簸。")
 
     def _dd_ret_pct(_s):
         _pk = _s.cummax()
