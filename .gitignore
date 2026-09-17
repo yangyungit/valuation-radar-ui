@@ -44,3 +44,6 @@ pages/plan.md
 
 # Arena history 离线兜底快照（真相源是 Render universe.db；本地由 refresh_arena_history.py 生成，不进版本库）
 data/arena_history.json
+
+# 双窗口切换扫描结果（离线产物，主理人本机跑 scripts/sweep_tl_dual_window.py 生成）
+data/tl_dual_window_sweep.csv
