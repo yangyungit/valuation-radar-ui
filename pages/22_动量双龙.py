@@ -17,7 +17,6 @@ st.markdown("""
 
 _DYNASTY_TAB_WINDOWS = ["3Y", "5Y", "10Y"]
 _SLOT_LABELS = ["槽A", "槽B", "槽C", "槽D", "槽E"]
-_DD_MOMENTUM_STRATEGY = "sp500_12m_ma200_k_guard"
 _DD_DELTA_STRATEGY = "sp500_12m_ma200_delta_guard"
 def _norm_series(values, dates) -> pd.Series:
     if not values or len(values) != len(dates):
@@ -158,9 +157,7 @@ def _dd_reconstruct(dd: dict):
 
     if not orig_slots:
         return None
-    _sel = (dd.get("meta", {}) or {}).get("selection_strategy", "")
-    _key = "momentum_delta_guard" if _sel == _DD_DELTA_STRATEGY else "momentum_k_guard"
-    bk = pd.Series((dd.get("equity", {}) or {}).get(_key, []), index=dates).astype(float)
+    bk = pd.Series((dd.get("equity", {}) or {}).get("momentum_delta_guard", []), index=dates).astype(float)
     _S = np.column_stack([s.values for s in orig_slots])
     if not bk.dropna().empty:
         _w, _, _, _ = np.linalg.lstsq(_S, bk.values, rcond=None)
@@ -262,9 +259,7 @@ with st.sidebar:
 st.title("📈 12M动量双龙 (Momentum Guard)")
 _key_prefix = "dd_sp500"
 st.caption(
-    "标普500动量K守擂 · 标普500动量防抖守擂 · 两策略对照。"
-    "戴金龙头已拆到「🏅 戴金龙头」单独一页。"
-    "当前自动K为完整窗口样本内最佳，仅作参考。"
+    "标普500动量防抖守擂。戴金龙头已拆到「🏅 戴金龙头」单独一页。"
 )
 
 _dynasty_window = st.radio(
@@ -276,38 +271,23 @@ _dynasty_window = st.radio(
     help="月末快照：3Y/5Y/10Y 约对应 36/60/120 个格子",
 )
 
-st.markdown("#### 📈 12M动量双龙持仓 — 两策略对照")
+st.markdown("#### 📈 12M动量双龙持仓")
 st.caption(
-    "**主线A**：逐月真实标普500股票池 → 12M 动量 + MA200 → TopN/K 守擂 → 下月执行。"
-    "**主线B**：同一套 12M 动量候选池 → TopN/分差 δ 防抖守擂 → 下月执行。"
+    "逐月真实标普500股票池 → 12M 动量 + MA200 → TopN/分差 δ 防抖守擂 → 下月执行。"
     "**诚实声明**：信号**不看未来**、可执行规则模拟；股票池=**逐月真实标普500成分**"
     "（PIT，Sharadar 数据含当年被剔除/退市/收购的公司），**已去生存者偏差**。"
 )
 
-_strategy_options = {
-    "12M动量K守擂": "sp500_12m_ma200_k_guard",
-    "12M动量防抖守擂": _DD_DELTA_STRATEGY,
-}
 _dd_risk = True
-_dd_strategy_label = st.radio(
-    "当前查看策略",
-    list(_strategy_options.keys()),
-    index=0,
-    horizontal=True,
-    key=f"{_key_prefix}_strategy",
-    help="决定当前持仓卡、统计卡、Slot分段收益和时间带展示哪条策略；组合收益图保留两条策略曲线作参考。",
-)
-_dd_signal = _strategy_options[_dd_strategy_label]
+_dd_signal = _DD_DELTA_STRATEGY
 
 _legacy_n_key = f"{_key_prefix}_legacy_n"
 _dd_legacy_n = int(st.session_state.get(_legacy_n_key, 2) or 2)
 _dd_rebal = False
 _dd_k = 0
 _dd_delta_k = -1.0
-_dd_k_display = None
-_dd_delta_display = None
 
-st.markdown("##### 12M动量守擂设置")
+st.markdown("##### 12M动量防抖守擂设置")
 _mom_c1, _mom_c2 = st.columns([1.1, 1.2])
 with _mom_c1:
     _dd_legacy_n = st.selectbox(
@@ -315,30 +295,19 @@ with _mom_c1:
         [1, 2, 3, 4, 5],
         index=[1, 2, 3, 4, 5].index(_dd_legacy_n) if _dd_legacy_n in [1, 2, 3, 4, 5] else 1,
         key=_legacy_n_key,
-        help="作用于两条 12M 动量守擂策略。",
     )
 with _mom_c2:
-    if _dd_signal == _DD_MOMENTUM_STRATEGY:
-        _dd_k_display = st.empty()
-        _dd_k_display.caption("Auto K：加载后显示")
-    else:
-        _dd_delta_display = st.empty()
-        _dd_delta_display.caption("Auto δ：加载后显示")
-if _dd_signal == _DD_MOMENTUM_STRATEGY:
-    st.caption(
-        "固定不再平衡：每个槽位独立复利，持仓仍在前 K 就留任，跌出前 K 才换；"
-        "不做月度等权拉回，避免额外卖强买弱和模糊守擂语义。"
-    )
-else:
-    st.caption(
-        "固定不再平衡：每个槽位独立复利；在任票只要 12M 动量分数距 TopN 门槛在 δ 内就留任。"
-        "δ = kδ × 当月横截面 12M 动量标准差，用来减少排名挤动造成的无意义换仓，不承诺收益更高。"
-    )
+    _dd_delta_display = st.empty()
+    _dd_delta_display.caption("Auto δ：加载后显示")
+st.caption(
+    "固定不再平衡：每个槽位独立复利；在任票只要 12M 动量分数距 TopN 门槛在 δ 内就留任。"
+    "δ = kδ × 当月横截面 12M 动量标准差，用来减少排名挤动造成的无意义换仓，不承诺收益更高。"
+)
 
-with st.expander("交易假设（作用于两条策略）"):
+with st.expander("交易假设"):
     _dd_cost = st.slider(
         "单边成本 (bps)", 0, 50, 10, key=f"{_key_prefix}_cost",
-        help="买/卖各算一次，扣在成交名义额上；会影响两条策略的回测净值和统计。",
+        help="买/卖各算一次，扣在成交名义额上；会影响回测净值和统计。",
     )
 
 _dd = fetch_dynasty_double_dragon(
@@ -348,29 +317,18 @@ _dd = fetch_dynasty_double_dragon(
 )
 
 if not _dd.get("success"):
-    if _dd_k_display is not None:
-        _dd_k_display.metric("Auto K", "—")
-    if _dd_delta_display is not None:
-        _dd_delta_display.metric("Auto δ", "—")
+    _dd_delta_display.metric("Auto δ", "—")
     st.warning(f"⚠️ 12M动量双龙回测暂不可用：{_dd.get('error', '未知错误')}")
 
 if _dd.get("success"):
     _meta = _dd.get("meta", {})
-    _legacy_params = _meta.get("legacy_params", {}) or {}
     _delta_params = _meta.get("delta_params", {}) or {}
-    _legacy_n_val = int(_legacy_params.get("n_holdings", _dd_legacy_n))
-    _legacy_k_raw = _legacy_params.get("k", None)
-    _legacy_k_val = int(_legacy_k_raw) if isinstance(_legacy_k_raw, (int, float)) else None
-    _legacy_k_txt = f"K{_legacy_k_val}" if _legacy_k_val is not None else "K自动"
-    _legacy_k_mode = str(_legacy_params.get("k_mode", "manual") or "manual")
+    _dd_n_val = int(_delta_params.get("n_holdings", _dd_legacy_n))
     _delta_k_raw = _delta_params.get("delta_k", None)
     _delta_k_val = float(_delta_k_raw) if isinstance(_delta_k_raw, (int, float)) else None
     _delta_k_txt = f"kδ={_delta_k_val:.2f}" if _delta_k_val is not None else "kδ自动"
     _delta_k_mode = str(_delta_params.get("delta_mode", "manual") or "manual")
-    if _dd_k_display is not None:
-        _dd_k_display.metric("Auto K", _legacy_k_txt)
-    if _dd_delta_display is not None:
-        _dd_delta_display.metric("Auto δ", _delta_k_txt)
+    _dd_delta_display.metric("Auto δ", _delta_k_txt)
 
     _notes = []
     if _meta.get("pit_membership_gated"):
@@ -398,14 +356,10 @@ if _dd.get("success"):
             "以下持仓仅代表该历史信号时点。"
         )
 
-    _primary_strategy = _meta.get("selection_strategy", _dd.get("signal", ""))
     # ── 当前持仓卡
     _signal_as_of = str(_meta.get("signal_as_of", "") or "")
     _signal_month = _signal_as_of[:7] if _signal_as_of else "最近信号"
-    if _primary_strategy == _DD_DELTA_STRATEGY:
-        _strategy_title = "12M动量防抖守擂"
-    else:
-        _strategy_title = "12M动量K守擂"
+    _strategy_title = "12M动量防抖守擂"
     st.markdown(f"##### 截至 {_signal_month} 信号的模拟持仓｜{_strategy_title}")
     _cur = _dd.get("current_holdings", {})
     _cur_slots = _cur.get("slots", [])
@@ -437,12 +391,11 @@ if _dd.get("success"):
             st.markdown(_slot_html, unsafe_allow_html=True)
 
     # ── 净值曲线
-    st.markdown("##### 选中版本组合收益（起点归一为 1）")
+    st.markdown("##### 组合收益（起点归一为 1）")
     _eq = _dd.get("equity", {})
     _dd_dates = pd.to_datetime(_dd.get("dates", []), errors="coerce")
     _series_cfg = [
-        ("momentum_k_guard", f"12M动量守擂 Top{_legacy_n_val}/{_legacy_k_txt}", "#F39C12", True),
-        ("momentum_delta_guard", f"12M动量防抖 Top{_legacy_n_val}/{_delta_k_txt}", "#2ECC71", True),
+        ("momentum_delta_guard", f"12M动量防抖 Top{_dd_n_val}/{_delta_k_txt}", "#2ECC71", True),
         ("spy", "SPY", "#3498DB", True),
         ("rsp", "RSP 等权标普", "#9B59B6", False),
         ("eqw11", "11行业ETF等权", "#16A085", False),
@@ -468,13 +421,12 @@ if _dd.get("success"):
         yaxis_type="log",
     )
     st.plotly_chart(_fig_eq, use_container_width=True, key=f"{_key_prefix}_equity")
-    st.caption("当前组合主图保留动量TopN/K、防抖TopN/δ和SPY；点图例可展开 RSP / 11行业ETF等权")
+    st.caption("当前组合主图保留防抖TopN/δ和SPY；点图例可展开 RSP / 11行业ETF等权")
 
     # ── 统计卡
     st.markdown("##### 统计卡")
     _stats = _dd.get("stats", {})
-    _primary_key = "momentum_delta_guard" if _primary_strategy == _DD_DELTA_STRATEGY else "momentum_k_guard"
-    _primary_nav = _norm_series((_dd.get("equity") or {}).get(_primary_key, []), _dd_dates)
+    _primary_nav = _norm_series((_dd.get("equity") or {}).get("momentum_delta_guard", []), _dd_dates)
     _r2 = hv.compute_nav_kpi(_primary_nav).get("r2") if not _primary_nav.empty else float("nan")
     _metrics_a = [
         ("总收益", f"{_stats.get('cum_return', 0) * 100:.0f}%"),
@@ -500,39 +452,23 @@ if _dd.get("success"):
         with _row_b[_mi]:
             st.metric(_metrics_b[_mi][0], _metrics_b[_mi][1])
     st.caption("logR² = 净值曲线取对数后对时间做线性回归的拟合优度，越接近 1 越是匀速上涨、越低说明涨跌越颠簸。")
-    if _primary_strategy == _DD_MOMENTUM_STRATEGY:
-        _k_note = (
-            "K 由系统按当前窗口年化收益最高自动选择"
-            if _legacy_k_mode == "best_cagr"
-            else "K 使用请求参数"
-        )
+    _delta_horizons = (
+        (_delta_params.get("selection", {}) or {}).get("horizons")
+        or _DYNASTY_TAB_WINDOWS
+    )
+    _delta_horizon_text = "/".join(_delta_horizons)
+    _delta_note = (
+        f"kδ 由系统按 {_delta_horizon_text} 稳健平台自动选择"
+        if _delta_k_mode == "robust_maximin"
+        else "kδ 使用请求参数"
+    )
+    st.caption(
+        f"当前统计卡为 12M 动量防抖守擂 Top{_dd_n_val}/{_delta_k_txt}；"
+        f"{_delta_note}；已有持仓距 TopN 门槛在 δ 内就留任，差得更多才换。该策略固定不再平衡。"
+    )
+    if _delta_k_val is not None:
         st.caption(
-            f"当前统计卡为 12M 动量守擂 Top{_legacy_n_val}/{_legacy_k_txt}；"
-            f"{_k_note}；已有持仓仍在前 K 就留任，跌出前 K 才换。该策略固定不再平衡。"
-        )
-    elif _primary_strategy == _DD_DELTA_STRATEGY:
-        _delta_horizons = (
-            (_delta_params.get("selection", {}) or {}).get("horizons")
-            or _DYNASTY_TAB_WINDOWS
-        )
-        _delta_horizon_text = "/".join(_delta_horizons)
-        _delta_note = (
-            f"kδ 由系统按 {_delta_horizon_text} 稳健平台自动选择"
-            if _delta_k_mode == "robust_maximin"
-            else "kδ 使用请求参数"
-        )
-        st.caption(
-            f"当前统计卡为 12M 动量防抖守擂 Top{_legacy_n_val}/{_delta_k_txt}；"
-            f"{_delta_note}；已有持仓距 TopN 门槛在 δ 内就留任，差得更多才换。该策略固定不再平衡。"
-        )
-    if _primary_strategy == _DD_MOMENTUM_STRATEGY and _legacy_k_val is not None:
-        st.caption(
-            f"动量守擂自动K：当前 Top{_legacy_n_val} 采用 {_legacy_k_txt}；"
-            "页面不再提供手动 K 滑杆，避免把参数搜索误当成实时可控信号。"
-        )
-    if _primary_strategy == _DD_DELTA_STRATEGY and _delta_k_val is not None:
-        st.caption(
-            f"防抖守擂自动 kδ：当前 Top{_legacy_n_val} 采用 {_delta_k_txt}；"
+            f"防抖守擂自动 kδ：当前 Top{_dd_n_val} 采用 {_delta_k_txt}；"
             "自动值取三段窗口都不差的平台点，不取单段最高收益尖峰。"
         )
 
