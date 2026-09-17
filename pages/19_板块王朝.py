@@ -875,25 +875,6 @@ with _dyn_tab1:
                         key=f"lab_combined_{key_suffix}",
                     )
 
-                    # 每月持仓表
-                    _pick_rows = []
-                    for _em in _exec_months:
-                        _sa = _slots.get(_em, [])
-                        _row = {"执行月(持有)": _em}
-                        for _si in range(len(_sa)):
-                            _t = _sa[_si]
-                            _row[f"仓{_si + 1}"] = (
-                                "—" if (not _t or _t == "CASH")
-                                else f"{_pool_name_map.get(_t, _t)} ({_t})"
-                            )
-                        _pick_rows.append(_row)
-                    if _pick_rows:
-                        st.markdown("**每月实际持仓**(执行月 = 排名来源月 + 1,去 look-ahead)")
-                        st.dataframe(
-                            pd.DataFrame(_pick_rows).iloc[::-1],
-                            use_container_width=True, hide_index=True,
-                        )
-
                     # 各仓分段拼接图
                     for _si in range(len(_slot_navs)):
                         _seg = hv.build_slot_segments(_slots, _si, _exec_months)
@@ -960,6 +941,25 @@ with _dyn_tab1:
                             ("✅ maximin 最优:" + _rec_label + " —— 三段都不差的重叠平台,主曲线已按此值回测。"
                              if _rec_label else "网格内暂无三段齐全的稳健点,主曲线用默认守擂参数。")
                             + " 单段峰值各异是过拟合症状,别照搬;60 分平台优先于 90 分尖峰。"
+                        )
+
+                    # 每月持仓表(放在本节最下面)
+                    _pick_rows = []
+                    for _em in _exec_months:
+                        _sa = _slots.get(_em, [])
+                        _row = {"执行月(持有)": _em}
+                        for _si in range(len(_sa)):
+                            _t = _sa[_si]
+                            _row[f"仓{_si + 1}"] = (
+                                "—" if (not _t or _t == "CASH")
+                                else f"{_pool_name_map.get(_t, _t)} ({_t})"
+                            )
+                        _pick_rows.append(_row)
+                    if _pick_rows:
+                        st.markdown("**每月实际持仓**(执行月 = 排名来源月 + 1,去 look-ahead)")
+                        st.dataframe(
+                            pd.DataFrame(_pick_rows).iloc[::-1],
+                            use_container_width=True, hide_index=True,
                         )
 
                 st.markdown(

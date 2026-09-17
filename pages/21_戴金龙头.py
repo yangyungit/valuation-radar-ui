@@ -467,6 +467,13 @@ if _gl.get("success"):
         render_stats_cards(_stats_two)
         st.caption("logR² = 净值曲线取对数后对时间做线性回归的拟合优度，越接近 1 越是匀速上涨、越低说明涨跌越颠簸。")
 
+        st.markdown("##### Slot 分段收益")
+        if not render_slot_segment_returns(
+            _two.get("slot_equity") or [], _two.get("holdings_timeline") or [],
+            _dates, _eq.get("spy", []), "gl_two", _win_lo, _win_hi,
+        ):
+            st.caption("后端暂未返回 slot_equity。")
+
         st.markdown("##### 哪些月份走了银牌板块")
         _ts_rows = [
             r for r in (_gl.get("two_sector_timeline") or [])
@@ -484,10 +491,3 @@ if _gl.get("success"):
             st.dataframe(_tbl, use_container_width=True, hide_index=True, height=320)
         else:
             st.caption("后端暂未返回月度明细。")
-
-        st.markdown("##### Slot 分段收益")
-        if not render_slot_segment_returns(
-            _two.get("slot_equity") or [], _two.get("holdings_timeline") or [],
-            _dates, _eq.get("spy", []), "gl_two", _win_lo, _win_hi,
-        ):
-            st.caption("后端暂未返回 slot_equity。")
