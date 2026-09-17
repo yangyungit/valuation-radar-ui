@@ -1,12 +1,18 @@
 """科技龙头页双窗口切换离线扫描。
 
-灵敏腿 L=10M/MA4（线上现行）与迟缓腿并存，按「Top1−Top2 动量差」+ 滞回切换。
+灵敏腿 L=10M/MA4（线上现行）与迟缓腿并存，按「龙头领先程度」信号 + 滞回切换。
 净值走页面原引擎 holdings_viz.build_nav_from_holdings（单边 200bps），
 三段 3Y/5Y/10Y 归一化 Calmar 取 maximin 选参。不改页面任何代码。
+
+信号有三种（见 SIGNALS）。第一轮只跑 abs（Top1−Top2 动量差绝对值）已判死：
+阈值 0.13 是在「龙头和第二名差个位数百分点」的年代校准的，动量差的年度中位数
+2015 年 8.4%、2026 年 1266%，量纲漂了两个数量级，近两年一次都不触发。
+pct / ratio 两种无量纲信号就是为了绕开这个漂移。
 
 跑法（先 anchor 对账，对上了再 sweep）：
   cd valuation-radar-ui && ../system/venv/bin/python scripts/sweep_tl_dual_window.py --anchor
   cd valuation-radar-ui && ../system/venv/bin/python scripts/sweep_tl_dual_window.py --sweep
+  cd valuation-radar-ui && ../system/venv/bin/python scripts/sweep_tl_dual_window.py --sweep --signals pct60,ratio
 """
 from __future__ import annotations
 
@@ -28,10 +34,55 @@ API = "http://127.0.0.1:8000"
 FAST = (10, 4)
 SLOW_GRID = [(12, 6), (12, 8), (12, 10), (14, 6), (14, 8), (14, 10),
              (15, 6), (15, 8), (15, 10), (10, 8), (10, 10), (12, 4), (14, 4)]
-GAP_ENTER_GRID = [0.05, 0.08, 0.10, 0.13, 0.16, 0.20, 0.25]
-GAP_EXIT_OFFSETS = [0.0, 0.05, 0.10, 0.20, 0.40]
 COST_BPS = 200.0
 OUT_CSV = Path(__file__).resolve().parent.parent / "data" / "tl_dual_window_sweep.csv"
+
+# 三种切换信号。三者共用一套状态机：信号值低 = 龙头领先不明显 = 秩序不稳定 → 走迟缓腿。
+# enter 是进迟缓腿的门槛，exit = enter + offset 是退回灵敏腿的门槛（滞回，exit ≥ enter）。
+# anchor 只用于并列时的排序偏好，不参与筛选。
+SIGNALS = {
+    "abs": {
+        "desc": "Top1−Top2 动量差绝对值（第一轮已判死，留着当对照）",
+        "enter": [0.05, 0.08, 0.10, 0.13, 0.16, 0.20, 0.25],
+        "offsets": [0.0, 0.05, 0.10, 0.20, 0.40],
+        "anchor": 0.13,   # 第二道关实测最低桶上界
+        "fmt": "{:.2f}",
+    },
+    "pct24": {
+        "desc": "动量差在自己滚动 24 个月分布里的分位",
+        "enter": [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40],
+        "offsets": [0.0, 0.05, 0.10, 0.15, 0.20],
+        "anchor": 0.25,
+        "fmt": "{:.2f}",
+    },
+    "pct36": {
+        "desc": "动量差在自己滚动 36 个月分布里的分位",
+        "enter": [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40],
+        "offsets": [0.0, 0.05, 0.10, 0.15, 0.20],
+        "anchor": 0.25,
+        "fmt": "{:.2f}",
+    },
+    "pct60": {
+        "desc": "动量差在自己滚动 60 个月分布里的分位",
+        "enter": [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40],
+        "offsets": [0.0, 0.05, 0.10, 0.15, 0.20],
+        "anchor": 0.25,
+        "fmt": "{:.2f}",
+    },
+    "ratio": {
+        "desc": "Top1 动量 / Top2 动量（≥1，越接近 1 越胶着）",
+        "enter": [1.10, 1.20, 1.35, 1.50, 1.75, 2.00, 2.50],
+        "offsets": [0.0, 0.10, 0.25, 0.50, 1.00],
+        "anchor": 1.35,
+        "fmt": "{:.2f}",
+    },
+}
+DEFAULT_SIGNALS = ["pct24", "pct36", "pct60", "ratio"]
+PCT_MIN_MONTHS = 24      # 滚动分位至少要这么多个月的历史才出值，不够记 NaN
+# PIT 成分只覆盖 2014-01 起，之前 close_me 面板每月只有 2~8 只票有数（2015 年起才 ~520 只）。
+# 「8 只票里第一名领先第二名多少」和「520 只票里龙头领先多少」不是一个量，混进滚动分位的
+# 参考分布就是上一轮量纲漂移的同类错误。有效票数不够的月份整月不给信号。
+MIN_UNIVERSE = 50
 
 # 选仓层常量，复刻 pages/21_科技龙头.py:376-378 传给 render_group 的实参，不得改。
 N_HOLD = 1
@@ -40,10 +91,14 @@ ENTRY_MIN_TOP2_HITS = 2
 
 HORIZONS = [("3y", 3), ("5y", 5), ("10y", 10)]
 DD_RELAX = 0.03          # 10Y 回撤比灵敏腿基线差过这么多就剔除（plan 1.8）
-GAP_ANCHOR = 0.13        # 并列时离它近的赢（第二道关实测最低桶上界）
+CALMAR_TOL = 1e-6        # Calmar 相对容差。没有它 455 组里 425 组会因第 16 位小数被误杀
+# 判读线，比第一轮严：上一轮赢家 3Y +0.0% / 5Y +4.3%，收益全挤在 2016-2021。
+# 这一轮要求 3Y 和 5Y 两段总收益相对基线各自提升 ≥ 10% 才算「肉眼可见」。
+# 只用于打印结论，不筛掉任何行——数字全部落盘由人复核。
+SEG_IMPROVE_MIN = 0.10
 
 CSV_FIELDS = [
-    "kind", "slow_L", "slow_MA", "gap_enter", "gap_exit",
+    "kind", "signal", "slow_L", "slow_MA", "thr_enter", "thr_exit",
     "ret_3y", "ret_5y", "ret_10y", "dd_10y",
     "calmar_3y", "calmar_5y", "calmar_10y",
     "norm_3y", "norm_5y", "norm_10y", "score",
@@ -147,23 +202,102 @@ def _compile_rows(leg: dict) -> dict:
     return rows
 
 
-def compute_gap(fast_score: pd.DataFrame) -> pd.Series:
-    """月末 t 的 Top1−Top2 动量差（小数），不足 2 只时 NaN。只用灵敏腿面板算。"""
+def top2_momentum(fast_score: pd.DataFrame) -> pd.DataFrame:
+    """每个月末的 Top1 / Top2 动量（小数）。只用灵敏腿面板算。
+
+    当月有效票不足 MIN_UNIVERSE 只时整月记 NaN——那是 2015 年以前面板只有几只票的年代，
+    算出来的「领先程度」和成分完整后的月份不可比。
+    """
     out = {}
     for ts, row in fast_score.iterrows():
         v = row.dropna().sort_values(ascending=False)
-        out[ts] = float(v.iloc[0] - v.iloc[1]) if len(v) >= 2 else float("nan")
-    return pd.Series(out).sort_index()
+        out[ts] = ((float(v.iloc[0]), float(v.iloc[1])) if len(v) >= MIN_UNIVERSE
+                   else (float("nan"), float("nan")))
+    return pd.DataFrame.from_dict(out, orient="index", columns=["m1", "m2"]).sort_index()
 
 
-def switch_path(gap: pd.Series, gap_enter: float, gap_exit: float) -> pd.Series:
-    """滞回状态机：差小走迟缓、差大守灵敏。信号缺失保持上月状态，不重置。"""
+def raw_gap(top2: pd.DataFrame) -> pd.Series:
+    """Top1−Top2 动量差，第一轮用的绝对量。"""
+    return (top2["m1"] - top2["m2"]).rename("abs")
+
+
+def raw_ratio(top2: pd.DataFrame) -> pd.Series:
+    """Top1 动量 / Top2 动量。两个动量都是收益率、可能为负，所以要定边界：
+
+    - m2 > 0：正常相除，结果 ≥ 1（m1 按定义不小于 m2），越接近 1 越胶着
+    - m2 ≤ 0 < m1：龙头是全场唯一涨的，领先程度无上限，记 +inf（状态机永远判它守灵敏腿）
+    - m1 ≤ 0：全池动量都为负，「谁领先」无意义，记 NaN（状态机保持上月状态）
+    """
+    m1, m2 = top2["m1"], top2["m2"]
+    out = pd.Series(float("nan"), index=top2.index, name="ratio")
+    ok = m2 > 0
+    out[ok] = m1[ok] / m2[ok]
+    out[(~ok) & (m1 > 0)] = float("inf")
+    return out
+
+
+def rolling_pct(gap: pd.Series, window: int) -> pd.Series:
+    """gap 在自己最近 window 个月（含当月）分布里的分位。
+
+    只用 t 及之前的月份，无前视。历史不足 PCT_MIN_MONTHS 时给 NaN，
+    状态机见 NaN 保持上月状态，所以样本最早那几年默认走灵敏腿。
+    """
+    g = gap.dropna()
+    pct = g.rolling(window, min_periods=PCT_MIN_MONTHS).apply(
+        lambda w: float((w <= w[-1]).mean()), raw=True)
+    return pct.reindex(gap.index).rename(f"pct{window}")
+
+
+def build_signals(fast_score: pd.DataFrame, names: list) -> dict:
+    """按名字造信号序列，顺便把诊断打出来（量纲漂移就是靠逐年中位数看出来的）。"""
+    top2 = top2_momentum(fast_score)
+    gap = raw_gap(top2)
+    built = {}
+    for name in names:
+        if name == "abs":
+            s = gap
+        elif name == "ratio":
+            s = raw_ratio(top2)
+            live = top2["m1"].notna()          # 只统计成分完整的月份，不含面板稀疏的早年
+            n_inf = int(np.isinf(s[live]).sum())
+            n_nan = int(s[live].isna().sum())
+            print(f"  ratio 边界：成分完整的 {int(live.sum())} 个月里，Top2 动量 ≤ 0 记 +inf 的"
+                  f" {n_inf} 个月，全池动量为负记 NaN 的 {n_nan} 个月")
+        elif name.startswith("pct"):
+            s = rolling_pct(gap, int(name[3:]))
+            first = s.first_valid_index()
+            print(f"  {name} 首个有效月 {first.date() if first is not None else '无'}"
+                  f"（此前保持灵敏腿）")
+        else:
+            raise SystemExit(f"未知信号 {name}，可选：{'/'.join(SIGNALS)}")
+        built[name] = s
+        print(f"  {name} 逐年中位数：{yearly_median(s)}")
+    return built
+
+
+def yearly_median(s: pd.Series) -> str:
+    g = s.replace([np.inf, -np.inf], float("nan")).dropna()
+    if g.empty:
+        return "无有效值"
+    by = g.groupby(g.index.year).median()
+    return "、".join(f"{y} {v:.2f}" for y, v in by.items())
+
+
+def yearly_trigger(on_slow: pd.Series) -> str:
+    """逐年「走迟缓腿的月份数 / 该年月份数」。第一轮就是靠这个看出近两年一次都不触发。"""
+    x = on_slow.astype(int)
+    by = x.groupby(x.index.year).agg(["sum", "count"])
+    return "、".join(f"{y} {int(r['sum'])}/{int(r['count'])}" for y, r in by.iterrows())
+
+
+def switch_path(sig: pd.Series, thr_enter: float, thr_exit: float) -> pd.Series:
+    """滞回状态机：信号低走迟缓、信号高守灵敏。信号缺失保持上月状态，不重置。"""
     on_slow = False
     out = {}
-    for ts in gap.index:
-        g = gap.get(ts)
+    for ts in sig.index:
+        g = sig.get(ts)
         if pd.notna(g):
-            on_slow = bool(g < (gap_exit if on_slow else gap_enter))
+            on_slow = bool(g < (thr_exit if on_slow else thr_enter))
         out[ts] = on_slow
     return pd.Series(out)
 
@@ -364,14 +498,18 @@ def score_rows(rows: list) -> None:
 
 
 def mark_rejected(rows: list, base: dict) -> None:
-    """硬约束只影响推荐排名，不影响落盘：三段 Calmar 都不许比纯灵敏腿差，10Y 回撤不许差 3pp 以上。"""
+    """硬约束只影响推荐排名，不影响落盘：三段 Calmar 都不许比纯灵敏腿差，10Y 回撤不许差 3pp 以上。
+
+    Calmar 比较必须带相对容差：没走切换的月份净值和基线逐位相同，浮点累加顺序不同会在
+    第 16 位小数上分出高下，第一轮就是这样把 425 组「其实完全等于基线」的组误判成劣于基线。
+    """
     for r in rows:
         why = []
         for lbl, _ in HORIZONS:
             c, b = r[f"calmar_{lbl}"], base[f"calmar_{lbl}"]
             if pd.isna(c):
                 why.append(f"calmar_{lbl}_nan")
-            elif pd.notna(b) and c < b:
+            elif pd.notna(b) and c < b - abs(b) * CALMAR_TOL:
                 why.append(f"calmar_{lbl}<{b:.2f}")
         if pd.notna(r["dd_10y"]) and pd.notna(base["dd_10y"]) \
                 and r["dd_10y"] < base["dd_10y"] - DD_RELAX:
@@ -381,35 +519,67 @@ def mark_rejected(rows: list, base: dict) -> None:
 
 
 def rank_key(r: dict) -> tuple:
-    gap = r["gap_enter"]
+    thr, sig = r["thr_enter"], r["signal"]
+    anchor = SIGNALS[sig]["anchor"] if sig in SIGNALS else None
     return (-r["score"], r["norm_std"], r["swaps_10y"],
-            abs(gap - GAP_ANCHOR) if gap is not None else 9.99)
+            abs(thr - anchor) if (thr is not None and anchor is not None) else 9.99)
 
 
 def show_top(rows: list, n: int = 15) -> None:
     print(f"\n推荐排名前 {n}（maximin 得分，已剔除被硬约束打掉的组）：")
-    print("  迟缓腿   enter  exit  | score  std    | calmar 3Y/5Y/10Y      | "
-          "norm 3Y/5Y/10Y      | swaps slow cash | 10Y 收益/回撤")
+    print("  信号    迟缓腿   enter  exit  | score  std    | calmar 3Y/5Y/10Y  | "
+          "swaps slow cash | 收益 3Y/5Y/10Y | 10Y 回撤")
     for r in rows[:n]:
         leg = ("灵敏基线" if r["kind"] == "baseline_fast"
                else f"L{r['slow_L']}/MA{r['slow_MA']}")
-        gap = ("  —     —  " if r["gap_enter"] is None
-               else f"{r['gap_enter']:5.2f} {r['gap_exit']:5.2f}")
-        print(f"  {leg:<9s}{gap} | {r['score']:.4f} {r['norm_std']:.4f} | "
-              f"{r['calmar_3y']:.2f}/{r['calmar_5y']:.2f}/{r['calmar_10y']:.2f}     | "
-              f"{r['norm_3y']:.2f}/{r['norm_5y']:.2f}/{r['norm_10y']:.2f}     | "
+        thr = ("  —     —  " if r["thr_enter"] is None
+               else f"{r['thr_enter']:5.2f} {r['thr_exit']:5.2f}")
+        print(f"  {r['signal'] or '—':<7s} {leg:<9s}{thr} | "
+              f"{r['score']:.4f} {r['norm_std']:.4f} | "
+              f"{r['calmar_3y']:.2f}/{r['calmar_5y']:.2f}/{r['calmar_10y']:.2f} | "
               f"{r['swaps_10y']:5d} {r['slow_months']:4d} {r['cash_months_10y']:4d} | "
-              f"{r['ret_10y']:+.0f}% {r['dd_10y']:.1%}")
+              f"{r['ret_3y']:+.0f}%/{r['ret_5y']:+.0f}%/{r['ret_10y']:+.0f}% | "
+              f"{r['dd_10y']:.1%}")
 
 
-def run_sweep(cme, memb, fast_leg, slow_legs, cache, spy_daily) -> None:
+def show_verdict(rows: list, base: dict, signals: dict) -> None:
+    """对每种信号的头名逐段对基线，直接给过不过。
+
+    第一轮死在「收益全在 10Y、近 3 年完全无反应」，所以这里把 3Y / 5Y 的相对提升
+    和逐年触发次数摆在一起——不触发就不可能有提升，两个数看在一起才知道是信号没响
+    还是响了没用。
+    """
+    print(f"\n判读（要求 3Y 和 5Y 两段总收益相对基线各自提升 ≥ {SEG_IMPROVE_MIN:.0%}）：")
+    for name in signals:
+        cand = [r for r in rows if r["signal"] == name and not r["rejected"]
+                and pd.notna(r["score"])]
+        if not cand:
+            print(f"\n  【{name}】没有任何组通过硬约束")
+            continue
+        r = sorted(cand, key=rank_key)[0]
+        print(f"\n  【{name}】头名 L{r['slow_L']}/MA{r['slow_MA']} "
+              f"enter={r['thr_enter']} exit={r['thr_exit']}"
+              f"（{len(cand)} 组过约束）")
+        deltas = {}
+        for lbl, _ in HORIZONS:
+            b, c = base[f"ret_{lbl}"], r[f"ret_{lbl}"]
+            d = (1 + c / 100) / (1 + b / 100) - 1 if pd.notna(b) and pd.notna(c) else float("nan")
+            deltas[lbl] = d
+            print(f"    {lbl.upper():>4s} 总收益 {b:+.1f}% → {c:+.1f}%（相对 {d:+.1%}）"
+                  f"｜Calmar {base[f'calmar_{lbl}']:.2f} → {r[f'calmar_{lbl}']:.2f}")
+        print(f"    10Y 回撤 {base['dd_10y']:.1%} → {r['dd_10y']:.1%}"
+              f"｜换股 {base['swaps_10y']} → {r['swaps_10y']}｜走迟缓 {r['slow_months']} 月")
+        on_slow = switch_path(signals[name], r["thr_enter"], r["thr_exit"])
+        print(f"    逐年触发：{yearly_trigger(on_slow)}")
+        ok = all(pd.notna(deltas[l]) and deltas[l] >= SEG_IMPROVE_MIN for l in ("3y", "5y"))
+        print(f"    → {'通过' if ok else '不通过'}"
+              f"（3Y {deltas['3y']:+.1%}、5Y {deltas['5y']:+.1%}）")
+
+
+def run_sweep(cme, memb, fast_leg, slow_legs, cache, spy_daily, sig_names) -> None:
     months = list(cme.index)
-    gap = compute_gap(fast_leg["score"])
-    # 两行分位都打：阈值网格是照近 10Y 分布定的，全历史那段含 2014 年前无 PIT 成分 mask 的月份。
-    for lbl, g in (("全历史", gap),
-                   ("近 10Y", gap[gap.index >= gap.index[-1] - pd.DateOffset(years=10)])):
-        print(f"gap 分位 {lbl}（{int(g.notna().sum())} 个月末）："
-              + "、".join(f"P{q}={g.quantile(q / 100):.1%}" for q in (10, 25, 50, 75, 90)))
+    print(f"\n造信号（{'、'.join(sig_names)}）：")
+    signals = build_signals(fast_leg["score"], sig_names)
 
     rows: list = []
     nav_cache: dict = {}
@@ -421,41 +591,44 @@ def run_sweep(cme, memb, fast_leg, slow_legs, cache, spy_daily) -> None:
         return dict(nav_cache[sig_key])
 
     base_holdings = select({ts: fast_leg for ts in months}, months)
-    base_win = set(exec_window_10y(base_holdings))
-    row = {"kind": "baseline_fast", "slow_L": None, "slow_MA": None,
-           "gap_enter": None, "gap_exit": None, "slow_months": 0}
+    row = {"kind": "baseline_fast", "signal": "", "slow_L": None, "slow_MA": None,
+           "thr_enter": None, "thr_exit": None, "slow_months": 0}
     row.update(measured(("fast",), base_holdings))
     rows.append(row)
     base_row = row
 
     for (L, MA), leg in slow_legs.items():
         holdings = select({ts: leg for ts in months}, months)
-        row = {"kind": "baseline_slow", "slow_L": L, "slow_MA": MA,
-               "gap_enter": None, "gap_exit": None,
+        row = {"kind": "baseline_slow", "signal": "", "slow_L": L, "slow_MA": MA,
+               "thr_enter": None, "thr_exit": None,
                "slow_months": len(exec_window_10y(holdings))}
         row.update(measured(("slow", L, MA), holdings))
         rows.append(row)
 
     t0 = time.time()
-    total = len(SLOW_GRID) * len(GAP_ENTER_GRID) * len(GAP_EXIT_OFFSETS)
+    total = sum(len(SLOW_GRID) * len(SIGNALS[n]["enter"]) * len(SIGNALS[n]["offsets"])
+                for n in sig_names)
     done = 0
-    for (L, MA), leg in slow_legs.items():
-        for enter in GAP_ENTER_GRID:
-            for off in GAP_EXIT_OFFSETS:
-                exit_ = round(enter + off, 4)
-                on_slow = switch_path(gap, enter, exit_)
-                holdings = select({ts: (leg if on_slow.get(ts, False) else fast_leg)
-                                   for ts in months}, months)
-                slow_exec = {hv.next_month_key(ts.strftime("%Y-%m"), 1)
-                             for ts in months if bool(on_slow.get(ts, False))}
-                row = {"kind": "switch", "slow_L": L, "slow_MA": MA,
-                       "gap_enter": enter, "gap_exit": exit_,
-                       "slow_months": len(slow_exec & set(exec_window_10y(holdings)))}
-                sig = ("switch", L, MA, tuple(holdings[m][0] for m in sorted(holdings)))
-                row.update(measured(sig, holdings))
-                rows.append(row)
-                done += 1
-        print(f"  L{L}/MA{MA} 跑完，{done}/{total} 组，{time.time() - t0:.0f}s", flush=True)
+    for name in sig_names:
+        series, cfg = signals[name], SIGNALS[name]
+        for (L, MA), leg in slow_legs.items():
+            for enter in cfg["enter"]:
+                for off in cfg["offsets"]:
+                    exit_ = round(enter + off, 4)
+                    on_slow = switch_path(series, enter, exit_)
+                    holdings = select({ts: (leg if on_slow.get(ts, False) else fast_leg)
+                                       for ts in months}, months)
+                    slow_exec = {hv.next_month_key(ts.strftime("%Y-%m"), 1)
+                                 for ts in months if bool(on_slow.get(ts, False))}
+                    row = {"kind": "switch", "signal": name, "slow_L": L, "slow_MA": MA,
+                           "thr_enter": enter, "thr_exit": exit_,
+                           "slow_months": len(slow_exec & set(exec_window_10y(holdings)))}
+                    key = ("switch", L, MA, tuple(holdings[m][0] for m in sorted(holdings)))
+                    row.update(measured(key, holdings))
+                    rows.append(row)
+                    done += 1
+        print(f"  信号 {name} 跑完，{done}/{total} 组，"
+              f"净值算了 {len(nav_cache)} 条，{time.time() - t0:.0f}s", flush=True)
 
     score_rows(rows)
     mark_rejected(rows, base_row)
@@ -480,15 +653,22 @@ def run_sweep(cme, memb, fast_leg, slow_legs, cache, spy_daily) -> None:
     if not kept:
         raise SystemExit("所有组合都被硬约束淘汰，停下汇报（plan 三、最后一条）")
     show_top(sorted(kept, key=rank_key))
+    show_verdict(rows, base_row, signals)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="科技龙头双窗口切换离线扫描")
     ap.add_argument("--anchor", action="store_true", help="只跑纯灵敏腿自验，不跑网格")
-    ap.add_argument("--sweep", action="store_true", help="跑 14 基线 + 455 组切换网格")
+    ap.add_argument("--sweep", action="store_true", help="跑 14 基线 + 每种信号 455 组切换网格")
+    ap.add_argument("--signals", default=",".join(DEFAULT_SIGNALS),
+                    help=f"逗号分隔，可选 {'/'.join(SIGNALS)}，默认 {','.join(DEFAULT_SIGNALS)}")
     args = ap.parse_args()
     if not (args.anchor or args.sweep):
         ap.error("须指定 --anchor 或 --sweep")
+    sig_names = [s.strip() for s in args.signals.split(",") if s.strip()]
+    bad = [s for s in sig_names if s not in SIGNALS]
+    if bad:
+        ap.error(f"未知信号 {'、'.join(bad)}，可选 {'/'.join(SIGNALS)}")
 
     cme, memb, asof = load_panels()
     print(f"面板 asof = {asof}"
@@ -508,7 +688,7 @@ def main() -> None:
     if args.anchor:
         run_anchor(cme, memb, fast_leg, cache, spy_daily)
         return
-    run_sweep(cme, memb, fast_leg, slow_legs, cache, spy_daily)
+    run_sweep(cme, memb, fast_leg, slow_legs, cache, spy_daily, sig_names)
 
 
 if __name__ == "__main__":
