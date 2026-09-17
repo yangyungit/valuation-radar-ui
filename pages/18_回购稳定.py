@@ -4,6 +4,7 @@ import numpy as np
 
 from api_client import fetch_buyback_relay_timeseries, get_global_data
 from buyback_relay_core import render_group
+from cn_names import cn_name_map
 
 st.set_page_config(page_title="回购稳定", layout="wide")
 
@@ -78,7 +79,7 @@ if shy_raw.isnull().all().all():
 rs = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
 king = pd.DataFrame({tk: p.get("king_score", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
 name_map = {tk: p.get("name", tk) for tk, p in _tickers.items()}
-grade_map = {tk: p.get("group", "") for tk, p in _tickers.items()}
+grade_map = cn_name_map(_tickers.keys())
 asof = pd.to_datetime(ts.get("asof"), errors="coerce")
 
 king_m = king.resample("ME").last()
@@ -137,6 +138,7 @@ _COMMON = dict(
     window=window, month_in_progress=_month_in_progress, last_month=_last_month,
     price_cache=_price_cache, spy_wk=_spy_wk,
     score_label="股东回报率%", score_fmt="{:+.1f}",
+    stitched_name_style="cn_ticker",
 )
 
 _all_cols = list(king_m.columns)

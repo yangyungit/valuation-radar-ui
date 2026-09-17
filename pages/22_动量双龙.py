@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 
 import holdings_viz as hv
 from api_client import fetch_dynasty_double_dragon
+from cn_names import cn_name_map
 
 st.set_page_config(page_title="12M动量双龙", layout="wide")
 
@@ -101,8 +102,10 @@ def render_slot_segment_returns(dd: dict, key_prefix: str = "dd") -> bool:
             continue
         # 槽净值本身就是该槽持仓的连续净值，按段切片即得每段真实涨跌，无需逐票拉价。
         price_cache = {tk: pd.DataFrame({"Close": slot_s}) for tk, _, _ in segs if tk != "CASH"}
+        _cn = cn_name_map(tk for tk, _, _ in segs)
         fig = hv.build_stitched_fig(
-            segs, f"{slot_name}接力 持仓段", spy_wk, price_cache, {}, {},
+            segs, f"{slot_name}接力 持仓段", spy_wk, price_cache, _cn, _cn,
+            name_style="cn_ticker",
         )
         st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_slot_segment_{slot_i}")
     return True

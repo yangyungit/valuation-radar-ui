@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 
 import holdings_viz as hv
 from api_client import fetch_logr2_stable_pool, fetch_gbdt_oos_prices
+from cn_names import cn_name_map
 
 st.set_page_config(page_title="黄金带鱼", layout="wide")
 
@@ -105,8 +106,7 @@ with st.sidebar:
 COST_BPS = 200.0
 CASH_RATE = hv.CASH_APY
 HAND_GOLD = ["AAPL", "LLY", "TJX", "COST"]   # 仅对照线 + 页底对照表
-name_map = {"AAPL": "Apple", "LLY": "Eli Lilly", "TJX": "TJX", "COST": "Costco"}
-# 后端 sector 字段是英文原名，仅展示时换中文简称（与 holdings_viz._SECTOR_CN 同一套词）
+# 后端 sector 字段是英文原名，仅展示时换中文简称
 SECTOR_CN = {
     "Technology": "科技", "Industrials": "工业", "Healthcare": "医疗",
     "Financial Services": "金融", "Consumer Cyclical": "可选消费",
@@ -135,6 +135,7 @@ if pd.notna(built) and (pd.Timestamp.now(tz="UTC") - built).days > 40:
                "（本地跑 build_logr2_stable_pool.py 并上传后排名才会更新）")
 
 union = sorted({t for m in pools.values() for t in m})
+_cn_all = cn_name_map(union)
 cur_year = max(pools)
 gaxes = gaxes_by_y.get(str(cur_year), {})
 
@@ -227,7 +228,7 @@ cur_holdings = pools[cur_year]
 if cur_holdings:
     _cols = st.columns(len(cur_holdings))
     for _c, _tk in zip(_cols, cur_holdings):
-        _c.metric(_tk, f"{100.0 / len(cur_holdings):.1f}%", name_map.get(_tk, gmeta.get(_tk, {}).get("name", "")))
+        _c.metric(_tk, f"{100.0 / len(cur_holdings):.1f}%", _cn_all.get(_tk, ""))
 else:
     st.warning(f"{cur_year} 年池为空")
 
@@ -332,7 +333,7 @@ _slots = hv.build_basket_slot_assignments(
     {d.strftime("%Y-%m"): pools.get(d.year if d.month > 1 else d.year - 1, []) for d in _months},
     _exec_months,
 )
-_nm = {t: gmeta.get(t, {}).get("name", t) for t in union}
+_nm = _cn_all
 _slot_segs = [hv.build_slot_segments(_slots, si, _exec_months) for si in range(2)]
 _slot_navs = [(lbl, hv.calc_slot_stats(seg, _pc, _spy_wk, CASH_RATE, COST_BPS)[2])
               for lbl, seg in zip(("左列", "右列"), _slot_segs)]
@@ -383,7 +384,7 @@ with st.expander(f"逐月实际仓位（{len(_drift)} 个月末，倒序）"):
 for _si, (_lbl, _) in enumerate(_slot_navs):
     st.plotly_chart(
         hv.build_stitched_fig(_slot_segs[_si], f"黄金带鱼 {_lbl} (Slot {_si})",
-                              _spy_wk, _pc, _nm, cost_bps=COST_BPS),
+                              _spy_wk, _pc, _nm, _nm, cost_bps=COST_BPS, name_style="cn_ticker"),
         use_container_width=True, key=f"gold_slot_{_si}",
     )
 

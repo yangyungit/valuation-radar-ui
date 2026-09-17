@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 
 import holdings_viz as hv
 from api_client import fetch_dynasty_gold_leader
+from cn_names import cn_name_map
 
 st.set_page_config(page_title="戴金龙头", layout="wide")
 
@@ -97,8 +98,10 @@ def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
         if not segs:
             continue
         price_cache = {tk: pd.DataFrame({"Close": slot_s}) for tk, _, _ in segs if tk != "CASH"}
+        _cn = cn_name_map(tk for tk, _, _ in segs)
         fig = hv.build_stitched_fig(
-            segs, f"{slot_name}接力 持仓段", spy_wk, price_cache, {}, {},
+            segs, f"{slot_name}接力 持仓段", spy_wk, price_cache, _cn, _cn,
+            name_style="cn_ticker",
         )
         st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_slot_segment_{slot_i}")
     return True

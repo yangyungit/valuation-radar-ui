@@ -17,22 +17,6 @@ SLOT_COLORS = [
 # 要恢复货币基金那 4%，改这一个数即可（26_组合净值 的最终组合腿单独维护，不走这里）。
 CASH_APY = 0.0
 
-# GICS 板块英文 → 中文（做接力图顶部「ticker · 主营业务」标签用；后端 group 字段即英文 sector）
-_SECTOR_CN = {
-    "Technology": "科技",
-    "Industrials": "工业",
-    "Healthcare": "医疗",
-    "Financial Services": "金融",
-    "Consumer Cyclical": "可选消费",
-    "Consumer Defensive": "必选消费",
-    "Communication Services": "通讯服务",
-    "Energy": "能源",
-    "Basic Materials": "原材料",
-    "Real Estate": "房地产",
-    "Utilities": "公用事业",
-}
-
-
 # Sharadar 价格缓存：Page 6 净值重建优先用后端推来的股息复权日线（含退市票、深 8 年），
 # 缺的票（如系统上线后新增的活票）才回退 yfinance（只有 ~5 年）。
 # prime_sharadar_prices() 由 Page 6 在拉价前注入一次。
@@ -419,7 +403,7 @@ def build_relay_gantt(
                 fillc, label, dim = "#2a2a2a", "空仓", False
             else:
                 fillc = color_map.get(tk, "#888")
-                label = f"{nm.get(tk, tk)}<br>{tk}" + (dim_suffix if dim else "")
+                label = f"{nm.get(tk) or tk}<br>{tk}" + (dim_suffix if dim else "")
             fig.add_shape(
                 type="rect", x0=x0, x1=x1, y0=yc - 0.4, y1=yc + 0.4,
                 fillcolor=fillc, opacity=0.2 if dim else 0.9,
@@ -1260,9 +1244,8 @@ def build_slot_gantt_nav_fig(
             color, label = "#999", "💰 空仓"
         else:
             color = color_map.get(tk, "#888")
-            g = gm.get(tk, "")
-            _sec_cn = _SECTOR_CN.get(g, g)
-            label = f"{tk} · {_sec_cn}" if _sec_cn else tk
+            _cn = gm.get(tk, "")
+            label = f"{_cn}({tk})" if _cn and _cn != tk else tk
         _mid = (x0 + (x1 - x0) / 2).to_pydatetime()
         # 名字贴着图表上方（y≈1.0）
         annotations.append(dict(

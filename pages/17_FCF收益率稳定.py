@@ -4,6 +4,7 @@ import pandas as pd
 import holdings_viz as hv
 from api_client import fetch_logr2_stable_pool, fetch_gbdt_oos_prices, get_global_data
 from buyback_relay_core import render_group
+from cn_names import cn_name_map
 
 st.set_page_config(page_title="FCF收益率稳定", layout="wide")
 
@@ -132,17 +133,18 @@ def _deadband_holdings(n, k):
 last_month = score_in.index[-1]
 window_lo = last_month - pd.DateOffset(years=int(window[:-1]))
 name_map = {t: (meta.get(t) or {}).get("name", t) for t in rest}
+cn_map = cn_name_map(rest)
 _rs_dummy = pd.DataFrame(float("nan"), index=score_in.index, columns=score_in.columns)
 
 _common = dict(
     score_m=score_in, sweep_score_m=None,
-    rs_m=_rs_dummy, king_m=score_in, name_map=name_map, grade_map={},
+    rs_m=_rs_dummy, king_m=score_in, name_map=name_map, grade_map=cn_map,
     window=window, month_in_progress=False, last_month=last_month,
     price_cache=_price_cache, spy_wk=_spy_wk,
     score_label="FCF收益率%", score_fmt="{:.1f}",
     gold_needs_rs=False, nav_engine="weekly", cost_bps=COST_BPS,
     medal_table_hide_unmedaled=True, display_from=window_lo,
-    pick_show_name=True,
+    stitched_name_style="cn_ticker",
 )
 
 tab2, tab1 = st.tabs(["🥈 Top2 双仓（现状 · 死区 k=1.0）", "🥇 Top1 单仓（死区 k=2.0 · 实验）"])

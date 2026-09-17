@@ -6,6 +6,7 @@ import holdings_viz as hv
 from api_client import (fetch_logr2_stable_pool, fetch_gbdt_oos_prices, get_global_data,
                         compute_macro_regime_api, fetch_current_regime)
 from buyback_relay_core import render_group
+from cn_names import cn_name_map
 
 st.set_page_config(page_title="带鱼斜率", layout="wide")
 
@@ -183,6 +184,7 @@ for i, d in enumerate(slope_m.index):
 last_month = sc_in.index[-1]
 window_lo = last_month - pd.DateOffset(years=int(window[:-1]))
 name_map = {t: (meta.get(t) or {}).get("name", t) for t in rest}
+cn_map = cn_name_map(rest)
 _rs_dummy = pd.DataFrame(np.nan, index=sc_in.index, columns=sc_in.columns)
 
 # ── 熊市防御条带（与「科技龙头」页同源，默认关）：
@@ -222,11 +224,12 @@ except Exception:
 render_group(
     "非科技陡票", rest, "seg_rest",
     score_m=sc_in, sweep_score_m=None,
-    rs_m=_rs_dummy, king_m=sc_in, name_map=name_map, grade_map={},
+    rs_m=_rs_dummy, king_m=sc_in, name_map=name_map, grade_map=cn_map,
     window=window, month_in_progress=False, last_month=last_month,
     price_cache=_price_cache, spy_wk=_spy_wk,
     score_label="段斜率%", score_fmt="{:.1f}",
     n_hold=TOP_N, gold_needs_rs=False,
+    stitched_name_style="cn_ticker",
     nav_engine="weekly", cost_bps=COST_BPS,
     medal_table_hide_unmedaled=True,
     display_from=window_lo,

@@ -8,6 +8,7 @@ from api_client import (
 )
 from buyback_relay_core import render_group
 import holdings_viz as hv
+from cn_names import cn_name_map
 
 st.set_page_config(page_title="纳指100 + S&P100 PIT 接力", layout="wide")
 
@@ -112,7 +113,7 @@ st.caption(f"股池：NASDAQ-100 ∪ S&P100 历史成分并集，当前后端命
 _idx = pd.to_datetime(_dates, errors="coerce")
 rs = pd.DataFrame({tk: p.get("rs", []) for tk, p in _tickers.items()}, index=_idx).astype(float)
 name_map = {tk: p.get("name", tk) for tk, p in _tickers.items()}
-grade_map = {tk: p.get("group", "") for tk, p in _tickers.items()}
+grade_map = cn_name_map(_tickers.keys())
 asof = pd.to_datetime(ts.get("asof"), errors="coerce")
 rs_m = rs.resample("ME").last()
 
@@ -189,6 +190,7 @@ _COMMON = dict(
     rs_m=rs_m, king_m=king_m, name_map=name_map, grade_map=grade_map,
     window=window, month_in_progress=_month_in_progress, last_month=_last_month,
     price_cache=price_cache, spy_wk=spy_wk,
+    stitched_name_style="cn_ticker",
 )
 
 
