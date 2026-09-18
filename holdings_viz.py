@@ -488,6 +488,12 @@ def render_dynasty_ribbon(window: str, key: str, compare_hint: str = "") -> None
     st.markdown("---")
 
 
+def _seg_tick_text(start: str, end: str) -> str:
+    """"2021-10-01", "2021-11-30" → "21-10-01→11-30"。斜标时单行才不打结，
+    世纪位省掉、结束日省年份；跨年的段靠起点两位年定位。"""
+    return f"{start[2:]}→{end[5:]}"
+
+
 def build_stitched_fig(
     segs: list, slot_name: str,
     spy_wk: pd.DataFrame = None,
@@ -551,7 +557,7 @@ def build_stitched_fig(
                         hovertemplate="💰 空仓<br>%{customdata}<br>NAV %{y:.3f}<extra></extra>",
                     ))
                     tick_vals.append(x_offset + n // 2)
-                    tick_texts.append(f"{_dates[0]}<br>→{_dates[-1]}")
+                    tick_texts.append(_seg_tick_text(_dates[0], _dates[-1]))
                     name_annotations.append(dict(
                         x=x_offset + n // 2, y=1.0,
                         xref="x", yref="paper",
@@ -678,7 +684,7 @@ def build_stitched_fig(
                         spy_d_all.append(sdt.strftime("%Y-%m-%d"))
 
         tick_vals.append(x_offset + n // 2)
-        tick_texts.append(f"{_dates[0]}<br>→{_dates[-1]}")
+        tick_texts.append(_seg_tick_text(_dates[0], _dates[-1]))
         _g = gm.get(tk, "")
         _cn = nm.get(tk, "")
         if name_style == "cn_ticker":
@@ -715,7 +721,7 @@ def build_stitched_fig(
         title=f"{slot_name} — 累计收益率（共 {len(segs)} 段）",
         xaxis=dict(
             tickvals=tick_vals, ticktext=tick_texts,
-            tickfont=dict(size=10), tickangle=0,
+            tickfont=dict(size=10), tickangle=-45, automargin=True,
             gridcolor="rgba(100,100,100,0.3)",
         ),
         yaxis=dict(
@@ -726,7 +732,7 @@ def build_stitched_fig(
             gridcolor="rgba(100,100,100,0.3)",
         ),
         annotations=name_annotations,
-        height=560, margin=dict(l=10, r=10, t=44, b=72),
+        height=560, margin=dict(l=56, r=10, t=44, b=108),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(30,30,30,0.6)",
         font=dict(color="#ccc", size=13),
