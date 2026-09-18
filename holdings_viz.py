@@ -508,7 +508,10 @@ def _est_label_px(text: str, font_px: int = 13) -> float:
     return w
 
 
-_LABEL_ROW_PX = 17
+_LABEL_FONT_PX = 13
+_SIN45 = 0.7071
+_LABEL_MIN_PERP_PX = 16.0
+_LABEL_MAX_BOX_PX = 110.0
 
 
 def _thin_ticks(vals: list, texts: list, total_x: float, plot_px: float = 1000.0,
@@ -531,35 +534,58 @@ def _thin_ticks(vals: list, texts: list, total_x: float, plot_px: float = 1000.0
     return [vals[i] for i in keep], [texts[i] for i in keep]
 
 
+def _slant_overlap(a: tuple, b: tuple) -> bool:
+    """两个斜 45° 标签是否压字。a/b = (中心x像素, 文字中心y像素, 文本像素宽)。
+    斜标都是平行斜条，垂直间距 = |Δy - Δx| × sin45；沿斜条方向错开够远
+    （超过两者半宽之和）就算垂直贴着也不碰。"""
+    xa, ya, wa = a
+    xb, yb, wb = b
+    if abs((yb - ya) - (xb - xa)) * _SIN45 >= _LABEL_MIN_PERP_PX:
+        return False
+    return abs((xb + yb) - (xa + ya)) * _SIN45 < (wa + wb) / 2 + 4
+
+
 def _layout_segment_labels(items: list, total_x: float, plot_px: float = 1000.0) -> tuple:
-    """段名标注防重叠：窄段先把中文名退化成纯代码，仍撞上的往上错行。
+    """段名标注斜 45° 排（和 x 轴日期一个方向）：名字占的横向宽度只剩斜边投影，
+    横排时长中文名互撞的问题没了，窄段也能留住中文名。
+    仍压字的（同一个月换两次）逐步往上抬——沿斜条方向抬没用，得抬到垂直间距够。
     items = [(段中心x, 段宽x, 全名, 代码, 颜色), ...]，返回 (annotations, top margin)。"""
     base_top = 44
     if not items or total_x <= 0:
         return [], base_top
     px_per_x = plot_px / total_x
-    rows: list[list[tuple]] = []
+    placed: list[tuple] = []
     anns: list[dict] = []
+    extra_top = 0.0
     for x_c, seg_w, full, short, color in items:
         text = full
-        if full != short and _est_label_px(full) > seg_w * px_per_x * 1.5:
+        # 斜标的横向占位只剩斜边投影，段窄到名字 3 倍以上才退化成纯代码；
+        # 但名字太长时斜过来会把顶部空白撑得很高，超过上限也退化
+        if full != short and (
+            _est_label_px(full) > seg_w * px_per_x * 3.0
+            or (_est_label_px(full) + _LABEL_FONT_PX) * _SIN45 > _LABEL_MAX_BOX_PX
+        ):
             text = short
-        half = (_est_label_px(text) + 6) / 2 / px_per_x
-        lo, hi = x_c - half, x_c + half
-        row = 0
-        while row < len(rows) and any(lo <= b and hi >= a for a, b in rows[row]):
-            row += 1
-        if row == len(rows):
-            rows.append([])
-        rows[row].append((lo, hi))
+        w = _est_label_px(text)
+        x_px = x_c * px_per_x
+        # plotly 的 yanchor 认的是旋转后的外框，底边贴在画布顶，所以名字越长
+        # 文字中心越高——判重叠得按文字中心算，不能只看 yshift
+        box_h = (w + _LABEL_FONT_PX) * _SIN45
+        shift = 0.0
+        while shift <= 200.0 and any(
+            _slant_overlap(p, (x_px, shift + box_h / 2, w)) for p in placed
+        ):
+            shift += 5.0
+        placed.append((x_px, shift + box_h / 2, w))
         anns.append(dict(
             x=x_c, y=1.0, xref="x", yref="paper",
-            text=text, showarrow=False,
-            font=dict(size=13, color=color),
+            text=text, showarrow=False, textangle=-45,
+            font=dict(size=_LABEL_FONT_PX, color=color),
             xanchor="center", yanchor="bottom",
-            yshift=row * _LABEL_ROW_PX,
+            yshift=shift,
         ))
-    return anns, base_top + (len(rows) - 1) * _LABEL_ROW_PX
+        extra_top = max(extra_top, shift + box_h)
+    return anns, base_top + int(extra_top)
 
 
 def build_stitched_fig(
