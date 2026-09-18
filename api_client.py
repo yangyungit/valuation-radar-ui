@@ -3371,3 +3371,48 @@ def clear_tightness_caches():
     fetch_tightness_hitrate.clear()
     fetch_enso.clear()
     fetch_inventory_latest.clear()
+
+
+# ==========================================
+# 币圈再平衡监控（后端 crypto/rebalance_monitor.py）
+# ==========================================
+@st.cache_data(ttl=600)
+def fetch_crypto_rebalance(holdings: tuple[tuple[str, float], ...], band: float) -> dict:
+    """持仓传 tuple 而不是 dict,让 cache_data 能算出稳定的 key。"""
+    try:
+        r = requests.post(f"{API_BASE_URL}/api/v1/crypto/rebalance_check",
+                          json={"holdings": dict(holdings), "band": band}, timeout=30)
+        if r.status_code == 400:
+            return {"success": False, "error": r.json().get("detail", "参数不合法")}
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=1800)
+def fetch_crypto_universe() -> dict:
+    """价格数据里有哪些标的、各自从哪天起。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/crypto/universe", timeout=20)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "assets": []}
+
+
+@st.cache_data(ttl=3600)
+def fetch_crypto_research_summary() -> dict:
+    """回测汇总表,给页面底部折叠区当依据。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/crypto/research_summary", timeout=20)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e), "two_asset": [], "multi_asset": []}
+
+
+def clear_crypto_rebalance_caches():
+    fetch_crypto_rebalance.clear()
+    fetch_crypto_universe.clear()
+    fetch_crypto_research_summary.clear()
