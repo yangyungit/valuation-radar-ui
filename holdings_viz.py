@@ -523,6 +523,7 @@ def build_stitched_fig(
     )
     spy_x_all: list = []
     spy_y_all: list = []
+    spy_d_all: list = []
     # SPY 全程用同一个基准价归一，不逐段重新归一——否则段与段之间那一周的 SPY
     # 收益会被丢掉，基准线被系统性算低（9 段的槽能低 9 个百分点）。
     spy_base = None
@@ -539,15 +540,18 @@ def build_stitched_fig(
                         running_nav *= max(0.0, 1.0 - cost_bps / 10000.0)
                     n = len(cash_idx)
                     x_vals = list(range(x_offset, x_offset + n))
+                    _dates = [d.strftime("%Y-%m-%d") for d in cash_idx]
                     fig.add_trace(go.Scatter(
                         x=x_vals, y=[max(0.001, running_nav)] * n,
                         mode="lines",
                         line=dict(color="#bbbbbb", width=2, dash="dot"),
                         name=f"💰 空仓（{s_m}→{e_m}）",
                         showlegend=False,
+                        customdata=_dates,
+                        hovertemplate="💰 空仓<br>%{customdata}<br>NAV %{y:.3f}<extra></extra>",
                     ))
                     tick_vals.append(x_offset + n // 2)
-                    tick_texts.append(f"{s_m}→{e_m}")
+                    tick_texts.append(f"{_dates[0]}<br>→{_dates[-1]}")
                     name_annotations.append(dict(
                         x=x_offset + n // 2, y=1.0,
                         xref="x", yref="paper",
@@ -567,6 +571,7 @@ def build_stitched_fig(
                                 if sdt in spy_seg.index:
                                     spy_x_all.append(x_offset + si)
                                     spy_y_all.append(max(0.001, float(spy_nav.loc[sdt])))
+                                    spy_d_all.append(sdt.strftime("%Y-%m-%d"))
                     last_tk = "CASH"
                     x_offset += n
             continue
@@ -622,6 +627,8 @@ def build_stitched_fig(
                 _state = _state.mask((_state == 0) & _half_wk, 1)
 
         _y_vals = [max(0.001, v) for v in seg_nav]
+        _dates = [d.strftime("%Y-%m-%d") for d in closes.index]
+        _hover = f"{tk}<br>%{{customdata}}<br>NAV %{{y:.3f}}<extra></extra>"
         if _state is not None and int((_state != 0).sum()) > 0:
             # 按防御状态切成连续小段：满仓 = 槽色实线，减仓一半 = 白实线，清仓 = 白虚线。
             # 每小段起点接前一个点，保持线条连续。
@@ -643,6 +650,8 @@ def build_stitched_fig(
                     line=_LINE_BY_STATE[_stv],
                     name=f"{tk}（{s_m}→{e_m}）",
                     showlegend=False,
+                    customdata=_dates[_lo:_re],
+                    hovertemplate=_hover,
                 ))
         else:
             fig.add_trace(go.Scatter(
@@ -650,6 +659,8 @@ def build_stitched_fig(
                 line=dict(color=color, width=2),
                 name=f"{tk}（{s_m}→{e_m}）",
                 showlegend=False,
+                customdata=_dates,
+                hovertemplate=_hover,
             ))
         running_nav = float(seg_nav.iloc[-1])
         last_tk = tk
@@ -664,9 +675,10 @@ def build_stitched_fig(
                     if sdt in spy_seg.index:
                         spy_x_all.append(x_offset + si)
                         spy_y_all.append(max(0.001, float(spy_nav.loc[sdt])))
+                        spy_d_all.append(sdt.strftime("%Y-%m-%d"))
 
         tick_vals.append(x_offset + n // 2)
-        tick_texts.append(f"{s_m}→{e_m}")
+        tick_texts.append(f"{_dates[0]}<br>→{_dates[-1]}")
         _g = gm.get(tk, "")
         _cn = nm.get(tk, "")
         if name_style == "cn_ticker":
@@ -694,6 +706,8 @@ def build_stitched_fig(
             x=spy_x_all, y=spy_y_all, mode="lines",
             line=dict(color="rgba(180,180,180,0.4)", width=2, dash="dot"),
             name=f"SPY 同期 {(spy_y_all[-1] - 1) * 100:+.1f}%",
+            customdata=spy_d_all,
+            hovertemplate="SPY<br>%{customdata}<br>NAV %{y:.3f}<extra></extra>",
         ))
         fig.data = fig.data[-1:] + fig.data[:-1]
 
@@ -701,7 +715,7 @@ def build_stitched_fig(
         title=f"{slot_name} — 累计收益率（共 {len(segs)} 段）",
         xaxis=dict(
             tickvals=tick_vals, ticktext=tick_texts,
-            tickfont=dict(size=11), tickangle=-30,
+            tickfont=dict(size=10), tickangle=0,
             gridcolor="rgba(100,100,100,0.3)",
         ),
         yaxis=dict(
@@ -712,7 +726,7 @@ def build_stitched_fig(
             gridcolor="rgba(100,100,100,0.3)",
         ),
         annotations=name_annotations,
-        height=560, margin=dict(l=10, r=10, t=44, b=60),
+        height=560, margin=dict(l=10, r=10, t=44, b=72),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(30,30,30,0.6)",
         font=dict(color="#ccc", size=13),

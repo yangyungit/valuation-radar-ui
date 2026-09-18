@@ -231,6 +231,7 @@ def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str,
         margin=dict(l=10, r=10, t=30, b=10),
         legend=dict(orientation="h", y=1.08),
         yaxis_title="净值（对数轴）", yaxis_type="log",
+        xaxis=dict(tickformat="%Y-%m-%d", hoverformat="%Y-%m-%d", tickangle=-30),
     )
     st.plotly_chart(fig, use_container_width=True, key=chart_key)
 
