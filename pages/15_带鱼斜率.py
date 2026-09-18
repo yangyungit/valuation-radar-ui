@@ -61,6 +61,8 @@ NEAR_HIGH = 0.95     # 浅V不容忍：新进场须月末价 ≥ 自身近 12 �
 STOP_S = 0.10        # 锚定止损：进场后头 3 月内，月收盘 ≤ 进场价×0.90 即斩（round15）
 STOP_WIN_M = 3
 PROB_M = 2           # 试用期半仓：新仓头 2 月半槽，另一半按现金 4% 记账（round15）
+SEG_WINDOWS = range(52, 261, 26)          # 与 build_logr2_stable_pool.py 同值，改动需两边同步
+SEG_R2_MIN, SEG_SLOPE_MIN = 0.70, 8.0
 
 doc = fetch_logr2_stable_pool()
 if not doc.get("success"):
@@ -75,8 +77,9 @@ if not seg_panel:
     st.stop()
 built = pd.to_datetime(doc.get("built_at"), errors="coerce", utc=True)
 if pd.notna(built) and (pd.Timestamp.now(tz="UTC") - built).days > 40:
-    st.warning(f"⚠️ 数据已 {(pd.Timestamp.now(tz='UTC') - built).days} 天未重建"
-               "（本地跑 build_logr2_stable_pool.py 并上传后排名才会更新）")
+    st.warning(f"⚠️ 池名单已 {(pd.Timestamp.now(tz='UTC') - built).days} 天未重建"
+               "（本地跑 build_logr2_stable_pool.py 并上传后年度池才会更新；"
+               "排名轴的最近几个月由本页用实时价补算，不受影响）")
 
 union = sorted({t for mem in pools.values() for t in mem})
 rest = [t for t in union if not (meta.get(t) or {}).get("is_tech")]
@@ -107,12 +110,6 @@ slope_m = pd.DataFrame({tk: pd.Series({d: v[0] for d, v in (seg_panel.get(tk) or
 slope_m.index = pd.to_datetime(slope_m.index)
 slope_m = slope_m.sort_index()
 
-memb = pd.DataFrame(False, index=slope_m.index, columns=slope_m.columns)
-for y, mem in pools.items():
-    memb.loc[memb.index.year == y, [t for t in mem if t in memb.columns]] = True
-sc_in = slope_m.where(memb)                     # 排名轴：段斜率（池成员 mask）
-rank_m = sc_in.rank(axis=1, ascending=False, method="first")
-
 # ── 价格（yfinance + Sharadar 补缺，BRK.B 走别名）──
 _ALIAS = {"BRK.B": "BRK-B"}
 window = st.radio("时间跨度", ["3Y", "5Y", "10Y"], index=2, horizontal=True, key="seg_window")
@@ -139,6 +136,50 @@ if _px is not None and "SPY" in _px.columns:
     _spy_wk = _px["SPY"].dropna().resample("W-FRI").last().dropna().to_frame(name="Close")
 
 close_m = pd.DataFrame({t: s.resample("ME").last() for t, s in close_d.items()}).sort_index()
+
+
+# ── seg_panel 的最后一个月停在 Sharadar 价格末日（2026-06-12，退订日，不会再更新），
+#    之后的月份后端给不出，页面持仓就一直卡在那个月。这里用本页已经加载的实时周线按
+#    同一公式把排名轴补到最近一个已收月，让持仓跟得上今天（与「戴金龙头」页一致：
+#    月末出信号、次月执行）。后端末月本身可能是残月（价格末日落在月中），一并重算覆盖。
+#    重叠月实测（2026-01~05，80 只）：斜率中位差 0.03、最大 0.5，两边口径一致。──
+def _seg_slope_monthly(close_map: dict) -> pd.DataFrame:
+    """周线 log 价在 52~260 周里取最长达标后缀窗的年化斜率%，月末取值。
+    公式与后端 build_logr2_stable_pool.seg_trend_panels 逐行对应，改一边要改另一边。"""
+    wk = pd.DataFrame({t: s.resample("W-FRI").last() for t, s in close_map.items()}).sort_index()
+    lg = np.log(wk.where(wk > 0))
+    x = pd.Series(np.arange(len(lg), dtype=float), index=lg.index)
+    out = pd.DataFrame(np.nan, index=lg.index, columns=lg.columns)
+    for w in SEG_WINDOWS:
+        corr = lg.rolling(w).corr(x)
+        sl = (np.exp(corr * lg.rolling(w).std().div(x.rolling(w).std(), axis=0) * 52) - 1) * 100
+        out = sl.where(((corr * corr.abs()) >= SEG_R2_MIN) & (sl >= SEG_SLOPE_MIN), out)
+    return out.resample("ME").last()
+
+
+_panel_end = slope_m.index[-1]
+_tail = _seg_slope_monthly(close_d)
+_tail = _tail[(_tail.index >= _panel_end)
+              & (_tail.index < pd.Timestamp.today().normalize().replace(day=1))]
+if not _tail.empty:
+    slope_m = slope_m.reindex(slope_m.index.union(_tail.index))
+    slope_m.loc[_tail.index] = _tail.reindex(columns=slope_m.columns)
+_px_asof = max((s.index[-1] for s in close_d.values()), default=None)
+_added = "、".join(d.strftime("%Y-%m") for d in _tail.index if d > _panel_end)
+st.caption(
+    f"后端 seg_panel 截至 **{_panel_end:%Y-%m}**（Sharadar 价格末日 2026-06-12 之后不再更新）；"
+    + (f"本页用实时周线按同一公式补算 **{_added}**；" if _added else "无需补算；")
+    + (f"价格截至 **{_px_asof:%Y-%m-%d}**；" if _px_asof is not None else "")
+    + f"最新信号月 **{slope_m.index[-1]:%Y-%m}** → 执行月 "
+      f"**{hv.next_month_key(slope_m.index[-1].strftime('%Y-%m'), 1)}**。"
+    "补算月只认实时价能取到的票，yfinance 查不到的退市票（EA 等）当月自动无资格。"
+)
+
+memb = pd.DataFrame(False, index=slope_m.index, columns=slope_m.columns)
+for y, mem in pools.items():
+    memb.loc[memb.index.year == y, [t for t in mem if t in memb.columns]] = True
+sc_in = slope_m.where(memb)                     # 排名轴：段斜率（池成员 mask）
+rank_m = sc_in.rank(axis=1, ascending=False, method="first")
 
 # ── 通道斩仓线：月末收盘 ≤ MA6×(1−0.25σ12) 即斩仓换现金（单月确认）。
 #    持到破位形态下破线是唯一卖出口，必须灵敏；2 月确认是旧「月调重排」场景的
