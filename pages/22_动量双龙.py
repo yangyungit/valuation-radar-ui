@@ -36,7 +36,10 @@ def _holding_label(cell: dict | None) -> str:
 
 def _slot_month_segments(timeline: list[dict], slot_i: int) -> list[tuple]:
     """把某个槽的月度持仓压成 [(ticker_or_CASH, 起始月, 结束月), ...]，BIL/空档折成 CASH，
-    喂给 holdings_viz.build_stitched_fig（与 21_科技龙头 同一套接力段渲染）。"""
+    喂给 holdings_viz.build_stitched_fig（与 21_科技龙头 同一套接力段渲染）。
+
+    timeline 的 month 是决策月（后端 macro_engine 用信号月末打标签），决策月末出信号、
+    次月第一个交易日才成交，所以要 next_month_key 顺延一格才对得上净值曲线。"""
     segs: list[tuple] = []
     prev = None
     s_m = None
@@ -45,6 +48,7 @@ def _slot_month_segments(timeline: list[dict], slot_i: int) -> list[tuple]:
         month = str(h.get("month", ""))
         if not month:
             continue
+        month = hv.next_month_key(month)
         slots = h.get("slots", [])
         cell = slots[slot_i] if slot_i < len(slots) else None
         lab = _holding_label(cell)
