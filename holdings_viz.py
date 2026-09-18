@@ -534,30 +534,20 @@ def _thin_ticks(vals: list, texts: list, total_x: float, plot_px: float = 1000.0
     return [vals[i] for i in keep], [texts[i] for i in keep]
 
 
-def _slant_overlap(a: tuple, b: tuple) -> bool:
-    """两个斜 45° 标签是否压字。a/b = (中心x像素, 文字中心y像素, 文本像素宽)。
-    斜标都是平行斜条，垂直间距 = |Δy - Δx| × sin45；沿斜条方向错开够远
-    （超过两者半宽之和）就算垂直贴着也不碰。"""
-    xa, ya, wa = a
-    xb, yb, wb = b
-    if abs((yb - ya) - (xb - xa)) * _SIN45 >= _LABEL_MIN_PERP_PX:
-        return False
-    return abs((xb + yb) - (xa + ya)) * _SIN45 < (wa + wb) / 2 + 4
-
-
 def _layout_segment_labels(items: list, total_x: float, plot_px: float = 1000.0) -> tuple:
     """段名标注斜 45° 排（和 x 轴日期一个方向）：名字占的横向宽度只剩斜边投影，
     横排时长中文名互撞的问题没了，窄段也能留住中文名。
-    仍压字的（同一个月换两次）逐步往上抬——沿斜条方向抬没用，得抬到垂直间距够。
+    所有名字贴同一条基线，挤不下的左右互推——颜色已经和线段对应，
+    标签不必严格压在段中心上。同基线的斜标是平行斜条，垂直间距 = |Δx| × sin45，
+    所以锚点横向拉开 _LABEL_MIN_PERP_PX / sin45 就不压字。
     items = [(段中心x, 段宽x, 全名, 代码, 颜色), ...]，返回 (annotations, top margin)。"""
     base_top = 44
     if not items or total_x <= 0:
         return [], base_top
     px_per_x = plot_px / total_x
-    placed: list[tuple] = []
-    anns: list[dict] = []
-    extra_top = 0.0
-    for x_c, seg_w, full, short, color in items:
+    texts: list[str] = []
+    box_h_max = 0.0
+    for _, seg_w, full, short, _color in items:
         text = full
         # 斜标的横向占位只剩斜边投影，段窄到名字 3 倍以上才退化成纯代码；
         # 但名字太长时斜过来会把顶部空白撑得很高，超过上限也退化
@@ -566,26 +556,35 @@ def _layout_segment_labels(items: list, total_x: float, plot_px: float = 1000.0)
             or (_est_label_px(full) + _LABEL_FONT_PX) * _SIN45 > _LABEL_MAX_BOX_PX
         ):
             text = short
-        w = _est_label_px(text)
-        x_px = x_c * px_per_x
-        # plotly 的 yanchor 认的是旋转后的外框，底边贴在画布顶，所以名字越长
-        # 文字中心越高——判重叠得按文字中心算，不能只看 yshift
-        box_h = (w + _LABEL_FONT_PX) * _SIN45
-        shift = 0.0
-        while shift <= 200.0 and any(
-            _slant_overlap(p, (x_px, shift + box_h / 2, w)) for p in placed
-        ):
-            shift += 5.0
-        placed.append((x_px, shift + box_h / 2, w))
-        anns.append(dict(
-            x=x_c, y=1.0, xref="x", yref="paper",
-            text=text, showarrow=False, textangle=-45,
-            font=dict(size=_LABEL_FONT_PX, color=color),
+        texts.append(text)
+        box_h_max = max(box_h_max, (_est_label_px(text) + _LABEL_FONT_PX) * _SIN45)
+
+    want = [it[0] * px_per_x for it in items]
+    gap = _LABEL_MIN_PERP_PX / _SIN45
+    if len(want) > 1:
+        gap = min(gap, plot_px / (len(want) - 1))
+    pos = list(want)
+    # 先从左往右把撞上的往右推，再从右往左把推出画布的压回来，挤压量两头分摊
+    for i in range(1, len(pos)):
+        pos[i] = max(pos[i], pos[i - 1] + gap)
+    pos[-1] = min(pos[-1], plot_px)
+    for i in range(len(pos) - 2, -1, -1):
+        pos[i] = min(pos[i], pos[i + 1] - gap)
+    pos[0] = max(pos[0], 0.0)
+    for i in range(1, len(pos)):
+        pos[i] = max(pos[i], pos[i - 1] + gap)
+
+    anns = [
+        dict(
+            x=items[i][0], y=1.0, xref="x", yref="paper",
+            text=texts[i], showarrow=False, textangle=-45,
+            font=dict(size=_LABEL_FONT_PX, color=items[i][4]),
             xanchor="center", yanchor="bottom",
-            yshift=shift,
-        ))
-        extra_top = max(extra_top, shift + box_h)
-    return anns, base_top + int(extra_top)
+            xshift=pos[i] - want[i],
+        )
+        for i in range(len(items))
+    ]
+    return anns, base_top + int(box_h_max)
 
 
 def build_stitched_fig(
