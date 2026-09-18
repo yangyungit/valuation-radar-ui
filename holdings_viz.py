@@ -494,6 +494,74 @@ def _seg_tick_text(start: str, end: str) -> str:
     return f"{start[2:]}→{end[5:]}"
 
 
+def _est_label_px(text: str, font_px: int = 13) -> float:
+    """粗估标签像素宽度：中文/emoji 按整宽，大写与数字 0.72，其余 ASCII 0.58。
+    代码几乎全是大写，按小写系数估会漏判重叠。"""
+    w = 0.0
+    for ch in text:
+        if ord(ch) > 0x2E80:
+            w += font_px
+        elif ch.isupper() or ch.isdigit():
+            w += font_px * 0.72
+        else:
+            w += font_px * 0.58
+    return w
+
+
+_LABEL_ROW_PX = 17
+
+
+def _thin_ticks(vals: list, texts: list, total_x: float, plot_px: float = 1000.0,
+                min_gap_px: float = 21.0) -> tuple:
+    """斜标的错开量只由相邻间距决定，缩短文本救不了——挤不下就隔一个不标。
+    只持 1 个月的段宽不到 20px，日期会互相压；贪心保留靠左的，末段强制保留
+    （当前持仓那段最常看），被跳过的段日期仍在 hover 里。"""
+    if len(vals) < 2 or total_x <= 0:
+        return vals, texts
+    min_gap = min_gap_px / (plot_px / total_x)
+    keep = [0]
+    for i in range(1, len(vals)):
+        if vals[i] - vals[keep[-1]] >= min_gap:
+            keep.append(i)
+    last = len(vals) - 1
+    if keep[-1] != last:
+        if vals[last] - vals[keep[-1]] < min_gap:
+            keep.pop()
+        keep.append(last)
+    return [vals[i] for i in keep], [texts[i] for i in keep]
+
+
+def _layout_segment_labels(items: list, total_x: float, plot_px: float = 1000.0) -> tuple:
+    """段名标注防重叠：窄段先把中文名退化成纯代码，仍撞上的往上错行。
+    items = [(段中心x, 段宽x, 全名, 代码, 颜色), ...]，返回 (annotations, top margin)。"""
+    base_top = 44
+    if not items or total_x <= 0:
+        return [], base_top
+    px_per_x = plot_px / total_x
+    rows: list[list[tuple]] = []
+    anns: list[dict] = []
+    for x_c, seg_w, full, short, color in items:
+        text = full
+        if full != short and _est_label_px(full) > seg_w * px_per_x * 1.5:
+            text = short
+        half = (_est_label_px(text) + 6) / 2 / px_per_x
+        lo, hi = x_c - half, x_c + half
+        row = 0
+        while row < len(rows) and any(lo <= b and hi >= a for a, b in rows[row]):
+            row += 1
+        if row == len(rows):
+            rows.append([])
+        rows[row].append((lo, hi))
+        anns.append(dict(
+            x=x_c, y=1.0, xref="x", yref="paper",
+            text=text, showarrow=False,
+            font=dict(size=13, color=color),
+            xanchor="center", yanchor="bottom",
+            yshift=row * _LABEL_ROW_PX,
+        ))
+    return anns, base_top + (len(rows) - 1) * _LABEL_ROW_PX
+
+
 def build_stitched_fig(
     segs: list, slot_name: str,
     spy_wk: pd.DataFrame = None,
@@ -520,7 +588,7 @@ def build_stitched_fig(
     tick_vals: list = []
     tick_texts: list = []
     boundary_xs: list = []
-    name_annotations: list = []
+    label_items: list = []
     running_nav = 1.0
     spy_close = (
         spy_wk["Close"].astype(float).dropna()
@@ -558,13 +626,9 @@ def build_stitched_fig(
                     ))
                     tick_vals.append(x_offset + n // 2)
                     tick_texts.append(_seg_tick_text(_dates[0], _dates[-1]))
-                    name_annotations.append(dict(
-                        x=x_offset + n // 2, y=1.0,
-                        xref="x", yref="paper",
-                        text="💰 空仓", showarrow=False,
-                        font=dict(size=13, color="#bbbbbb"),
-                        xanchor="center", yanchor="bottom",
-                    ))
+                    label_items.append(
+                        (x_offset + n // 2, n, "💰 空仓", "💰", "#bbbbbb")
+                    )
                     if x_offset > 0:
                         boundary_xs.append(x_offset - 0.5)
                     if spy_close is not None:
@@ -692,16 +756,13 @@ def build_stitched_fig(
         else:
             _base = f"{_cn}({tk})" if _cn and _cn != tk else tk
             _ann_text = f"{_base}·{_g}" if _g else _base
-        name_annotations.append(dict(
-            x=x_offset + n // 2, y=1.0,
-            xref="x", yref="paper",
-            text=_ann_text, showarrow=False,
-            font=dict(size=13, color=color),
-            xanchor="center", yanchor="bottom",
-        ))
+        label_items.append((x_offset + n // 2, n, _ann_text, tk, color))
         if x_offset > 0:
             boundary_xs.append(x_offset - 0.5)
         x_offset += n
+
+    name_annotations, top_margin = _layout_segment_labels(label_items, x_offset)
+    tick_vals, tick_texts = _thin_ticks(tick_vals, tick_texts, x_offset)
 
     for bx in boundary_xs:
         fig.add_vline(x=bx, line_dash="dash",
@@ -718,7 +779,10 @@ def build_stitched_fig(
         fig.data = fig.data[-1:] + fig.data[:-1]
 
     fig.update_layout(
-        title=f"{slot_name} — 累计收益率（共 {len(segs)} 段）",
+        title=dict(
+            text=f"{slot_name} — 累计收益率（共 {len(segs)} 段）",
+            yref="container", y=1.0, yanchor="top", pad=dict(t=8),
+        ),
         xaxis=dict(
             tickvals=tick_vals, ticktext=tick_texts,
             tickfont=dict(size=10), tickangle=-45, automargin=True,
@@ -732,7 +796,7 @@ def build_stitched_fig(
             gridcolor="rgba(100,100,100,0.3)",
         ),
         annotations=name_annotations,
-        height=560, margin=dict(l=56, r=10, t=44, b=108),
+        height=560 + (top_margin - 44), margin=dict(l=56, r=10, t=top_margin, b=108),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(30,30,30,0.6)",
         font=dict(color="#ccc", size=13),
