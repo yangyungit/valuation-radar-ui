@@ -598,13 +598,17 @@ def build_stitched_fig(
     weight_by_month: dict = None,
     cost_bps: float = 0.0,
     name_style: str = "full",
+    shade_months: set = None,
+    shade_color: str = "#F39C12",
 ) -> go.Figure:
     """cost_bps：单边换仓成本，口径与 calc_slot_stats 一致（卖出+买入各扣一次，
     CASH 不算成本资产）。首段不扣——calc_slot_stats 的总收益用首点做分母，
     首次买入成本被约掉，这里跟着约掉，两图末值才对得上。
     name_style="full"（默认）：段上标题=英文全称(代码)·grade_map；
     name_style="cn_ticker"：段上标题只留 grade_map 的中文名(代码)，不带英文全称
-    （grade_map 需已存的是中文名而非 sector，见 page20 FCF进攻）。"""
+    （grade_map 需已存的是中文名而非 sector，见 page20 FCF进攻）。
+    shade_months：要染底色的月份（"YYYY-MM"）。x 轴是拼接后的序号不是日期，
+    所以要按每个点的真实日期换算成序号区间再画 vrect。"""
     pc = price_cache if price_cache is not None else {}
     nm = name_map if name_map is not None else {}
     gm = grade_map if grade_map is not None else {}
@@ -627,6 +631,7 @@ def build_stitched_fig(
     # 收益会被丢掉，基准线被系统性算低（9 段的槽能低 9 个百分点）。
     spy_base = None
     last_tk = None
+    x_dates: list = []  # 第 i 个元素 = x=i 那个点的日期，给 shade_months 换算区间用
 
     for ci, (tk, s_m, e_m) in enumerate(segs):
         if tk == "CASH":
@@ -668,6 +673,7 @@ def build_stitched_fig(
                                     spy_y_all.append(max(0.001, float(spy_nav.loc[sdt])))
                                     spy_d_all.append(sdt.strftime("%Y-%m-%d"))
                     last_tk = "CASH"
+                    x_dates.extend(cash_idx)
                     x_offset += n
             continue
 
@@ -784,10 +790,24 @@ def build_stitched_fig(
         label_items.append((x_offset + n // 2, n, _ann_text, tk, color))
         if x_offset > 0:
             boundary_xs.append(x_offset - 0.5)
+        x_dates.extend(closes.index)
         x_offset += n
 
     name_annotations, top_margin = _layout_segment_labels(label_items, x_offset)
     tick_vals, tick_texts = _thin_ticks(tick_vals, tick_texts, x_offset)
+
+    if shade_months and x_dates:
+        spans: list = []
+        for xi, d in enumerate(x_dates):
+            if f"{d.year:04d}-{d.month:02d}" not in shade_months:
+                continue
+            if spans and spans[-1][1] == xi - 1:
+                spans[-1][1] = xi
+            else:
+                spans.append([xi, xi])
+        for a, b in spans:
+            fig.add_vrect(x0=a - 0.5, x1=b + 0.5, fillcolor=shade_color,
+                          opacity=0.10, line_width=0, layer="below")
 
     for bx in boundary_xs:
         fig.add_vline(x=bx, line_dash="dash",

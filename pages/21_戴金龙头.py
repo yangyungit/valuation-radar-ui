@@ -81,7 +81,7 @@ def render_time_window_slider(dates, key_prefix: str) -> tuple:
 
 def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
                                 spy_values: list, key_prefix: str,
-                                win_lo, win_hi) -> bool:
+                                win_lo, win_hi, shade_months: set = None) -> bool:
     if not slot_equity or not timeline or len(dates) == 0:
         return False
 
@@ -106,7 +106,7 @@ def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
         _cn = cn_name_map(tk for tk, _, _ in segs)
         fig = hv.build_stitched_fig(
             segs, f"{slot_name}接力 持仓段", spy_wk, price_cache, _cn, _cn,
-            name_style="cn_ticker",
+            name_style="cn_ticker", shade_months=shade_months,
         )
         st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_slot_segment_{slot_i}")
     return True
@@ -476,9 +476,11 @@ if _gl.get("success"):
         st.markdown("##### Slot 分段收益")
         if not render_slot_segment_returns(
             _two.get("slot_equity") or [], _two.get("holdings_timeline") or [],
-            _dates, _eq.get("spy", []), "gl_two", _win_lo, _win_hi,
+            _dates, _eq.get("spy", []), "gl_two", _win_lo, _win_hi, _rb_split,
         ):
             st.caption("后端暂未返回 slot_equity。")
+        else:
+            st.caption("橙色竖条含义同上：那几个月真的分投了金银两个板块。")
 
         st.markdown("##### 哪些月份走了银牌板块")
         _ts_rows = [
