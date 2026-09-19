@@ -214,7 +214,8 @@ def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str,
     for x0, x1 in (shade_spans or []):
         fig.add_vrect(x0=x0, x1=x1, fillcolor="#F39C12", opacity=0.10,
                       line_width=0, layer="below")
-    for key, name, color, vis_default in series_cfg:
+    for key, name, color, vis_default, *_style in series_cfg:
+        dash = _style[0] if _style else None
         vals = equity.get(key, []) or []
         if not vals:
             continue
@@ -228,7 +229,8 @@ def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str,
             s = s / s.iloc[0]
         fig.add_trace(go.Scatter(
             x=s.index, y=s.values, name=name,
-            line=dict(color=color, width=2 if vis_default else 1.4),
+            line=dict(color=color, width=1.3 if dash else (2 if vis_default else 1.4),
+                      dash=dash),
             visible=True if vis_default else "legendonly",
         ))
     fig.update_layout(
@@ -458,8 +460,8 @@ if _gl.get("success"):
         render_equity_chart(_dates, _eq_plot, [
             ("two_sector", "戴金龙头Top2（强弱切换）", "#F39C12", True),
             ("spy", "SPY", "#3498DB", True),
-            ("slot0", "左列 · 金牌槽", "#E74C3C", True),
-            ("slot1", "右列 · 银牌槽", "#16A085", True),
+            ("slot0", "左列 · 金牌槽", "rgba(243,156,18,0.55)", True, "dot"),
+            ("slot1", "右列 · 银牌槽", "rgba(170,178,189,0.75)", True, "dot"),
         ], "gl_eq_two", _win_lo, _win_hi, split_month_spans(_rb_split, _win_lo, _win_hi))
         st.caption(
             "橙色竖条 = 那段时间真的分投了金银两个板块，没底色的月份两个槽都在金牌板块里。"
