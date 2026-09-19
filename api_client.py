@@ -3416,3 +3416,20 @@ def clear_crypto_rebalance_caches():
     fetch_crypto_rebalance.clear()
     fetch_crypto_universe.clear()
     fetch_crypto_research_summary.clear()
+
+
+# ==========================================
+# BTC 抄底区（后端 crypto/bottom_zone.py）
+# ==========================================
+@st.cache_data(ttl=3600 * 4)
+def fetch_crypto_bottom_zone(years: float | None = None) -> dict:
+    """浮盈/已实现市值时序 + 4 年滚动通道 + 抄底区标记。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/crypto/bottom_zone",
+                         params={} if years is None else {"years": years}, timeout=30)
+        if r.status_code in (400, 503):
+            return {"success": False, "error": r.json().get("detail", "后端拿不到链上数据")}
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}

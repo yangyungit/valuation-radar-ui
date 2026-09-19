@@ -29,6 +29,7 @@ nav = st.navigation({
         st.Page("pages/7_风险预警.py", title="风险预警"),
         st.Page("pages/8_币圈流动性.py", title="币圈流动性"),
         st.Page("pages/30_币圈再平衡.py", title="币圈再平衡"),
+        st.Page("pages/31_BTC抄底区.py", title="BTC抄底区"),
         st.Page("pages/9_机构持仓.py", title="机构持仓"),
         st.Page("pages/10_行业PE.py", title="行业PE"),
         st.Page("pages/11_基本面长图.py", title="基本面长图"),
