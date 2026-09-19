@@ -144,6 +144,16 @@ if not (px.get(px_key) and any(v is not None for v in px[px_key])):
     px_key = "closeadj"
 px_label = "股价" if px_key == "close_no_div" else "含股息总回报"
 
+seg_on_col, seg_slider_col = st.columns([1, 3])
+with seg_on_col:
+    seg_on = st.toggle("标出停滞 / 趋势段", value=True, key="fund_chart_seg_on",
+                       help="黄=停滞段（股价长期没收复前高），绿=趋势段。下方表格列每段的股价年化、"
+                            "营收/净利涨了几倍、PE 起止。")
+with seg_slider_col:
+    stall_months = st.slider("停滞判定：多少个月没收复前高算停滞", 24, 84, 36, 6,
+                             key="fund_chart_stall_months", disabled=not seg_on,
+                             help="36 个月是拍的，不是最优解。调小分段更碎，调大只剩最长那几段。")
+
 if use_log:
     if "经营现金流(OCF) (TTM,$)" in sel_overlays and _ocf_neg:
         st.caption(f"⚠️ OCF 走 log 轴，{tk} 有 {_ocf_neg} 个季度经营现金流为负（烧钱期），"
@@ -168,6 +178,53 @@ def _series(key):
     此时绝不能把 None 交给 plotly——它不报错，而是拿数组下标当 y 值画出一条假直线。"""
     v = f.get(key)
     return v if v and any(x is not None for x in v) else None
+
+
+def _monthly(dates, values):
+    """周线取每月最后一个点。位置差不能直接当月数（历史有缺口时会少算），另返回年月序号。"""
+    s = pd.Series(values, index=pd.to_datetime(dates), dtype=float).dropna()
+    s = s[~s.index.to_period("M").duplicated(keep="last")]
+    return s, np.asarray(s.index.year * 12 + s.index.month)
+
+
+def _segments(s, mo, min_stall_months):
+    """从一个历史新高算起，超过 min_stall_months 没收复的区间判为停滞段，其余为趋势段。
+    不足 2 年的段丢掉；丢掉后首尾相接的同类段合并，免得图上留下一条没上色的缝。"""
+    if len(s) < 24:
+        return []
+    high = np.where((s >= s.cummax() * 0.999).values)[0]
+    stalls = [(a, b) for a, b in zip(high, high[1:]) if mo[b] - mo[a] >= min_stall_months]
+    if len(high) and mo[-1] - mo[high[-1]] >= min_stall_months:
+        stalls.append((high[-1], len(s) - 1))
+
+    raw, cur = [], 0
+    for a, b in stalls:
+        if a > cur:
+            raw.append(("trend", cur, a))
+        raw.append(("stall", a, b))
+        cur = b
+    if cur < len(s) - 1:
+        raw.append(("trend", cur, len(s) - 1))
+
+    kept = []
+    for kind, a, b in raw:
+        if mo[b] - mo[a] < 24:
+            continue
+        if kept and kept[-1][0] == kind:
+            kept[-1] = (kind, kept[-1][1], b)
+        else:
+            kept.append((kind, a, b))
+    return [dict(kind=k, t0=s.index[a], t1=s.index[b], years=(mo[b] - mo[a]) / 12,
+                 px0=float(s.iloc[a]), px1=float(s.iloc[b])) for k, a, b in kept]
+
+
+def _asof(idx, values, when):
+    """取 when 当天或之前最后一个有值的披露点。晚于 when 的不能用，那是未来数据。"""
+    if not values:
+        return None
+    v = pd.Series(values, index=idx, dtype=float).dropna()
+    v = v[v.index <= when]
+    return float(v.iloc[-1]) if len(v) else None
 
 
 missing = [o[0] for o in OVERLAYS if o[0] in sel_overlays and _series(o[1]) is None]
@@ -300,6 +357,11 @@ fig.update_layout(
     **axis_layout,
 )
 
+segs = _segments(*_monthly(px["date"], px[px_key]), stall_months) if seg_on else []
+for sg in segs:
+    fig.add_vrect(x0=sg["t0"], x1=sg["t1"], layer="below", line_width=0, opacity=0.13,
+                  fillcolor="#e8c33a" if sg["kind"] == "stall" else "#2ca02c")
+
 _, scale_col = st.columns([6, 1])
 with scale_col:
     st.radio("美元序列坐标轴", ["Linear", "Log"], key="fund_chart_scale",
@@ -313,6 +375,44 @@ if tail_from:
                "ROIC / Rule40 / 毛利率 / 毛利润 / 股东总回报率 / 净回购率 / FCF 收益率 / EPS / PE / PB 补不了，"
                "那几条线到此为止。"
                "价格线也是从 Sharadar 末日起接的 yfinance。")
+
+if seg_on:
+    st.markdown("**🟡 停滞段 / 🟢 趋势段**")
+    if not segs:
+        st.caption(f"{tk} 在「{stall_months} 个月没收复前高」这个阈值下没切出任何一段"
+                   "（要么一路创新高，要么价格历史不够长）。把阈值调小再看。")
+    else:
+        def _mult(v0, v1):
+            if v0 is None or v1 is None or v0 <= 0:
+                return "—"
+            return "转亏" if v1 <= 0 else f"{v1 / v0:.1f}x"
+
+        def _pe(v):
+            return "—" if v is None else ("亏损" if v <= 0 else f"{v:.1f}")
+
+        rows = []
+        for sg in segs:
+            r0, r1 = (_asof(fi, f.get("revenue_usd"), t) for t in (sg["t0"], sg["t1"]))
+            n0, n1 = (_asof(fi, f.get("net_income_usd"), t) for t in (sg["t0"], sg["t1"]))
+            p0, p1 = (_asof(fi, f.get("pe"), t) for t in (sg["t0"], sg["t1"]))
+            rows.append({
+                "类型": "🟡 停滞" if sg["kind"] == "stall" else "🟢 趋势",
+                "区间": f"{sg['t0']:%Y-%m} ~ {sg['t1']:%Y-%m}",
+                "年数": round(sg["years"], 1),
+                f"{px_label}年化": f"{(sg['px1'] / sg['px0']) ** (1 / sg['years']) * 100 - 100:+.1f}%",
+                "股价": f"{sg['px1'] / sg['px0']:.1f}x",
+                "营收": _mult(r0, r1),
+                "净利": _mult(n0, n1),
+                "PE 起→止": f"{_pe(p0)} → {_pe(p1)}",
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.caption(f"规则：从一个历史新高算起，超过 {stall_months} 个月没收复就判停滞段，其余为趋势段；"
+               "不足 2 年的段丢掉，前后同类段合并。被丢掉的短段不上色也不进表，"
+               "所以阈值调小后时间轴会出现空档。"
+               "营收/净利是 TTM，取段起止当天或之前最后一个已披露点，段首的值可能比段首早几个月。"
+               "起点亏损时算不出倍数（显示「—」），终点亏损显示「转亏」。"
+               "口径会改分段结果：不含股息时高股息股（KO / JNJ 这类）停滞段明显更长，"
+               "两个口径都切一遍再下结论。")
 
 st.divider()
 st.subheader("🔭 分析师预期修正")
