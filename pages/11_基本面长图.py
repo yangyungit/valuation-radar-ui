@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from api_client import (fetch_fundamentals_manifest, fetch_fundamentals,
-                        fetch_estimates, fetch_estimate_quarters)
+                        fetch_estimates, fetch_estimate_quarters, fetch_close_series)
+from fundamental_stress import build_phases
 
 st.set_page_config(page_title="基本面长图", layout="wide", page_icon="📈")
 st.title("📈 基本面长图（ROIC / Rule40 / 利润率 / 股东总回报率 / EPS / PE / FCF / 营收 vs 股价）")
@@ -413,6 +414,90 @@ if seg_on:
                "起点亏损时算不出倍数（显示「—」），终点亏损显示「转亏」。"
                "口径会改分段结果：不含股息时高股息股（KO / JNJ 这类）停滞段明显更长，"
                "两个口径都切一遍再下结论。")
+
+st.divider()
+st.subheader("🩺 财务恶化阶段体检")
+st.caption("找出 FCF / OCF / 净利掉头向下、营收增速掉档的时段（几项常常叠在一起），"
+           "逐段判断像什么问题、股价到底受没受影响。"
+           "受没受影响看两把尺子：这次回撤在**这只票自己**的历史回撤里排第几分位，"
+           "以及同窗口 SPY 跌了多少——跌幅跟大盘差不多就不是基本面的锅。")
+
+if st.toggle("跑一遍恶化阶段体检", value=True, key="stress_on"):
+    c1, c2, c3 = st.columns(3)
+    min_drop_pct = c1.slider("金额类跌幅门槛（占峰值 %）", 10, 60, 25, 5, key="stress_drop",
+                             help="FCF / OCF / 净利从峰值掉这么多才算一段恶化。"
+                                  "另有一道硬门槛：跌掉的绝对额要 ≥ 当期营收的 3%，"
+                                  "否则「净利从 0.1 亿掉到 0.01 亿」这种也会被算成 -90% 的大事。")
+    min_yoy_pp = c2.slider("营收增速降幅门槛（pp）", 5, 30, 10, 1, key="stress_pp",
+                           help="营收同比从局部高点掉这么多个百分点算掉档。")
+    pad_m = c3.slider("股价窗口前后各延伸（月）", 0, 9, 3, 1, key="stress_pad",
+                      help="股价常常比财报早动。窗口 = 指标见顶前 N 个月 到 指标见底后 N 个月，"
+                           "回撤只在这个窗口里量。调大更容易把大盘行情裹进来，调小可能漏掉抢跑的那一段。")
+
+    _px_s = pd.Series(px[px_key], index=pdt, dtype=float)
+    try:
+        _spy = fetch_close_series("SPY", years=40)
+    except Exception:
+        _spy = None
+    if _spy is None or _spy.empty:
+        _spy = None
+        st.caption("⚠️ SPY 拉不到，本次只有「自身历史分位」这一把尺子，没有大盘对比。")
+
+    phases, eps, hist = build_phases(f, fi, _px_s, _spy, min_drop_pct=min_drop_pct,
+                                     min_yoy_pp=min_yoy_pp, pad_months=pad_m)
+
+    def _f(v, fmt, suffix=""):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return "—"
+        return format(v, fmt) + suffix
+
+    if not phases:
+        st.info(f"{tk} 在当前门槛下没切出任何恶化段。把跌幅门槛调小再看。")
+    else:
+        st.dataframe(pd.DataFrame([{
+            "区间": f"{ph['t0']:%Y-%m} ~ {ph['t1']:%Y-%m}" + ("（进行中）" if ph["ongoing"] else ""),
+            "坏了哪几项": " ".join(ph["metrics"]),
+            "营收(TTM)": _f(ph["rev_chg"], "+.0f", "%"),
+            "经营利润率": f"{_f(ph['om0'], '.1f')} → {_f(ph['om1'], '.1f')}%",
+            "CapEx/营收": f"{_f(ph['capex0'], '.0f')} → {_f(ph['capex1'], '.0f')}%",
+            "最像什么问题": ph["why"],
+            f"窗口内{px_label}": _f(ph["ret"], "+.0%"),
+            "最大回撤": _f(ph["depth"], ".0%"),
+            "历史分位": _f(ph["quantile"], ".0f"),
+            "SPY 同期（超额）": f"{_f(ph['spy_depth'], '.0%')}（{_f(ph['excess'], '+.0f')}pp）",
+            "结论": ph["verdict"],
+        } for ph in phases]), use_container_width=True, hide_index=True)
+
+        def _usd(v):
+            return f"{v / 1e9:,.2f}B" if abs(v) >= 1e9 else f"{v / 1e6:,.0f}M"
+
+        with st.expander("逐个指标看：每项各自从哪跌到哪、收复没有"):
+            st.dataframe(pd.DataFrame([{
+                "指标": e["metric"],
+                "见顶": f"{e['t0']:%Y-%m}",
+                "见底": f"{e['t1']:%Y-%m}",
+                "季数": e["quarters"],
+                "峰值 → 谷底": (f"{e['v0']:,.1f}% → {e['v1']:,.1f}%" if e["unit"] == "pp"
+                             else f"{_usd(e['v0'])} → {_usd(e['v1'])}"),
+                "跌幅": (f"{e['drop']:.0f}pp" if e["unit"] == "pp"
+                       else ("亏损扩大" if np.isnan(e["drop"])
+                             else (">999%" if e["drop"] > 999 else f"{e['drop']:.0f}%"))),
+                "占营收": _f(e["drop_rev"], ".1f", "%"),
+                "收复前高": f"{e['recovered']:%Y-%m}" if e["recovered"] is not None else "至今未收复",
+            } for e in eps]), use_container_width=True, hide_index=True)
+
+        st.caption(
+            f"参照系：{tk} 全历史（{px_label}口径）共 {len(hist)} 次 ≥10% 的回撤，"
+            f"中位 {np.median(hist):.0%}，最深 {max(hist):.0%}；"
+            f"「历史分位」就是这段的最大回撤在这 {len(hist)} 次里排第几分位。"
+            if hist else "参照系：历史回撤样本不足，分位没法算。")
+        st.caption("结论口径：分位 ≥75 且比 SPY 多跌 ≥15pp → 「有影响（自身问题）」；"
+                   "分位 ≥75 但跟 SPY 差不多 → 「跌得深，但大盘同跌」；"
+                   "分位 <40 → 「基本没影响」；中间 → 「影响有限」。"
+                   "「最像什么问题」按优先级判：营收在缩 > 经营利润率掉 > 只有 OCF 掉（营运资本/收付时点）"
+                   " > 只有净利掉（税/减值/投资损益这类线下项，一次性嫌疑大） > 只有 FCF 掉（多半是加投入）。"
+                   "这一栏只用已有的几个字段推，说不清具体是哪笔账——真要定性还得翻那几季财报。"
+                   "SPY 用 yfinance 含股息口径，和上面选的股价口径不完全一致，回撤深度的对比不受影响。")
 
 st.divider()
 st.subheader("🔭 分析师预期修正")
