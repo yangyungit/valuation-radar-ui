@@ -354,8 +354,6 @@ if _gl.get("success"):
         _notes.append("已按逐月真实成分选股（PIT，含退市，去生存者偏差）")
     if not _meta.get("bil_available"):
         _notes.append("BIL 历史缺失，BIL 持有段按现金 0 收益")
-    if not _meta.get("rsp_available"):
-        _notes.append("RSP 缺失，未画等权标普对照")
     if not _meta.get("mcap_gate_applied"):
         _notes.append("市值门票产物缺失，本次未按市值前3过滤")
     st.caption(
@@ -454,15 +452,19 @@ if _gl.get("success"):
         _win_lo, _win_hi = render_time_window_slider(_dates, "gl_two")
 
         st.markdown("##### 组合收益（起点归一为 1）")
-        render_equity_chart(_dates, _eq, [
+        _eq_plot = dict(_eq)
+        for _row in (_two.get("slot_equity") or []):
+            _eq_plot[f"slot{int(_row.get('slot', 0))}"] = _row.get("equity", [])
+        render_equity_chart(_dates, _eq_plot, [
             ("two_sector", "戴金龙头Top2（强弱切换）", "#F39C12", True),
             ("spy", "SPY", "#3498DB", True),
-            ("rsp", "RSP 等权标普", "#9B59B6", False),
-            ("eqw11", "11行业ETF等权", "#16A085", False),
+            ("slot0", "左列 · 金牌槽", "#E74C3C", True),
+            ("slot1", "右列 · 银牌槽", "#16A085", True),
         ], "gl_eq_two", _win_lo, _win_hi, split_month_spans(_rb_split, _win_lo, _win_hi))
         st.caption(
             "橙色竖条 = 那段时间真的分投了金银两个板块，没底色的月份两个槽都在金牌板块里。"
-            "点图例可展开 RSP / 11行业ETF等权对照；上方时间窗口同步套用到本图和下方 Slot 分段图"
+            "左列 / 右列是两个槽各自的净值，组合曲线 = 两条各占一半取平均；"
+            "上方时间窗口同步套用到本图和下方 Slot 分段图"
         )
 
         st.markdown("##### 统计卡")
