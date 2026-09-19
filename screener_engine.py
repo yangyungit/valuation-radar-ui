@@ -11,6 +11,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from quality_gate import QUALITY_GATED_GRADES, quality_detail, quality_ok
+
 
 def compute_metrics(ticker: str, df: pd.DataFrame, spy_col: str = "SPY") -> dict:
     """Compute all quantitative metrics needed by the ABCD screener for a single asset.
@@ -110,6 +112,7 @@ def classify_asset_parallel(
     m: dict, div_yield: float, mcap: float,
     prev_grades: list = None,
     thresholds: dict = None,
+    quality: dict = None,
 ) -> tuple:
     """Parallel independent evaluation of all 4 grades with hysteresis.
 
@@ -125,6 +128,9 @@ def classify_asset_parallel(
         a_dd_enter (default 15.0), a_dd_exit (default 20.0),
         a_corr_enter (default 0.65), a_corr_exit (default 0.75).
         None means use original defaults (fully backward-compatible).
+    quality : Optional dict from universe_fundamentals with keys
+        quality_pass / quality_source / roic_med / debt_ebitda / quality_asof.
+        Gates only the grades listed in QUALITY_GATED_GRADES.
     """
     if not m.get("has_data"):
         return [], {"error": "数据不足"}
@@ -133,6 +139,9 @@ def classify_asset_parallel(
     th = thresholds or {}
     grades = []
     all_details = {}
+
+    q_ok = quality_ok(quality)
+    q_detail = quality_detail(quality)
 
     # ── A: Anchor (defensive) ──
     was_a = "A" in prev
@@ -189,6 +198,9 @@ def classify_asset_parallel(
         b_pass = not b_mcap_exit and not b_dd3y_exit and not b_ma200_exit
     else:
         b_pass = b_mcap_enter and b_dd3y_enter and b_ma200_enter
+    # 质量是季度更新的慢变量，进退同阈值，不设迟滞带
+    if "B" in QUALITY_GATED_GRADES:
+        b_pass = b_pass and q_ok
 
     all_details["B"] = {
         "pass": b_pass,
@@ -199,6 +211,8 @@ def classify_asset_parallel(
         "价格vs MA200":  (b_ma200_enter if not was_b else not b_ma200_exit,
                          f"{'>' if b_ma200_enter else '<'}MA200（进入需>MA200×1.03，退出需<MA200×0.95）"),
     }
+    if "B" in QUALITY_GATED_GRADES:
+        all_details["B"]["质量硬门槛"] = q_detail
     if b_pass:
         grades.append("B")
 
@@ -214,6 +228,8 @@ def classify_asset_parallel(
         c_pass = not c_rs_exit and not c_ma250_exit
     else:
         c_pass = c_rs_enter and c_ma250_enter
+    if "C" in QUALITY_GATED_GRADES:
+        c_pass = c_pass and q_ok
 
     all_details["C"] = {
         "pass": c_pass,
@@ -222,6 +238,8 @@ def classify_asset_parallel(
         "年线支撑":   (c_ma250_enter if not was_c else not c_ma250_exit,
                       f"curr vs MA250（进入需站上年线，退出需<MA250×0.95）"),
     }
+    if "C" in QUALITY_GATED_GRADES:
+        all_details["C"]["质量硬门槛"] = q_detail
     if c_pass:
         grades.append("C")
 
@@ -383,6 +401,10 @@ def classify_all_at_date(
     z_seed_tickers : Optional set of tickers from Z_SEED_POOL; excluded from A-grade
                      to prevent fixed-income/yield assets dominating the equity arena.
 
+    meta_data entries may also carry the quality-gate fields written by
+    refresh_universe (quality_pass / quality_source / roic_med / debt_ebitda /
+    quality_asof / quality_reason); missing fields fail the gate closed.
+
     Returns
     -------
     {ticker: {"cls": str, "qualifying_grades": list, "primary_cls": str,
@@ -431,7 +453,8 @@ def classify_all_at_date(
         cn_name   = tic_map.get(ticker, ticker)
         prev_g    = prev_grades_map.get(ticker, [])
 
-        q_grades, details = classify_asset_parallel(m, div_yield, mcap, prev_grades=prev_g, thresholds=thresholds)
+        q_grades, details = classify_asset_parallel(m, div_yield, mcap, prev_grades=prev_g,
+                                                    thresholds=thresholds, quality=m_info)
 
         if ticker in _z_seeds and "A" in q_grades:
             q_grades = [g for g in q_grades if g != "A"]
@@ -457,6 +480,12 @@ def classify_all_at_date(
             "spy_corr":          m.get("spy_corr", 0.0),
             "div_yield":         div_yield,
             "mcap":              mcap,
+            "quality_pass":      quality_ok(m_info),
+            "quality_source":    m_info.get("quality_source"),
+            "roic_med":          m_info.get("roic_med"),
+            "debt_ebitda":       m_info.get("debt_ebitda"),
+            "quality_asof":      m_info.get("quality_asof"),
+            "quality_reason":    m_info.get("quality_reason"),
         }
 
     return all_assets

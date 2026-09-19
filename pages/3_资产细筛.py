@@ -38,6 +38,7 @@ from screener_engine import (
     classify_all_at_date,
     _primary_grade,
 )
+from quality_gate import QUALITY_DEBT_EBITDA_MAX, QUALITY_ROIC_MED_MIN
 from conviction_engine import (
     CONVICTION_A_CONFIG,
     CONVICTION_B_CONFIG,
@@ -3506,6 +3507,136 @@ def _render_hysteresis_whitebox(all_assets_dict: dict) -> None:
         )
 
 
+def _quality_checks(info: dict) -> tuple:
+    """把一只标的的质量三条拆成 (8季全正, ROIC达标, 杠杆达标)，None 表示无从判断。
+
+    8 季全正没有单独字段，靠 quality_reason 反推：eval_quality 先判全正再判
+    ROIC 中位和杠杆，所以 reason 落在后两条上就说明全正已经过了。
+    """
+    roic, lev = info.get("roic_med"), info.get("debt_ebitda")
+    reason = info.get("quality_reason") or ""
+    roic_ok = roic is not None and roic >= QUALITY_ROIC_MED_MIN
+    lev_ok  = lev is not None and lev < QUALITY_DEBT_EBITDA_MAX
+    if "未能全为正" in reason:
+        pos_ok = False
+    elif reason.startswith("财报仅") or "全部缺失" in reason:
+        pos_ok = None
+    else:
+        pos_ok = True
+    return pos_ok, roic_ok, lev_ok
+
+
+def _render_quality_whitebox(all_assets_dict: dict, grade: str) -> None:
+    """B/C 组质量硬门槛审计表：只列其余条件全过的候选，逐行展示三条硬指标怎么判的。
+
+    被门槛刷掉的票不会出现在 df_all 里（后端已从 qualifying_grades 剔除），
+    所以这张表是唯一能看到「谁被刷掉、卡在哪条」的地方。
+    """
+    candidates = []
+    for tk, info in all_assets_dict.items():
+        crit = info.get("criteria", {}).get(grade, {})
+        q = crit.get("质量硬门槛")
+        if not q:
+            continue
+        others_ok = all(
+            v[0] for k, v in crit.items()
+            if k not in ("pass", "质量硬门槛") and isinstance(v, (list, tuple))
+        )
+        if others_ok:
+            candidates.append((tk, info, bool(q[0]), str(q[1])))
+
+    if not candidates:
+        return
+
+    n_pass = sum(1 for _, _, ok, _ in candidates if ok)
+    n_fail = len(candidates) - n_pass
+    candidates.sort(key=lambda x: (x[2], -(x[1].get("roic_med") or -9)))
+
+    title = (f"🔬 {grade} 组质量硬门槛审计表 — 其余条件已过的 {len(candidates)} 只，"
+             f"被门槛刷掉 {n_fail} 只")
+    with st.expander(title, expanded=False):
+        st.markdown(
+            f"<div style='font-size:13px; color:#888; margin-bottom:8px;'>"
+            f"三条硬指标任一不过即一票否决，无迟滞带（质量是季度更新的慢变量，进退同阈值）："
+            f"连续 8 季度 ROIC/自由现金流/净利润全为正 &nbsp;｜&nbsp; "
+            f"8 季度 ROIC 中位 ≥{QUALITY_ROIC_MED_MIN:.0%} &nbsp;｜&nbsp; "
+            f"债务/EBITDA &lt;{QUALITY_DEBT_EBITDA_MAX:.1f}。"
+            f"数据源 Sharadar SF1，2026-06-12 后不再更新，之后新上市的票一律判不通过。"
+            f"</div>"
+            f"<div style='font-size:13px; color:#888; margin-bottom:6px;'>"
+            f"通过 <span style='color:#2ECC71; font-weight:bold;'>{n_pass}</span> 只 &nbsp;｜&nbsp; "
+            f"未通过 <span style='color:#E74C3C; font-weight:bold;'>{n_fail}</span> 只"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        header_html = (
+            "<div style='display:flex; gap:6px; padding:4px 0; border-bottom:2px solid #333;"
+            " font-size:13px; color:#888; font-weight:bold;'>"
+            "<span style='width:70px;'>Ticker</span>"
+            "<span style='width:110px;'>名称</span>"
+            "<span style='width:90px; text-align:right;'>ROIC中位</span>"
+            "<span style='width:100px; text-align:right;'>债务/EBITDA</span>"
+            "<span style='width:80px; text-align:center;'>8季全正</span>"
+            "<span style='width:80px; text-align:center;'>ROIC达标</span>"
+            "<span style='width:80px; text-align:center;'>杠杆达标</span>"
+            "<span style='width:90px; text-align:center;'>最终结果</span>"
+            "<span style='width:260px;'>卡在哪条</span>"
+            "<span style='width:90px; text-align:center;'>财报截至</span>"
+            "</div>"
+        )
+
+        def _chk(ok) -> str:
+            if ok is None:
+                return "<span style='color:#666;'>—</span>"
+            return f"<span style='color:{'#2ECC71' if ok else '#E74C3C'};'>{'✅' if ok else '❌'}</span>"
+
+        rows_html = ""
+        for tk, info, q_ok, q_text in candidates:
+            src = info.get("quality_source")
+            roic, lev = info.get("roic_med"), info.get("debt_ebitda")
+            if src == "sharadar":
+                pos_ok, roic_ok, lev_ok = _quality_checks(info)
+                roic_txt = f"{roic:.1%}" if roic is not None else "—"
+                lev_txt  = f"{lev:.2f}"  if lev  is not None else "—"
+            else:
+                pos_ok = roic_ok = lev_ok = None
+                roic_txt = lev_txt = "—"
+            note = info.get("quality_reason") or ("豁免" if q_ok else q_text)
+            if src == "etf_exempt":
+                note = "ETF 无财报，豁免质量门槛"
+            elif src is None:
+                note = "未提供质量数据，本次不施加门槛（降级模式）"
+
+            row_bg   = "#1e2a1e" if q_ok else "#2a1e1e"
+            pass_clr = "#2ECC71" if q_ok else "#E74C3C"
+            rows_html += (
+                f"<div style='display:flex; gap:6px; padding:5px 0; "
+                f"border-bottom:1px solid #222; background:{row_bg}; font-size:13px;'>"
+                f"<span style='width:70px; font-weight:bold; color:{pass_clr};'>{tk}</span>"
+                f"<span style='width:110px; color:#aaa; overflow:hidden; text-overflow:ellipsis; "
+                f"white-space:nowrap;'>{html.escape(str(info.get('cn_name', tk)))}</span>"
+                f"<span style='width:90px; text-align:right; color:#ccc;'>{roic_txt}</span>"
+                f"<span style='width:100px; text-align:right; color:#ccc;'>{lev_txt}</span>"
+                f"<span style='width:80px; text-align:center;'>{_chk(pos_ok)}</span>"
+                f"<span style='width:80px; text-align:center;'>{_chk(roic_ok)}</span>"
+                f"<span style='width:80px; text-align:center;'>{_chk(lev_ok)}</span>"
+                f"<span style='width:90px; text-align:center; font-weight:bold; color:{pass_clr};'>"
+                f"{'✅ 放行' if q_ok else '❌ 否决'}</span>"
+                f"<span style='width:260px; color:#999; overflow:hidden; text-overflow:ellipsis; "
+                f"white-space:nowrap;' title='{html.escape(q_text)}'>{html.escape(note)}</span>"
+                f"<span style='width:90px; text-align:center; color:#777;'>"
+                f"{info.get('quality_asof') or '—'}</span>"
+                f"</div>"
+            )
+
+        st.markdown(
+            f"<div style='background:#111; border-radius:6px; padding:8px; overflow-x:auto;'>"
+            f"{header_html}{rows_html}</div>",
+            unsafe_allow_html=True,
+        )
+
+
 def _render_conviction_whitebox(
     conv_state: dict,
     prev_conv_state: dict,
@@ -4093,7 +4224,12 @@ with st.spinner("⚙️ 正在执行并行 ABCD 分类（含滞后带）…"):
     if _cls_result.get("success"):
         all_assets = _cls_result["abcd_classified_assets"]
     else:
-        st.warning(f"⚠️ 后端分类 API 失败，回退本地计算: {_cls_result.get('error','')}", icon="⚠️")
+        st.warning(
+            f"⚠️ 后端分类 API 失败，回退本地计算: {_cls_result.get('error','')}\n\n"
+            "本地降级路径拿不到 Sharadar 质量字段，**B/C 两档的质量硬门槛未生效**，"
+            "名单会比正常情况多，且下方质量审计表无数据。",
+            icon="⚠️",
+        )
         _date_idx = len(_price_df) - 1
         all_assets = classify_all_at_date(
             _price_df, _date_idx, _SCREEN_TICKERS, _meta_live,
@@ -4609,6 +4745,10 @@ elif _sel4 == "B":
                 group_cls="B",
             )
 
+    # 门槛把 B 档全刷空时这张表最有用，所以放在 df_b.empty 判断外面
+    st.markdown("---")
+    _render_quality_whitebox(st.session_state.get("abcd_classified_assets", {}), "B")
+
 elif _sel4 == "C":
     df_c = df_all[df_all["类别"] == "C"].copy()
     meta = CLASS_META["C"]
@@ -4691,6 +4831,15 @@ elif _sel4 == "C":
 
         st.markdown("---")
         _render_leaderboard(df_scored_c, "C")
+
+    # 门槛把 C 档全刷空时这张表最有用，所以放在 df_c.empty 判断外面
+    st.markdown("---")
+    st.markdown(
+        "<div style='font-size:16px; font-weight:bold; color:#F39C12;"
+        " margin-bottom:4px;'>🔬 白盒加工台 — 谁被质量门槛挡在门外</div>",
+        unsafe_allow_html=True,
+    )
+    _render_quality_whitebox(st.session_state.get("abcd_classified_assets", {}), "C")
 
 
 elif _sel4 == "Z":
