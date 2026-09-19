@@ -17,10 +17,12 @@ QUALITY_ROIC_MED_MIN     = 0.10
 QUALITY_DEBT_EBITDA_MAX  = 3.0
 QUALITY_LOOKBACK_QUARTERS = 8
 
-# 质量门槛只挂长期持有档。A 压舱石的职责是抗跌、Z 现金流堡垒的职责是收息，
-# 都不追求超额收益，挂上去只会被 ROIC 口径误杀公用事业 / REIT / 保险；
-# D 侦察兵是短线投机动量，持有期太短，质量是慢变量管不到。
-QUALITY_GATED_GRADES = ("B", "C")
+# 空 = 质量只算不判，不参与任何一档的筛选。
+# 曾挂在 B/C 两档，实测把 B 档 60 只砍到 30、C 档 114 砍到 50。
+# 但 scripts/backtest_quality_cheap.py 在 2000-2025 的 S&P 500 点阵上跑出来，
+# 「高质量 + 便宜」12 个月相对 SPY 超额中位 −0.7%、跑赢比例 49%，没有正超额，
+# 不足以拿它砍掉一半实盘候选。质量字段照常计算和展示，供人工挑选时参考。
+QUALITY_GATED_GRADES = ()
 
 # 选股池代码 → Sharadar 代码。必须多对一：GOOG 和 GOOGL 同时在池子里，
 # 指向同一家公司同一条 SF1 记录，建反向字典会让其中一只静默丢数据。

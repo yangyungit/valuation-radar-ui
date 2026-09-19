@@ -38,7 +38,7 @@ from screener_engine import (
     classify_all_at_date,
     _primary_grade,
 )
-from quality_gate import QUALITY_DEBT_EBITDA_MAX, QUALITY_ROIC_MED_MIN
+from quality_gate import QUALITY_DEBT_EBITDA_MAX, QUALITY_GATED_GRADES, QUALITY_ROIC_MED_MIN
 from conviction_engine import (
     CONVICTION_A_CONFIG,
     CONVICTION_B_CONFIG,
@@ -4746,8 +4746,9 @@ elif _sel4 == "B":
             )
 
     # 门槛把 B 档全刷空时这张表最有用，所以放在 df_b.empty 判断外面
-    st.markdown("---")
-    _render_quality_whitebox(st.session_state.get("abcd_classified_assets", {}), "B")
+    if "B" in QUALITY_GATED_GRADES:
+        st.markdown("---")
+        _render_quality_whitebox(st.session_state.get("abcd_classified_assets", {}), "B")
 
 elif _sel4 == "C":
     df_c = df_all[df_all["类别"] == "C"].copy()
@@ -4833,13 +4834,14 @@ elif _sel4 == "C":
         _render_leaderboard(df_scored_c, "C")
 
     # 门槛把 C 档全刷空时这张表最有用，所以放在 df_c.empty 判断外面
-    st.markdown("---")
-    st.markdown(
-        "<div style='font-size:16px; font-weight:bold; color:#F39C12;"
-        " margin-bottom:4px;'>🔬 白盒加工台 — 谁被质量门槛挡在门外</div>",
-        unsafe_allow_html=True,
-    )
-    _render_quality_whitebox(st.session_state.get("abcd_classified_assets", {}), "C")
+    if "C" in QUALITY_GATED_GRADES:
+        st.markdown("---")
+        st.markdown(
+            "<div style='font-size:16px; font-weight:bold; color:#F39C12;"
+            " margin-bottom:4px;'>🔬 白盒加工台 — 谁被质量门槛挡在门外</div>",
+            unsafe_allow_html=True,
+        )
+        _render_quality_whitebox(st.session_state.get("abcd_classified_assets", {}), "C")
 
 
 elif _sel4 == "Z":
