@@ -194,12 +194,12 @@ for label, hint, rows, empty_msg in groups:
         st.caption(empty_msg)
         continue
     for r in rows:
-        # 重要度和独立证据挪进展开后的 meta 行了，标题这里只留「什么事」和
-        # 「属于什么变化」两段——光看新闻标题像证据，不像趋势。
+        # 趋势放前面，新闻标题退成灰色的证据——先看到新闻标题的话，这一屏
+        # 读起来还是一堆孤立事件。重要度和独立证据展开后的 meta 行里有。
         pattern = (r.get("broader_pattern") or "").strip() or "还看不出属于什么变化"
         with st.expander(
-                f"{STATUS_EMOJI.get(r['status'], '•')} {r['title'][:60]}"
-                f"　:gray[│　{pattern}]"):
+                f"{STATUS_EMOJI.get(r['status'], '•')} **{pattern}**"
+                f"　:gray[│　{r['title'][:60]}]"):
             render_thesis_detail(
                 fetch_signal_thesis_detail(r["thesis_id"]).get("data"))
 
