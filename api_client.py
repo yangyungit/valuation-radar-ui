@@ -984,6 +984,55 @@ def fetch_theme_clusters(start: str = "2016-01") -> dict:
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=1800)
+def fetch_signal_summary() -> dict:
+    """新闻趋势跟踪页顶部汇总：假设/趋势/证据计数。失败返回 {"success": False}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/signals/summary", timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=1800)
+def fetch_signal_trends(min_theses: int = 2) -> dict:
+    """趋势分组列表，每组自带成员假设。失败返回 {"success": False, "data": []}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/signals/trends",
+                         params={"min_theses": min_theses}, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "data": [], "error": str(e)}
+
+
+@st.cache_data(ttl=1800)
+def fetch_signal_theses(status: str = "", orphan: bool = False,
+                        no_trend: bool = False, limit: int = 200) -> dict:
+    """假设列表。orphan=只要没有更大图景的孤例，no_trend=只要没归进任何趋势组。
+    失败返回 {"success": False, "data": []}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/signals/theses", params={
+            "status": status, "orphan": orphan, "no_trend": no_trend, "limit": limit,
+        }, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "data": [], "error": str(e)}
+
+
+@st.cache_data(ttl=1800)
+def fetch_signal_thesis_detail(thesis_id: str) -> dict:
+    """单条假设详情：完整字段 + 证据列表 + 更新时间线。失败返回 {"success": False}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/signals/thesis/{thesis_id}", timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @st.cache_data(ttl=3600 * 4)
 def fetch_tech_leader_relay_timeseries(window: str = "5Y") -> dict:
     """科技龙头池接力图时序（king_score = 纯动量 Z(RS_210d)，池内横截面排名）。
