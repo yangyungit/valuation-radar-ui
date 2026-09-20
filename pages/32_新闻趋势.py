@@ -16,6 +16,7 @@ st.caption(
     "从联邦采购公告、SEC 8-K、联邦公报、全球新闻里抓可验证的变化，抽成带证伪条件的"
     "投资假设，再拿后续新材料检验它有没有在往趋势上走。数据来自 `data/signals.db`，"
     "每天北京时间 7:30 由 launchd 定时任务自动跑一轮采集+判定，这页只读，不会触发流水线。"
+    "「值得先看的」按新增时间和证据变化挑，不是按预测把握排序。"
 )
 if not IS_LOCAL_API:
     st.warning("当前连的是 Render 远端，数据已停更，仅供历史参考。切本地后端才是最新数据。")
@@ -31,6 +32,11 @@ ROLE_BADGE = {"support": "🟢", "weaken": "🟠", "disconfirm_met": "🔴",
 TYPE_EMOJI = {"新需求出现": "🆕", "买家行为改变": "🛒",
               "成本或能力跨过门槛": "📉", "供给或规则改变": "⚖️",
               "其他重要变化": "📌"}
+_NEW_DAYS = 7          # 「近期新发现」窗口
+_IMPORTANT = 7.0       # 首屏重要度门槛
+_EVIDENCE_DAYS = 7     # 「本周有新证据」窗口
+_STATUS_DAYS = 14      # 「状态刚变」窗口
+_FIRST_SCREEN_MAX = 8  # 每组最多显示条数
 
 
 def type_tags(t: dict) -> str:
@@ -56,28 +62,7 @@ n_followup_evidence = sum(
     r["n"] for r in summary["evidence_by_role"] if r["role"] != "origin")
 n_indep_followup = sum(
     r["indep"] for r in summary["evidence_by_role"] if r["role"] != "origin")
-
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("假设总数", total_thesis)
-c2.metric("活跃", by_status.get("active", 0))
-c3.metric("趋势组", summary["n_trends"])
-c4.metric("后续证据", f"{n_followup_evidence} 条", help="不含首发信号本身，独立证据"
-          f"（排除转载/跟进报道）{n_indep_followup} 条")
-c5.metric("已判定配对数", summary["pairs_checked"], help="假设-新材料的候选配对，"
-          "只要送过模型判过一次就计入，不论判定结果是不是相关")
-
 type_counts = {r["change_type"]: r["n"] for r in summary["thesis_by_type"]}
-
-st.markdown("**四类变化各有多少**")
-st.caption("一条假设最多挂两个标签，所以这五个数加起来会比假设总数大。"
-           "某一类长期是 0 说明采集那头压根没捞到这类材料，不是市场上没发生。")
-tcols = st.columns(len(summary["thesis_by_type"]) or 1)
-for col, r in zip(tcols, summary["thesis_by_type"]):
-    col.metric(f"{TYPE_EMOJI.get(r['change_type'], '')} {r['change_type']}", r["n"])
-
-with st.expander("按状态细分"):
-    st.dataframe(pd.DataFrame(summary["thesis_by_status"]).rename(
-        columns={"status": "状态", "n": "数量"}), hide_index=True, use_container_width=True)
 
 
 def render_thesis_detail(t: dict | None) -> None:
@@ -98,6 +83,14 @@ def render_thesis_detail(t: dict | None) -> None:
         st.warning(f"{STATUS_CN[t['status']]}，变更于 {t['status_changed_at'][:10]}")
 
     st.markdown(f"**新事实**：{t.get('new_fact') or '—'}")
+
+    impact = [x for x in (t.get("impact_path") or []) if isinstance(x, dict)]
+    if impact:
+        st.markdown("**谁会受影响**")
+        st.dataframe(pd.DataFrame([{
+            "谁": x.get("who"), "怎么变": x.get("effect"), "为什么": x.get("why"),
+        } for x in impact]), hide_index=True, use_container_width=True)
+
     if t.get("broader_pattern"):
         st.markdown(f"**更大的变化**：{t['broader_pattern']}")
     else:
@@ -116,9 +109,8 @@ def render_thesis_detail(t: dict | None) -> None:
             "超额%（vs SPY）": a.get("excess_vs_spy_pct"),
             "理由": a.get("why"),
         } for a in assets]), hide_index=True, use_container_width=True)
-        if not any(a.get("ret_pct") is not None for a in assets):
-            st.caption("价格反应暂未算出：事件日太近或落在未来（合同类信号的日期常取合同起始日），"
-                       "跑几周后会自然补上。")
+        if t.get("price_note"):
+            st.caption(t["price_note"])
 
     conf, disc = t.get("confirm_signals") or [], t.get("disconfirm_signals") or []
     col1, col2 = st.columns(2)
@@ -159,6 +151,77 @@ def render_thesis_detail(t: dict | None) -> None:
             for u in changes:
                 st.markdown(f"- {u['ts'][:19]}　{u['summary']}")
 
+
+all_rows = fetch_signal_theses(limit=200).get("data") or []
+
+
+def _within(ts: str | None, days: int) -> bool:
+    if not ts:
+        return False
+    return (pd.Timestamp.now().normalize()
+            - pd.Timestamp(str(ts)[:10])).days <= days
+
+
+def _rank(rows: list[dict]) -> list[dict]:
+    return sorted(rows, key=lambda r: (-(r.get("importance") or 0),
+                                       r.get("discovered_at") or ""),
+                  reverse=False)[:_FIRST_SCREEN_MAX]
+
+
+groups = [
+    ("🆕 近期新发现", "近 %d 天冒出来、重要度 %d 分以上的变化" % (_NEW_DAYS, _IMPORTANT),
+     _rank([r for r in all_rows
+            if _within(r.get("discovered_at"), _NEW_DAYS)
+            and (r.get("importance") or 0) >= _IMPORTANT]),
+     "这几天没有够分量的新变化。"),
+    ("🔺 本周有新证据", "后续材料在往这些判断上靠，不再是孤证",
+     _rank([r for r in all_rows
+            if _within(r.get("last_evidence_at"), _EVIDENCE_DAYS)
+            and (r.get("independent_evidence_n") or 0) >= 2]),
+     "本周没有假设收到新的独立证据。"),
+    ("⚠️ 状态刚变", "被削弱、被证伪或重新活过来的，优先看这里",
+     _rank([r for r in all_rows
+            if _within(r.get("status_changed_at"), _STATUS_DAYS)
+            and r.get("status") in ("weakened", "closed", "revived")]),
+     "近两周没有假设改变状态——注意这也可能是反向材料压根没进来。"),
+]
+
+st.subheader("值得先看的")
+for label, hint, rows, empty_msg in groups:
+    st.markdown(f"**{label}**　`{len(rows)}`")
+    st.caption(hint)
+    if not rows:
+        st.caption(empty_msg)
+        continue
+    for r in rows:
+        with st.expander(
+                f"{STATUS_EMOJI.get(r['status'], '•')} {r['title'][:70]}　·　"
+                f"重要度 {(r.get('importance') or 0):.0f}　·　"
+                f"独立证据 {r.get('independent_evidence_n') or 1} 条"):
+            render_thesis_detail(
+                fetch_signal_thesis_detail(r["thesis_id"]).get("data"))
+
+st.divider()
+with st.expander("⚙️ 流水线状态"):
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("假设总数", total_thesis)
+    c2.metric("活跃", by_status.get("active", 0))
+    c3.metric("趋势组", summary["n_trends"])
+    c4.metric("后续证据", f"{n_followup_evidence} 条", help="不含首发信号本身，独立证据"
+              f"（排除转载/跟进报道）{n_indep_followup} 条")
+    c5.metric("已判定配对数", summary["pairs_checked"], help="假设-新材料的候选配对，"
+              "只要送过模型判过一次就计入，不论判定结果是不是相关")
+
+    st.markdown("**四类变化各有多少**")
+    st.caption("一条假设最多挂两个标签，所以这五个数加起来会比假设总数大。"
+               "某一类长期是 0 说明采集那头压根没捞到这类材料，不是市场上没发生。")
+    tcols = st.columns(len(summary["thesis_by_type"]) or 1)
+    for col, r in zip(tcols, summary["thesis_by_type"]):
+        col.metric(f"{TYPE_EMOJI.get(r['change_type'], '')} {r['change_type']}", r["n"])
+
+    st.markdown("**按状态细分**")
+    st.dataframe(pd.DataFrame(summary["thesis_by_status"]).rename(
+        columns={"status": "状态", "n": "数量"}), hide_index=True, use_container_width=True)
 
 st.divider()
 st.subheader("趋势分组")
