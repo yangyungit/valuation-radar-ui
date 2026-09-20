@@ -28,6 +28,15 @@ ROLE_CN = {"origin": "首发", "support": "支持", "weaken": "削弱",
            "disconfirm_met": "反证命中", "unclear": "不明"}
 ROLE_BADGE = {"support": "🟢", "weaken": "🟠", "disconfirm_met": "🔴",
               "unclear": "⚪", "origin": "🔹"}
+TYPE_EMOJI = {"新需求出现": "🆕", "买家行为改变": "🛒",
+              "成本或能力跨过门槛": "📉", "供给或规则改变": "⚖️",
+              "其他重要变化": "📌"}
+
+
+def type_tags(t: dict) -> str:
+    """一条假设的变化类型标签，可能有两个。"""
+    tags = t.get("change_tags") or ([t["change_type"]] if t.get("change_type") else [])
+    return " ".join(f"{TYPE_EMOJI.get(x, '')}{x}" for x in tags) or "—"
 
 if st.button("🔄 刷新数据"):
     fetch_signal_summary.clear()
@@ -57,12 +66,18 @@ c4.metric("后续证据", f"{n_followup_evidence} 条", help="不含首发信号
 c5.metric("已判定配对数", summary["pairs_checked"], help="假设-新材料的候选配对，"
           "只要送过模型判过一次就计入，不论判定结果是不是相关")
 
-with st.expander("按状态 / 变化类型细分"):
-    left, right = st.columns(2)
-    left.dataframe(pd.DataFrame(summary["thesis_by_status"]).rename(
+type_counts = {r["change_type"]: r["n"] for r in summary["thesis_by_type"]}
+
+st.markdown("**四类变化各有多少**")
+st.caption("一条假设最多挂两个标签，所以这五个数加起来会比假设总数大。"
+           "某一类长期是 0 说明采集那头压根没捞到这类材料，不是市场上没发生。")
+tcols = st.columns(len(summary["thesis_by_type"]) or 1)
+for col, r in zip(tcols, summary["thesis_by_type"]):
+    col.metric(f"{TYPE_EMOJI.get(r['change_type'], '')} {r['change_type']}", r["n"])
+
+with st.expander("按状态细分"):
+    st.dataframe(pd.DataFrame(summary["thesis_by_status"]).rename(
         columns={"status": "状态", "n": "数量"}), hide_index=True, use_container_width=True)
-    right.dataframe(pd.DataFrame(summary["thesis_by_type"]).rename(
-        columns={"change_type": "变化类型", "n": "数量"}), hide_index=True, use_container_width=True)
 
 
 def render_thesis_detail(t: dict | None) -> None:
@@ -72,7 +87,7 @@ def render_thesis_detail(t: dict | None) -> None:
         return
 
     meta = (f"状态 `{STATUS_CN.get(t['status'], t['status'])}` ｜ "
-            f"类型 {t.get('change_type') or '—'} ｜ "
+            f"类型 {type_tags(t)} ｜ "
             f"重要度 {t.get('importance') or 0:.0f} ｜ "
             f"独立证据 {t.get('independent_evidence_n', 1)} 条 ｜ "
             f"发现于 {(t.get('discovered_at') or '')[:10]}")
@@ -176,8 +191,13 @@ st.divider()
 st.subheader("按假设浏览")
 
 all_statuses = sorted(by_status) or ["active"]
+all_types = [r["change_type"] for r in summary["thesis_by_type"]]
 with st.sidebar:
     st.markdown("### 新闻趋势筛选")
+    picked_types = st.multiselect(
+        "变化类型", all_types, default=all_types,
+        format_func=lambda x: f"{TYPE_EMOJI.get(x, '')} {x}（{type_counts.get(x, 0)}）",
+        help="一条假设最多挂两个标签，选中任意一个标签就会出现。")
     picked_statuses = st.multiselect(
         "状态", all_statuses, default=all_statuses,
         format_func=lambda s: f"{STATUS_EMOJI.get(s, '')} {STATUS_CN.get(s, s)}")
@@ -188,9 +208,12 @@ with st.sidebar:
                                  help="含孤立事件，也含已有更大图景但还没等到搭子的假设。")
     browse_limit = st.slider("最多显示条数", 10, 200, 60, step=10)
 
+if not picked_types or not picked_statuses:
+    st.info("变化类型或状态有一栏一个都没勾，这一栏按不筛选处理。")
+
 theses_resp = fetch_signal_theses(
-    status=",".join(picked_statuses), orphan=orphan_only, no_trend=no_trend_only,
-    limit=browse_limit)
+    status=",".join(picked_statuses), change_types=",".join(picked_types),
+    orphan=orphan_only, no_trend=no_trend_only, limit=browse_limit)
 if not theses_resp.get("success"):
     st.error(f"假设列表取不到：{theses_resp.get('error')}")
 elif not theses_resp.get("data"):
@@ -206,7 +229,8 @@ else:
             group_tag = "孤立事件"
         else:
             group_tag = "未归组"
-        head = (f"{badge} {t['title'][:70]}　·　{group_tag}　·　"
+        emo = "".join(TYPE_EMOJI.get(x, "") for x in (t.get("change_tags") or []))
+        head = (f"{badge}{emo} {t['title'][:70]}　·　{group_tag}　·　"
                 f"重要度 {(t.get('importance') or 0):.0f}")
         with st.expander(head):
             detail = fetch_signal_thesis_detail(t["thesis_id"])

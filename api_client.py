@@ -1008,13 +1008,16 @@ def fetch_signal_trends(min_theses: int = 2) -> dict:
 
 
 @st.cache_data(ttl=1800)
-def fetch_signal_theses(status: str = "", orphan: bool = False,
+def fetch_signal_theses(status: str = "", change_types: str = "",
+                        orphan: bool = False,
                         no_trend: bool = False, limit: int = 200) -> dict:
-    """假设列表。orphan=只要没有更大图景的孤例，no_trend=只要没归进任何趋势组。
+    """假设列表。change_types 逗号分隔，一条假设最多挂两个标签，命中其一即算；
+    orphan=只要没有更大图景的孤例，no_trend=只要没归进任何趋势组。
     失败返回 {"success": False, "data": []}。"""
     try:
         r = requests.get(f"{API_BASE_URL}/api/v1/signals/theses", params={
-            "status": status, "orphan": orphan, "no_trend": no_trend, "limit": limit,
+            "status": status, "change_types": change_types,
+            "orphan": orphan, "no_trend": no_trend, "limit": limit,
         }, timeout=30)
         r.raise_for_status()
         return r.json()
