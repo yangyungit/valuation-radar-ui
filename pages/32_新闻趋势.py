@@ -194,10 +194,12 @@ for label, hint, rows, empty_msg in groups:
         st.caption(empty_msg)
         continue
     for r in rows:
+        # 重要度和独立证据挪进展开后的 meta 行了，标题这里只留「什么事」和
+        # 「属于什么变化」两段——光看新闻标题像证据，不像趋势。
+        pattern = (r.get("broader_pattern") or "").strip() or "还看不出属于什么变化"
         with st.expander(
-                f"{STATUS_EMOJI.get(r['status'], '•')} {r['title'][:70]}　·　"
-                f"重要度 {(r.get('importance') or 0):.0f}　·　"
-                f"独立证据 {r.get('independent_evidence_n') or 1} 条"):
+                f"{STATUS_EMOJI.get(r['status'], '•')} {r['title'][:60]}"
+                f"　:gray[│　{pattern}]"):
             render_thesis_detail(
                 fetch_signal_thesis_detail(r["thesis_id"]).get("data"))
 
