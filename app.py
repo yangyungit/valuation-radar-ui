@@ -16,7 +16,6 @@ nav = st.navigation({
         st.Page("pages/0_宏观雷达.py", title="宏观雷达"),
         st.Page("pages/1_宏观定调.py", title="宏观定调"),
         st.Page("pages/2_舆情监控.py", title="舆情监控"),
-        st.Page("pages/32_新闻趋势.py", title="新闻趋势"),
     ],
     "旧策略链 ——————": [
         st.Page("pages/3_资产细筛.py", title="资产细筛"),
