@@ -17,6 +17,7 @@ st.caption(
     "投资假设，再拿后续新材料检验它有没有在往趋势上走。数据来自 `data/signals.db`，"
     "每天北京时间 7:30 由 launchd 定时任务自动跑一轮采集+判定，这页只读，不会触发流水线。"
     "「值得先看的」按新增时间和证据变化挑，不是按预测把握排序。"
+    "各处显示的日期是**原文发布日期**，不是系统抓到的时间——原文常比入库早好几天。"
 )
 if not IS_LOCAL_API:
     st.warning("当前连的是 Render 远端，数据已停更，仅供历史参考。切本地后端才是最新数据。")
@@ -43,6 +44,18 @@ def type_tags(t: dict) -> str:
     """一条假设的变化类型标签，可能有两个。"""
     tags = t.get("change_tags") or ([t["change_type"]] if t.get("change_type") else [])
     return " ".join(f"{TYPE_EMOJI.get(x, '')}{x}" for x in tags) or "—"
+
+
+def pub_date(t: dict) -> str:
+    """原文发布日期。usaspending 的 published_at 填的是合同履约起始日、联邦公报
+    有合规生效日，都可能落在未来，当发布日会把整页顶乱，所以超过今天就退回入库日。"""
+    today = str(pd.Timestamp.now().date())
+    for k in ("first_public_at", "event_date"):
+        v = (t.get(k) or "")[:10]
+        if v and v <= today:
+            return v
+    return (t.get("discovered_at") or "")[:10] or "日期未知"
+
 
 if st.button("🔄 刷新数据"):
     fetch_signal_summary.clear()
@@ -71,12 +84,15 @@ def render_thesis_detail(t: dict | None) -> None:
         st.warning("这条详情取不到。")
         return
 
-    meta = (f"状态 `{STATUS_CN.get(t['status'], t['status'])}` ｜ "
+    meta = (f"原文 **{pub_date(t)}** ｜ 入库 {(t.get('discovered_at') or '')[:10]} ｜ "
+            f"状态 `{STATUS_CN.get(t['status'], t['status'])}` ｜ "
             f"类型 {type_tags(t)} ｜ "
             f"重要度 {t.get('importance') or 0:.0f} ｜ "
-            f"独立证据 {t.get('independent_evidence_n', 1)} 条 ｜ "
-            f"发现于 {(t.get('discovered_at') or '')[:10]}")
+            f"独立证据 {t.get('independent_evidence_n', 1)} 条")
     st.caption(meta)
+    ev_date = (t.get("event_date") or "")[:10]
+    if ev_date and ev_date != pub_date(t):
+        st.caption(f"事件本身发生/生效于 {ev_date}")
     if t["status"] == "closed" and t.get("close_reason"):
         st.error(f"已关闭：{t['close_reason']}")
     elif t["status"] in ("weakened", "paused") and t.get("status_changed_at"):
@@ -163,9 +179,9 @@ def _within(ts: str | None, days: int) -> bool:
 
 
 def _rank(rows: list[dict]) -> list[dict]:
-    return sorted(rows, key=lambda r: (-(r.get("importance") or 0),
-                                       r.get("discovered_at") or ""),
-                  reverse=False)[:_FIRST_SCREEN_MAX]
+    """原文越新排越前，同一天再按重要度。"""
+    return sorted(rows, key=lambda r: (pub_date(r), r.get("importance") or 0),
+                  reverse=True)[:_FIRST_SCREEN_MAX]
 
 
 groups = [
@@ -187,6 +203,7 @@ groups = [
 ]
 
 st.subheader("值得先看的")
+st.caption("每组内部按原文日期从新到旧排，同一天的重要度高的在前。")
 for label, hint, rows, empty_msg in groups:
     st.markdown(f"**{label}**　`{len(rows)}`")
     st.caption(hint)
@@ -198,7 +215,7 @@ for label, hint, rows, empty_msg in groups:
         # 读起来还是一堆孤立事件。重要度和独立证据展开后的 meta 行里有。
         pattern = (r.get("broader_pattern") or "").strip() or "还看不出属于什么变化"
         with st.expander(
-                f"{STATUS_EMOJI.get(r['status'], '•')} **{pattern}**"
+                f"`{pub_date(r)}`　{STATUS_EMOJI.get(r['status'], '•')} **{pattern}**"
                 f"　:gray[│　{r['title'][:60]}]"):
             render_thesis_detail(
                 fetch_signal_thesis_detail(r["thesis_id"]).get("data"))
@@ -235,17 +252,24 @@ if not trends.get("success"):
 elif not trends.get("data"):
     st.info("暂无满足条件的趋势组（同一变化至少要出现在 2 条独立假设上）。")
 else:
-    for tr in trends["data"]:
-        head = (f"🔗 {tr['label']}　（{tr['n']} 条假设，{tr['n_active']} 条活跃，"
+    for tr in sorted(trends["data"],
+                     key=lambda x: max(pub_date(m) for m in x["theses"]),
+                     reverse=True):
+        head = (f"`{max(pub_date(m) for m in tr['theses'])}`　🔗 {tr['label']}"
+                f"　（{tr['n']} 条假设，{tr['n_active']} 条活跃，"
                 f"最高重要度 {tr['top_importance']:.0f}）")
         with st.expander(head):
-            for member in tr["theses"]:
+            members = sorted(tr["theses"],
+                             key=lambda m: (pub_date(m), m["importance"]), reverse=True)
+            for member in members:
                 st.markdown(
+                    f"`{pub_date(member)}`　"
                     f"{STATUS_EMOJI.get(member['status'], '•')} **{member['title']}**　"
                     f"重要度 {member['importance']:.0f} ｜ "
                     f"独立证据 {member['independent_evidence_n']} 条")
             picked = st.selectbox(
-                "看某一条的详情", tr["theses"], format_func=lambda m: m["title"][:60],
+                "看某一条的详情", members,
+                format_func=lambda m: f"{pub_date(m)}　{m['title'][:60]}",
                 key=f"trend_pick_{tr['trend_id']}")
             if picked:
                 st.divider()
@@ -284,8 +308,9 @@ if not theses_resp.get("success"):
 elif not theses_resp.get("data"):
     st.info("没有符合筛选条件的假设。")
 else:
-    rows = theses_resp["data"]
-    st.caption(f"共 {len(rows)} 条")
+    rows = sorted(theses_resp["data"],
+                  key=lambda r: (pub_date(r), r.get("importance") or 0), reverse=True)
+    st.caption(f"共 {len(rows)} 条，按原文日期从新到旧")
     for t in rows:
         badge = STATUS_EMOJI.get(t["status"], "•")
         if t.get("trend_id"):
@@ -295,7 +320,7 @@ else:
         else:
             group_tag = "未归组"
         emo = "".join(TYPE_EMOJI.get(x, "") for x in (t.get("change_tags") or []))
-        head = (f"{badge}{emo} {t['title'][:70]}　·　{group_tag}　·　"
+        head = (f"`{pub_date(t)}`　{badge}{emo} {t['title'][:70]}　·　{group_tag}　·　"
                 f"重要度 {(t.get('importance') or 0):.0f}")
         with st.expander(head):
             detail = fetch_signal_thesis_detail(t["thesis_id"])
