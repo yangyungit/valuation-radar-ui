@@ -962,6 +962,18 @@ def fetch_logr2_stable_pool() -> dict:
 
 
 @st.cache_data(ttl=3600 * 4)
+def fetch_factor_attribution(navs_json: str, region: str = "USA") -> dict:
+    """SPY + QMJ + UMD 超额收益拆解。navs_json = {曲线名: {"YYYY-MM-DD": nav}} 的 JSON 串（字符串便于缓存）。"""
+    try:
+        r = requests.post(f"{API_BASE_URL}/api/v1/factor/attribution",
+                          json={"navs": json.loads(navs_json), "region": region}, timeout=60)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
 def fetch_sector_leaders() -> dict:
     """行业龙头分散页：逐年名单 + 各行业候选前 3 明细 + 回测与稳健性。失败返回 {"success": False}。"""
     try:

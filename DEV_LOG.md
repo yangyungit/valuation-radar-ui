@@ -1,3 +1,15 @@
+## 2026-09-23 组合净值页和因子轮动页加超额拆解（SPY + QMJ + UMD）
+
+后端见 `valuation-radar` 9e31d98：新增 `POST /api/v1/factor/attribution`，月频 OLS 拆解超额 = 市场暴露 + β·QMJ + β·UMD + α，t 值走 Newey-West。
+
+**范围**：`api_client.py` 新增 `fetch_factor_attribution`；新建 `factor_attrib_view.py`（只做渲染：结果表 + 拆解条形图 + 滚动 36 月 α/β 三张图，不做计算）；第 26 页组合净值末尾追加月末网格版超额拆解（合成、A、B、C 四条，因区域切换有「美国/全球」radio）；`buyback_relay_core.py` 的 `render_group` 加 `factor_attrib: bool = False` 开关，第 13 页因子轮动页打开、其余页面（6/7/8 等）保持关闭不受影响。
+
+**第 26 页额外一层网格**：周线合成用于原有净值图和指标表不变；超额拆解另开一份月末网格重算合成（`_combine_433` 抽成共用函数），因为 A 是月线、周线网格上是靠 ffill 撑出来的，直接切周线做月度会让 A 的 40% 仓位错一个月。
+
+**抽函数自验**：把周线 4:3:3 合成的内联循环抽成 `_combine_433` 后，`streamlit.testing.v1.AppTest` 跑改前改后两版第 26 页，`combo_nav` 图里「合成」曲线终值均为 `+589.2%`，一致。
+
+**AppTest 验证**：第 26、13 页接本地后端各跑一遍，0 异常、0 error、0 warning。第 13 页图表里出现 `fac_all_fa_fa_bar` / `fac_all_fa_fa_roll_0/1/2`（拆解区块），只此一份；第 6/7/8 页因开关默认关不受影响（未逐页跑，靠默认值 `False` 保证）。
+
 ## 2026-09-12 供给紧度页加报警胜率和厄尔尼诺驱动，可可全历史命中率只有 43%
 
 后端见 `valuation-radar` 08dc69c、`system` f5e8e91/103bf3e：新增 `tightness_hitrate` 表（`alert_hitrate.py` 离线拉全历史 yfinance 数据按 `build_alerts` 规则重放，可可「进入紧张区」56 条 + 「分位跳升」34 条，T+120 命中率 43%、中位 −1.7%，同期闭眼买 120 天中位 +2.5%）；新增 `enso_monthly` 表（`enso_scan.py` 每月拉 NOAA CPC 的 ONI/RONI，判定用 RONI，当前 JJA 2026 是 1.36、中等暖相位）；`rigid_list.py` 新增 `DRIVERS` 注册表，区分「间歇性驱动」（厄尔尼诺，只在 RONI≥0.5 时发作）和原有 `stuck_entities`（船台这类常年物理瓶颈）。`api_client.py` 加 `fetch_tightness_hitrate` / `fetch_enso` 两个 fetch。

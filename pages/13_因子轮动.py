@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from api_client import fetch_factor_relay_timeseries, get_global_data
+from api_client import fetch_factor_relay_timeseries, get_global_data, fetch_factor_attribution
 from buyback_relay_core import render_group
 
 st.set_page_config(page_title="因子轮动", layout="wide")
@@ -27,6 +27,7 @@ st.caption(
 with st.sidebar:
     if st.button("🔄 强制刷新因子 ETF 数据"):
         fetch_factor_relay_timeseries.clear()
+        fetch_factor_attribution.clear()
         st.rerun()
 
 _WINDOWS = ["3Y", "5Y", "10Y"]
@@ -118,4 +119,4 @@ _COMMON = dict(
 _all_cols = list(king_m.columns)
 st.markdown("## 🔄 全因子 ETF 轮动（纯动量）")
 render_group("因子 ETF", _all_cols, "fac_all",
-             score_m=king_m, sweep_score_m=king_m_long, default_k=0.75, **_COMMON)
+             score_m=king_m, sweep_score_m=king_m_long, default_k=0.75, factor_attrib=True, **_COMMON)

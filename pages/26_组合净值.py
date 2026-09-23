@@ -9,8 +9,10 @@ from api_client import (
     fetch_macro_radar_timeseries,
     fetch_gbdt_oos_prices,
     get_global_data,
+    fetch_factor_attribution,
 )
 import holdings_viz as hv
+from factor_attrib_view import render_factor_attribution
 
 st.set_page_config(page_title="组合净值", layout="wide")
 
@@ -41,6 +43,7 @@ with st.sidebar:
         fetch_buyback_fcf_relay_timeseries.clear()
         fetch_macro_radar_timeseries.clear()
         get_global_data.clear()
+        fetch_factor_attribution.clear()
         st.rerun()
 
 
@@ -193,6 +196,25 @@ def _weekly_cache(pool, years=10):
     return price_cache, spy_wk
 
 
+def _combine_433(norm: dict, grid) -> pd.Series:
+    """起始 4:3:3，跨年后首个点再平衡回此比例。"""
+    alloc = dict(WEIGHTS)
+    prev = {k: float(norm[k].iloc[0]) for k in WEIGHTS}
+    out = [1.0]
+    year = grid[0].year
+    for t in grid[1:]:
+        cur = {k: float(norm[k].loc[t]) for k in WEIGHTS}
+        for k in alloc:
+            alloc[k] *= cur[k] / prev[k] if prev[k] else 1.0
+        val = sum(alloc.values())
+        if t.year != year:
+            alloc = {k: WEIGHTS[k] * val for k in alloc}
+            year = t.year
+        prev = cur
+        out.append(val)
+    return pd.Series(out, index=grid)
+
+
 # ── A：FCF收益率稳定（带鱼池非科技子集，FCF收益率排名等权 Top2 月调，与 page 8 同源）──
 with st.spinner("📊 加载 FCF收益率稳定 面板 + 价格..."):
     nav_a, spy_wk_a = _fcfy_stable_nav()
@@ -290,22 +312,7 @@ if not _spy_src.empty:
     spy_norm = _sp / float(_sp.iloc[0])
 
 # ── 合成：起始 4:3:3，每年末再平衡回此比例 ──
-_a, _b, _c = _norm["A"], _norm["B"], _norm["C"]
-_alloc = {"A": WEIGHTS["A"], "B": WEIGHTS["B"], "C": WEIGHTS["C"]}
-_prev = {"A": float(_a.iloc[0]), "B": float(_b.iloc[0]), "C": float(_c.iloc[0])}
-_out = [1.0]
-_year = _grid[0].year
-for _t in _grid[1:]:
-    _cur = {"A": float(_a.loc[_t]), "B": float(_b.loc[_t]), "C": float(_c.loc[_t])}
-    for _k in _alloc:
-        _alloc[_k] *= _cur[_k] / _prev[_k] if _prev[_k] else 1.0
-    _val = sum(_alloc.values())
-    if _t.year != _year:                       # 新年首个周线点 → 再平衡回 4:3:3
-        _alloc = {_k: WEIGHTS[_k] * _val for _k in _alloc}
-        _year = _t.year
-    _prev = _cur
-    _out.append(_val)
-combined = pd.Series(_out, index=_grid)
+combined = _combine_433(_norm, _grid)
 
 # ── 5 条曲线图 ──
 _COLORS = {
@@ -421,3 +428,17 @@ else:
         "注意 A 为月末调仓，NAV 按月更新，周内多数为 0 收益，故其对 B/C/SPY 的周频相关被稀释、系统性偏低，仅供粗看。"
         "三条全是美股 long-only，与 SPY 一列反映各自的市场 beta 相关，是系统性下跌里同跌的部分。"
     )
+
+# ── 超额拆解：合成改在月末网格上重算，A 用原生月线，避免周线 ffill 让 A 错一个月 ──
+_grid_m = pd.date_range(_lo, _hi, freq="ME")
+if len(_grid_m) >= 3:
+    _norm_m = {}
+    for k, v in _sleeves.items():
+        s = v.reindex(v.index.union(_grid_m)).ffill().reindex(_grid_m)
+        _norm_m[k] = s / float(s.iloc[0])
+    combined_m = _combine_433(_norm_m, _grid_m)
+    _nav_a_win = nav_a[(nav_a.index >= _lo) & (nav_a.index <= _hi)]
+    render_factor_attribution({
+        "合成 (4:3:3)": combined_m, "A FCF收益率稳定": _nav_a_win,
+        "B 板块轮动": _norm["B"], "C FCF进攻": _norm["C"],
+    }, kp="combo")

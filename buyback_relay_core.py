@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import holdings_viz as hv
+from factor_attrib_view import render_factor_attribution
 
 _BADGE = {0: "⚪ 灰", 1: "🥉 铜", 2: "🥈 银", 3: "🥇 金"}
 
@@ -145,6 +146,7 @@ def render_group(
     precomputed_weights: dict = None,
     pick_show_name: bool = False,
     stitched_name_style: str = "full",
+    factor_attrib: bool = False,
 ):
     """对一个候选子池跑完整流程：组内横截面排名 → 热力图 → 奖牌榜 → 净值重建。
     kp = 该组所有 streamlit widget / plotly key 的前缀，避免两组撞 key。
@@ -997,6 +999,9 @@ def render_group(
     for _mi, (_lbl, _val) in enumerate(_metrics_b):
         _row_b[_mi].metric(_lbl, _val)
     st.caption("logR² = 净值曲线取对数后对时间做线性回归的拟合优度，越接近 1 越是匀速上涨、越低说明涨跌越颠簸。")
+
+    if factor_attrib and not _navc.empty:
+        render_factor_attribution({group_label: _navc}, kp=f"{kp}_fa")
 
     def _dd_ret_pct(_s):
         _pk = _s.cummax()
