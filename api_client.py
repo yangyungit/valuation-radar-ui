@@ -3249,6 +3249,18 @@ def fetch_congress_hot(days: int = 90, min_members: int = 2) -> dict:
                      {"days": days, "min_members": min_members}, timeout=30)
 
 
+@st.cache_data(ttl=1800)
+def fetch_insider_clusters(days: int = 180, mcap_only: bool = True) -> dict:
+    return _h13f_get("/api/v1/insider/clusters",
+                     {"days": days, "mcap_only": mcap_only}, timeout=60)
+
+
+@st.cache_data(ttl=1800)
+def fetch_insider_trades(days: int = 90, ticker: str | None = None, code: str = "P") -> dict:
+    return _h13f_get("/api/v1/insider/trades",
+                     {"days": days, "ticker": ticker, "code": code}, timeout=60)
+
+
 # ==========================================
 # 行业估值分位（页面 10_行业PE）
 # 后端读预计算 parquet，毫秒级，缓存放长一点

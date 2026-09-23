@@ -12,10 +12,12 @@ from api_client import (
     fetch_h13f_meta,
     fetch_h13f_new_positions,
     fetch_h13f_ticker,
+    fetch_insider_clusters,
+    fetch_insider_trades,
 )
 
 st.set_page_config(page_title="机构持仓", layout="wide")
-st.title("🏛️ 机构持仓与国会交易")
+st.title("🏛️ 机构持仓、国会与高管交易")
 st.caption(
     "**数据**：机构 13F 持仓，2013Q4–2026Q1 来自买断的 Sharadar SF3 底稿，"
     "2026Q2 起由 `fetch_13f_edgar.py` 直接从 SEC EDGAR 抓、申报当天可见。"
@@ -23,6 +25,8 @@ st.caption(
     "**13F 的边界**：只有美国上市证券的多头（含 TSM/ASML 这类 ADR），"
     "港股日股本地上市看不到，空头、债券、期货也没有，且法定滞后 45 天。"
     "**国会披露的边界**：只有金额区间，没有确切股数和成交价。"
+    "高管交易是 SEC Form 4，2008–2026-06 来自买断的 Sharadar SF2 底稿，"
+    "之后由 `fetch_form4_edgar.py` 每天从 EDGAR 抓。"
 )
 
 meta = fetch_h13f_meta()
@@ -73,15 +77,17 @@ with st.sidebar:
         for f in (fetch_h13f_meta, fetch_h13f_investors, fetch_h13f_holdings,
                   fetch_h13f_consensus, fetch_h13f_new_positions, fetch_h13f_ticker,
                   fetch_h13f_leaderboard, fetch_h13f_curve,
-                  fetch_congress_trades, fetch_congress_hot):
+                  fetch_congress_trades, fetch_congress_hot,
+                  fetch_insider_clusters, fetch_insider_trades):
             f.clear()
         st.rerun()
 
 _cat = None if category == "全部" else category
 _rule = dict(min_tickers=n_lo, max_tickers=n_hi, min_value=min_value_b * 1e9)
 
-tab_new, tab_pool, tab_fund, tab_stock, tab_perf, tab_congress = st.tabs(
-    ["🆕 新建仓", "🤝 共同持股池", "📋 单机构持仓", "🔍 单只票", "🏆 业绩排行", "🏛️ 国会交易"]
+tab_new, tab_pool, tab_fund, tab_stock, tab_perf, tab_congress, tab_insider = st.tabs(
+    ["🆕 新建仓", "🤝 共同持股池", "📋 单机构持仓", "🔍 单只票", "🏆 业绩排行", "🏛️ 国会交易",
+     "👔 高管交易"]
 )
 
 # ── 新建仓 ──────────────────────────────────────────────────────────
@@ -356,3 +362,69 @@ with tab_congress:
         st.info("这个条件下没有记录。")
     else:
         st.error(tr.get("error"))
+
+# ── 高管交易 ────────────────────────────────────────────────────────
+with tab_insider:
+    st.caption(
+        "董事和高管用自己的钱在公开市场买入（Form 4 代码 P），交易后 2 个工作日内申报。"
+        "**多人同时买入**：30 天内至少 3 名不同的董事/高管各买 ≥ $10k、合计 ≥ $100k，"
+        "按申报日算；同一只票触发后 90 天内不重复提示。只持股 10% 以上的大股东不算，"
+        "期权行权、授予、代扣税不算；10b5-1 计划内的买入只有 2026-06 之后的数据能剔除。"
+    )
+    c1, c2 = st.columns(2)
+    idays = c1.slider("回溯天数", 30, 720, 180, step=30, key="insider_days")
+    big_only = c2.toggle("只看市值 ≥ $1B", value=True)
+    cl = fetch_insider_clusters(days=idays, mcap_only=big_only)
+    if cl.get("success") and cl["rows"]:
+        st.markdown(f"**最近 {idays} 天多人同时买入的票**")
+        c = pd.DataFrame(cl["rows"])
+        c["合计金额"] = c.total_value.map(_money)
+        c["市值"] = c.marketcap.map(_money)
+        show = c.rename(columns={
+            "ticker": "代码", "name": "名称", "signal_date": "信号日",
+            "n_insiders": "人数", "first_tx": "首笔交易", "last_tx": "末笔交易",
+            "insiders": "买入人",
+        })
+        st.dataframe(
+            show[["代码", "名称", "信号日", "人数", "合计金额", "市值", "首笔交易",
+                  "末笔交易", "买入人"]],
+            use_container_width=True, hide_index=True, height=360)
+    elif cl.get("success"):
+        st.info("这个条件下没有多人同时买入。")
+    else:
+        st.error(cl.get("error"))
+
+    st.markdown("**逐笔明细**")
+    d1, d2 = st.columns(2)
+    itk = d1.text_input("代码（可留空）", value="", key="insider_ticker").strip().upper()
+    icode = d2.radio("方向", ["P", "S", "all"], horizontal=True,
+                     format_func={"P": "买入", "S": "卖出", "all": "全部"}.get,
+                     key="insider_code")
+    tr2 = fetch_insider_trades(days=idays, ticker=itk or None, code=icode)
+    if tr2.get("success") and tr2["rows"]:
+        t2 = pd.DataFrame(tr2["rows"])
+
+        def _remark(r) -> str:
+            notes = []
+            if r.is_ten_pct == 1 and r.is_director == 0 and r.is_officer == 0:
+                notes.append("10%大股东")
+            if r.aff10b5one == 1:
+                notes.append("10b5-1 计划")
+            return "；".join(notes)
+
+        t2["备注"] = t2.apply(_remark, axis=1)
+        t2["金额"] = t2.value.map(_money)
+        show2 = t2.rename(columns={
+            "filed_date": "申报日", "tx_date": "交易日", "ticker": "代码",
+            "owner": "申报人", "title": "职位", "code": "方向",
+            "shares": "股数", "price": "单价",
+        })
+        show2["方向"] = show2["方向"].map({"P": "买入", "S": "卖出"}).fillna(show2["方向"])
+        st.dataframe(
+            show2[["申报日", "交易日", "代码", "申报人", "职位", "方向", "股数", "单价",
+                   "金额", "备注"]],
+            use_container_width=True, hide_index=True, height=520)
+    elif tr2.get("success"):
+        st.info("这个条件下没有记录。")
+    else:
+        st.error(tr2.get("error"))
