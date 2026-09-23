@@ -4,6 +4,7 @@ import streamlit as st
 
 from api_client import (
     clear_valuation_caches,
+    fetch_benchmark_tickers,
     fetch_valuation_concentration,
     fetch_valuation_history,
     fetch_valuation_lookup,
@@ -161,6 +162,26 @@ if home:
         f"<b>{info['ticker']}</b> {info['name']} — 归类 <b>{zh(info['sector'])} / {zh(home)}</b></div>",
         unsafe_allow_html=True,
     )
+
+if ticker:
+    bm = fetch_benchmark_tickers((ticker,))
+    row = (bm.get("rows") or [{}])[0] if bm.get("success") else {}
+    if row.get("found"):
+        us, gl = row["industry_us"], row["industry_global"]
+        def _x(v): return "—" if v is None else f"{v:.1f}x"
+        def _p(v): return "—" if v is None else f"{v * 100:.1f}%"
+        src = "按代码" if row["source"] in ("ticker", "suffix", "override") else f"按行业近似（纯度 {row['purity']:.0%}）"
+        st.markdown(f"**达莫达兰 {bm['edition']} 版行业基准** — {row['industry']}（{src}）")
+        st.dataframe(pd.DataFrame([
+            {"范围": f"美国（{us['n_firms']} 家）", "当前 PE": _x(us["pe_current"]), "预期 PE": _x(us["pe_forward"]),
+             "EV/EBITDA": _x(us["ev_ebitda"]), "PB": _x(us["pbv"]),
+             "股权成本": _p(us["cost_of_equity"]), "WACC": _p(us["wacc"])},
+            {"范围": f"全球（{gl['n_firms']} 家）", "当前 PE": _x(gl["pe_current"]), "预期 PE": _x(gl["pe_forward"]),
+             "EV/EBITDA": _x(gl["ev_ebitda"]), "PB": _x(gl["pbv"]),
+             "股权成本": _p(gl["cost_of_equity"]), "WACC": _p(gl["wacc"])},
+        ]), hide_index=True, use_container_width=True)
+        st.caption("达莫达兰倍数是行业加总口径（总市值 ÷ 总利润），巨头权重大，和上面按中位数算的分位带不是一回事。"
+                   f"数据截至 {bm['company_target']} 的近 12 个月，每年 1 月更新。")
 
 # ============ 图 A：当期横截面 ============
 st.subheader("当期各行业分布")

@@ -3304,6 +3304,18 @@ def fetch_valuation_lookup(ticker: str) -> dict:
     return _h13f_get("/api/v1/valuation/lookup", {"ticker": ticker}, timeout=20)
 
 
+@st.cache_data(ttl=3600 * 12)
+def fetch_benchmark_tickers(tickers: tuple) -> dict:
+    """票 → 达莫达兰行业基准。tickers 传 tuple 才能被 st.cache_data 哈希。"""
+    return _h13f_get("/api/v1/benchmark/tickers", {"tickers": ",".join(tickers)}, timeout=20)
+
+
+@st.cache_data(ttl=3600 * 12)
+def fetch_benchmark_erp() -> dict:
+    """美国隐含 ERP 序列 + 国家 ERP 表。"""
+    return _h13f_get("/api/v1/benchmark/erp", {}, timeout=20)
+
+
 def clear_valuation_caches():
     fetch_valuation_universe.clear()
     fetch_valuation_snapshot.clear()

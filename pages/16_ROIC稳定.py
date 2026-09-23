@@ -2,7 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from api_client import fetch_buyback_stable_relay_timeseries, fetch_gbdt_oos_prices, get_global_data
+from api_client import (
+    fetch_benchmark_tickers,
+    fetch_buyback_stable_relay_timeseries,
+    fetch_gbdt_oos_prices,
+    get_global_data,
+)
 from buyback_relay_core import render_group
 from cn_names import cn_name_map
 
@@ -169,3 +174,32 @@ render_group("回购稳定", _rest_cols, "stable_rest", score_m=roic_m, sweep_sc
              nav_engine="daily",
              medal_table_hide_unmedaled=True,
              **_COMMON)
+
+st.markdown("## 📏 行业基准对照（达莫达兰）")
+_cur = [c for c in _rest_cols if pd.notna(king_m[c].iloc[-1])] or _rest_cols
+_bm = fetch_benchmark_tickers(tuple(sorted(_cur)))
+if not _bm.get("success"):
+    st.info(f"行业基准暂不可用：{_bm.get('error', '未知错误')}")
+else:
+    def _p(v): return None if v is None else round(v * 100, 1)
+    _rows = []
+    for r in _bm["rows"]:
+        ind = r.get(f"industry_{'us' if r.get('region') == 'US' else 'global'}") or {}
+        co, peer = r.get("company") or {}, r.get("peer") or {}
+        _rows.append({
+            "股票": f"{r['ticker']} {grade_map.get(r['ticker']) or ''}".strip(),
+            "达莫达兰行业": r.get("industry") or "未映射",
+            "公司 ROC%": _p(co.get("roc")),
+            "行业 ROC%（加总）": _p(ind.get("roc")),
+            "同业中位 ROC%": _p(peer.get("roc")),
+            "行业 WACC%": _p(ind.get("wacc")),
+            "ROC−WACC%": _p(r.get("spread")),
+        })
+    _df = pd.DataFrame(_rows).sort_values("公司 ROC%", ascending=False, na_position="last")
+    st.dataframe(_df.style.map(lambda v: "color:#2ECC71" if isinstance(v, (int, float)) and v > 0
+                               else ("color:#E74C3C" if isinstance(v, (int, float)) and v < 0 else ""),
+                               subset=["ROC−WACC%"]),
+                 hide_index=True, use_container_width=True)
+    st.caption(f"公司 ROC 按达莫达兰口径用 Sharadar 重算（税后营业利润 ÷ (权益+负债−现金)，截至 {_bm['company_target']} 近 12 个月），"
+               "和上面排名用的 Sharadar 税前 ROIC 数值不同。行业 ROC 是加总口径、巨头主导；同业中位数 = 美国同行业市值≥$20 亿公司的中位数。"
+               "金融行业 ROC 无意义，ROC−WACC 列改为 ROE−股权成本。")

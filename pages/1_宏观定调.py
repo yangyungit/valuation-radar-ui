@@ -10,7 +10,13 @@ import os
 import json
 from datetime import datetime, timedelta
 import requests as _requests
-from api_client import fetch_core_data, get_global_data, push_macro_regime, compute_macro_regime_api
+from api_client import (
+    fetch_benchmark_erp,
+    fetch_core_data,
+    get_global_data,
+    push_macro_regime,
+    compute_macro_regime_api,
+)
 
 
 def _fetch_fred_series(series_id: str, start_date, end_date, api_key: str) -> pd.Series:
@@ -1727,3 +1733,30 @@ if not df.empty and len(df) > 750:
 
 else:
     st.info("⏳ 正在计算宏观时钟与全证据链数据 (Fetching Data)...")
+
+st.divider()
+st.header("📉 股权风险溢价（达莫达兰）")
+_erp = fetch_benchmark_erp()
+if not _erp.get("success"):
+    st.info(f"ERP 数据暂不可用：{_erp.get('error', '未知错误')}")
+else:
+    _lt, _us = _erp["latest"], _erp["us"]
+    c1, c2, c3 = st.columns(3)
+    c1.metric(f"{_lt['year']} 年末隐含 ERP", f"{_lt['implied_erp'] * 100:.2f}%")
+    c2.metric("评级调整后（他推荐用这个）", f"{_lt['implied_erp_adj'] * 100:.2f}%")
+    c3.metric("10 年美债", f"{_lt['tbond'] * 100:.2f}%")
+    _fig = go.Figure()
+    _fig.add_trace(go.Scatter(x=_us["years"], y=[v * 100 for v in _us["implied_erp"]],
+                              name="隐含 ERP", line=dict(color="#FFD700", width=2.5)))
+    _fig.add_trace(go.Scatter(x=_us["years"], y=[None if v is None else v * 100 for v in _us["tbond"]],
+                              name="10 年美债", line=dict(color="#3498DB", width=1.5, dash="dot")))
+    _fig.update_layout(height=360, hovermode="x unified", yaxis_title="%",
+                       legend=dict(orientation="h", y=1.1), margin=dict(t=10, l=10, r=10, b=10))
+    st.plotly_chart(_fig, use_container_width=True)
+    _c = _erp["country"]
+    st.markdown(f"**各国股权风险溢价**（{_c['as_of']} 版，成熟市场基准 {_c['mature_erp'] * 100:.2f}%）")
+    st.dataframe(pd.DataFrame([{"国家": r["country"], "穆迪评级": r["rating"],
+                                "国家风险溢价%": round(r["crp"] * 100, 2),
+                                "总 ERP%": round(r["total_erp"] * 100, 2)} for r in _c["rows"]]),
+                 hide_index=True, use_container_width=True)
+    st.caption("隐含 ERP = 让标普 500 当前价格合理所需的超额回报，越低说明股市越贵。每年 1 月更新；国家表每季度更新。")
