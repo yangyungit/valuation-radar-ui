@@ -288,6 +288,14 @@ for i, (label, key, color, kind, log) in enumerate(solo_sel):
         ys = [v if (v is not None and v > 0) else None for v in ys]
     fig.add_trace(go.Scatter(x=fi, y=ys, name=label,
                              line=dict(color=color, width=1.6), yaxis=ax))
+    # 调整后 EPS 必须和会计口径 EPS 同轴，两线的缺口才是真实的一次性项目大小
+    if key == "eps_ttm" and (adj := d.get("adj_eps")):
+        ay = adj["eps_ttm"]
+        if log:
+            ay = [v if (v is not None and v > 0) else None for v in ay]
+        fig.add_trace(go.Scatter(x=pd.to_datetime(adj["date"]), y=ay,
+                                 name="调整后 EPS (TTM,$，分析师口径)",
+                                 line=dict(color=color, width=1.6, dash="dot"), yaxis=ax))
     cfg = dict(
         title=dict(text=label, font=dict(color=color)),
         tickfont=dict(color=color), overlaying="y", side="right",
@@ -370,6 +378,11 @@ with scale_col:
              help="控制 FCF/经营现金流/毛利润/净利润/营收/EPS 这几条 $ 序列走线性还是对数轴；"
                   "股价固定 log，资本开支固定线性，不受此开关影响。")
 st.plotly_chart(fig, use_container_width=True)
+if "每股收益(EPS) (TTM,$)" in sel_overlays and d.get("adj_eps"):
+    st.caption("EPS 实线是会计口径（Sharadar），点线是分析师口径的调整后 EPS（yfinance 财报日数据，"
+               "4 季相加，按财报发布日对齐），剔除了卖资产亏损、投资浮亏、诉讼和解等一次性项目，"
+               "市场定价和「超预期/不及预期」看的是点线。两线缺口大 = 那段账面难看主要是一次性项目；"
+               "长期都有缺口要警惕——「一次性」是公司自己定性的，年年都有就是经常性成本。")
 if tail_from:
     st.caption(f"竖虚线（{tail_from}）右边的基本面点来自 yfinance 季报——Sharadar 已在 2026-06-12 "
                "停更。披露日按该票历史「披露日 − 季度末」中位数估算，可能差几天；"
