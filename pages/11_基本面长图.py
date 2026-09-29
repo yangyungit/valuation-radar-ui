@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from api_client import (fetch_fundamentals_manifest, fetch_fundamentals,
-                        fetch_estimates, fetch_estimate_quarters, fetch_close_series)
+                        fetch_estimates, fetch_estimate_quarters, fetch_close_series,
+                        fetch_retail_kpi)
 from fundamental_stress import build_phases
 
 st.set_page_config(page_title="基本面长图", layout="wide", page_icon="📈")
@@ -514,6 +515,63 @@ if st.toggle("跑一遍恶化阶段体检", value=True, key="stress_on"):
                    " > 只有净利掉（税/减值/投资损益这类线下项，一次性嫌疑大） > 只有 FCF 掉（多半是加投入）。"
                    "这一栏只用已有的几个字段推，说不清具体是哪笔账——真要定性还得翻那几季财报。"
                    "SPY 用 yfinance 含股息口径，和上面选的股价口径不完全一致，回撤深度的对比不受影响。")
+
+MARGIN_DROP_PP = 0.5
+
+st.divider()
+st.subheader("🛒 同店销售 / 客流 / 客单价")
+rk = fetch_retail_kpi(tk)
+if not rk.get("success"):
+    st.caption(f"{tk} 没有这组数据：{rk.get('error')}。目前只覆盖 15 家零售股。")
+else:
+    q = pd.DataFrame(rk["quarters"])
+    q["filing_date"] = pd.to_datetime(q["filing_date"])
+    mark = []
+    for _, r_ in q.iterrows():
+        ct = r_["comp_traffic"]
+        if pd.isna(ct) or ct <= 0:
+            continue
+        now = _asof(fi, f.get("op_margin"), r_["filing_date"])
+        ago = _asof(fi, f.get("op_margin"), r_["filing_date"] - pd.Timedelta(days=365))
+        if now is not None and ago is not None and now - ago <= -MARGIN_DROP_PP:
+            mark.append((r_["filing_date"], ct))
+
+    figk = go.Figure()
+    figk.add_trace(go.Bar(x=q["filing_date"], y=q["comp_traffic"], name="客流（交易笔数）",
+                          marker_color="#2ca02c",
+                          hovertemplate="%{x|%Y-%m-%d}<br>客流 %{y:+.1f}%<extra></extra>"))
+    figk.add_trace(go.Bar(x=q["filing_date"], y=q["comp_ticket"], name="客单价",
+                          marker_color="#888",
+                          hovertemplate="%{x|%Y-%m-%d}<br>客单价 %{y:+.1f}%<extra></extra>"))
+    figk.add_trace(go.Scatter(x=q["filing_date"], y=q["comp_sales"], name="同店销售",
+                              mode="lines+markers", line=dict(color="#f5c518", width=2),
+                              connectgaps=False,
+                              hovertemplate="%{x|%Y-%m-%d}<br>同店销售 %{y:+.1f}%<extra></extra>"))
+    if mark:
+        figk.add_trace(go.Scatter(
+            x=[m[0] for m in mark], y=[m[1] + 0.4 for m in mark], mode="markers",
+            name="利润率降、客流涨", marker=dict(symbol="triangle-up", size=11, color="#ff7043"),
+            hovertemplate="%{x|%Y-%m-%d}<br>利润率同比降 ≥0.5pp，客流仍为正<extra></extra>"))
+    figk.add_hline(y=0, line_dash="dash", line_color="#666")
+    figk.update_layout(
+        height=320, plot_bgcolor="#111", paper_bgcolor="#111", font=dict(color="#ddd"),
+        barmode="group", margin=dict(l=50, r=30, t=20, b=40),
+        legend=dict(orientation="h", y=1.12),
+        xaxis=dict(showgrid=False), yaxis=dict(title="同比 (%)"))
+    st.plotly_chart(figk, use_container_width=True)
+    st.caption("数据来自 SEC 8-K 财报新闻稿，由大模型提取，并逐条用原文校验过数字。"
+               "交易笔数是结账次数，不等于客户人数。"
+               "各家口径不同：WMT 取 Walmart U.S. 不含燃油，其余取公司整体。"
+               "公司没有披露的季度留空，不插值。"
+               f"▲ = 客流为正，且 TTM 经营利润率比一年前低 ≥ {MARGIN_DROP_PP}pp（共 {len(mark)} 个季度）。")
+
+    with st.expander("逐季明细"):
+        st.dataframe(pd.DataFrame({
+            "财季": q["fiscal_label"], "截止日": q["fiscal_period_end"],
+            "披露日": q["filing_date"].dt.strftime("%Y-%m-%d"), "分部": q["segment"],
+            "同店销售 %": q["comp_sales"], "客流 %": q["comp_traffic"],
+            "客单价 %": q["comp_ticket"], "原文": q["accession"],
+        }).iloc[::-1], use_container_width=True, hide_index=True)
 
 st.divider()
 st.subheader("🔭 分析师预期修正")
