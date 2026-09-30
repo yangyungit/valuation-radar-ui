@@ -3125,6 +3125,8 @@ def fetch_fundamentals(ticker: str) -> dict:
         # 关注股以外的票后端要现算（Sharadar 查询 + yfinance 补最新季度），实测 1~4 秒，
         # 偶发 yfinance 卡顿会更久，超时给宽一点
         r = requests.get(f"{API_BASE_URL}/api/v1/fundamentals/{ticker}", timeout=45)
+        if r.status_code == 404:
+            return r.json()
         r.raise_for_status(); return r.json()
     except Exception as e:
         return {"success": False, "error": str(e)}

@@ -35,7 +35,8 @@ sel = st.selectbox(
     "选择标的", opts, index=None, key="fund_chart_sel", accept_new_options=True,
     placeholder="输入代码或名称筛选，列表里没有的票直接敲代码回车…",
     help="关注股以外的票直接敲代码回车就行（「机构持仓」页里的代码可以直接贴进来）——"
-         "后端现从 Sharadar 算一份，首次要等 1~4 秒，算完这只票就留在列表里，之后秒开。",
+         "后端现从 Sharadar 算一份，首次要等 1~4 秒，算完这只票就留在列表里，之后秒开。"
+         "港股 / 日股 / 欧股带 Yahoo 后缀：0700.HK、9983.T、MC.PA（只有年报粗版）。",
 )
 if not sel:
     st.info("选一只标的，或直接敲代码回车")
@@ -53,6 +54,9 @@ if tk not in {t["ticker"] for t in tickers}:
 d = resp["data"]; f = d["fundamentals"]; px = d["price"]
 fi = pd.to_datetime(f["datekey"]); pdt = pd.to_datetime(px["date"])
 tail_from = d.get("yf_tail_from")
+if d.get("source") == "yfinance":
+    st.warning("这只不在美国上市，Sharadar 没有，基本面来自 yfinance 年报：只有最近 4~5 个财年、"
+               "每年一个点，披露日按财年末 + 90 天估算，没有单季 FCF。金额和股价按当日汇率换成美元。")
 
 # 净利润/毛利润没有单独字段，用营收 * 对应利润率反推（Sharadar 的 netmargin / grossmargin
 # 本就是 netinc/revenue、gp/revenue）
