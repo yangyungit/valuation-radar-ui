@@ -9,7 +9,7 @@ from fundamental_stress import build_phases
 
 st.set_page_config(page_title="基本面长图", layout="wide", page_icon="📈")
 st.title("📈 基本面长图（ROIC / Rule40 / 利润率 / 股东总回报率 / EPS / PE / FCF / 营收 vs 股价）")
-st.caption("数据源：Sharadar SF1（ART/TTM，FCF 单季走 ARQ；均按 PIT datekey 对齐）+ SEP 周线价格。"
+st.caption("数据源：Sharadar SF1（ART/TTM，FCF 单季走 ARQ；均按 PIT datekey 对齐）+ SEP 周线价格（SEP 始于 1998，更早的价格由 yfinance 补，财报最早约 1994）。"
            "仅含已 push 的关注股。")
 
 with st.sidebar:
