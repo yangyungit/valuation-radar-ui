@@ -308,11 +308,13 @@ for i, (label, key, color, kind, log) in enumerate(solo_sel):
     )
     if log:
         cfg["type"] = "log"
-    # PE 这类倍数：早年盈利近 0 会爆出离群值撑爆轴，按分位数夹一下（同估值带图口径）
+    # PE 这类倍数：早年盈利近 0 会爆出离群值撑爆轴，超过 90 分位 1.8 倍的才夹掉。
+    # 不能再夹 99.5 分位——季度点才二三十个，99.5 分位就是最大值往下插一点，最高点必被切
+    # （LIN 2020-11 PE 58.5，上限 58.2，那段线冲出图外看着像断了）
     if kind == "ratio":
         vv = np.array([v for v in (f.get(key) or []) if v is not None], dtype=float)
         if len(vv):
-            hi = min(np.nanpercentile(vv, 90) * 1.8, np.nanpercentile(vv, 99.5))
+            hi = min(np.nanpercentile(vv, 90) * 1.8, vv.max()) * 1.08
             cfg["range"] = [0, hi]
     axis_layout[f"yaxis{i + 3 + axis_used}"] = cfg
 
@@ -349,7 +351,7 @@ else:
     left_title = f"指标值 %（{len(pct_sel)} 条，见图例颜色）"
 
 # Sharadar 停在退订日，尾部几季是 yfinance 季报补的，披露日按历史滞后中位数估算，
-# 且 ROIC/PE/毛利率这些补不了的指标在竖线右边直接断掉——标出来免得当成真断崖。
+# 且 ROIC/PB/毛利率这些补不了的指标在竖线右边直接断掉——标出来免得当成真断崖。
 if tail_from:
     fig.add_shape(type="line", xref="x", yref="paper", x0=tail_from, x1=tail_from,
                   y0=0, y1=1, line=dict(color="#888", width=1, dash="dot"), opacity=0.7)
@@ -390,7 +392,9 @@ if "每股收益(EPS) (TTM,$)" in sel_overlays and d.get("adj_eps"):
 if tail_from:
     st.caption(f"竖虚线（{tail_from}）右边的基本面点来自 yfinance 季报——Sharadar 已在 2026-06-12 "
                "停更。披露日按该票历史「披露日 − 季度末」中位数估算，可能差几天；"
-               "ROIC / Rule40 / 毛利率 / 毛利润 / 股东总回报率 / 净回购率 / FCF 收益率 / EPS / PE / PB 补不了，"
+               "EPS 取季报基本 EPS 四季相加，PE = 估算披露日那周股价 / TTM EPS（Sharadar 是市值 / 净利，"
+               "LIN 实测两种算法多数季度差 1% 左右，个别差到 5%，是周线价格和股数口径造成的）；"
+               "ROIC / Rule40 / 毛利率 / 毛利润 / 股东总回报率 / 净回购率 / FCF 收益率 / PB 补不了，"
                "那几条线到此为止。"
                "价格线也是从 Sharadar 末日起接的 yfinance。")
 
