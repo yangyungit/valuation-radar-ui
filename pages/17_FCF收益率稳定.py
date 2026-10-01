@@ -6,7 +6,7 @@ from api_client import fetch_logr2_stable_pool, fetch_gbdt_oos_prices, get_globa
 from buyback_relay_core import render_group
 from cn_names import cn_name_map
 
-st.set_page_config(page_title="FCF收益率稳定", layout="wide")
+st.set_page_config(page_title="FCF%单仓", layout="wide")
 
 st.markdown("""
 <style>
@@ -22,7 +22,7 @@ LOGR2_GATE = 0.75    # 逐月趋势顺滑度门槛：候选票当月滚动260周
 K_TOP1 = 2.0         # 单仓死区 k：取 δ 扫描推荐 δ*，2.25 起悬崖式下跌
 K_TOP2 = 1.0
 
-st.title("💵 FCF收益率稳定（带鱼池 × FCF收益率 Top1 单仓）")
+st.title("💵 FCF%单仓（带鱼池 × FCF收益率 Top1 单仓）")
 st.caption(
     "**池子**：年度 PIT 价格行为池（带鱼池，不变）——市值≥$30B / TTM FCF>0 / 近5Y周线 CAGR≥8% 且 "
     "maxDD≥-45% / 按带方向 logR² 前40，每年12月末重构次年生效（本地 Sharadar 构建）。"
