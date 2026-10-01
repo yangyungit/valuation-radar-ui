@@ -425,6 +425,14 @@ with _dyn_tab1:
                         "</div>",
                         unsafe_allow_html=True,
                     )
+                    _use_diff = st.toggle(
+                        "差速器（两只打分差 ≥1.0 时满仓强者，回落到 0.6 以下再分回两仓）",
+                        value=True, key=f"lab_diff_{key_suffix}",
+                        disabled=(_n_hold != 2),
+                        help="只在持仓数 N=2 时可用。阈值写死在后端 dynasty_relay._DIFF_ENTER/_DIFF_EXIT，"
+                             "10 年里只在 2025-08 起（满仓 SMH）真正触发过，之前月份和不开完全一样。",
+                    )
+                    _use_diff = _use_diff and _n_hold == 2
 
                     # buffer_N / kδ 不再手选：由下方 maximin sweep 自动定最优后回填主曲线
                     _buf_n = max(4, _n_hold)
@@ -500,15 +508,19 @@ with _dyn_tab1:
                                 if len(_s) >= 2:
                                     _pc[_tk] = _s.to_frame(name="Close")
 
-                    def _build_navc(_mh2, _n=None, _cost_bps=200.0):
+                    def _build_navc(_mh2, _n=None, _cost_bps=200.0, _single=None):
                         """后端选仓结果 → 槽位 → 各槽周线 NAV → 等权合成。_n=None 用当前旋钮。
                         _cost_bps=0 用于累计成本 shadow 对照重算。
+                        _single={执行月: ticker} 时这些月所有槽位都换成该票（差速器单仓）。
                         返回 (monthly_holdings, slots, exec_months, slot_navs, navc)。"""
                         _nn = _n_hold if _n is None else int(_n)
                         if not _mh2:
                             return {}, {}, [], [], pd.Series(dtype=float)
                         _em = sorted(_mh2)
                         _sl = hv.build_basket_slot_assignments(_mh2, _em)
+                        for _m, _t in (_single or {}).items():
+                            if _m in _sl:
+                                _sl[_m] = [_t] * len(_sl[_m])
                         _ns = max((len(v) for v in _sl.values()), default=_nn)
                         _snavs = []
                         for _si in range(_ns):
@@ -603,11 +615,19 @@ with _dyn_tab1:
                             else:
                                 _buf_n = int(_rec_val)
 
-                    _main_mh = _mh_by_combo(
-                        _dynasty_window, _mom_wins,
-                        [(_n_hold, _guard_code, _buf_n, _kdelta)],
-                    ).get(_combo_key(_n_hold, _guard_code, _buf_n, _kdelta), {})
-                    _mh, _slots, _exec_months, _slot_navs, _navc = _build_navc(_main_mh)
+                    _main_resp = fetch_dynasty_relay_selection_batch(
+                        window=_dynasty_window, tickers=_pool_csv, mom_windows=_wins_csv,
+                        blend=_blend_code, basis=_basis_code, gate=_gate_code,
+                        combos=((("n_holdings", int(_n_hold)), ("guard", _guard_code),
+                                 ("buffer_n", int(_buf_n)), ("k_delta", round(float(_kdelta), 2)),
+                                 ("diff", bool(_use_diff))),),
+                    )
+                    _main_res = ((_main_resp.get("results") or [{}])[0]
+                                 if _main_resp.get("success") else {})
+                    _main_mh = _main_res.get("monthly_holdings") or {}
+                    _single = _main_res.get("single_months") or {}
+                    _mh, _slots, _exec_months, _slot_navs, _navc = _build_navc(_main_mh, _single=_single)
+                    _navc_base = _build_navc(_main_mh)[4] if _single else pd.Series(dtype=float)
                     if _navc.empty:
                         st.info("价格窗口内无足够数据生成净值曲线。")
                         return
@@ -633,7 +653,7 @@ with _dyn_tab1:
 
                     # 累计成本：同一套持仓用 cost_bps=0 重算一遍净值，终值比值差即成本吃掉的收益占比。
                     _cum_cost_c = 0.0
-                    _navc0_c = _build_navc(_mh, _cost_bps=0.0)[4]
+                    _navc0_c = _build_navc(_mh, _cost_bps=0.0, _single=_single)[4]
                     if not _navc0_c.empty and float(_navc0_c.iloc[0]) > 0 and float(_navc0_c.iloc[-1]) > 0:
                         _cum_cost_c = 1.0 - (
                             (float(_navc.iloc[-1]) / float(_navc.iloc[0]))
@@ -866,14 +886,31 @@ with _dyn_tab1:
                     st.caption(_guard_txt)
 
                     # 合成净值 + 各仓叠加
-                    st.plotly_chart(
-                        hv.build_combined_fig_n(
-                            _slot_navs, _navc, _spy_wk,
-                            f"王朝接力净值实验台 — 等权 {_n_hold} 仓合成 vs SPY",
-                        ),
-                        use_container_width=True,
-                        key=f"lab_combined_{key_suffix}",
+                    _fig_c = hv.build_combined_fig_n(
+                        _slot_navs, _navc, _spy_wk,
+                        f"王朝接力净值实验台 — 等权 {_n_hold} 仓合成 vs SPY",
                     )
+                    if not _navc_base.empty:
+                        _b = _navc_base.astype(float).dropna()
+                        _b = _b / float(_b.iloc[0])
+                        _fig_c.add_trace(go.Scatter(
+                            x=_b.index, y=_b.values, mode="lines",
+                            name=f"合成（不加差速器） {(float(_b.iloc[-1]) - 1) * 100:+.1f}%",
+                            line=dict(color="rgba(255,215,0,0.55)", width=1.3, dash="dash"),
+                        ))
+                        for _m in sorted(_single):
+                            _x0 = pd.Timestamp(f"{_m}-01")
+                            if _x0 > _navc.index[-1]:
+                                continue
+                            _fig_c.add_vrect(x0=_x0, x1=min(_x0 + pd.offsets.MonthEnd(1), _navc.index[-1]),
+                                             fillcolor="#F39C12", opacity=0.10, line_width=0, layer="below")
+                    st.plotly_chart(_fig_c, use_container_width=True, key=f"lab_combined_{key_suffix}")
+                    if _single:
+                        st.caption(
+                            f"橙底 = 差速器单仓月（共 {len(_single)} 个执行月，含尚未走到的月份）：两只持仓打分差 ≥1.0，"
+                            "整月满仓分高的那只；差距回落到 0.6 以下才分回两仓。黄色虚线 = 同一套持仓不加差速器。"
+                            "10 年里只在 2025-08 起触发过，之前和不开完全重合，别把这段超额当成稳定规律。"
+                        )
 
                     # 各仓分段拼接图
                     for _si in range(len(_slot_navs)):
