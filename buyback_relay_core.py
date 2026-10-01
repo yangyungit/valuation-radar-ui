@@ -144,6 +144,7 @@ def render_group(
     precomputed_holdings: dict = None,
     precomputed_raw: dict = None,
     precomputed_weights: dict = None,
+    holdings_fn=None,
     pick_show_name: bool = False,
     stitched_name_style: str = "full",
     factor_attrib: bool = False,
@@ -166,6 +167,9 @@ def render_group(
              传入后排名/热力图/奖牌仍按 score_m 算，δ/MA 扫描全跳过。precomputed_raw 供持仓表
              对照展示当月「原始 slope Top2」（未经通道过滤），不传则用 precomputed_holdings 本身。
     precomputed_weights = {执行月: {ticker: 权重}}，缺省 1.0；只影响周线净值记账（半仓段一半按现金 4%），不影响热力图/奖牌/甘特显示。
+    holdings_fn = 外部持仓函数 f(k) -> (持仓, 原始Top)，同 precomputed_holdings 格式但随死区 k 变化
+             （page17：logR² 门槛 + 死区由页面自己算）。传入后显示 δ 输入框并照常跑 δ 扫描，
+             f 须用含预热的最长历史，扫描才切得出尾部 10Y。与 precomputed_holdings 二选一。
     retention_band / exec_rule = 选股与买卖解耦模式（page7/8 专用，round10 回测敲定）：
              选股层只按排名产出推荐区间（在任票掉出 Top{retention_band} 才结束推荐），
              执行层在推荐区间内按 exec_rule（{"kind":"MA"|"DD","param":int,"reentry_ma":int}）
@@ -733,7 +737,8 @@ def render_group(
 
     _curves = {lbl: [] for lbl, _ in _HZ}
     for _kv in _k_grid:
-        _rk = _build_nav(_holdings_for_k(_kv, _rank_L, _gscore_L, _ten6_L, _streak_L)[0])
+        _rk = _build_nav(holdings_fn(_kv)[0] if holdings_fn is not None
+                         else _holdings_for_k(_kv, _rank_L, _gscore_L, _ten6_L, _streak_L)[0])
         _nav_kv = _rk[5] if (_rk is not None) else None
         for lbl, yrs in _HZ:
             _curves[lbl].append(_trail_ret(_nav_kv, yrs))
@@ -871,6 +876,8 @@ def render_group(
         _mh = {m: list(h) for m, h in precomputed_holdings.items()}
         _mh_raw = ({m: list(h) for m, h in precomputed_raw.items()}
                    if precomputed_raw is not None else {m: list(h) for m, h in _mh.items()})
+    elif holdings_fn is not None:
+        _mh, _mh_raw = holdings_fn(_k)
     elif retention_band is not None:
         _mh, _mh_raw = _recommend(rank_m, _ten6, _streak, retention_band)
     else:

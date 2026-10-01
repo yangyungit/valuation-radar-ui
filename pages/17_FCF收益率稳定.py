@@ -17,21 +17,28 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("💵 FCF收益率稳定（带鱼池 × FCF收益率 Top2）")
+COST_BPS = 200.0     # 单边 200bps
+LOGR2_GATE = 0.75    # 逐月趋势顺滑度门槛：候选票当月滚动260周带方向logR²需≥此值
+K_TOP1 = 2.0         # 单仓死区 k：取 δ 扫描推荐 δ*，2.25 起悬崖式下跌
+K_TOP2 = 1.0
+
+st.title("💵 FCF收益率稳定（带鱼池 × FCF收益率 Top1 单仓）")
 st.caption(
     "**池子**：年度 PIT 价格行为池（带鱼池，不变）——市值≥$30B / TTM FCF>0 / 近5Y周线 CAGR≥8% 且 "
-    "maxDD≥-45% / 按带方向 logR² 前40，每年12月末重构次年生效（本地 Sharadar 构建上传）。"
+    "maxDD≥-45% / 按带方向 logR² 前40，每年12月末重构次年生效（本地 Sharadar 构建）。"
     "页面只看**非科技子集**。**排名轴 = FCF收益率**（ART PIT fcf/marketcap，季频 ffill 到月末，池成员内排名）。"
-    "**组合 = 等权 Top2 月末调仓 + 守擂死区 + 逐月趋势门槛**——在任票 fcfy 距当月 Top2 门槛分"
-    "≤1×截面标准差就不换，腾槽按当月排名补；**候选票另需当月带方向 logR² ≥ 0.75**（趋势顺滑度门槛，"
-    "把进池后趋势掉头的票当月踢出，如 ADM 2024 logR² 0.83→0.28）；无金银牌、无 MA/回撤择时。"
-    "回测（2017-04→2026-06，单边 200bps）：全程 CAGR 17.4% / DD -21.2% / Calmar 0.82"
-    "（SPY 15.0% / -23.9% / 0.63），3Y 27.5% / -10.8% / 2.55，5Y 20.4% / -10.8% / 1.89，"
-    "换手 0.98 次/年。"
-    "**三条警告**：① 持仓常年是成对保险股（TRV/CB/PGR/ACGL），等于一注押保险业，行业集中需人工过目，别当黑箱信；"
-    "② 死区 k=1.0 + 门槛 0.75 都是变体择优（logR² 门槛 [0.65,0.80] 是平台、0.85+ 急塌，取平台中心），预期打折看待；"
-    "③ 门槛增益主要来自躲开 ADM 2024 单次，DD 全程未改善（仍 -21.2%），真实价值是持仓更集中+降换手，非提升收益。"
-    "**注：下方热力图/奖牌/接力净值走前端周线复权价，与上列月线回测数字会有小差，持仓逻辑一致（🥇=Top1 / 🥈=Top2）。**"
+    "**组合 = 只持 Top1 满仓，月末调仓 + 守擂死区 + 逐月趋势门槛**——在任票 fcfy 距当月 Top1 分"
+    f"≤{K_TOP1}×截面标准差就不换（k 取下方 δ 跨 3/5/10Y 稳健性扫描的推荐 δ*）；"
+    "**候选票另需当月带方向 logR² ≥ 0.75**（把进池后趋势掉头的票当月踢出，如 ADM 2024 logR² 0.83→0.28）；"
+    "无金银牌、无 MA/回撤择时。"
+    "月线回测（2017-04→2026-09，单边 200bps）：单仓 CAGR 24.2% / DD -18.3% / Calmar 1.33 / 换手 0.63 次/年；"
+    "对照 Top2（k=1.0）18.4% / -21.2% / 0.87 / 0.95；SPY 15.0% / -23.9% / 0.62。"
+    "**三条警告**：① 9 年只换 7 段、98% 时间持保险/医保股（PGR 两段贡献大头），等于一注押保险业，"
+    "2018/2019/2021 明显跑输 SPY，行业集中需人工过目，别当黑箱信；"
+    "② k=2.0 是 3/5/10Y 共同峰顶但紧挨悬崖——k=2.25 起 10Y 总收益从 607% 塌到 258%，"
+    "k=1.75 是稳妥的退路；门槛 0.75 也取自平台，预期打折看待；"
+    "③ 和 Top2 的差距几乎全在 2022–2024（2017–2021 两者打平）。"
+    "**注：下方热力图/接力净值/δ 扫描走前端周线复权价，与上列月线回测数字有差，持仓逻辑一致。**"
 )
 
 with st.sidebar:
@@ -39,9 +46,6 @@ with st.sidebar:
         fetch_logr2_stable_pool.clear()
         fetch_gbdt_oos_prices.clear()
         st.rerun()
-
-COST_BPS = 200.0     # 单边 200bps
-LOGR2_GATE = 0.75    # 逐月趋势顺滑度门槛：候选票当月滚动260周带方向logR²需≥此值
 
 doc = fetch_logr2_stable_pool()
 if not doc.get("success"):
@@ -147,26 +151,16 @@ _common = dict(
     stitched_name_style="cn_ticker",
 )
 
-tab2, tab1 = st.tabs(["🥈 Top2 双仓（现状 · 死区 k=1.0）", "🥇 Top1 单仓（死区 k=2.0 · 实验）"])
-
-with tab2:
-    _mh2, _mh2_raw = _deadband_holdings(2, 1.0)
-    render_group(
-        "非科技 FCF收益率", rest, "fcfy_rest",
-        n_hold=2, precomputed_holdings=_mh2, precomputed_raw=_mh2_raw, **_common,
-    )
+tab1, tab2 = st.tabs(["🥇 Top1 单仓（主版本）", "🥈 Top2 双仓（对照）"])
 
 with tab1:
-    st.info(
-        "**单仓实验**：只持 FCF收益率 Top1，守擂死区 k=2.0 + 逐月 logR² ≥ 0.75 趋势门槛。"
-        "月线回测（2017-04→，单边 200bps）：CAGR 22.8% / DD -18.3% / Calmar 1.25，对照现状 Top2 的 "
-        "17.4% / -21.2% / 0.82——单仓年化更高、回撤更浅、Calmar 更好，换手 0.65 次/年（比 Top2 更省）。"
-        "门槛对单仓增益更明显（无门槛时单仓 18.1% / -18.3% / 0.99），因单槽更易被掉头票占满，"
-        "门槛把 ADM 2024 这类挡在门外。**仍是参数择优**（k=2.0、门槛 0.75 都取自平台），预期打折看待；"
-        "下方走前端周线复权价重建，与月线回测数字有小差。"
-    )
-    _mh1, _mh1_raw = _deadband_holdings(1, 2.0)
     render_group(
         "非科技 FCF收益率(单仓)", rest, "fcfy_rest_top1",
-        n_hold=1, precomputed_holdings=_mh1, precomputed_raw=_mh1_raw, **_common,
+        n_hold=1, default_k=K_TOP1, holdings_fn=lambda k: _deadband_holdings(1, k), **_common,
+    )
+
+with tab2:
+    render_group(
+        "非科技 FCF收益率", rest, "fcfy_rest",
+        n_hold=2, default_k=K_TOP2, holdings_fn=lambda k: _deadband_holdings(2, k), **_common,
     )
