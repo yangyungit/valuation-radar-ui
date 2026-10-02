@@ -388,38 +388,12 @@ if _gl.get("success"):
     _dates = pd.to_datetime(_gl.get("dates", []), errors="coerce")
     _two = _gl.get("two_sector", {}) or {}
 
-    _ribbon_box = st.container()
     if not _two.get("available"):
         st.info("后端未返回强弱切换口径（`two_sector`），可能是后端版本较旧。")
     else:
         _rb_slots, _rb_names, _rb_months, _rb_dim, _rb_split = build_sector_ribbon(
             _gl.get("two_sector_timeline") or [], str(_meta.get("display_start", ""))[:7]
         )
-        if _rb_months:
-            with _ribbon_box:
-                st.markdown("### 🔥 金牌 / 银牌板块时间条带")
-                st.caption(
-                    "**和本页下方回测完全同源**：C 组 11 个 SPDR 按 king_score 排名，第 1 名 = 金牌（左列），"
-                    "第 2 名带名次死区 = 银牌（右列），月末出信号、下月第一个交易日执行。"
-                    "**右列压暗的段 = 那几个月银牌板块没被选中**，金牌 RS 领先够多，第二个槽实际买的是"
-                    "金牌板块的第 2 只龙头；右列亮着才是真的分投金银。"
-                    "灰段 = 当月没有戴金板块、持 BIL 空仓。每段色带标中文名 + ETF 代码。"
-                    "开着金牌回退防护时，被挡下的月份左列仍是原金牌，不一定是当月 king_score 第 1 名。"
-                    "条带从第一个有戴金板块的月份画起——RS 要满 252 个交易日才有第一个值，"
-                    "窗口起点往后约一年的月份查不到 king_score，回测那几个月也躺在 BIL 上，"
-                    "但那是数据没热起来、不是判断出来的空仓，所以不画进条带。"
-                )
-                st.plotly_chart(
-                    hv.build_relay_gantt(
-                        _rb_slots, _rb_months, _rb_names,
-                        title=f"{_window} 戴金龙头 · 金牌/银牌板块时间条带",
-                        track_labels=("左列 · 金牌板块", "右列 · 银牌板块"),
-                        dim_map=_rb_dim, dim_suffix="<br>未选中",
-                    ),
-                    use_container_width=True,
-                    key="gl_sector_ribbon",
-                )
-                st.markdown("---")
         _split_n = _two.get("split_months", 0)
         _total_n = _two.get("total_months", 0)
         _gap = _two.get("silver_rs_gap", 5.0)
@@ -494,6 +468,28 @@ if _gl.get("success"):
         st.caption("logR² = 净值曲线取对数后对时间做线性回归的拟合优度，越接近 1 越是匀速上涨、越低说明涨跌越颠簸。")
 
         st.markdown("##### Slot 分段收益")
+        if _rb_months:
+            _rb_fig = hv.build_relay_gantt(
+                _rb_slots, _rb_months, _rb_names,
+                title="🔥 金牌 / 银牌板块时间条带",
+                track_labels=("金牌", "银牌"),
+                dim_map=_rb_dim, dim_suffix="<br>未选中",
+            )
+            _rb_fig.update_layout(margin=dict(l=56, r=10, t=44, b=24))
+            _rb_fig.update_xaxes(range=[_win_lo, _win_hi])
+            st.plotly_chart(_rb_fig, use_container_width=True, key="gl_sector_ribbon")
+            st.caption(
+                "**和本页回测完全同源**：C 组 11 个 SPDR 按 king_score 排名，第 1 名 = 金牌（左列），"
+                "第 2 名带名次死区 = 银牌（右列），月末出信号、下月第一个交易日执行。"
+                "**银牌压暗的段 = 那几个月银牌板块没被选中**，金牌 RS 领先够多，第二个槽实际买的是"
+                "金牌板块的第 2 只龙头；银牌亮着才是真的分投金银。"
+                "灰段 = 当月没有戴金板块、持 BIL 空仓。"
+                "开着金牌回退防护时，被挡下的月份左列仍是原金牌，不一定是当月 king_score 第 1 名。"
+                "条带从第一个有戴金板块的月份画起——RS 要满 252 个交易日才有第一个值，"
+                "窗口起点往后约一年的月份查不到 king_score，回测那几个月也躺在 BIL 上，"
+                "但那是数据没热起来、不是判断出来的空仓，所以不画进条带。"
+                "条带时间轴跟随上方时间窗口；下面接力图的横轴按交易日拼接，月份位置会有轻微错位。"
+            )
         if not render_slot_segment_returns(
             _two.get("slot_equity") or [], _two.get("holdings_timeline") or [],
             _dates, _eq.get("spy", []), "gl_two", _win_lo, _win_hi, _rb_split,
