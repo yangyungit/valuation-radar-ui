@@ -1,3 +1,9 @@
+## 2026-10-02 戴金龙头页同步回退防护新口径
+
+后端去掉了「留任金牌 RS > 0」条件。`pages/21_戴金龙头.py` 再平衡说明的三段 Calmar 改成开 2.18/1.50/1.12、关 1.58/1.56/1.14；回退防护开关的 help 注明 RS 跑输 SPY 也留任。
+
+---
+
 ## 2026-10-02 戴金龙头页加金牌回退防护开关
 
 后端见 `valuation-radar` 10e13dc：`gold_leader` 接口新增 `gold_revert` 参数（默认开），`two_sector` 多返回 `gold_revert` / `gold_revert_months`。
