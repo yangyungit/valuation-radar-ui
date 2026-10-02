@@ -831,9 +831,13 @@ def build_stitched_fig(
         fig.add_vline(x=bx, line_dash="dash",
                       line_color="rgba(200,200,200,0.35)", line_width=1)
 
+    # 色带放在段名斜标的上方（标题和斜标之间），不占斜标和净值区的位置
     ribbon_px = 0
     if ribbon and x_dates:
-        ribbon_px = 66
+        ribbon_px = 60
+        plot_h = 560 - 44 - 108
+        y0 = 1.0 + (top_margin - 44 + 6) / plot_h
+        y1 = y0 + (ribbon_px - 10) / plot_h
         x_months = [f"{d.year:04d}-{d.month:02d}" for d in x_dates]
         for s_m, e_m, fillc, label, dim in ribbon:
             xs = [i for i, m in enumerate(x_months) if s_m <= m <= e_m]
@@ -841,18 +845,20 @@ def build_stitched_fig(
                 continue
             x0, x1 = xs[0] - 0.5, xs[-1] + 0.5
             fig.add_shape(
-                type="rect", xref="x", yref="y2", x0=x0, x1=x1, y0=0.0, y1=1.0,
+                type="rect", xref="x", yref="paper", x0=x0, x1=x1, y0=y0, y1=y1,
                 fillcolor=fillc, opacity=0.2 if dim else 0.9,
                 line=dict(width=1, color="#111"),
             )
             fig.add_annotation(
-                x=(x0 + x1) / 2, y=0.5, xref="x", yref="y2", text=label, showarrow=False,
+                x=(x0 + x1) / 2, y=(y0 + y1) / 2, xref="x", yref="paper",
+                text=label, showarrow=False,
                 font=dict(size=10, color="#6b6b6b" if dim else "#fff"),
             )
-        fig.add_trace(go.Scatter(
-            x=[0], y=[0.5], yaxis="y2", mode="markers", marker=dict(opacity=0),
-            hoverinfo="skip", showlegend=False,
-        ))
+        if ribbon_label:
+            fig.add_annotation(
+                x=0, y=(y0 + y1) / 2, xref="paper", yref="paper", text=ribbon_label,
+                showarrow=False, xanchor="right", xshift=-6, font=dict(size=12),
+            )
 
     if spy_x_all:
         fig.add_trace(go.Scatter(
@@ -881,23 +887,15 @@ def build_stitched_fig(
             ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
             gridcolor="rgba(100,100,100,0.3)",
         ),
-        annotations=list(name_annotations) + list(fig.layout.annotations),
-        height=560 + (top_margin - 44) + ribbon_px, margin=dict(l=56, r=10, t=top_margin, b=108),
+        height=560 + (top_margin - 44) + ribbon_px,
+        margin=dict(l=56, r=10, t=top_margin + ribbon_px, b=108),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(30,30,30,0.6)",
         font=dict(color="#ccc", size=13),
         showlegend=bool(spy_x_all),
     )
-    if ribbon_px:
-        plot_h = 560 - 44 - 108 + ribbon_px
-        fig.update_layout(
-            yaxis_domain=[0.0, 1.0 - ribbon_px / plot_h],
-            yaxis2=dict(
-                domain=[1.0 - (ribbon_px - 10) / plot_h, 1.0], anchor="x",
-                range=[0, 1], tickvals=[0.5], ticktext=[ribbon_label],
-                showgrid=False, zeroline=False, fixedrange=True,
-            ),
-        )
+    for ann in name_annotations:
+        fig.add_annotation(ann)
     return fig
 
 
