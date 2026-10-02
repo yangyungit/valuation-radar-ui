@@ -851,13 +851,13 @@ def build_stitched_fig(
             )
             fig.add_annotation(
                 x=(x0 + x1) / 2, y=(y0 + y1) / 2, xref="x", yref="paper",
-                text=label, showarrow=False,
+                text=label, showarrow=False, xanchor="center", yanchor="middle",
                 font=dict(size=10, color="#6b6b6b" if dim else "#fff"),
             )
         if ribbon_label:
             fig.add_annotation(
                 x=0, y=(y0 + y1) / 2, xref="paper", yref="paper", text=ribbon_label,
-                showarrow=False, xanchor="right", xshift=-6, font=dict(size=12),
+                showarrow=False, xanchor="right", yanchor="middle", xshift=-6, font=dict(size=12),
             )
 
     if spy_x_all:
