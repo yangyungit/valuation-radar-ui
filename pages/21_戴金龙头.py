@@ -273,7 +273,7 @@ with st.sidebar:
         st.rerun()
 
 st.title("🏅 戴金龙头 (Gold Dynasty Leader)")
-st.caption("C组戴金板块 → 板块内市值前3选5年超额 Top2；金牌板块 RS 领先银牌不足阈值时，第二个槽改从银牌板块选龙头 → 下月执行。与 12M 动量守擂不是一套方法，已从 C组双龙 拆出单独成页。")
+st.caption("C组戴金板块 → 板块内市值前3选5年超额 Top2；金牌板块 RS 领先银牌不足阈值时，第二个槽改从银牌板块选龙头 → 下月执行。上月持有的龙头只要落后新第 1 名不到 15%（按 5 年涨幅比值算）就继续持有，减少来回换手。与 12M 动量守擂不是一套方法，已从 C组双龙 拆出单独成页。")
 
 _window = st.radio(
     "时间跨度",
@@ -287,7 +287,7 @@ _window = st.radio(
 _ribbon_box = st.container()
 
 st.caption(
-    "**主线**：C组王朝接力图戴金板块 → 板块内市值前3、5年超额 Top2 → 下月执行。"
+    "**主线**：C组王朝接力图戴金板块 → 板块内市值前3、5年超额 Top2（上月持有的落后不到 15% 就留任）→ 下月执行。"
     "**诚实声明**：信号**不看未来**、可执行规则模拟；股票池=**逐月真实标普500成分**"
     "（PIT，Sharadar 数据含当年被剔除/退市/收购的公司），**已去生存者偏差**。"
 )
@@ -304,8 +304,8 @@ with _gl_c1:
 with _gl_c2:
     st.caption(
         "固定持有 Top2；再平衡=每月卖一点涨多的槽位、补一点涨少的槽位，"
-        "重新回到两个槽位各 50%。这套口径的三段 Calmar 在开着时是 1.36/1.48/1.12，"
-        "关掉只剩 1.12/1.32/1.03——防抖的收益有一部分要靠再平衡才兑现。"
+        "重新回到两个槽位各 50%。这套口径（含擂主保护）同一份 10Y 面板切三段的 Calmar，开着再平衡是 1.83/1.43/1.07，"
+        "关掉是 1.64/1.34/1.02——防抖的收益有一部分要靠再平衡才兑现。"
     )
 
 with st.expander("交易假设"):
@@ -458,7 +458,7 @@ if _gl.get("success"):
         for _row in (_two.get("slot_equity") or []):
             _eq_plot[f"slot{int(_row.get('slot', 0))}"] = _row.get("equity", [])
         render_equity_chart(_dates, _eq_plot, [
-            ("two_sector", "戴金龙头Top2（强弱切换）", "#F39C12", True),
+            ("two_sector", "戴金龙头Top2（强弱切换+擂主保护）", "#F39C12", True),
             ("spy", "SPY", "#3498DB", True),
             ("slot0", "左列 · 金牌槽", "rgba(243,156,18,0.55)", True, "dot"),
             ("slot1", "右列 · 银牌槽", "rgba(170,178,189,0.75)", True, "dot"),
@@ -499,33 +499,35 @@ if _gl.get("success"):
                 "RS 差": r.get("rs_gap"),
                 "分两个板块": "是" if r.get("split_sectors") else "",
                 "持仓": " + ".join(r.get("picks") or []),
+                "擂主留任": "、".join(r.get("leader_held_over") or []),
             } for r in reversed(_ts_rows)])
             st.dataframe(_tbl, use_container_width=True, hide_index=True, height=320)
+            st.caption("擂主留任 = 硬排名本该换掉、但因落后不到 15% 继续持有的票。")
         else:
             st.caption("后端暂未返回月度明细。")
 
         st.markdown("##### 板块内龙头防抖对照")
-        _lh = _gl.get("leader_hold", {}) or {}
+        _plain = _gl.get("two_sector_plain", {}) or {}
         _lp = _gl.get("leader_pair", {}) or {}
-        if not (_lh.get("available") or _lp.get("available")):
+        if not (_plain.get("available") or _lp.get("available")):
             st.caption("后端暂未返回板块内防抖对照。")
         else:
             st.caption(
                 "板块怎么选和上面完全一样，只改板块内选哪只龙头。领先幅度 = "
-                "ln((100+前者5年涨幅)/(100+后者5年涨幅))，用比值是因为各板块超额量级差太远。"
-                f"**擂主保护**：上月持有的票落后不到 **{_lh.get('gap', 0):.1%}** 就不换。"
-                f"**板块内对半**：第 1 名领先下一名不到 **{_lp.get('gap', 0):.1%}** 就两只各半仓。"
-                "阈值由 scripts/sweep_dd_leader_antiwhipsaw.py 按三段 Calmar maximin 定。"
+                "ln((100+前者5年涨幅)/(100+后者5年涨幅))。**现行**已含擂主保护 15%；"
+                "**无防抖**是改之前的旧主线，每月硬排名；"
+                f"**板块内对半**是第 1 名领先下一名不到 {_lp.get('gap', 0):.1%} 就两只各半仓。"
+                "切到擂主保护的理由是收益基本持平、年化换手少约 13%，不是因为它收益更高。"
             )
             render_equity_chart(_dates, _eq, [
-                ("two_sector", "现行（强弱切换）", "#F39C12", True),
-                ("leader_hold", "擂主保护", "#2ECC71", True),
+                ("two_sector", "现行（擂主保护）", "#F39C12", True),
+                ("two_sector_plain", "无防抖（旧主线）", "#95A5A6", True),
                 ("leader_pair", "板块内对半", "#9B59B6", True),
                 ("spy", "SPY", "#3498DB", True),
             ], "gl_eq_leader", _win_lo, _win_hi)
             _cmp = []
-            for _name, _s in (("现行（强弱切换）", _two.get("stats", {})),
-                              ("擂主保护", _lh.get("stats", {})),
+            for _name, _s in (("现行（擂主保护）", _two.get("stats", {})),
+                              ("无防抖（旧主线）", _plain.get("stats", {})),
                               ("板块内对半", _lp.get("stats", {}))):
                 if not _s:
                     continue
@@ -542,7 +544,7 @@ if _gl.get("success"):
             st.caption("板块内对半是 4 个半仓位，换股次数和 2 仓位口径不可比，这里只比年化换手。"
                        "统计按整个展示窗口算，不跟随上方时间窗口滑块。")
             _diff = []
-            for _label, _v in (("擂主保护", _lh), ("板块内对半", _lp)):
+            for _label, _v in (("无防抖（旧主线）", _plain), ("板块内对半", _lp)):
                 for _r in (_v.get("timeline") or []):
                     if _r.get("differs"):
                         _diff.append({"月份": _r.get("month"), "口径": _label,
