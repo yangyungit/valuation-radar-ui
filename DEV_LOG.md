@@ -1,3 +1,11 @@
+## 2026-10-02 戴金龙头页加金牌回退防护开关
+
+后端见 `valuation-radar` 10e13dc：`gold_leader` 接口新增 `gold_revert` 参数（默认开），`two_sector` 多返回 `gold_revert` / `gold_revert_months`。
+
+**范围**：`api_client.py` 的 `fetch_dynasty_gold_leader` 加 `gold_revert` 参数；`pages/21_戴金龙头.py`「交易假设」加「金牌回退防护」开关（默认开），条带说明和防抖说明行随开关切换，再平衡说明里的三段 Calmar 换成新口径（开再平衡 1.89/1.46/1.11，关 1.73/1.41/1.07）。
+
+---
+
 ## 2026-10-01 板块王朝净值实验台加差速器：两只持仓打分差拉开时满仓强者
 
 后端见 `valuation-radar` feff2c7：`dynasty_relay.py` 新增 `pick_single_months`，批量选仓接口的 combo 支持 `diff`，返回 `single_months`（{执行月: 单仓 ticker}）。

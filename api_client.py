@@ -1249,6 +1249,7 @@ def fetch_dynasty_gold_leader(
     silver_rs_gap: float | None = None,
     silver_rs_gap_exit: float | None = None,
     silver_buffer_n: int | None = None,
+    gold_revert: bool | None = None,
 ) -> dict:
     """从后端获取戴金龙头 Top2 独立回测（研究原型），供「🏅 戴金龙头」页用。
 
@@ -1262,6 +1263,7 @@ def fetch_dynasty_gold_leader(
     对照口径的两个防抖开关：silver_rs_gap_exit 是滞回退出阈（已分开后 RS 差要回到它以上
     才合回），silver_buffer_n 是银牌板块名次死区深度。三个 silver_* 参数都不传时用后端
     定值（三段 maximin 寻优得出），这里不写死数字免得后端换了跟不上。
+    gold_revert 是金牌回退防护开关（刚换走的老金牌冲回第 1 要连续确认才换），不传 = 后端默认（开）。
 
     诚实定位：信号无前视、次日成交、扣成本；但池含生存者偏差，非真实业绩。
     Render 冷启动 502/504 自动重试一次。失败返回 {"success": False, "error": ...}。
@@ -1280,6 +1282,7 @@ def fetch_dynasty_gold_leader(
                         ("silver_rs_gap", silver_rs_gap),
                         ("silver_rs_gap_exit", silver_rs_gap_exit),
                         ("silver_buffer_n", silver_buffer_n),
+                        ("gold_revert", gold_revert),
                     ) if v is not None},
                 },
                 timeout=180,

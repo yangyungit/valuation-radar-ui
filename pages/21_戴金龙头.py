@@ -427,8 +427,8 @@ with _gl_c1:
 with _gl_c2:
     st.caption(
         "固定持有 Top2；再平衡=每月卖一点涨多的槽位、补一点涨少的槽位，"
-        "重新回到两个槽位各 50%。这套口径（含擂主保护）同一份 10Y 面板切三段的 Calmar，开着再平衡是 1.83/1.43/1.07，"
-        "关掉是 1.64/1.34/1.02——防抖的收益有一部分要靠再平衡才兑现。"
+        "重新回到两个槽位各 50%。这套口径（含擂主保护、金牌回退防护）同一份 10Y 面板切三段的 Calmar，"
+        "开着再平衡是 1.89/1.46/1.11，关掉是 1.73/1.41/1.07——防抖的收益有一部分要靠再平衡才兑现。"
     )
 
 with st.expander("交易假设"):
@@ -454,6 +454,14 @@ with st.expander("交易假设"):
         help="0=关闭（每月改选 king_score 第 2 名）；N>0=上月的银牌板块只要今月名次还在前 N "
              "且 RS>0 就留任。关掉时银牌板块 5 年换 34 次、跨 8 个板块，零粘性。",
     )
+    _gl_gold_revert = st.toggle(
+        "金牌回退防护",
+        value=True,
+        key="gl_gold_revert",
+        help="刚被换掉的老金牌（最近 12 个月连续当过 3 个月以上）又冲回第 1 名时，"
+             "要连续 3 个月第 1 才换回去，期间留任现金牌、老金牌降成银牌。"
+             "只管左列金牌；同样规则加到银牌上实测 3Y Calmar 从 1.83 掉到 1.31，所以不加。",
+    )
     st.caption(
         "上面三个默认值 5.0 / 10.0 / 6 是 scripts/sweep_dd_silver_antiwhipsaw.py 在一份 "
         "10Y 面板上切 3Y/5Y/10Y 三段、504 组网格、按三段归一化 Calmar 的 maximin 选出来的。"
@@ -466,6 +474,7 @@ _gl = fetch_dynasty_gold_leader(
     silver_rs_gap=float(_gl_rs_gap),
     silver_rs_gap_exit=float(_gl_rs_gap_exit),
     silver_buffer_n=int(_gl_silver_buf),
+    gold_revert=bool(_gl_gold_revert),
 )
 
 if not _gl.get("success"):
@@ -525,6 +534,7 @@ if _gl.get("success"):
                         "**右列压暗的段 = 那几个月银牌板块没被选中**，金牌 RS 领先够多，第二个槽实际买的是"
                         "金牌板块的第 2 只龙头；右列亮着才是真的分投金银。"
                         "灰段 = 当月没有戴金板块、持 BIL 空仓。每段色带标中文名 + ETF 代码。"
+                        "开着金牌回退防护时，被挡下的月份左列仍是原金牌，不一定是当月 king_score 第 1 名。"
                         "条带从第一个有戴金板块的月份画起——RS 要满 252 个交易日才有第一个值，"
                         "窗口起点往后约一年的月份查不到 king_score，回测那几个月也躺在 BIL 上，"
                         "但那是数据没热起来、不是判断出来的空仓，所以不画进条带。"
@@ -565,6 +575,13 @@ if _gl.get("success"):
                 )
             else:
                 _anti.append("银牌名次死区关闭，每月改选 king_score 第 2 名")
+            if _two.get("gold_revert"):
+                _anti.append(
+                    f"金牌回退防护开启，展示期内 **{_two.get('gold_revert_months', 0)}** 个月"
+                    "金牌是留任的（老金牌冲回第 1 未满 3 个月）"
+                )
+            else:
+                _anti.append("金牌回退防护关闭，每月取 king_score 第 1 名当金牌")
             st.caption("｜".join(_anti))
             st.caption(
                 "**别只看收益**：这套口径的超额里 2023-05 单月就贡献 +18.1%，收益比值一步"
