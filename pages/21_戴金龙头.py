@@ -82,7 +82,7 @@ def render_time_window_slider(dates, key_prefix: str) -> tuple:
 def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
                                 spy_values: list, key_prefix: str,
                                 win_lo, win_hi, shade_months: set = None,
-                                ribbon_fn=None) -> bool:
+                                ribbons: list = None, ribbon_labels: tuple = ()) -> bool:
     if not slot_equity or not timeline or len(dates) == 0:
         return False
 
@@ -108,10 +108,9 @@ def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
         fig = hv.build_stitched_fig(
             segs, f"{slot_name}接力 持仓段", spy_wk, price_cache, _cn, _cn,
             name_style="cn_ticker", shade_months=shade_months,
+            ribbon=ribbons[slot_i] if ribbons and slot_i < len(ribbons) else None,
+            ribbon_label=ribbon_labels[slot_i] if slot_i < len(ribbon_labels) else "",
         )
-        ribbon = ribbon_fn(slot_i) if ribbon_fn else None
-        if ribbon is not None:
-            st.plotly_chart(ribbon, use_container_width=True, key=f"{key_prefix}_slot_ribbon_{slot_i}")
         st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_slot_segment_{slot_i}")
     return True
 
@@ -472,22 +471,12 @@ if _gl.get("success"):
         st.caption("logR² = 净值曲线取对数后对时间做线性回归的拟合优度，越接近 1 越是匀速上涨、越低说明涨跌越颠簸。")
 
         st.markdown("##### Slot 分段收益")
-        def _slot_ribbon(slot_i):
-            if not _rb_months or slot_i > 1:
-                return None
-            fig = hv.build_relay_gantt(
-                _rb_slots, _rb_months, _rb_names,
-                title=("🔥 左列 · 金牌板块时间条带", "🔥 右列 · 银牌板块时间条带")[slot_i],
-                track_labels=("金牌", "银牌"),
-                dim_map=_rb_dim, dim_suffix="<br>未选中", only_slot=slot_i,
-            )
-            fig.update_layout(margin=dict(l=56, r=10, t=44, b=24))
-            fig.update_xaxes(range=[_win_lo, _win_hi])
-            return fig
-
+        _ribbons = hv.relay_ribbon_segments(
+            _rb_slots, _rb_months, _rb_names, _rb_dim, "<br>未选中"
+        ) if _rb_months else None
         if _rb_months:
             st.caption(
-                "每张接力图上方是对应的板块条带：槽A 上方 = 左列金牌板块，槽B 上方 = 右列银牌板块。"
+                "每张接力图顶部的色带是对应的板块：槽A 顶部 = 左列金牌板块，槽B 顶部 = 右列银牌板块。"
                 "**和本页回测完全同源**：C 组 11 个 SPDR 按 king_score 排名，第 1 名 = 金牌，"
                 "第 2 名带名次死区 = 银牌，月末出信号、下月第一个交易日执行。"
                 "**银牌压暗的段 = 那几个月银牌板块没被选中**，金牌 RS 领先够多，槽B 实际买的是"
@@ -497,12 +486,11 @@ if _gl.get("success"):
                 "条带从第一个有戴金板块的月份画起——RS 要满 252 个交易日才有第一个值，"
                 "窗口起点往后约一年的月份查不到 king_score，回测那几个月也躺在 BIL 上，"
                 "但那是数据没热起来、不是判断出来的空仓，所以不画进条带。"
-                "条带时间轴跟随上方时间窗口；接力图的横轴按交易日拼接，月份位置会有轻微错位。"
             )
         if not render_slot_segment_returns(
             _two.get("slot_equity") or [], _two.get("holdings_timeline") or [],
             _dates, _eq.get("spy", []), "gl_two", _win_lo, _win_hi, _rb_split,
-            ribbon_fn=_slot_ribbon,
+            ribbons=_ribbons, ribbon_labels=("金牌", "银牌"),
         ):
             st.caption("后端暂未返回 slot_equity。")
         else:

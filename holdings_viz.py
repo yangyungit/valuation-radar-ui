@@ -362,22 +362,17 @@ def dynasty_relay_slots(dyn_ts: dict, groups: list = None, buffer_n: int = 4):
     return slots, name_map, exec_months
 
 
-def build_relay_gantt(
+def relay_ribbon_segments(
     slot_assignments: dict, exec_months: list, name_map: dict = None,
-    title: str = "王朝接力左右列时间条带",
-    track_labels: tuple = ("左列 · 龙头", "右列 · 次龙头"),
     dim_map: dict = None, dim_suffix: str = "",
-    only_slot: int = None,
-) -> go.Figure:
-    """把左右列每月持仓画成甘特时间条带：两条轨道（左列/右列），每段连续持有同一板块
-    = 一个色带，带上标中文名 + 代码。
+) -> list:
+    """左右列每月持仓切成色带段，返回 [[槽0的段...], [槽1的段...]]，每段
+    (起始月, 结束月, 填充色, 标签, 是否压暗)。同一板块在两条轨道上颜色相同。
 
-    dim_map={月份: [每个槽是否压暗]}：True 的月份画成半透明（底色是近黑的 #111，
-    等于盖一层黑色遮罩），用来标「这个板块当月只是候选、没真被选中」。压暗与否会
-    把色带断开，同一个板块选中段和落选段各画一段。"""
+    dim_map={月份: [每个槽是否压暗]}：压暗与否会把色带断开，同一个板块选中段和
+    落选段各算一段。"""
     nm = name_map if name_map is not None else {}
     dm = dim_map if dim_map is not None else {}
-    fig = go.Figure()
 
     tks: list = []
     for m in exec_months:
@@ -394,17 +389,35 @@ def build_relay_gantt(
             for i, t in enumerate(slot_assignments.get(m, []))
         ]
 
-    tracks = [(only_slot, 0.0)] if only_slot is not None else [(0, 1.0), (1, 0.0)]
-    for slot_idx, yc in tracks:
+    out: list = []
+    for slot_idx in (0, 1):
+        segs: list = []
         for item, s_m, e_m in build_slot_segments(keyed, slot_idx, exec_months):
             tk, dim = item if isinstance(item, tuple) else (item, False)
+            if not tk or tk == "CASH":
+                segs.append((s_m, e_m, "#2a2a2a", "空仓", False))
+            else:
+                segs.append((s_m, e_m, color_map.get(tk, "#888"),
+                             f"{nm.get(tk) or tk}<br>{tk}" + (dim_suffix if dim else ""), dim))
+        out.append(segs)
+    return out
+
+
+def build_relay_gantt(
+    slot_assignments: dict, exec_months: list, name_map: dict = None,
+    title: str = "王朝接力左右列时间条带",
+    track_labels: tuple = ("左列 · 龙头", "右列 · 次龙头"),
+    dim_map: dict = None, dim_suffix: str = "",
+) -> go.Figure:
+    """把左右列每月持仓画成甘特时间条带：两条轨道（左列/右列），每段连续持有同一板块
+    = 一个色带，带上标中文名 + 代码。压暗段画成半透明（底色是近黑的 #111，等于盖一层
+    黑色遮罩），用来标「这个板块当月只是候选、没真被选中」。"""
+    fig = go.Figure()
+    ribbons = relay_ribbon_segments(slot_assignments, exec_months, name_map, dim_map, dim_suffix)
+    for segs, yc in zip(ribbons, (1.0, 0.0)):
+        for s_m, e_m, fillc, label, dim in segs:
             x0 = pd.Timestamp(f"{s_m}-01")
             x1 = pd.Timestamp(f"{e_m}-01") + pd.offsets.MonthEnd(1)
-            if not tk or tk == "CASH":
-                fillc, label, dim = "#2a2a2a", "空仓", False
-            else:
-                fillc = color_map.get(tk, "#888")
-                label = f"{nm.get(tk) or tk}<br>{tk}" + (dim_suffix if dim else "")
             fig.add_shape(
                 type="rect", x0=x0, x1=x1, y0=yc - 0.4, y1=yc + 0.4,
                 fillcolor=fillc, opacity=0.2 if dim else 0.9,
@@ -423,17 +436,10 @@ def build_relay_gantt(
         title=dict(text=title, font=dict(size=14), x=0.01, xanchor="left"),
         showlegend=False,
     )
-    if only_slot is not None:
-        fig.update_layout(height=150)
-        fig.update_yaxes(
-            tickvals=[0.0], ticktext=[track_labels[only_slot]],
-            range=[-0.6, 0.6], showgrid=False, zeroline=False,
-        )
-    else:
-        fig.update_yaxes(
-            tickvals=[1.0, 0.0], ticktext=list(track_labels),
-            range=[-0.6, 1.6], showgrid=False, zeroline=False,
-        )
+    fig.update_yaxes(
+        tickvals=[1.0, 0.0], ticktext=list(track_labels),
+        range=[-0.6, 1.6], showgrid=False, zeroline=False,
+    )
     if exec_months:
         x0 = pd.Timestamp(f"{exec_months[0]}-01")
         x1 = pd.Timestamp(f"{exec_months[-1]}-01") + pd.offsets.MonthEnd(1)
@@ -608,6 +614,8 @@ def build_stitched_fig(
     name_style: str = "full",
     shade_months: set = None,
     shade_color: str = "#F39C12",
+    ribbon: list = None,
+    ribbon_label: str = "",
 ) -> go.Figure:
     """cost_bps：单边换仓成本，口径与 calc_slot_stats 一致（卖出+买入各扣一次，
     CASH 不算成本资产）。首段不扣——calc_slot_stats 的总收益用首点做分母，
@@ -616,7 +624,9 @@ def build_stitched_fig(
     name_style="cn_ticker"：段上标题只留 grade_map 的中文名(代码)，不带英文全称
     （grade_map 需已存的是中文名而非 sector，见 page20 FCF进攻）。
     shade_months：要染底色的月份（"YYYY-MM"）。x 轴是拼接后的序号不是日期，
-    所以要按每个点的真实日期换算成序号区间再画 vrect。"""
+    所以要按每个点的真实日期换算成序号区间再画 vrect。
+    ribbon：relay_ribbon_segments 返回的某一条轨道，画成图顶部一条色带，和净值线
+    共用同一根序号横轴，月份位置逐点对齐。"""
     pc = price_cache if price_cache is not None else {}
     nm = name_map if name_map is not None else {}
     gm = grade_map if grade_map is not None else {}
@@ -821,6 +831,29 @@ def build_stitched_fig(
         fig.add_vline(x=bx, line_dash="dash",
                       line_color="rgba(200,200,200,0.35)", line_width=1)
 
+    ribbon_px = 0
+    if ribbon and x_dates:
+        ribbon_px = 66
+        x_months = [f"{d.year:04d}-{d.month:02d}" for d in x_dates]
+        for s_m, e_m, fillc, label, dim in ribbon:
+            xs = [i for i, m in enumerate(x_months) if s_m <= m <= e_m]
+            if not xs:
+                continue
+            x0, x1 = xs[0] - 0.5, xs[-1] + 0.5
+            fig.add_shape(
+                type="rect", xref="x", yref="y2", x0=x0, x1=x1, y0=0.0, y1=1.0,
+                fillcolor=fillc, opacity=0.2 if dim else 0.9,
+                line=dict(width=1, color="#111"),
+            )
+            fig.add_annotation(
+                x=(x0 + x1) / 2, y=0.5, xref="x", yref="y2", text=label, showarrow=False,
+                font=dict(size=10, color="#6b6b6b" if dim else "#fff"),
+            )
+        fig.add_trace(go.Scatter(
+            x=[0], y=[0.5], yaxis="y2", mode="markers", marker=dict(opacity=0),
+            hoverinfo="skip", showlegend=False,
+        ))
+
     if spy_x_all:
         fig.add_trace(go.Scatter(
             x=spy_x_all, y=spy_y_all, mode="lines",
@@ -848,13 +881,23 @@ def build_stitched_fig(
             ticktext=["-75%", "-50%", "-30%", "0%", "+50%", "+100%", "+200%", "+400%", "+900%"],
             gridcolor="rgba(100,100,100,0.3)",
         ),
-        annotations=name_annotations,
-        height=560 + (top_margin - 44), margin=dict(l=56, r=10, t=top_margin, b=108),
+        annotations=list(name_annotations) + list(fig.layout.annotations),
+        height=560 + (top_margin - 44) + ribbon_px, margin=dict(l=56, r=10, t=top_margin, b=108),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(30,30,30,0.6)",
         font=dict(color="#ccc", size=13),
         showlegend=bool(spy_x_all),
     )
+    if ribbon_px:
+        plot_h = 560 - 44 - 108 + ribbon_px
+        fig.update_layout(
+            yaxis_domain=[0.0, 1.0 - ribbon_px / plot_h],
+            yaxis2=dict(
+                domain=[1.0 - (ribbon_px - 10) / plot_h, 1.0], anchor="x",
+                range=[0, 1], tickvals=[0.5], ticktext=[ribbon_label],
+                showgrid=False, zeroline=False, fixedrange=True,
+            ),
+        )
     return fig
 
 
