@@ -267,131 +267,6 @@ def render_stats_cards(stats: dict) -> None:
                 st.metric(label, value)
 
 
-def _window_stats(s: pd.Series) -> dict:
-    """窗口内重新归一后的收益/回撤，让起点不同的口径在同一段时间里比。"""
-    s = s.dropna()
-    if len(s) < 2:
-        return {}
-    s = s / s.iloc[0]
-    yrs = max((s.index[-1] - s.index[0]).days / 365.25, 1e-6)
-    cagr = float(s.iloc[-1] ** (1 / yrs) - 1)
-    dd = float((s / s.cummax() - 1).min())
-    return {"cum_return": float(s.iloc[-1] - 1), "cagr": cagr, "max_dd": dd,
-            "calmar": cagr / abs(dd) if dd < 0 else 0.0}
-
-
-def render_ribbon_tab(gl: dict, eq: dict, dates, meta: dict, signal_month: str) -> None:
-    rib = gl.get("ribbon", {}) or {}
-    hold = gl.get("ribbon_hold", {}) or {}
-    if not hold.get("available"):
-        st.info("后端未返回 C+D 条带守擂口径（`ribbon_hold`），可能是后端版本较旧。")
-        return
-    cover = str(hold.get("coverage_start") or "")
-    since = max(cover, str(meta.get("display_start", ""))[:7])
-    st.caption(
-        "**板块来源**换成王朝接力选仓层：候选是 C 组 11 个 SPDR + D 组 14 个主题 ETF，"
-        "左列 = 金牌板块、右列 = 银牌板块；RS 差阈值、滞回、名次死区与主线共用「交易假设」里的三个滑块。"
-        f"**板块内选股**加了和主线一样的擂主保护：上月持有的票落后新第 1 名不到 "
-        f"{hold.get('leader_hold_gap', 0):.0%} 就留任；银牌龙头和金牌所选重复时顺延下一名。2 个仓位各 50%。"
-    )
-    st.caption(
-        f"**区间比主线短**：D 组历史成分只能从 SEC N-PORT 持仓报告还原，最早到 {cover}，"
-        "下方净值图和对照表都从同一天重新归一再比。"
-        "**额外风险**：D 组用哪 14 个 ETF 是今天定的名单，可能带后见之明。"
-    )
-
-    rb_slots, rb_names, rb_months, rb_dim, rb_split = build_sector_ribbon(
-        gl.get("ribbon_hold_timeline") or [], since)
-    if rb_months:
-        st.plotly_chart(
-            hv.build_relay_gantt(
-                rb_slots, rb_months, rb_names,
-                title="C+D 条带口径 · 金牌/银牌板块时间条带",
-                track_labels=("左列 · 金牌板块", "右列 · 银牌板块"),
-                dim_map=rb_dim, dim_suffix="<br>未选中",
-            ),
-            use_container_width=True, key="gl_rib_sector_ribbon",
-        )
-
-    st.markdown(f"##### 截至 {signal_month} 信号的模拟持仓｜C+D 条带守擂")
-    render_holding_cards(hold.get("current_holdings", {}).get("slots", []),
-                         "当月无戴金板块或无足够龙头候选")
-
-    hold_nav = _norm_series(eq.get("ribbon_hold", []), dates)
-    if hold_nav.empty:
-        st.caption("后端未返回守擂口径净值。")
-        return
-    win_lo, win_hi = render_time_window_slider(dates[dates >= hold_nav.index[0]], "gl_rib")
-
-    st.markdown("##### 组合收益（起点归一为 1）")
-    render_equity_chart(dates, eq, [
-        ("ribbon_hold", "C+D 条带 · 守擂", "#2ECC71", True),
-        ("ribbon", "C+D 条带 · 硬排名", "#95A5A6", True),
-        ("two_sector", "C组主线（擂主保护）", "#F39C12", True),
-        ("spy", "SPY", "#3498DB", True),
-    ], "gl_eq_rib", win_lo, win_hi, split_month_spans(rb_split, win_lo, win_hi))
-    st.caption("橙色竖条 = 守擂口径那几个月真的分投了金银两个板块。四条线都从时间窗口起点重新归一。")
-
-    cmp_rows = []
-    for key, name, s_be in (("ribbon_hold", "C+D 条带 · 守擂", hold.get("stats") or {}),
-                            ("ribbon", "C+D 条带 · 硬排名", rib.get("stats") or {}),
-                            ("two_sector", "C组主线（擂主保护）", {}),
-                            ("spy", "SPY", {})):
-        s = _norm_series(eq.get(key, []), dates)
-        w = _window_stats(s[(s.index >= win_lo) & (s.index <= win_hi)])
-        if not w:
-            continue
-        cmp_rows.append({
-            "口径": name,
-            "总收益": f"{w['cum_return'] * 100:.0f}%",
-            "CAGR": f"{w['cagr'] * 100:.1f}%",
-            "MaxDD": f"{w['max_dd'] * 100:.1f}%",
-            "Calmar": f"{w['calmar']:.2f}",
-            "换股次数": str(s_be.get("n_swaps", "—")) if s_be else "—",
-            "年化换手": f"{s_be.get('ann_turnover', 0):.2f}" if s_be else "—",
-        })
-    st.dataframe(pd.DataFrame(cmp_rows), use_container_width=True, hide_index=True)
-    st.caption("收益、回撤四列跟随时间窗口滑块；换股次数和年化换手是后端按条带整段覆盖期算的，"
-               "不跟随滑块。C组主线的换手是 10Y 全段口径、区间不同，这里不列。")
-
-    st.markdown("##### 统计卡｜C+D 条带守擂")
-    stats_h = dict(hold.get("stats", {}))
-    stats_h["r2"] = hv.compute_nav_kpi(hold_nav).get("r2")
-    render_stats_cards(stats_h)
-
-    st.markdown("##### Slot 分段收益｜C+D 条带守擂")
-    if not render_slot_segment_returns(
-        hold.get("slot_equity") or [], hold.get("holdings_timeline") or [],
-        dates, eq.get("spy", []), "gl_rib", win_lo, win_hi, rb_split,
-    ):
-        st.caption("后端暂未返回 slot_equity。")
-
-    st.markdown("##### 守擂前后逐月持仓")
-    hard_by = {r.get("month"): r for r in (gl.get("ribbon_timeline") or [])}
-    hold_rows = [r for r in (gl.get("ribbon_hold_timeline") or []) if r.get("month", "") >= since]
-    only_diff = st.checkbox("只看守擂改变了持仓的月份", value=True, key="gl_rib_only_diff")
-    tbl, n_diff = [], 0
-    for r in reversed(hold_rows):
-        hard_txt = " + ".join(hard_by.get(r.get("month"), {}).get("picks") or [])
-        hold_txt = " + ".join(r.get("picks") or [])
-        changed = hard_txt != hold_txt
-        n_diff += changed
-        if only_diff and not changed:
-            continue
-        tbl.append({
-            "月份": r.get("month"),
-            "金牌板块": r.get("sector_etf") or "—",
-            "银牌板块": r.get("silver_sector_etf") or "—",
-            "分两个板块": "是" if r.get("split_sectors") else "",
-            "硬排名持仓": hard_txt,
-            "守擂持仓": hold_txt,
-            "擂主留任": "、".join(r.get("leader_held_over") or []),
-        })
-    st.caption(f"展示期 {len(hold_rows)} 个月里，守擂改变了 **{n_diff}** 个月的持仓。")
-    if tbl:
-        st.dataframe(pd.DataFrame(tbl), use_container_width=True, hide_index=True, height=320)
-
-
 with st.sidebar:
     if st.button("🔄 强制刷新"):
         fetch_dynasty_gold_leader.clear()
@@ -513,191 +388,186 @@ if _gl.get("success"):
     _dates = pd.to_datetime(_gl.get("dates", []), errors="coerce")
     _two = _gl.get("two_sector", {}) or {}
 
-    _tab_main, _tab_rib = st.tabs(["C组主线", "C+D 条带口径（守擂）"])
-    with _tab_rib:
-        render_ribbon_tab(_gl, _eq, _dates, _meta, _signal_month)
-
-    with _tab_main:
-        _ribbon_box = st.container()
-        if not _two.get("available"):
-            st.info("后端未返回强弱切换口径（`two_sector`），可能是后端版本较旧。")
-        else:
-            _rb_slots, _rb_names, _rb_months, _rb_dim, _rb_split = build_sector_ribbon(
-                _gl.get("two_sector_timeline") or [], str(_meta.get("display_start", ""))[:7]
-            )
-            if _rb_months:
-                with _ribbon_box:
-                    st.markdown("### 🔥 金牌 / 银牌板块时间条带")
-                    st.caption(
-                        "**和本页下方回测完全同源**：C 组 11 个 SPDR 按 king_score 排名，第 1 名 = 金牌（左列），"
-                        "第 2 名带名次死区 = 银牌（右列），月末出信号、下月第一个交易日执行。"
-                        "**右列压暗的段 = 那几个月银牌板块没被选中**，金牌 RS 领先够多，第二个槽实际买的是"
-                        "金牌板块的第 2 只龙头；右列亮着才是真的分投金银。"
-                        "灰段 = 当月没有戴金板块、持 BIL 空仓。每段色带标中文名 + ETF 代码。"
-                        "开着金牌回退防护时，被挡下的月份左列仍是原金牌，不一定是当月 king_score 第 1 名。"
-                        "条带从第一个有戴金板块的月份画起——RS 要满 252 个交易日才有第一个值，"
-                        "窗口起点往后约一年的月份查不到 king_score，回测那几个月也躺在 BIL 上，"
-                        "但那是数据没热起来、不是判断出来的空仓，所以不画进条带。"
-                    )
-                    st.plotly_chart(
-                        hv.build_relay_gantt(
-                            _rb_slots, _rb_months, _rb_names,
-                            title=f"{_window} 戴金龙头 · 金牌/银牌板块时间条带",
-                            track_labels=("左列 · 金牌板块", "右列 · 银牌板块"),
-                            dim_map=_rb_dim, dim_suffix="<br>未选中",
-                        ),
-                        use_container_width=True,
-                        key="gl_sector_ribbon",
-                    )
-                    st.markdown("---")
-            _split_n = _two.get("split_months", 0)
-            _total_n = _two.get("total_months", 0)
-            _gap = _two.get("silver_rs_gap", 5.0)
-            _gap_exit = _two.get("silver_rs_gap_exit")
-            _buf_n = _two.get("silver_buffer_n", 0) or 0
-            _held_n = _two.get("held_over_months", 0) or 0
-            st.caption(
-                f"金牌板块 RS 领先银牌不到 **{_gap:g}** 个点时，第二个槽改从**银牌板块**选龙头；"
-                f"领先够多时两个槽都选金牌板块 Top2。展示期内 **{_split_n}/{_total_n}** 个月真的分了两个板块。"
-                "当月没有戴金板块时仍持 BIL，不因为有银牌板块就破例持股。"
-            )
-            _anti = []
-            if _gap_exit is not None and _gap_exit > _gap:
-                _anti.append(
-                    f"滞回生效：没分开时 RS 差 < **{_gap:g}** 才分，已分开时要回到 "
-                    f"**{_gap_exit:g}** 以上才合回"
-                )
-            else:
-                _anti.append("滞回未生效（退出阈 = 进场阈），每月按同一个硬阈值判断")
-            if _buf_n > 0:
-                _anti.append(
-                    f"银牌名次死区 N=**{_buf_n}**，展示期内 **{_held_n}** 个月的银牌板块是留任的"
-                )
-            else:
-                _anti.append("银牌名次死区关闭，每月改选 king_score 第 2 名")
-            if _two.get("gold_revert"):
-                _anti.append(
-                    f"金牌回退防护开启，展示期内 **{_two.get('gold_revert_months', 0)}** 个月"
-                    "金牌是留任的（老金牌冲回第 1 未满 3 个月）"
-                )
-            else:
-                _anti.append("金牌回退防护关闭，每月取 king_score 第 1 名当金牌")
-            st.caption("｜".join(_anti))
-            st.caption(
-                "**别只看收益**：这套口径的超额里 2023-05 单月就贡献 +18.1%，收益比值一步"
-                "从 0.98 跳到 1.158 之后再没回落，所以三个防抖参数是按 Calmar 而不是按累计"
-                "收益寻优的。三段 Calmar 从 1.14/1.24/0.92 提到 1.36/1.48/1.12，同时换股"
-                "次数从 31/39/72 降到 26/34/63（同一份 10Y 面板切三段实测，"
-                "和上面按窗口分别拉的数字不是一个口径，短窗口不是长窗口的尾部切片）。"
-            )
-
-            st.markdown(f"##### 截至 {_signal_month} 信号的模拟持仓｜戴金龙头Top2")
-            render_holding_cards(
-                _two.get("current_holdings", {}).get("slots", []),
-                "当月无 C 组戴金板块或无足够龙头候选",
-            )
-
-            _win_lo, _win_hi = render_time_window_slider(_dates, "gl_two")
-
-            st.markdown("##### 组合收益（起点归一为 1）")
-            _eq_plot = dict(_eq)
-            for _row in (_two.get("slot_equity") or []):
-                _eq_plot[f"slot{int(_row.get('slot', 0))}"] = _row.get("equity", [])
-            render_equity_chart(_dates, _eq_plot, [
-                ("two_sector", "戴金龙头Top2（强弱切换+擂主保护）", "#F39C12", True),
-                ("spy", "SPY", "#3498DB", True),
-                ("slot0", "左列 · 金牌槽", "rgba(243,156,18,0.55)", True, "dot"),
-                ("slot1", "右列 · 银牌槽", "rgba(170,178,189,0.75)", True, "dot"),
-            ], "gl_eq_two", _win_lo, _win_hi, split_month_spans(_rb_split, _win_lo, _win_hi))
-            st.caption(
-                "橙色竖条 = 那段时间真的分投了金银两个板块，没底色的月份两个槽都在金牌板块里。"
-                "左列 / 右列是两个槽各自的净值，组合曲线 = 两条各占一半取平均；"
-                "上方时间窗口同步套用到本图和下方 Slot 分段图"
-            )
-
-            st.markdown("##### 统计卡")
-            _stats_two = dict(_two.get("stats", {}))
-            _two_nav = _norm_series(_eq.get("two_sector", []), _dates)
-            if not _two_nav.empty:
-                _stats_two["r2"] = hv.compute_nav_kpi(_two_nav).get("r2")
-            render_stats_cards(_stats_two)
-            st.caption("logR² = 净值曲线取对数后对时间做线性回归的拟合优度，越接近 1 越是匀速上涨、越低说明涨跌越颠簸。")
-
-            st.markdown("##### Slot 分段收益")
-            if not render_slot_segment_returns(
-                _two.get("slot_equity") or [], _two.get("holdings_timeline") or [],
-                _dates, _eq.get("spy", []), "gl_two", _win_lo, _win_hi, _rb_split,
-            ):
-                st.caption("后端暂未返回 slot_equity。")
-            else:
-                st.caption("橙色竖条含义同上：那几个月真的分投了金银两个板块。")
-
-            st.markdown("##### 哪些月份走了银牌板块")
-            _ts_rows = [
-                r for r in (_gl.get("two_sector_timeline") or [])
-                if r.get("month", "") >= str(_meta.get("display_start", ""))[:7]
-            ]
-            if _ts_rows:
-                _tbl = pd.DataFrame([{
-                    "月份": r.get("month"),
-                    "金牌板块": r.get("sector_etf") or "—",
-                    "银牌板块": r.get("silver_sector_etf") or "—",
-                    "RS 差": r.get("rs_gap"),
-                    "分两个板块": "是" if r.get("split_sectors") else "",
-                    "持仓": " + ".join(r.get("picks") or []),
-                    "擂主留任": "、".join(r.get("leader_held_over") or []),
-                } for r in reversed(_ts_rows)])
-                st.dataframe(_tbl, use_container_width=True, hide_index=True, height=320)
-                st.caption("擂主留任 = 硬排名本该换掉、但因落后不到 15% 继续持有的票。")
-            else:
-                st.caption("后端暂未返回月度明细。")
-
-            st.markdown("##### 板块内龙头防抖对照")
-            _plain = _gl.get("two_sector_plain", {}) or {}
-            _lp = _gl.get("leader_pair", {}) or {}
-            if not (_plain.get("available") or _lp.get("available")):
-                st.caption("后端暂未返回板块内防抖对照。")
-            else:
+    _ribbon_box = st.container()
+    if not _two.get("available"):
+        st.info("后端未返回强弱切换口径（`two_sector`），可能是后端版本较旧。")
+    else:
+        _rb_slots, _rb_names, _rb_months, _rb_dim, _rb_split = build_sector_ribbon(
+            _gl.get("two_sector_timeline") or [], str(_meta.get("display_start", ""))[:7]
+        )
+        if _rb_months:
+            with _ribbon_box:
+                st.markdown("### 🔥 金牌 / 银牌板块时间条带")
                 st.caption(
-                    "板块怎么选和上面完全一样，只改板块内选哪只龙头。领先幅度 = "
-                    "ln((100+前者5年涨幅)/(100+后者5年涨幅))。**现行**已含擂主保护 15%；"
-                    "**无防抖**是改之前的旧主线，每月硬排名；"
-                    f"**板块内对半**是第 1 名领先下一名不到 {_lp.get('gap', 0):.1%} 就两只各半仓。"
-                    "切到擂主保护的理由是收益基本持平、年化换手少约 13%，不是因为它收益更高。"
+                    "**和本页下方回测完全同源**：C 组 11 个 SPDR 按 king_score 排名，第 1 名 = 金牌（左列），"
+                    "第 2 名带名次死区 = 银牌（右列），月末出信号、下月第一个交易日执行。"
+                    "**右列压暗的段 = 那几个月银牌板块没被选中**，金牌 RS 领先够多，第二个槽实际买的是"
+                    "金牌板块的第 2 只龙头；右列亮着才是真的分投金银。"
+                    "灰段 = 当月没有戴金板块、持 BIL 空仓。每段色带标中文名 + ETF 代码。"
+                    "开着金牌回退防护时，被挡下的月份左列仍是原金牌，不一定是当月 king_score 第 1 名。"
+                    "条带从第一个有戴金板块的月份画起——RS 要满 252 个交易日才有第一个值，"
+                    "窗口起点往后约一年的月份查不到 king_score，回测那几个月也躺在 BIL 上，"
+                    "但那是数据没热起来、不是判断出来的空仓，所以不画进条带。"
                 )
-                render_equity_chart(_dates, _eq, [
-                    ("two_sector", "现行（擂主保护）", "#F39C12", True),
-                    ("two_sector_plain", "无防抖（旧主线）", "#95A5A6", True),
-                    ("leader_pair", "板块内对半", "#9B59B6", True),
-                    ("spy", "SPY", "#3498DB", True),
-                ], "gl_eq_leader", _win_lo, _win_hi)
-                _cmp = []
-                for _name, _s in (("现行（擂主保护）", _two.get("stats", {})),
-                                  ("无防抖（旧主线）", _plain.get("stats", {})),
-                                  ("板块内对半", _lp.get("stats", {}))):
-                    if not _s:
-                        continue
-                    _cmp.append({
-                        "口径": _name,
-                        "总收益": f"{_s.get('cum_return', 0) * 100:.0f}%",
-                        "CAGR": f"{_s.get('cagr', 0) * 100:.1f}%",
-                        "MaxDD": f"{_s.get('max_dd', 0) * 100:.1f}%",
-                        "Calmar": f"{_s.get('calmar', 0):.2f}",
-                        "年化换手": f"{_s.get('ann_turnover', 0):.2f}",
-                        "累计成本": f"{_s.get('cum_cost', 0) * 100:.1f}%",
-                    })
-                st.dataframe(pd.DataFrame(_cmp), use_container_width=True, hide_index=True)
-                st.caption("板块内对半是 4 个半仓位，换股次数和 2 仓位口径不可比，这里只比年化换手。"
-                           "统计按整个展示窗口算，不跟随上方时间窗口滑块。")
-                _diff = []
-                for _label, _v in (("无防抖（旧主线）", _plain), ("板块内对半", _lp)):
-                    for _r in (_v.get("timeline") or []):
-                        if _r.get("differs"):
-                            _diff.append({"月份": _r.get("month"), "口径": _label,
-                                          "现行持仓": _r.get("base_holdings"),
-                                          "本口径持仓": _r.get("holdings")})
-                if _diff:
-                    st.markdown("###### 和现行持仓不一样的月份")
-                    st.dataframe(pd.DataFrame(sorted(_diff, key=lambda r: r["月份"], reverse=True)),
-                                 use_container_width=True, hide_index=True, height=320)
-                    st.caption("「A/B」= 这个仓位两只各半。")
+                st.plotly_chart(
+                    hv.build_relay_gantt(
+                        _rb_slots, _rb_months, _rb_names,
+                        title=f"{_window} 戴金龙头 · 金牌/银牌板块时间条带",
+                        track_labels=("左列 · 金牌板块", "右列 · 银牌板块"),
+                        dim_map=_rb_dim, dim_suffix="<br>未选中",
+                    ),
+                    use_container_width=True,
+                    key="gl_sector_ribbon",
+                )
+                st.markdown("---")
+        _split_n = _two.get("split_months", 0)
+        _total_n = _two.get("total_months", 0)
+        _gap = _two.get("silver_rs_gap", 5.0)
+        _gap_exit = _two.get("silver_rs_gap_exit")
+        _buf_n = _two.get("silver_buffer_n", 0) or 0
+        _held_n = _two.get("held_over_months", 0) or 0
+        st.caption(
+            f"金牌板块 RS 领先银牌不到 **{_gap:g}** 个点时，第二个槽改从**银牌板块**选龙头；"
+            f"领先够多时两个槽都选金牌板块 Top2。展示期内 **{_split_n}/{_total_n}** 个月真的分了两个板块。"
+            "当月没有戴金板块时仍持 BIL，不因为有银牌板块就破例持股。"
+        )
+        _anti = []
+        if _gap_exit is not None and _gap_exit > _gap:
+            _anti.append(
+                f"滞回生效：没分开时 RS 差 < **{_gap:g}** 才分，已分开时要回到 "
+                f"**{_gap_exit:g}** 以上才合回"
+            )
+        else:
+            _anti.append("滞回未生效（退出阈 = 进场阈），每月按同一个硬阈值判断")
+        if _buf_n > 0:
+            _anti.append(
+                f"银牌名次死区 N=**{_buf_n}**，展示期内 **{_held_n}** 个月的银牌板块是留任的"
+            )
+        else:
+            _anti.append("银牌名次死区关闭，每月改选 king_score 第 2 名")
+        if _two.get("gold_revert"):
+            _anti.append(
+                f"金牌回退防护开启，展示期内 **{_two.get('gold_revert_months', 0)}** 个月"
+                "金牌是留任的（老金牌冲回第 1 未满 3 个月）"
+            )
+        else:
+            _anti.append("金牌回退防护关闭，每月取 king_score 第 1 名当金牌")
+        st.caption("｜".join(_anti))
+        st.caption(
+            "**别只看收益**：这套口径的超额里 2023-05 单月就贡献 +18.1%，收益比值一步"
+            "从 0.98 跳到 1.158 之后再没回落，所以三个防抖参数是按 Calmar 而不是按累计"
+            "收益寻优的。三段 Calmar 从 1.14/1.24/0.92 提到 1.36/1.48/1.12，同时换股"
+            "次数从 31/39/72 降到 26/34/63（同一份 10Y 面板切三段实测，"
+            "和上面按窗口分别拉的数字不是一个口径，短窗口不是长窗口的尾部切片）。"
+        )
+
+        st.markdown(f"##### 截至 {_signal_month} 信号的模拟持仓｜戴金龙头Top2")
+        render_holding_cards(
+            _two.get("current_holdings", {}).get("slots", []),
+            "当月无 C 组戴金板块或无足够龙头候选",
+        )
+
+        _win_lo, _win_hi = render_time_window_slider(_dates, "gl_two")
+
+        st.markdown("##### 组合收益（起点归一为 1）")
+        _eq_plot = dict(_eq)
+        for _row in (_two.get("slot_equity") or []):
+            _eq_plot[f"slot{int(_row.get('slot', 0))}"] = _row.get("equity", [])
+        render_equity_chart(_dates, _eq_plot, [
+            ("two_sector", "戴金龙头Top2（强弱切换+擂主保护）", "#F39C12", True),
+            ("spy", "SPY", "#3498DB", True),
+            ("slot0", "左列 · 金牌槽", "rgba(243,156,18,0.55)", True, "dot"),
+            ("slot1", "右列 · 银牌槽", "rgba(170,178,189,0.75)", True, "dot"),
+        ], "gl_eq_two", _win_lo, _win_hi, split_month_spans(_rb_split, _win_lo, _win_hi))
+        st.caption(
+            "橙色竖条 = 那段时间真的分投了金银两个板块，没底色的月份两个槽都在金牌板块里。"
+            "左列 / 右列是两个槽各自的净值，组合曲线 = 两条各占一半取平均；"
+            "上方时间窗口同步套用到本图和下方 Slot 分段图"
+        )
+
+        st.markdown("##### 统计卡")
+        _stats_two = dict(_two.get("stats", {}))
+        _two_nav = _norm_series(_eq.get("two_sector", []), _dates)
+        if not _two_nav.empty:
+            _stats_two["r2"] = hv.compute_nav_kpi(_two_nav).get("r2")
+        render_stats_cards(_stats_two)
+        st.caption("logR² = 净值曲线取对数后对时间做线性回归的拟合优度，越接近 1 越是匀速上涨、越低说明涨跌越颠簸。")
+
+        st.markdown("##### Slot 分段收益")
+        if not render_slot_segment_returns(
+            _two.get("slot_equity") or [], _two.get("holdings_timeline") or [],
+            _dates, _eq.get("spy", []), "gl_two", _win_lo, _win_hi, _rb_split,
+        ):
+            st.caption("后端暂未返回 slot_equity。")
+        else:
+            st.caption("橙色竖条含义同上：那几个月真的分投了金银两个板块。")
+
+        st.markdown("##### 哪些月份走了银牌板块")
+        _ts_rows = [
+            r for r in (_gl.get("two_sector_timeline") or [])
+            if r.get("month", "") >= str(_meta.get("display_start", ""))[:7]
+        ]
+        if _ts_rows:
+            _tbl = pd.DataFrame([{
+                "月份": r.get("month"),
+                "金牌板块": r.get("sector_etf") or "—",
+                "银牌板块": r.get("silver_sector_etf") or "—",
+                "RS 差": r.get("rs_gap"),
+                "分两个板块": "是" if r.get("split_sectors") else "",
+                "持仓": " + ".join(r.get("picks") or []),
+                "擂主留任": "、".join(r.get("leader_held_over") or []),
+            } for r in reversed(_ts_rows)])
+            st.dataframe(_tbl, use_container_width=True, hide_index=True, height=320)
+            st.caption("擂主留任 = 硬排名本该换掉、但因落后不到 15% 继续持有的票。")
+        else:
+            st.caption("后端暂未返回月度明细。")
+
+        st.markdown("##### 板块内龙头防抖对照")
+        _plain = _gl.get("two_sector_plain", {}) or {}
+        _lp = _gl.get("leader_pair", {}) or {}
+        if not (_plain.get("available") or _lp.get("available")):
+            st.caption("后端暂未返回板块内防抖对照。")
+        else:
+            st.caption(
+                "板块怎么选和上面完全一样，只改板块内选哪只龙头。领先幅度 = "
+                "ln((100+前者5年涨幅)/(100+后者5年涨幅))。**现行**已含擂主保护 15%；"
+                "**无防抖**是改之前的旧主线，每月硬排名；"
+                f"**板块内对半**是第 1 名领先下一名不到 {_lp.get('gap', 0):.1%} 就两只各半仓。"
+                "切到擂主保护的理由是收益基本持平、年化换手少约 13%，不是因为它收益更高。"
+            )
+            render_equity_chart(_dates, _eq, [
+                ("two_sector", "现行（擂主保护）", "#F39C12", True),
+                ("two_sector_plain", "无防抖（旧主线）", "#95A5A6", True),
+                ("leader_pair", "板块内对半", "#9B59B6", True),
+                ("spy", "SPY", "#3498DB", True),
+            ], "gl_eq_leader", _win_lo, _win_hi)
+            _cmp = []
+            for _name, _s in (("现行（擂主保护）", _two.get("stats", {})),
+                              ("无防抖（旧主线）", _plain.get("stats", {})),
+                              ("板块内对半", _lp.get("stats", {}))):
+                if not _s:
+                    continue
+                _cmp.append({
+                    "口径": _name,
+                    "总收益": f"{_s.get('cum_return', 0) * 100:.0f}%",
+                    "CAGR": f"{_s.get('cagr', 0) * 100:.1f}%",
+                    "MaxDD": f"{_s.get('max_dd', 0) * 100:.1f}%",
+                    "Calmar": f"{_s.get('calmar', 0):.2f}",
+                    "年化换手": f"{_s.get('ann_turnover', 0):.2f}",
+                    "累计成本": f"{_s.get('cum_cost', 0) * 100:.1f}%",
+                })
+            st.dataframe(pd.DataFrame(_cmp), use_container_width=True, hide_index=True)
+            st.caption("板块内对半是 4 个半仓位，换股次数和 2 仓位口径不可比，这里只比年化换手。"
+                       "统计按整个展示窗口算，不跟随上方时间窗口滑块。")
+            _diff = []
+            for _label, _v in (("无防抖（旧主线）", _plain), ("板块内对半", _lp)):
+                for _r in (_v.get("timeline") or []):
+                    if _r.get("differs"):
+                        _diff.append({"月份": _r.get("month"), "口径": _label,
+                                      "现行持仓": _r.get("base_holdings"),
+                                      "本口径持仓": _r.get("holdings")})
+            if _diff:
+                st.markdown("###### 和现行持仓不一样的月份")
+                st.dataframe(pd.DataFrame(sorted(_diff, key=lambda r: r["月份"], reverse=True)),
+                             use_container_width=True, hide_index=True, height=320)
+                st.caption("「A/B」= 这个仓位两只各半。")
