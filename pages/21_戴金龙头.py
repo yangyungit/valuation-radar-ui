@@ -503,3 +503,53 @@ if _gl.get("success"):
             st.dataframe(_tbl, use_container_width=True, hide_index=True, height=320)
         else:
             st.caption("后端暂未返回月度明细。")
+
+        st.markdown("##### 板块内龙头防抖对照")
+        _lh = _gl.get("leader_hold", {}) or {}
+        _lp = _gl.get("leader_pair", {}) or {}
+        if not (_lh.get("available") or _lp.get("available")):
+            st.caption("后端暂未返回板块内防抖对照。")
+        else:
+            st.caption(
+                "板块怎么选和上面完全一样，只改板块内选哪只龙头。领先幅度 = "
+                "ln((100+前者5年涨幅)/(100+后者5年涨幅))，用比值是因为各板块超额量级差太远。"
+                f"**擂主保护**：上月持有的票落后不到 **{_lh.get('gap', 0):.1%}** 就不换。"
+                f"**板块内对半**：第 1 名领先下一名不到 **{_lp.get('gap', 0):.1%}** 就两只各半仓。"
+                "阈值由 scripts/sweep_dd_leader_antiwhipsaw.py 按三段 Calmar maximin 定。"
+            )
+            render_equity_chart(_dates, _eq, [
+                ("two_sector", "现行（强弱切换）", "#F39C12", True),
+                ("leader_hold", "擂主保护", "#2ECC71", True),
+                ("leader_pair", "板块内对半", "#9B59B6", True),
+                ("spy", "SPY", "#3498DB", True),
+            ], "gl_eq_leader", _win_lo, _win_hi)
+            _cmp = []
+            for _name, _s in (("现行（强弱切换）", _two.get("stats", {})),
+                              ("擂主保护", _lh.get("stats", {})),
+                              ("板块内对半", _lp.get("stats", {}))):
+                if not _s:
+                    continue
+                _cmp.append({
+                    "口径": _name,
+                    "总收益": f"{_s.get('cum_return', 0) * 100:.0f}%",
+                    "CAGR": f"{_s.get('cagr', 0) * 100:.1f}%",
+                    "MaxDD": f"{_s.get('max_dd', 0) * 100:.1f}%",
+                    "Calmar": f"{_s.get('calmar', 0):.2f}",
+                    "年化换手": f"{_s.get('ann_turnover', 0):.2f}",
+                    "累计成本": f"{_s.get('cum_cost', 0) * 100:.1f}%",
+                })
+            st.dataframe(pd.DataFrame(_cmp), use_container_width=True, hide_index=True)
+            st.caption("板块内对半是 4 个半仓位，换股次数和 2 仓位口径不可比，这里只比年化换手。"
+                       "统计按整个展示窗口算，不跟随上方时间窗口滑块。")
+            _diff = []
+            for _label, _v in (("擂主保护", _lh), ("板块内对半", _lp)):
+                for _r in (_v.get("timeline") or []):
+                    if _r.get("differs"):
+                        _diff.append({"月份": _r.get("month"), "口径": _label,
+                                      "现行持仓": _r.get("base_holdings"),
+                                      "本口径持仓": _r.get("holdings")})
+            if _diff:
+                st.markdown("###### 和现行持仓不一样的月份")
+                st.dataframe(pd.DataFrame(sorted(_diff, key=lambda r: r["月份"], reverse=True)),
+                             use_container_width=True, hide_index=True, height=320)
+                st.caption("「A/B」= 这个仓位两只各半。")
