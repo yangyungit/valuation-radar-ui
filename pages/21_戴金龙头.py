@@ -1,3 +1,5 @@
+import math
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -276,7 +278,7 @@ with st.sidebar:
         st.rerun()
 
 st.title("🏅 戴金龙头 (Gold Dynasty Leader)")
-st.caption("C组戴金板块 → 板块内市值前3选5年超额 Top2；金牌板块 RS 领先银牌不足阈值时，第二个槽改从银牌板块选龙头 → 下月执行。上月持有的龙头只要落后新第 1 名不到 15%（按 5 年涨幅比值算）就继续持有，减少来回换手。与 12M 动量守擂不是一套方法，已从 C组双龙 拆出单独成页。")
+st.caption("C组戴金板块 → 板块内市值前3选5年超额 Top2；金牌板块 RS 领先银牌不足阈值时，第二个槽改从银牌板块选龙头 → 下月执行。上月持有的龙头只要落后新第 1 名不太多（按 5 年涨幅比值算，门槛见下方月度明细）就继续持有，减少板块内来回换手。与 12M 动量守擂不是一套方法，已从 C组双龙 拆出单独成页。")
 
 _window = st.radio(
     "时间跨度",
@@ -288,7 +290,7 @@ _window = st.radio(
 )
 
 st.caption(
-    "**主线**：C组王朝接力图戴金板块 → 板块内市值前3、5年超额 Top2（上月持有的落后不到 15% 就留任）→ 下月执行。"
+    "**主线**：C组王朝接力图戴金板块 → 板块内市值前3、5年超额 Top2（上月持有的落后不多就留任）→ 下月执行。"
     "**诚实声明**：信号**不看未来**、可执行规则模拟；股票池=**逐月真实标普500成分**"
     "（PIT，Sharadar 数据含当年被剔除/退市/收购的公司），**已去生存者偏差**。"
 )
@@ -390,6 +392,8 @@ if _gl.get("success"):
     _eq = _gl.get("equity", {})
     _dates = pd.to_datetime(_gl.get("dates", []), errors="coerce")
     _two = _gl.get("two_sector", {}) or {}
+    _hold_gap = _two.get("leader_hold_gap")
+    _hold_gap_txt = f"约 {math.exp(_hold_gap) - 1:.0%}" if isinstance(_hold_gap, (int, float)) else "门槛"
 
     if not _two.get("available"):
         st.info("后端未返回强弱切换口径（`two_sector`），可能是后端版本较旧。")
@@ -512,7 +516,7 @@ if _gl.get("success"):
                 "擂主留任": "、".join(r.get("leader_held_over") or []),
             } for r in reversed(_ts_rows)])
             st.dataframe(_tbl, use_container_width=True, hide_index=True, height=320)
-            st.caption("擂主留任 = 硬排名本该换掉、但因落后不到 15% 继续持有的票。")
+            st.caption(f"擂主留任 = 硬排名本该换掉、但因落后第 1 名不到 {_hold_gap_txt} 继续持有的票。")
         else:
             st.caption("后端暂未返回月度明细。")
 
@@ -524,10 +528,11 @@ if _gl.get("success"):
         else:
             st.caption(
                 "板块怎么选和上面完全一样，只改板块内选哪只龙头。领先幅度 = "
-                "ln((100+前者5年涨幅)/(100+后者5年涨幅))。**现行**已含擂主保护 15%；"
+                f"ln((100+前者5年涨幅)/(100+后者5年涨幅))。**现行**已含擂主保护（落后不到 {_hold_gap_txt} 留任）；"
                 "**无防抖**是改之前的旧主线，每月硬排名；"
                 f"**板块内对半**是第 1 名领先下一名不到 {_lp.get('gap', 0):.1%} 就两只各半仓。"
-                "切到擂主保护的理由是收益基本持平、年化换手少约 13%，不是因为它收益更高。"
+                "门槛 2026-10-03 从约 16% 放宽到约 28%，为的是挡住 GOOGL→META→GOOGL 这类板块内来回切，"
+                "放宽后三段 Calmar 都不低于旧门槛、年化换手再低 5-10%。"
             )
             render_equity_chart(_dates, _eq, [
                 ("two_sector", "现行（擂主保护）", "#F39C12", True),
