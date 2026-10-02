@@ -367,6 +367,7 @@ def build_relay_gantt(
     title: str = "王朝接力左右列时间条带",
     track_labels: tuple = ("左列 · 龙头", "右列 · 次龙头"),
     dim_map: dict = None, dim_suffix: str = "",
+    only_slot: int = None,
 ) -> go.Figure:
     """把左右列每月持仓画成甘特时间条带：两条轨道（左列/右列），每段连续持有同一板块
     = 一个色带，带上标中文名 + 代码。
@@ -393,7 +394,7 @@ def build_relay_gantt(
             for i, t in enumerate(slot_assignments.get(m, []))
         ]
 
-    tracks = [(0, 1.0), (1, 0.0)]
+    tracks = [(only_slot, 0.0)] if only_slot is not None else [(0, 1.0), (1, 0.0)]
     for slot_idx, yc in tracks:
         for item, s_m, e_m in build_slot_segments(keyed, slot_idx, exec_months):
             tk, dim = item if isinstance(item, tuple) else (item, False)
@@ -422,10 +423,17 @@ def build_relay_gantt(
         title=dict(text=title, font=dict(size=14), x=0.01, xanchor="left"),
         showlegend=False,
     )
-    fig.update_yaxes(
-        tickvals=[1.0, 0.0], ticktext=list(track_labels),
-        range=[-0.6, 1.6], showgrid=False, zeroline=False,
-    )
+    if only_slot is not None:
+        fig.update_layout(height=150)
+        fig.update_yaxes(
+            tickvals=[0.0], ticktext=[track_labels[only_slot]],
+            range=[-0.6, 0.6], showgrid=False, zeroline=False,
+        )
+    else:
+        fig.update_yaxes(
+            tickvals=[1.0, 0.0], ticktext=list(track_labels),
+            range=[-0.6, 1.6], showgrid=False, zeroline=False,
+        )
     if exec_months:
         x0 = pd.Timestamp(f"{exec_months[0]}-01")
         x1 = pd.Timestamp(f"{exec_months[-1]}-01") + pd.offsets.MonthEnd(1)
