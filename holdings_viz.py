@@ -600,8 +600,11 @@ def build_stitched_fig(
     name_style: str = "full",
     shade_months: set = None,
     shade_color: str = "#F39C12",
+    overlay_cache: dict = None,
 ) -> go.Figure:
-    """cost_bps：单边换仓成本，口径与 calc_slot_stats 一致（卖出+买入各扣一次，
+    """overlay_cache：{段代码: [(DataFrame(Close), 颜色, 名称), ...]}，在该段上叠虚线，
+    起点对齐到段起点净值（用于一段里两只半仓各自的走势）。
+    cost_bps：单边换仓成本，口径与 calc_slot_stats 一致（卖出+买入各扣一次，
     CASH 不算成本资产）。首段不扣——calc_slot_stats 的总收益用首点做分母，
     首次买入成本被约掉，这里跟着约掉，两图末值才对得上。
     name_style="full"（默认）：段上标题=英文全称(代码)·grade_map；
@@ -694,6 +697,8 @@ def build_stitched_fig(
         n = len(closes)
         x_vals = list(range(x_offset, x_offset + n))
         color = SLOT_COLORS[ci % len(SLOT_COLORS)]
+        if overlay_cache and tk in overlay_cache and color == "#F1C40F":
+            color = SLOT_COLORS[(ci + 1) % len(SLOT_COLORS)]
         # 熊市防御：清仓 bar 收益换现金(年化 CASH_APY)净值走平，减半 bar 换 0.5×个股+0.5×现金，
         # 其余 bar 照旧跟随个股。cumprod(pct_change) 起点等于 running_nav，与原口径一致。
         _state = None  # 0=满仓 1=减仓一半 2=清仓
@@ -730,6 +735,17 @@ def build_stitched_fig(
         _y_vals = [max(0.001, v) for v in seg_nav]
         _dates = [d.strftime("%Y-%m-%d") for d in closes.index]
         _hover = f"{tk}<br>%{{customdata}}<br>NAV %{{y:.3f}}<extra></extra>"
+        for _ov, _ov_color, _ov_name in (overlay_cache or {}).get(tk, []):
+            _ov_s = _ov["Close"].astype(float).reindex(closes.index).ffill()
+            if _ov_s.notna().sum() < 2 or not np.isfinite(_ov_s.iloc[0]) or _ov_s.iloc[0] <= 0:
+                continue
+            _ov_y = _ov_s / float(_ov_s.iloc[0]) * float(seg_nav.iloc[0])
+            fig.add_trace(go.Scatter(
+                x=x_vals, y=[max(0.001, v) for v in _ov_y], mode="lines",
+                line=dict(color=_ov_color, width=1.5, dash="dash"),
+                name=_ov_name, showlegend=False, customdata=_dates,
+                hovertemplate=f"{_ov_name}<br>%{{customdata}}<br>NAV %{{y:.3f}}<extra></extra>",
+            ))
         if _state is not None and int((_state != 0).sum()) > 0:
             # 按防御状态切成连续小段：满仓 = 槽色实线，减仓一半 = 白实线，清仓 = 白虚线。
             # 每小段起点接前一个点，保持线条连续。

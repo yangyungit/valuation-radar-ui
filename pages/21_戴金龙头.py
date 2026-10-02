@@ -112,6 +112,66 @@ def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
     return True
 
 
+def render_pair_segment_returns(lp: dict, dates, spy_values: list, key_prefix: str,
+                                win_lo, win_hi, shade_months: set = None) -> bool:
+    """板块内对半口径的左列 / 右列接力图：实线 = 该列合成净值，某段该列有两只半仓时
+    叠金色（排名靠前）/ 银色两条虚线。段按执行月切，同 _slot_month_segments 的顺延口径。"""
+    columns = lp.get("columns") or []
+    timeline = lp.get("timeline") or []
+    if not columns or not timeline or len(dates) == 0:
+        return False
+
+    lo_m, hi_m = win_lo.strftime("%Y-%m"), win_hi.strftime("%Y-%m")
+    spy = _norm_series(spy_values, dates)
+    spy = spy[(spy.index >= win_lo) & (spy.index <= win_hi)]
+    spy_wk = pd.DataFrame({"Close": spy}) if not spy.empty else pd.DataFrame()
+
+    def _clip(values):
+        s = _norm_series(values, dates)
+        return s[(s.index >= win_lo) & (s.index <= win_hi)]
+
+    for col in columns:
+        ci = int(col.get("slot", 0))
+        col_s = _clip(col.get("equity", []))
+        if col_s.empty:
+            continue
+        legs = [_clip(v) for v in (col.get("legs") or [])]
+        segs: list = []
+        for r in timeline:
+            slots = r.get("slots") or []
+            tks = [t for t in (slots[ci] if ci < len(slots) else []) if t != "BIL"]
+            lab = "/".join(tks) if tks else "CASH"
+            m = hv.next_month_key(str(r.get("month", "")))
+            if segs and segs[-1][0] == lab:
+                segs[-1] = (lab, segs[-1][1], m)
+            else:
+                segs.append((lab, m, m))
+        segs = [s for s in segs if not (s[2] < lo_m or s[1] > hi_m)]
+        if not segs:
+            continue
+        all_tks = {t for lab, _, _ in segs if lab != "CASH" for t in lab.split("/")}
+        cn = cn_name_map(all_tks)
+        labels, price_cache, overlay = {}, {}, {}
+        for lab, _, _ in segs:
+            if lab == "CASH":
+                continue
+            parts = lab.split("/")
+            labels[lab] = "/".join(cn.get(t, t) for t in parts)
+            price_cache[lab] = pd.DataFrame({"Close": col_s})
+            if len(parts) == 2 and len(legs) == 2:
+                overlay[lab] = [
+                    (pd.DataFrame({"Close": legs[0]}), "#FFD700", f"{parts[0]} 半仓"),
+                    (pd.DataFrame({"Close": legs[1]}), "#C0C7D0", f"{parts[1]} 半仓"),
+                ]
+        title = "左列 · 金牌槽" if ci == 0 else "右列 · 银牌槽"
+        fig = hv.build_stitched_fig(
+            segs, f"{title}（板块内对半）接力", spy_wk, price_cache, labels, labels,
+            name_style="cn_ticker", shade_months=shade_months, overlay_cache=overlay,
+        )
+        st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_pair_segment_{ci}")
+    return True
+
+
 def render_holding_cards(slots: list, bil_reason: str) -> None:
     cols = st.columns(max(len(slots), 1))
     for si in range(len(slots)):
@@ -606,14 +666,20 @@ if _gl.get("success"):
             render_stats_cards(_stats_two)
             st.caption("logR² = 净值曲线取对数后对时间做线性回归的拟合优度，越接近 1 越是匀速上涨、越低说明涨跌越颠簸。")
 
-            st.markdown("##### Slot 分段收益")
-            if not render_slot_segment_returns(
-                _two.get("slot_equity") or [], _two.get("holdings_timeline") or [],
-                _dates, _eq.get("spy", []), "gl_two", _win_lo, _win_hi, _rb_split,
+            st.markdown("##### 接力持仓（板块内对半）")
+            if not render_pair_segment_returns(
+                _gl.get("leader_pair") or {}, _dates, _eq.get("spy", []),
+                "gl_two", _win_lo, _win_hi, _rb_split,
             ):
-                st.caption("后端暂未返回 slot_equity。")
+                st.caption("后端暂未返回板块内对半的分列净值。")
             else:
-                st.caption("橙色竖条含义同上：那几个月真的分投了金银两个板块。")
+                st.caption(
+                    "这两张图是**板块内对半**口径，不是上面的擂主保护主线：板块分配一样，"
+                    "某列第 1 名领先下一名不够多时，这列两只各半仓。实线 = 该列两只合起来的净值，"
+                    "金色虚线 = 排名靠前那只、银色虚线 = 另一只，各自从段起点对齐。"
+                    "两列资金占比会随涨跌漂移（钱跟着票走，不按列掰回各半），所以组合净值"
+                    "不等于两列简单平均。橙色竖条含义同上。"
+                )
 
             st.markdown("##### 哪些月份走了银牌板块")
             _ts_rows = [
