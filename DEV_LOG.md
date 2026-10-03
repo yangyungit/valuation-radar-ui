@@ -1,3 +1,11 @@
+## 2026-10-03 新增精选龙头页（32）：戴金龙头主线 + 每只票最短持有 9 个月
+
+后端见 `valuation-radar` 63c79c7：`gold_leader` 接口加 `min_hold`，>0 时多返回 `two_sector_locked` / `two_sector_locked_timeline`；21 页不传，返回不变。
+
+**范围**：21 页的渲染函数（CSS、净值图、统计卡、持仓卡、Slot 分段、板块条带、meta 说明）抽到 `gold_leader_viz.py`，21 页改为 import，行为不变；新建 `pages/32_精选龙头.py`（持仓卡带锁定状态、净值图对照主线 + 锁定月绿色竖条、统计卡 + 主线对照表、Slot 分段、月度明细带「被按住的换股」、和主线不同的月份）；`app.py` 进攻类策略组注册。
+
+**实测**（10Y、再平衡开、10bp）：换股 39→21、年化换手 2.16→1.23、Calmar 0.95→1.25、MaxDD −29.6%→−29.0%；剔 2021 后累计只多 11%。N=7~9 稳健性检验见后端 DEV_LOG 2026-10-03。AppTest 无头跑：21 页两个 tab 无报错，5Y 主线统计卡 362% / Calmar 1.21 / 换股 12 与改前接口一致；32 页 5Y 换股 9 vs 主线 12，滑块拖到 4 时 10Y 换股 32、Calmar 0.74。
+
 ## 2026-10-03 戴金龙头页加「252 日照搬王朝接力」tab
 
 后端见 `valuation-radar` 1f0233a：`gold_leader` 多返回 `ribbon_copy` / `ribbon_copy_timeline`，`ribbon_copy.stats_same_period` 是它和现行从同一起点算的统计。
