@@ -135,10 +135,13 @@ def render_holding_cards(slots: list, bil_reason: str) -> None:
                 )
                 excess = data.get("excess_pct")
                 excess_txt = f"{excess:+.1f}%" if isinstance(excess, (int, float)) else "—"
-                detail = (
-                    f"板块 {sector_txt}｜龙头第 {data.get('leader_rank', '—')}｜5Y超额 {excess_txt}"
-                    f"<br>首次持有 {data.get('since', '—')}｜已持有 {data.get('held_months', '—')} 月"
-                )
+                if data.get("data_missing_carry"):
+                    detail = f"⚠ {data.get('missing_etf')} 当月数据缺失，沿用上月持仓"
+                else:
+                    detail = (
+                        f"板块 {sector_txt}｜龙头第 {data.get('leader_rank', '—')}｜5Y超额 {excess_txt}"
+                        f"<br>首次持有 {data.get('since', '—')}｜已持有 {data.get('held_months', '—')} 月"
+                    )
                 html = (
                     f"<div class='insight-box'><div class='insight-title'>{label}</div>"
                     f"<div style='font-size:16px;color:#fff;font-weight:bold;'>"
@@ -146,6 +149,15 @@ def render_holding_cards(slots: list, bil_reason: str) -> None:
                     f"<div style='font-size:14px;color:#bbb;margin-top:6px;'>{detail}</div></div>"
                 )
             st.markdown(html, unsafe_allow_html=True)
+
+
+def show_missing_warning(variant: dict) -> None:
+    miss = variant.get("data_missing_months") or []
+    if miss:
+        st.warning(
+            "以下月份选中的板块没有龙头候选股（数据缺失），对应槽沿用上月持仓，需要手动核实龙头："
+            + "；".join(f"{m['month']} {'、'.join(m['etfs'])}" for m in miss)
+        )
 
 
 def build_sector_ribbon(timeline: list[dict], since_month: str) -> tuple[dict, dict, list, dict, set]:
@@ -184,6 +196,12 @@ def build_sector_ribbon(timeline: list[dict], since_month: str) -> tuple[dict, d
             "CASH" if right_cash else right,
         ]
         dim[exec_m] = [False, (not split) and not right_cash]
+        for ci in (r.get("carried_slots") or []):
+            if ci in (0, 1):
+                miss = (r.get("data_missing") or [gold])[0]
+                slots[exec_m][ci] = "MISSING:" + miss
+                dim[exec_m][ci] = False
+                name_map["MISSING:" + miss] = f"⚠ 数据缺失（{miss}）"
         if split:
             split_months.add(exec_m)
         name_map[gold] = r.get("sector_name") or gold
@@ -277,6 +295,7 @@ def render_copy_tab(gl: dict, dates, meta: dict, signal_month: str) -> None:
     if not rc.get("available"):
         st.info("后端未返回 252 日照搬口径（`ribbon_copy`），可能是后端版本较旧。")
         return
+    show_missing_warning(rc)
     eq = gl.get("equity", {})
     st.caption(
         "两个槽直接用 19 页王朝接力选仓层（C+D 共 25 只板块 ETF，**252 日动量**、资历接力进场、"
@@ -362,6 +381,7 @@ def render_copy_tab(gl: dict, dates, meta: dict, signal_month: str) -> None:
             "槽B 板块": r.get("silver_sector_etf") or r.get("sector_etf") or "—",
             "持仓": " + ".join(r.get("picks") or []),
             "擂主留任": "、".join(r.get("leader_held_over") or []),
+            "数据缺失": "、".join(r.get("data_missing") or []),
         } for r in reversed(_rows)])
         st.dataframe(_tbl, use_container_width=True, hide_index=True, height=320)
     else:
@@ -496,6 +516,7 @@ if _gl.get("success"):
         if not _two.get("available"):
             st.info("后端未返回强弱切换口径（`two_sector`），可能是后端版本较旧。")
         else:
+            show_missing_warning(_two)
             _rb_slots, _rb_names, _rb_months, _rb_dim, _rb_split = build_sector_ribbon(
                 _gl.get("two_sector_timeline") or [], str(_meta.get("display_start", ""))[:7]
             )
@@ -612,6 +633,7 @@ if _gl.get("success"):
                     "分两个板块": "是" if r.get("split_sectors") else "",
                     "持仓": " + ".join(r.get("picks") or []),
                     "擂主留任": "、".join(r.get("leader_held_over") or []),
+                    "数据缺失": "、".join(r.get("data_missing") or []),
                 } for r in reversed(_ts_rows)])
                 st.dataframe(_tbl, use_container_width=True, hide_index=True, height=320)
                 st.caption(f"擂主留任 = 硬排名本该换掉、但因落后第 1 名不到 {_hold_gap_txt} 继续持有的票。")
