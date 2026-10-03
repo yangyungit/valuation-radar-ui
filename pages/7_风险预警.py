@@ -5,11 +5,13 @@
 
 - 标普 SPY 跌破月 MA10：大盘趋势总闸（月频，纯前端 yfinance）。
 - 熊市闸门（SPY 日线 MA100）：与「科技龙头」页同源，橙=减半，依赖后端 API。
+- GBDT 急跌/慢跌概率：后端 horsemen_daily_*，SPY 日线上标出触发日，仅参考。
 - 其余（BTC 月 MA10，HYG÷LQD、ARKK÷SPY、SMH÷SPY 月 MA24）：月频 MA 交叉，纯前端 yfinance。
 """
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 import yfinance as yf
 from _yf_session import new_yf_session
 
@@ -94,6 +96,16 @@ def _segs(mask: pd.Series) -> list:
             d0, d1 = grp.index[0], grp.index[-1]
             out.append((d0.replace(day=1), d1))
     return out
+
+
+def _bool_segs(s: pd.Series) -> list:
+    """日频布尔 Series → 连续 True 段 [(首日, 末日)]。"""
+    _flip = s.ne(s.shift()).cumsum()
+    return [
+        (_grp.index[0], _grp.index[-1])
+        for _gid, _grp in s.groupby(_flip)
+        if bool(_grp.iloc[0])
+    ]
 
 
 def _build_ma_chart(name: str, s: pd.Series, win: int, x_lo, x_hi, key: str):
@@ -248,6 +260,8 @@ if _avail[_spy_name]:
 # 橙 = SPY 连续 5 日收盘 < MA100（连续 5 日收回才关）→ 减仓一半
 _danger_half = None
 _cal = None
+_chain_regime = None
+df_prices = None
 try:
     from api_client import (
         get_global_data,
@@ -281,14 +295,6 @@ if _danger_half is not None and _cal is not None and bool(_danger_half.any()):
         "(橙 = SPY 跌破 MA100，减仓一半；绿 = 满仓)</span>",
         unsafe_allow_html=True,
     )
-
-    def _bool_segs(s: pd.Series) -> list:
-        _flip = s.ne(s.shift()).cumsum()
-        return [
-            (_grp.index[0], _grp.index[-1])
-            for _gid, _grp in s.groupby(_flip)
-            if bool(_grp.iloc[0])
-        ]
 
     # 条带占上半部(y 0.42~1)，下半部留给逐段日期标注
     _BAND_Y0 = 0.42
@@ -354,6 +360,107 @@ if _danger_half is not None and _cal is not None and bool(_danger_half.any()):
     )
 else:
     st.info("熊市闸门暂不可用（后端 bear_gate_daily 未拉到）。")
+
+# ── GBDT 急跌 / 慢跌概率（后端 horsemen_daily_*，与熊市闸门同一次 API 调用）
+st.markdown("#### 🤖 GBDT 急跌 / 慢跌概率 — 两个模型并联（仅参考，不驱动仓位）")
+st.caption(
+    "急跌模型学「未来 20 交易日 SPY 最低点 ≤ -8%」，慢跌模型学「未来 60 交易日 ≤ -8%」（多 6 个 SPY 慢变量）。"
+    "触发 = 急跌 > 0.50 当日 或 慢跌 > 0.50 连 3 日。历史概率为 walk-forward（训练集末尾剔除标签窗口，无泄露）。"
+    "仓位闸门是上面的 SPY 日线 MA100。"
+)
+
+
+def _api_series(key: str) -> pd.Series:
+    raw = (_chain_regime or {}).get(key, {}) or {}
+    if not raw:
+        return pd.Series(dtype=float)
+    return pd.Series(list(raw.values()), index=pd.to_datetime(list(raw.keys()))).sort_index()
+
+
+_prob_s = _api_series("horsemen_daily_chaos_prob").astype(float)
+if not _prob_s.empty:
+    _slow_s = _api_series("horsemen_daily_slow_prob").astype(float)
+    _trig_s = _api_series("horsemen_daily_chaos_trigger")
+    _trig_s = _trig_s.astype(bool) if not _trig_s.empty else pd.Series(False, index=_prob_s.index)
+    _trig_idx = _trig_s[_trig_s].index
+
+    _spy_d = None
+    if df_prices is not None and not df_prices.empty and "SPY" in df_prices.columns:
+        _spy_d = df_prices["SPY"].dropna()
+        _spy_idx = pd.DatetimeIndex(_spy_d.index)
+        _spy_d.index = _spy_idx.tz_localize(None) if _spy_idx.tz is not None else _spy_idx
+        _spy_d = _spy_d[_spy_d.index >= _prob_s.index[0]]
+
+    _fig_g = make_subplots(
+        rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04,
+        row_heights=[0.6, 0.4],
+    )
+    if _spy_d is not None and not _spy_d.empty:
+        _fig_g.add_trace(go.Scatter(
+            x=_spy_d.index, y=_spy_d.values, mode="lines", name="SPY",
+            line=dict(color="#ddd", width=1.2),
+        ), row=1, col=1)
+        # plotly 会丢掉加在空子图上的 vrect，必须在 SPY 线之后加
+        for _s0, _s1 in _bool_segs(_trig_s.reindex(_spy_d.index).fillna(False).astype(bool)):
+            _fig_g.add_vrect(x0=_s0, x1=_s1, fillcolor="rgba(231,76,60,0.15)",
+                             line_width=0, layer="below", row=1, col=1)
+        _ti = _spy_d.index.intersection(_trig_idx)
+        if len(_ti) > 0:
+            _fast_hit = _prob_s.reindex(_ti) > 0.50
+            for _mask, _nm, _clr in [(_fast_hit, "急跌触发", "#3498DB"), (~_fast_hit, "慢跌触发", "#E67E22")]:
+                _d = _ti[_mask.values]
+                if len(_d) == 0:
+                    continue
+                _fig_g.add_trace(go.Scatter(
+                    x=_d, y=_spy_d.reindex(_d).values, mode="markers", name=_nm,
+                    marker=dict(color=_clr, size=5),
+                    customdata=list(zip(_prob_s.reindex(_d).values, _slow_s.reindex(_d).values)),
+                    hovertemplate="%{x|%Y-%m-%d}<br>SPY %{y:.2f}"
+                                  "<br>急跌 %{customdata[0]:.2f} · 慢跌 %{customdata[1]:.2f}<extra></extra>",
+                ), row=1, col=1)
+
+    _fig_g.add_trace(go.Scatter(
+        x=_prob_s.index, y=_prob_s.values, mode="lines", name="急跌概率(20日)",
+        line=dict(color="#3498DB", width=1.3),
+    ), row=2, col=1)
+    if not _slow_s.empty:
+        _fig_g.add_trace(go.Scatter(
+            x=_slow_s.index, y=_slow_s.values, mode="lines", name="慢跌概率(60日)",
+            line=dict(color="#E67E22", width=1.3),
+        ), row=2, col=1)
+    _fig_g.add_hline(y=0.50, line=dict(color="#888", width=1, dash="dash"), row=2, col=1)
+
+    _grid = dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", tickfont=dict(size=10, color="#999"))
+    _fig_g.update_layout(
+        height=520,
+        margin=dict(l=50, r=20, t=30, b=28),
+        plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
+        font=dict(color="#ddd"),
+        legend=dict(orientation="h", y=1.06, x=0, font=dict(size=10)),
+        hovermode="x unified",
+    )
+    _fig_g.update_xaxes(**_grid, tickformat="%Y", dtick="M12")
+    _fig_g.update_yaxes(**_grid, title_text="SPY", row=1, col=1)
+    _fig_g.update_yaxes(**_grid, title_text="概率", range=[0, 1], row=2, col=1)
+    st.plotly_chart(_fig_g, use_container_width=True, key="risk_gbdt_chart")
+    st.caption(
+        "上图 SPY 日线，浅红底 = GBDT 触发区间，蓝点 = 当日急跌概率 > 0.50，橙点 = 急跌未过线、靠慢跌连 3 日触发。"
+        "下图两条概率线，虚线 = 0.50 阈值。"
+    )
+
+    for _top_key, _top_title in (
+        ("horsemen_daily_chaos_top_features", "急跌模型最新一日归因（SHAP top3）"),
+        ("horsemen_daily_slow_top_features", "慢跌模型最新一日归因（SHAP top3）"),
+    ):
+        _latest_top = (_chain_regime or {}).get(_top_key, []) or []
+        if _latest_top:
+            _top_lines = [
+                f"- **{item.get('feature','?')}**：贡献 {float(item.get('shap', 0.0)):+.3f}"
+                for item in _latest_top[:3]
+            ]
+            st.markdown(f"**{_top_title}**：\n" + "\n".join(_top_lines))
+else:
+    st.info("GBDT 数据暂不可用（后端 horsemen_daily_chaos_prob 未拉到）。")
 
 # ── 第 3 条起：风险偏好内部（BTC / HYG÷LQD / ARKK÷SPY / SMH÷SPY）
 st.markdown("#### 🌡️ 风险偏好内部（BTC 月 MA10 / 其余月 MA24 交叉）")
