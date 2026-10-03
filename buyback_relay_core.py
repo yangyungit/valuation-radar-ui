@@ -912,27 +912,28 @@ def render_group(
                     / (float(_navc0.iloc[-1]) / float(_navc0.iloc[0]))
                 )
 
-    # 熊市防御开关：红段(GBDT)清仓改持现金（年化 4%），橙段(旧闸门)减仓一半
-    # （0.5×持仓收益 + 0.5×现金），其余日照旧满仓。用来量化防御能规避多少回撤。
+    # 熊市防御开关：闸门（SPY 连续 5 日 < MA100）开的日子减仓一半（0.5×持仓收益 + 0.5×现金）。
+    # danger_daily（清仓）保留参数兼容，现在没人传。闸门按前一交易日收盘判定（shift 1），无未来函数。
     _bear_on = False
-    if danger_daily is not None and not _navc.empty:
+    if (danger_daily is not None or danger_half_daily is not None) and not _navc.empty:
         _bear_on = st.toggle(
-            "🐻 熊市防御（红段 GBDT 清仓持现金 · 橙段旧闸门减仓一半 · 现金不计息）",
+            "🐻 熊市防御（SPY 跌破 MA100 → 减仓一半，现金不计息）",
             value=bear_default, key=f"{kp}_bear_cash",
         )
     if _bear_on:
-        _dg = danger_daily.reindex(_navc.index, method="ffill").fillna(False).astype(bool)
         _cash_dr = (1.0 + hv.CASH_APY) ** (1.0 / 252) - 1.0
         _ret_d = _navc.pct_change().fillna(0.0)
+        _dg = (danger_daily.reindex(_navc.index, method="ffill").fillna(False).astype(bool)
+               if danger_daily is not None else pd.Series(False, index=_navc.index))
         if danger_half_daily is not None:
             _dh = (danger_half_daily.reindex(_navc.index, method="ffill")
-                   .fillna(False).astype(bool) & ~_dg)
+                   .fillna(False).astype(bool).shift(1, fill_value=False) & ~_dg)
             _ret_d = _ret_d.where(~_dh, 0.5 * _ret_d + 0.5 * _cash_dr)
         _ret_d = _ret_d.where(~_dg, _cash_dr)
         _navc = (1.0 + _ret_d).cumprod() * float(_navc.iloc[0])
 
     # 波动率目标仓位：仓位 = min(1, 目标波动 ÷ 近20日已实现波动)，缩掉部分持现金（年化 CASH_APY）。
-    # 与 GBDT 闸门互补——闸门是预测式全有全无，这层是反应式连续降仓，垫在满仓/清仓之间。
+    # 与熊市闸门互补——闸门是趋势式半仓/满仓，这层是反应式连续降仓，垫在满仓/半仓之间。
     # 波动率 shift 1 天：当日收益乘的是前一日就能算出的仓位，无未来函数。叠加在熊市防御之后。
     _navc_bear = _navc
     _vt_on = False

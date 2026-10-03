@@ -1013,11 +1013,11 @@ if not df.empty and len(df) > 750:
     }
 
     # ── GBDT chaos 概率曲线 ─────────────────────────────────────────
-    st.markdown("##### 🤖 GBDT chaos 概率曲线 — 多变量恐慌信号融合")
+    st.markdown("##### 🤖 GBDT 急跌概率曲线 — 多变量恐慌信号融合（仅参考）")
     st.caption(
         "LightGBM 学习「未来 20 交易日 SPY drawdown ≤ -8%」的概率。"
-        "P > 0.50 持续 5 个交易日 → 触发清仓 BIL 闸门。"
-        "灰色阈值线 = 0.50；红色填充 = 触发段。"
+        "2026-10 起不再驱动仓位（仓位闸门改为 SPY 日线 MA100，见风险预警页）。"
+        "灰色阈值线 = 0.50；红色填充 = 历史触发段。"
     )
     _chaos_prob_raw = (_regime_api or {}).get("horsemen_daily_chaos_prob", {}) or {}
     _chaos_trig_raw = (_regime_api or {}).get("horsemen_daily_chaos_trigger", {}) or {}

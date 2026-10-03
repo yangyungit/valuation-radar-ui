@@ -4,7 +4,7 @@
 月线跌破自己的均线（月 MA）就标红，自己看哪些破位了。
 
 - 标普 SPY 跌破月 MA10：大盘趋势总闸（月频，纯前端 yfinance）。
-- 危险条带（GBDT）：从「科技龙头」页整块复制，红=清仓/橙=减半，依赖后端 API。
+- 熊市闸门（SPY 日线 MA100）：与「科技龙头」页同源，橙=减半，依赖后端 API。
 - 其余（BTC 月 MA10，HYG÷LQD、ARKK÷SPY、SMH÷SPY 月 MA24）：月频 MA 交叉，纯前端 yfinance。
 """
 import pandas as pd
@@ -17,7 +17,7 @@ st.set_page_config(page_title="风险预警", layout="wide")
 
 st.title("⚠️ 风险预警 · 流动性 / 风险偏好条带")
 st.caption(
-    "从上到下：**标普 SPY 跌破月 MA10**（大盘趋势总闸）→ **危险条带 GBDT**（后端清仓/减半信号）→ "
+    "从上到下：**标普 SPY 跌破月 MA10**（大盘趋势总闸）→ **熊市闸门（SPY 日线 MA100）**（后端减半信号）→ "
     "**风险偏好内部**（BTC 跌破自己月 MA10，HYG÷LQD、ARKK÷SPY、SMH÷SPY 跌破自己月 MA24 = 🔴）→ "
     "**防守腿池宽度**（page 8 带鱼池非科技，宽度 <40% 报警）。绿 = 安全，"
     "哪些破位了自己看，结合自己的判断操作。"
@@ -37,9 +37,9 @@ with st.expander("📖 每个指标是什么、公式怎么算（点开）", exp
 
 **MA 交叉通用算法**：日线拉取 → resample 到月末收盘 → 算 N 个月滚动均线 `MA_N`。当月收盘（或比值）< MA_N → 该月标红；MA 未成形的头 N-1 个月记 ⚪（数据不足）。
 
-**危险条带（GBDT）** 是另一套机制，非 MA 交叉：与「科技龙头」页同源，取后端 GBDT 日频信号——
-- 🔴 **红**：GBDT 日频卖出信号触发日 + 后 20 个交易日 → 清仓（月中触发即空仓，不等月末）。
-- 🟠 **橙**：旧闸门 `chaos_share > 0.40` 的月份 → 减仓一半；与红重叠时红（清仓）优先。
+**熊市闸门（SPY 日线 MA100）** 与「科技龙头」页同源，后端算：
+- 🟠 **橙**：SPY 日收盘连续 5 个交易日 < MA100 → 减仓一半；连续 5 个交易日收回 MA100 上方才解除。
+- 和最上面「SPY 月 MA10」的区别：这条是日线、反应快一个月左右；月 MA10 是慢闸。
 """
     )
 
@@ -244,76 +244,41 @@ if _avail[_spy_name]:
         _x_lo, _x_hi, key="risk_spy_ribbon",
     )
 
-# ── 第 2 条：危险区域时间条带（从「科技龙头」页复制，依赖后端 GBDT 信号）
-# 红 = GBDT 日频卖出信号后 20 交易日 → 清仓；橙 = 旧闸门 chaos_share>0.40 月 → 减仓一半
-_DANGER_FWD_DAYS = 20
-_danger_full = None
+# ── 第 2 条：熊市闸门条带（与「科技龙头」页同源，后端 bear_gate_daily）
+# 橙 = SPY 连续 5 日收盘 < MA100（连续 5 日收回才关）→ 减仓一半
 _danger_half = None
 _cal = None
 try:
     from api_client import (
         get_global_data,
-        fetch_current_regime,
         compute_macro_regime_api,
     )
 
-    with st.spinner("📊 加载危险区域条带（后端 GBDT）..."):
+    with st.spinner("📊 加载熊市闸门（后端）..."):
         df_prices = get_global_data(["SPY"], years=10)
-        _current_regime = fetch_current_regime()
         _chain_regime = compute_macro_regime_api(z_window=750)
 
     if df_prices is not None and not df_prices.empty:
         _cal = pd.DatetimeIndex(df_prices.index).sort_values()
-        _danger_full = pd.Series(False, index=_cal)
-        _danger_half = pd.Series(False, index=_cal)
-
-        # (1) GBDT 每个触发日 + 后 N 个交易日 → 清仓（纯日频，月中触发即空仓）
-        _dz_trig_raw = (_chain_regime or {}).get("horsemen_daily_chaos_trigger", {}) or {}
-        _dz_trig_dates = pd.to_datetime(
-            [k for k, v in _dz_trig_raw.items() if v], errors="coerce"
-        ).dropna()
-        for _td in _dz_trig_dates:
-            _pos = int(_cal.searchsorted(_td))
-            if _pos < len(_cal):
-                _danger_full.iloc[_pos:_pos + _DANGER_FWD_DAYS + 1] = True
-
-        # (2) 旧闸门 chaos_share>0.40 月 → 减仓一半（月频概念）
-        _dz_hmp = (
-            ((_chain_regime or {}).get("data", {}) or {}).get("horsemen_monthly_probs", {})
-            or (_current_regime or {}).get("horsemen_monthly_probs", {})
-            or {}
-        )
-        _dz_recs = []
-        for _m_str, _probs in _dz_hmp.items():
-            if not isinstance(_probs, dict):
-                continue
-            try:
-                _m_ts = pd.Timestamp(str(_m_str) + "-01")
-            except Exception:
-                continue
-            _dz_recs.append((
-                _m_ts,
-                float(_probs.get("chaos_share", 0.0) or 0.0) > 0.40,
-            ))
-        if _dz_recs:
-            _dz_mdf = (
-                pd.DataFrame(_dz_recs, columns=["date", "old_gate"])
-                .set_index("date").sort_index()
+        _bg_raw = (_chain_regime or {}).get("bear_gate_daily", {}) or {}
+        if _bg_raw:
+            _bear_gate = (
+                pd.Series(list(_bg_raw.values()), index=pd.to_datetime(list(_bg_raw.keys()), errors="coerce"))
+                .dropna().sort_index().astype(bool)
+                .reindex(_cal, method="ffill").fillna(False).astype(bool)
             )
-            _danger_half = (
-                _dz_mdf["old_gate"].reindex(_cal, method="ffill").fillna(False).astype(bool)
-            )
-        _danger_half = _danger_half & ~_danger_full
+        else:
+            _bear_gate = None
+        _danger_half = _bear_gate
 except Exception:
-    _danger_full = None
     _danger_half = None
     _cal = None
 
-if _danger_full is not None and _cal is not None and bool((_danger_full | _danger_half).any()):
+if _danger_half is not None and _cal is not None and bool(_danger_half.any()):
     st.markdown(
-        "#### ⚠️ 危险区域条带 "
+        "#### ⚠️ 熊市闸门条带 "
         "<span style='font-size:13px; color:#888; font-weight:normal;'>"
-        "(红 = GBDT 清仓：卖出信号后 20 交易日；橙 = 旧闸门 chaos_share&gt;0.40 月，减仓一半)</span>",
+        "(橙 = SPY 跌破 MA100，减仓一半；绿 = 满仓)</span>",
         unsafe_allow_html=True,
     )
 
@@ -335,7 +300,6 @@ if _danger_full is not None and _cal is not None and bool((_danger_full | _dange
     )
     for _seg_list, _fill, _txt_color in [
         (_bool_segs(_danger_half), "rgba(230,126,34,0.55)", "#E67E22"),
-        (_bool_segs(_danger_full), "rgba(231,76,60,0.55)", "#E67E73"),
     ]:
         for _s0, _s1 in _seg_list:
             _rib.add_shape(
@@ -378,21 +342,18 @@ if _danger_full is not None and _cal is not None and bool((_danger_full | _dange
     )
     st.plotly_chart(_rib, use_container_width=True, key="risk_danger_ribbon")
 
-    if bool(_danger_full.iloc[-1]):
-        _dz_status_txt = "<span style='color:#E74C3C; font-weight:bold;'>清仓区（GBDT）</span>"
-    elif bool(_danger_half.iloc[-1]):
-        _dz_status_txt = "<span style='color:#E67E22; font-weight:bold;'>减仓区（旧闸门）</span>"
+    if bool(_danger_half.iloc[-1]):
+        _dz_status_txt = "<span style='color:#E67E22; font-weight:bold;'>减仓区（SPY &lt; MA100）</span>"
     else:
-        _dz_status_txt = "<span style='color:#2ECC71; font-weight:bold;'>安全</span>"
-    _dz_full_1y = int(_danger_full.iloc[-252:].sum())
+        _dz_status_txt = "<span style='color:#2ECC71; font-weight:bold;'>满仓</span>"
     _dz_half_1y = int(_danger_half.iloc[-252:].sum())
     st.caption(
-        f"当前：{_dz_status_txt} · 近一年 红(清仓) {_dz_full_1y} 天 / 橙(减半) {_dz_half_1y} 天 / "
-        f"共 {min(len(_danger_full), 252)} 天 · 绿=安全",
+        f"当前：{_dz_status_txt} · 近一年 橙(减半) {_dz_half_1y} 天 / "
+        f"共 {min(len(_danger_half), 252)} 天 · 绿=满仓",
         unsafe_allow_html=True,
     )
 else:
-    st.info("危险条带暂不可用（后端 GBDT 信号未拉到，其余条带不受影响）。")
+    st.info("熊市闸门暂不可用（后端 bear_gate_daily 未拉到）。")
 
 # ── 第 3 条起：风险偏好内部（BTC / HYG÷LQD / ARKK÷SPY / SMH÷SPY）
 st.markdown("#### 🌡️ 风险偏好内部（BTC 月 MA10 / 其余月 MA24 交叉）")

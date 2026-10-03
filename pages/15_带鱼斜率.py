@@ -4,7 +4,7 @@ import numpy as np
 
 import holdings_viz as hv
 from api_client import (fetch_logr2_stable_pool, fetch_gbdt_oos_prices, get_global_data,
-                        compute_macro_regime_api, fetch_current_regime)
+                        compute_macro_regime_api)
 from buyback_relay_core import render_group
 from cn_names import cn_name_map
 
@@ -228,39 +228,25 @@ name_map = {t: (meta.get(t) or {}).get("name", t) for t in rest}
 cn_map = cn_name_map(rest)
 _rs_dummy = pd.DataFrame(np.nan, index=sc_in.index, columns=sc_in.columns)
 
-# ── 熊市防御条带（与「科技龙头」页同源，默认关）：
-#    红 = GBDT 日频 chaos 触发后 20 交易日 → 清仓持现金；橙 = 旧闸门 chaos_share>0.40 月 → 减仓一半。
+# ── 熊市防御条带（与科技龙头页同源，默认关）：橙 = SPY 连续 5 日 < MA100 → 减仓一半。
 #    render_group 里的开关默认关（bear_default=False），打开后量化能规避多少回撤。──
-_DANGER_FWD_DAYS = 20
-_danger_full = _danger_half = None
+_danger_half = None
 try:
     if _px is not None and "SPY" in _px.columns:
         _cal = pd.DatetimeIndex(_px["SPY"].dropna().index).sort_values()
-        _chain = compute_macro_regime_api(z_window=750) or {}
-        _cur = fetch_current_regime() or {}
-        _danger_full = pd.Series(False, index=_cal)
-        _danger_half = pd.Series(False, index=_cal)
-        _trig = (_chain.get("horsemen_daily_chaos_trigger", {}) or {})
-        for _td in pd.to_datetime([k for k, v in _trig.items() if v], errors="coerce").dropna():
-            _pos = int(_cal.searchsorted(_td))
-            if _pos < len(_cal):
-                _danger_full.iloc[_pos:_pos + _DANGER_FWD_DAYS + 1] = True
-        _hmp = (((_chain.get("data", {}) or {}).get("horsemen_monthly_probs", {}))
-                or (_cur.get("horsemen_monthly_probs", {})) or {})
-        _recs = []
-        for _ms, _pr in _hmp.items():
-            if isinstance(_pr, dict):
-                try:
-                    _recs.append((pd.Timestamp(str(_ms) + "-01"),
-                                  float(_pr.get("chaos_share", 0.0) or 0.0) > 0.40))
-                except Exception:
-                    pass
-        if _recs:
-            _mdf = pd.DataFrame(_recs, columns=["date", "g"]).set_index("date").sort_index()
-            _danger_half = _mdf["g"].reindex(_cal, method="ffill").fillna(False).astype(bool)
-        _danger_half = _danger_half & ~_danger_full
+        _chain_regime = compute_macro_regime_api(z_window=750) or {}
+        _bg_raw = (_chain_regime or {}).get("bear_gate_daily", {}) or {}
+        if _bg_raw:
+            _bear_gate = (
+                pd.Series(list(_bg_raw.values()), index=pd.to_datetime(list(_bg_raw.keys()), errors="coerce"))
+                .dropna().sort_index().astype(bool)
+                .reindex(_cal, method="ffill").fillna(False).astype(bool)
+            )
+        else:
+            _bear_gate = None
+        _danger_half = _bear_gate
 except Exception:
-    _danger_full = _danger_half = None
+    _danger_half = None
 
 render_group(
     "非科技陡票", rest, "seg_rest",
@@ -276,5 +262,5 @@ render_group(
     display_from=window_lo,
     precomputed_holdings=_mh, precomputed_raw=_mh_raw,
     precomputed_weights=_wts,
-    danger_daily=_danger_full, danger_half_daily=_danger_half, bear_default=False,
+    danger_daily=None, danger_half_daily=_danger_half, bear_default=False,
 )
