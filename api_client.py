@@ -1264,6 +1264,7 @@ def fetch_dynasty_gold_leader(
     才合回），silver_buffer_n 是银牌板块名次死区深度。三个 silver_* 参数都不传时用后端
     定值（三段 maximin 寻优得出），这里不写死数字免得后端换了跟不上。
     gold_revert 是金牌回退防护开关（刚换走的老金牌冲回第 1 要连续确认才换），不传 = 后端默认（开）。
+    `ribbon_copy` 是 252 日照搬口径（两槽直接用王朝接力选仓层两只 ETF），21 页第二个 tab 用。
 
     诚实定位：信号无前视、次日成交、扣成本；但池含生存者偏差，非真实业绩。
     Render 冷启动 502/504 自动重试一次。失败返回 {"success": False, "error": ...}。
