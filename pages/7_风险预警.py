@@ -387,6 +387,9 @@ if not _prob_s.empty:
     _qs_raw = (_chain_regime or {}).get("horsemen_daily_quiet_spike", {}) or {}
     _qs = pd.DataFrame(_qs_raw.get("signals", []) or [])
     _quiet_now = int(_qs_raw.get("quiet_days_now", 0) or 0)
+    _pk = pd.DataFrame(_qs_raw.get("panic_peaks", []) or [])
+    if not _pk.empty:
+        _pk["date"] = pd.to_datetime(_pk["date"])
     if not _qs.empty:
         _qs["date"] = pd.to_datetime(_qs["date"])
         _qs = _qs.sort_values("date")
@@ -442,6 +445,24 @@ if not _prob_s.empty:
                 customdata=_cd, hovertemplate=_hover,
             ), row=2, col=1)
 
+    if not _pk.empty:
+        _pk_cd = [("—" if r is None or pd.isna(r) else f"{r*100:+.1f}%") for r in _pk["fwd_ret"]]
+        _pk_hover = "%{x|%Y-%m-%d}<br>概率 %{customdata:.2f} → 后 60 日 %{text}<extra>极致恐慌</extra>"
+        if _spy_d is not None and not _spy_d.empty:
+            _fig_g.add_trace(go.Scatter(
+                x=_pk["date"], y=_spy_d.reindex(_pk["date"], method="nearest").values,
+                mode="markers", name="极致恐慌(≥0.90)",
+                marker=dict(color="#9B59B6", size=11, symbol="triangle-up",
+                            line=dict(color="#1a1a1a", width=1)),
+                customdata=_pk["prob"], text=_pk_cd, hovertemplate=_pk_hover,
+            ), row=1, col=1)
+        _fig_g.add_trace(go.Scatter(
+            x=_pk["date"], y=_pk["prob"], mode="markers", name="极致恐慌(≥0.90)", showlegend=False,
+            marker=dict(color="#9B59B6", size=9, symbol="triangle-up", line=dict(color="#1a1a1a", width=1)),
+            customdata=_pk["prob"], text=_pk_cd, hovertemplate=_pk_hover,
+        ), row=2, col=1)
+        _fig_g.add_hline(y=0.90, line=dict(color="#9B59B6", width=1, dash="dot"), row=2, col=1)
+
     _grid = dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", tickfont=dict(size=10, color="#999"))
     _fig_g.update_layout(
         height=520,
@@ -475,6 +496,13 @@ if not _prob_s.empty:
             f"当前概率 {_cur_prob:.2f}，{_armed_txt}。"
             "绿 = 后 60 日跌 ≥ 8%，灰 = 没跌，橙 = 60 日窗口未走完。淡蓝细线 = 原始概率，只当背景。",
             unsafe_allow_html=True,
+        )
+    if not _pk.empty:
+        _pk_done = _pk["fwd_ret"].dropna()
+        st.caption(
+            f"紫色 ▲ = 概率首次冲过 0.90（前 20 日没过线），历史 {len(_pk)} 次，"
+            f"后 60 日为正 {int((_pk_done > 0).sum())}/{len(_pk_done)}，均值 {_pk_done.mean()*100:+.1f}%。"
+            "读作 2–6 个月视角的加仓区，不是当日抄底：2020-03 / 2022-06 过线后又跌 22% / 12% 才见底。"
         )
 
     for _top_key, _top_title in (
