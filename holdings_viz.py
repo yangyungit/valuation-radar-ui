@@ -396,6 +396,8 @@ def relay_ribbon_segments(
             tk, dim = item if isinstance(item, tuple) else (item, False)
             if not tk or tk == "CASH":
                 segs.append((s_m, e_m, "#2a2a2a", "空仓", False))
+            elif tk.startswith("MISSING:"):
+                segs.append((s_m, e_m, color_map.get(tk, "#888"), nm.get(tk) or tk, dim))
             else:
                 segs.append((s_m, e_m, color_map.get(tk, "#888"),
                              f"{nm.get(tk) or tk}<br>{tk}" + (dim_suffix if dim else ""), dim))
