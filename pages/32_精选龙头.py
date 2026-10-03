@@ -4,7 +4,7 @@ import pandas as pd
 import holdings_viz as hv
 from api_client import fetch_dynasty_gold_leader
 from gold_leader_viz import (
-    INSIGHT_CSS, WINDOWS, norm_series, render_equity_chart, render_holding_cards,
+    INSIGHT_CSS, WINDOWS, build_sector_ribbon, norm_series, render_equity_chart, render_holding_cards,
     render_meta_captions, render_slot_segment_returns, render_stats_cards,
     render_time_window_slider, show_missing_warning, split_month_spans,
 )
@@ -127,9 +127,24 @@ st.caption(
 )
 
 st.markdown("##### Slot 分段收益")
+_rb_slots, _rb_names, _rb_months, _rb_dim, _ = build_sector_ribbon(
+    _gl.get("two_sector_locked_timeline") or [], _disp
+)
+_ribbons = hv.relay_ribbon_segments(
+    _rb_slots, _rb_months, _rb_names, _rb_dim, "<br>未选中"
+) if _rb_months else None
+if _rb_months:
+    st.caption(
+        "每张接力图顶部的色带是对应的板块：槽A 顶部 = 左列金牌板块，槽B 顶部 = 右列银牌板块，"
+        "选法和 21 页主线完全一样。**银牌压暗的段 = 那几个月银牌板块没被选中**，槽B 实际买的是"
+        "金牌板块的第 2 只龙头；银牌亮着才是真的分投金银。灰段 = 当月没有戴金板块、持 BIL 空仓。"
+        "**注意**：色带是主线当月选中的板块，绿色竖条那几个月换股被按住，槽里实际拿着的票"
+        "可能还是旧板块的，不一定属于色带上的板块。"
+    )
 if not render_slot_segment_returns(
     _lk.get("slot_equity") or [], _lk.get("holdings_timeline") or [],
     _dates, _eq.get("spy", []), "sl", _win_lo, _win_hi, _locked_exec_months,
+    ribbons=_ribbons, ribbon_labels=("金牌", "银牌"),
 ):
     st.caption("后端暂未返回 slot_equity。")
 else:
