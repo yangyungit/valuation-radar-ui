@@ -19,6 +19,9 @@ st.markdown("""
 _DYNASTY_TAB_WINDOWS = ["3Y", "5Y", "10Y"]
 _SLOT_LABELS = ["槽A", "槽B", "槽C", "槽D", "槽E"]
 _DD_DELTA_STRATEGY = "sp500_12m_ma200_delta_guard"
+_MIN_HOLD_DEFAULT = 0   # 与后端 _DD_MOM_MIN_HOLD 同步；N 稳健性检验没有一档通过，默认关
+_LOCK_COLOR = "#2ECC71"
+_BASE_COLOR = "#F39C12"
 def _norm_series(values, dates) -> pd.Series:
     if not values or len(values) != len(dates):
         return pd.Series(dtype=float)
@@ -268,6 +271,12 @@ _key_prefix = "dd_sp500"
 st.caption(
     "标普500动量防抖守擂。戴金龙头已拆到「🏅 戴金龙头」单独一页。"
 )
+st.caption(
+    "**为什么默认不加最短持有期**：给 Top2 防抖守擂加「每只票至少持 N 个月」（N=2~12）后，"
+    "没有一档在 9 个错开起点和逐年剔除下 Calmar 都不输原版，默认关；拖滑块只为看敏感度。"
+    "N=10 最接近（9 个起点全赢，换股 83→23），但剔掉 2021 年就输了，且 N=9 / N=12 两侧都输原版，是孤峰；"
+    "N=2/3 换手降到 2.6~3.0 但 Calmar 没有改善。"
+)
 
 _dynasty_window = st.radio(
     "时间跨度",
@@ -316,11 +325,17 @@ with st.expander("交易假设"):
         "单边成本 (bps)", 0, 50, 10, key=f"{_key_prefix}_cost",
         help="买/卖各算一次，扣在成交名义额上；会影响回测净值和统计。",
     )
+    _dd_min_hold = st.slider(
+        "最短持有月数", 0, 12, _MIN_HOLD_DEFAULT, key=f"{_key_prefix}_min_hold",
+        help="0 = 关（现行口径）。>0 时每只票至少连续持有这么多个决策月才许换，和 32 页精选龙头同一套日历锁："
+             "当月无合格候选全转 BIL 不锁；退市/被收购不锁；跌破 MA200 照样锁。只在 Top2 上验证过，默认值由 N 稳健性检验得出。",
+    )
 
 _dd = fetch_dynasty_double_dragon(
     window=_dynasty_window, signal=_dd_signal, k=_dd_k, delta_k=_dd_delta_k,
     risk_protect=_dd_risk, rebalance=_dd_rebal, cost_bps=float(_dd_cost),
     n_holdings=int(_dd_legacy_n), pool_mode="sp500_pit",
+    min_hold=int(_dd_min_hold),
 )
 
 if not _dd.get("success"):
@@ -336,6 +351,11 @@ if _dd.get("success"):
     _delta_k_txt = f"kδ={_delta_k_val:.2f}" if _delta_k_val is not None else "kδ自动"
     _delta_k_mode = str(_delta_params.get("delta_mode", "manual") or "manual")
     _dd_delta_display.metric("Auto δ", _delta_k_txt)
+    _mh_backend = int(_delta_params.get("min_hold_default", _MIN_HOLD_DEFAULT) or 0)
+    if _mh_backend != _MIN_HOLD_DEFAULT:
+        st.warning(f"后端默认最短持有 {_mh_backend} 月，页面写死 {_MIN_HOLD_DEFAULT}，两边没同步。")
+    _lk = _dd.get("delta_locked") or {}
+    _lock_on = int(_dd_min_hold) > 0 and bool(_lk.get("available"))
 
     _notes = []
     if _meta.get("pit_membership_gated"):
@@ -366,9 +386,9 @@ if _dd.get("success"):
     # ── 当前持仓卡
     _signal_as_of = str(_meta.get("signal_as_of", "") or "")
     _signal_month = _signal_as_of[:7] if _signal_as_of else "最近信号"
-    _strategy_title = "12M动量防抖守擂"
+    _strategy_title = f"12M动量防抖守擂 + 最短持有 {_dd_min_hold} 月" if _lock_on else "12M动量防抖守擂"
     st.markdown(f"##### 截至 {_signal_month} 信号的模拟持仓｜{_strategy_title}")
-    _cur = _dd.get("current_holdings", {})
+    _cur = _lk["current_holdings"] if _lock_on else _dd.get("current_holdings", {})
     _cur_slots = _cur.get("slots", [])
     _hold_cols = st.columns(max(len(_cur_slots), 1))
     for _si in range(len(_cur_slots)):
@@ -389,6 +409,9 @@ if _dd.get("success"):
                     f"｜MA200上方 {'是' if _sdata.get('above_ma200') else '—'}"
                     f"<br>首次持有 {_sdata.get('since', '—')}｜已持有 {_sdata.get('held_months', '—')} 月"
                 )
+                if _sdata.get("unlock_in") is not None:
+                    _ui = int(_sdata["unlock_in"])
+                    _slot_detail += f"｜{'可换' if _ui == 0 else f'还锁 {_ui} 月'}"
                 _slot_html = (
                     f"<div class='insight-box'><div class='insight-title'>{_slabel}</div>"
                     f"<div style='font-size:16px;color:#fff;font-weight:bold;'>"
@@ -407,7 +430,20 @@ if _dd.get("success"):
         ("rsp", "RSP 等权标普", "#9B59B6", False),
         ("eqw11", "11行业ETF等权", "#16A085", False),
     ]
+    if _lock_on:
+        _series_cfg = [
+            ("momentum_delta_guard_locked", f"防抖 Top{_dd_n_val}/{_delta_k_txt} + 最短持有 {_dd_min_hold} 月", _LOCK_COLOR, True),
+            ("momentum_delta_guard", f"原版 Top{_dd_n_val}/{_delta_k_txt}（无最短持有）", _BASE_COLOR, True),
+            ("spy", "SPY", "#3498DB", True),
+            ("rsp", "RSP 等权标普", "#9B59B6", False),
+            ("eqw11", "11行业ETF等权", "#16A085", False),
+        ]
     _fig_eq = go.Figure()
+    if _lock_on:
+        for _m in sorted({hv.next_month_key(b["month"]) for b in (_lk.get("blocked") or [])}):
+            _x0 = pd.Timestamp(f"{_m}-01")
+            _fig_eq.add_vrect(x0=_x0, x1=_x0 + pd.offsets.MonthEnd(1), fillcolor=_LOCK_COLOR,
+                              opacity=0.10, line_width=0, layer="below")
     for _key, _name, _color, _vis_default in _series_cfg:
         _vals = _eq.get(_key, []) or []
         if not _vals:
@@ -428,12 +464,18 @@ if _dd.get("success"):
         yaxis_type="log",
     )
     st.plotly_chart(_fig_eq, use_container_width=True, key=f"{_key_prefix}_equity")
-    st.caption("当前组合主图保留防抖TopN/δ和SPY；点图例可展开 RSP / 11行业ETF等权")
+    if _lock_on:
+        st.caption("绿色竖条 = 那个月原版想换票、被最短持有期按住了。两条实线起点归一为 1。点图例可展开 RSP / 11行业ETF等权")
+    else:
+        st.caption("当前组合主图保留防抖TopN/δ和SPY；点图例可展开 RSP / 11行业ETF等权")
 
     # ── 统计卡
     st.markdown("##### 统计卡")
-    _stats = _dd.get("stats", {})
-    _primary_nav = _norm_series((_dd.get("equity") or {}).get("momentum_delta_guard", []), _dd_dates)
+    _stats = _lk["stats"] if _lock_on else _dd.get("stats", {})
+    _primary_nav = _norm_series(
+        (_dd.get("equity") or {}).get("momentum_delta_guard_locked" if _lock_on else "momentum_delta_guard", []),
+        _dd_dates,
+    )
     _r2 = hv.compute_nav_kpi(_primary_nav).get("r2") if not _primary_nav.empty else float("nan")
     _metrics_a = [
         ("总收益", f"{_stats.get('cum_return', 0) * 100:.0f}%"),
@@ -479,14 +521,43 @@ if _dd.get("success"):
             "自动值取三段窗口都不差的平台点，不取单段最高收益尖峰。"
         )
 
+    if _lock_on:
+        _cmp = []
+        for _nm, _s in (("+ 最短持有", _lk.get("stats") or {}),
+                        ("原版", _dd.get("stats_by_strategy", {}).get(_DD_DELTA_STRATEGY) or {})):
+            _cmp.append({"口径": _nm, "总收益": f"{_s.get('cum_return', 0) * 100:.0f}%",
+                         "CAGR": f"{_s.get('cagr', 0) * 100:.1f}%",
+                         "MaxDD": f"{_s.get('max_dd', 0) * 100:.1f}%", "Calmar": f"{_s.get('calmar', 0):.2f}",
+                         "换股次数": f"{_s.get('n_swaps', 0)}", "平均持有(月)": f"{_s.get('avg_hold_months', 0)}",
+                         "年化换手": f"{_s.get('ann_turnover', 0):.2f}",
+                         "累计成本": f"{_s.get('cum_cost', 0) * 100:.1f}%"})
+        st.dataframe(pd.DataFrame(_cmp), use_container_width=True, hide_index=True)
+        st.caption(f"展示期内 {_lk.get('locked_months', 0)} 个月有换股被按住，共 {_lk.get('blocked_swaps', 0)} 笔；"
+                   f"和原版持仓不同的月份 {len(_lk.get('diff_months') or [])} 个。")
+
     # ── Slot 分段收益
     st.markdown("##### Slot 分段收益")
-    _has_slot_returns = render_slot_segment_returns(_dd, _key_prefix)
+    _has_slot_returns = render_slot_segment_returns(
+        {**_dd, "slot_equity": _lk.get("slot_equity"), "holdings_timeline": _lk.get("holdings_timeline")}
+        if _lock_on else _dd,
+        _key_prefix,
+    )
     if not _has_slot_returns:
         st.caption("后端暂未返回 slot_equity。")
 
+    if _lock_on and _lk.get("blocked"):
+        st.markdown("##### 被按住的换股")
+        st.dataframe(pd.DataFrame([{
+            "信号月": b["month"],
+            "槽": _SLOT_LABELS[b["slot"]] if b["slot"] < len(_SLOT_LABELS) else b["slot"],
+            "留下": b["kept"], "原版想换成": b.get("wanted") or "—",
+        } for b in reversed(_lk["blocked"])]), use_container_width=True, hide_index=True, height=280)
+        st.caption(f"「留下」= 原版这个月想把它换掉，但它持了不到 {_dd_min_hold} 个月，被按住；右列是原版想换成的票。")
+
     # ── 防抖守擂 δ 稳健性（3Y/5Y/10Y）
     _sweep = (_delta_params.get("selection", {}) or {}).get("sweep_grid", {}) or {}
+    if _lock_on:
+        st.caption("以下 δ 稳健性与回撤止损原型建在原版口径上，不含最短持有期。")
     if _sweep:
         _HZ = (
             (_delta_params.get("selection", {}) or {}).get("horizons")
@@ -549,4 +620,4 @@ if _dd.get("success"):
     # ── 【本地实验】回撤止损原型 ──
     st.markdown("---")
     st.markdown("##### 📉 回撤止损原型（本地实验）")
-    render_dd_stop_tab(_dd, _strategy_title, _key_prefix)
+    render_dd_stop_tab(_dd, "12M动量防抖守擂", _key_prefix)

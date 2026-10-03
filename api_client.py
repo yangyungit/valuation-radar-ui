@@ -1199,8 +1199,10 @@ def fetch_dynasty_double_dragon(
     cost_bps: float = 10.0,
     n_holdings: int = 3,
     pool_mode: str = "sp500_pit",
+    min_hold: int = 0,
 ) -> dict:
     """从后端获取标普500或D组ETF历史成分池的双龙回测。
+    min_hold>0 时返回多 delta_locked（22 页最短持有期对照）。
 
     标普池返回戴金龙头、K守擂和δ守擂三条可比曲线；D组池完全跳过
     C组戴金逻辑，只返回基于D组历史N-PORT成分的K守擂和δ守擂。
@@ -1226,7 +1228,7 @@ def fetch_dynasty_double_dragon(
                     "delta_k": delta_k,
                     "risk_protect": risk_protect, "rebalance": rebalance,
                     "cost_bps": cost_bps, "n_holdings": n_holdings,
-                    "pool_mode": pool_mode,
+                    "pool_mode": pool_mode, "min_hold": min_hold,
                 },
                 timeout=180,
             )
