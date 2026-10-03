@@ -364,11 +364,13 @@ if _danger_half is not None and _cal is not None and bool(_danger_half.any()):
 else:
     st.info("熊市闸门暂不可用（后端 bear_gate_daily 未拉到）。")
 
-# ── GBDT 急跌 / 慢跌概率（后端 horsemen_daily_*，与熊市闸门同一次 API 调用）
-st.markdown("#### 🤖 GBDT 急跌 / 慢跌概率 — 两个模型并联（仅参考，不驱动仓位）")
+# ── GBDT 急跌概率：寂静后首峰读法（后端 horsemen_daily_quiet_spike，与熊市闸门同一次 API 调用）
+st.markdown("#### 🤖 急跌概率 — 寂静后首峰（仅参考，不驱动仓位）")
 st.caption(
-    "急跌模型学「未来 20 交易日 SPY 最低点 ≤ -8%」，慢跌模型学「未来 60 交易日 ≤ -8%」（多 6 个 SPY 慢变量）。"
-    "触发 = 急跌 > 0.50 当日 或 慢跌 > 0.50 连 3 日。历史概率为 walk-forward（训练集末尾剔除标签窗口，无泄露）。"
+    "急跌模型学「未来 20 交易日 SPY 最低点 ≤ -8%」，历史概率为 walk-forward。"
+    "原 0.50 规则 10 年报 24 次中 6 次，假警几乎全挤在大崩盘后一年的余震期，改用新读法："
+    "概率在 0.10 以下安静 ≥ 120 个交易日后第一次冲过 0.10 就报警；"
+    "报警后 60 个交易日 SPY 最低点 ≤ -8% 算真。假警那座小山不重置寂静计数，真警或概率冲过 0.50 的大山才重置。"
     "仓位闸门是上面的 SPY 日线 MA100。"
 )
 
@@ -382,10 +384,17 @@ def _api_series(key: str) -> pd.Series:
 
 _prob_s = _api_series("horsemen_daily_chaos_prob").astype(float)
 if not _prob_s.empty:
-    _slow_s = _api_series("horsemen_daily_slow_prob").astype(float)
-    _trig_s = _api_series("horsemen_daily_chaos_trigger")
-    _trig_s = _trig_s.astype(bool) if not _trig_s.empty else pd.Series(False, index=_prob_s.index)
-    _trig_idx = _trig_s[_trig_s].index
+    _qs_raw = (_chain_regime or {}).get("horsemen_daily_quiet_spike", {}) or {}
+    _qs = pd.DataFrame(_qs_raw.get("signals", []) or [])
+    _quiet_now = int(_qs_raw.get("quiet_days_now", 0) or 0)
+    if not _qs.empty:
+        _qs["date"] = pd.to_datetime(_qs["date"])
+        _qs = _qs.sort_values("date")
+    _QS_STYLE = {
+        "真":   ("#2ECC71", "真警"),
+        "假":   ("#888888", "假警"),
+        "评估中": ("#E67E22", "评估中"),
+    }
 
     _spy_d = None
     if df_prices is not None and not df_prices.empty and "SPY" in df_prices.columns:
@@ -403,35 +412,35 @@ if not _prob_s.empty:
             x=_spy_d.index, y=_spy_d.values, mode="lines", name="SPY",
             line=dict(color="#ddd", width=1.2),
         ), row=1, col=1)
-        # plotly 会丢掉加在空子图上的 vrect，必须在 SPY 线之后加
-        for _s0, _s1 in _bool_segs(_trig_s.reindex(_spy_d.index).fillna(False).astype(bool)):
-            _fig_g.add_vrect(x0=_s0, x1=_s1, fillcolor="rgba(231,76,60,0.15)",
-                             line_width=0, layer="below", row=1, col=1)
-        _ti = _spy_d.index.intersection(_trig_idx)
-        if len(_ti) > 0:
-            _fast_hit = _prob_s.reindex(_ti) > 0.50
-            for _mask, _nm, _clr in [(_fast_hit, "急跌触发", "#3498DB"), (~_fast_hit, "慢跌触发", "#E67E22")]:
-                _d = _ti[_mask.values]
-                if len(_d) == 0:
-                    continue
-                _fig_g.add_trace(go.Scatter(
-                    x=_d, y=_spy_d.reindex(_d).values, mode="markers", name=_nm,
-                    marker=dict(color=_clr, size=5),
-                    customdata=list(zip(_prob_s.reindex(_d).values, _slow_s.reindex(_d).values)),
-                    hovertemplate="%{x|%Y-%m-%d}<br>SPY %{y:.2f}"
-                                  "<br>急跌 %{customdata[0]:.2f} · 慢跌 %{customdata[1]:.2f}<extra></extra>",
-                ), row=1, col=1)
 
     _fig_g.add_trace(go.Scatter(
         x=_prob_s.index, y=_prob_s.values, mode="lines", name="急跌概率(20日)",
-        line=dict(color="#3498DB", width=1.3),
+        line=dict(color="rgba(52,152,219,0.25)", width=0.6), hoverinfo="skip",
     ), row=2, col=1)
-    if not _slow_s.empty:
-        _fig_g.add_trace(go.Scatter(
-            x=_slow_s.index, y=_slow_s.values, mode="lines", name="慢跌概率(60日)",
-            line=dict(color="#E67E22", width=1.3),
-        ), row=2, col=1)
-    _fig_g.add_hline(y=0.50, line=dict(color="#888", width=1, dash="dash"), row=2, col=1)
+    _fig_g.add_hline(y=0.10, line=dict(color="#888", width=1, dash="dash"), row=2, col=1)
+
+    if not _qs.empty:
+        for _verdict, (_clr, _nm) in _QS_STYLE.items():
+            _sub = _qs[_qs["verdict"] == _verdict]
+            if _sub.empty:
+                continue
+            _cd = list(zip(_sub["prob"], _sub["quiet_days"],
+                           [("—" if pd.isna(m) else f"{m*100:+.1f}%") for m in _sub["mdd"]]))
+            _hover = ("%{x|%Y-%m-%d}<br>概率 %{customdata[0]:.2f} · 寂静 %{customdata[1]} 日"
+                      "<br>后 60 日最低 %{customdata[2]}<extra>" + _nm + "</extra>")
+            if _spy_d is not None and not _spy_d.empty:
+                _fig_g.add_trace(go.Scatter(
+                    x=_sub["date"], y=_spy_d.reindex(_sub["date"], method="nearest").values,
+                    mode="markers", name=_nm,
+                    marker=dict(color=_clr, size=11, symbol="triangle-down",
+                                line=dict(color="#1a1a1a", width=1)),
+                    customdata=_cd, hovertemplate=_hover,
+                ), row=1, col=1)
+            _fig_g.add_trace(go.Scatter(
+                x=_sub["date"], y=_sub["prob"], mode="markers", name=_nm, showlegend=False,
+                marker=dict(color=_clr, size=9, line=dict(color="#1a1a1a", width=1)),
+                customdata=_cd, hovertemplate=_hover,
+            ), row=2, col=1)
 
     _grid = dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", tickfont=dict(size=10, color="#999"))
     _fig_g.update_layout(
@@ -440,16 +449,33 @@ if not _prob_s.empty:
         plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
         font=dict(color="#ddd"),
         legend=dict(orientation="h", y=1.06, x=0, font=dict(size=10)),
-        hovermode="x unified",
+        hovermode="closest",
     )
     _fig_g.update_xaxes(**_grid, tickformat="%Y", dtick="M12")
     _fig_g.update_yaxes(**_grid, title_text="SPY", row=1, col=1)
     _fig_g.update_yaxes(**_grid, title_text="概率", range=[0, 1], row=2, col=1)
     st.plotly_chart(_fig_g, use_container_width=True, key="risk_gbdt_chart")
-    st.caption(
-        "上图 SPY 日线，浅红底 = GBDT 触发区间，蓝点 = 当日急跌概率 > 0.50，橙点 = 急跌未过线、靠慢跌连 3 日触发。"
-        "下图两条概率线，虚线 = 0.50 阈值。"
-    )
+
+    _cur_prob = float(_prob_s.iloc[-1])
+    if _quiet_now >= 120:
+        _armed_txt = f"<span style='color:#E67E22; font-weight:bold;'>寂静已满 {_quiet_now} 日，下次冲过 0.10 即报警</span>"
+    else:
+        _armed_txt = f"寂静累计 {_quiet_now} 日（需 ≥ 120 才会报警）"
+    if _qs.empty:
+        st.caption(f"历史上无寂静后首峰信号。当前概率 {_cur_prob:.2f}，{_armed_txt}。", unsafe_allow_html=True)
+    else:
+        _n_true = int((_qs["verdict"] == "真").sum())
+        _n_false = int((_qs["verdict"] == "假").sum())
+        _last = _qs.iloc[-1]
+        _last_clr, _last_nm = _QS_STYLE.get(_last["verdict"], ("#888", _last["verdict"]))
+        st.caption(
+            f"历史 {len(_qs)} 次报警：真 {_n_true} · 假 {_n_false}。"
+            f"最近一次 {_last['date'].date()}（概率 {_last['prob']:.2f}，寂静 {int(_last['quiet_days'])} 日）→ "
+            f"<span style='color:{_last_clr}; font-weight:bold;'>{_last_nm}</span>。"
+            f"当前概率 {_cur_prob:.2f}，{_armed_txt}。"
+            "绿 = 后 60 日跌 ≥ 8%，灰 = 没跌，橙 = 60 日窗口未走完。淡蓝细线 = 原始概率，只当背景。",
+            unsafe_allow_html=True,
+        )
 
     for _top_key, _top_title in (
         ("horsemen_daily_chaos_top_features", "急跌模型最新一日归因（SHAP top3）"),
