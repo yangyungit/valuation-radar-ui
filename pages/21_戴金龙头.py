@@ -281,7 +281,10 @@ def render_copy_tab(gl: dict, dates, meta: dict, signal_month: str) -> None:
     st.caption(
         "两个槽直接用 19 页王朝接力选仓层（C+D 共 25 只板块 ETF，**252 日动量**、资历接力进场、"
         "buffer 守擂）每月选出的两只 ETF，各买板块内龙头第 1 名，擂主保护同现行。"
-        "**不过** RS 差滞回、银牌名次死区，也**没有**跑输 SPY 转 BIL 的门——两个槽永远分投两个板块。"
+        "带 19 页同一套差速器：两只 ETF 打分差 ≥1.0 时两个槽都买强势板块的前 2 名龙头，"
+        "回落到 0.6 以下再分回两个板块"
+        f"（展示窗口内 {rc.get('single_months', 0)} 个月单仓）。"
+        "**不过** RS 差滞回、银牌名次死区，也**没有**跑输 SPY 转 BIL 的门。"
         "注意 19 页实验台默认是 504 日动量，这里用 252 日：504 日实测更差（同期 Calmar 1.00）。"
         f"D 组成分从 {rc.get('coverage_start', '')} 起才有，10Y 窗口下本口径从那时起算。"
     )
@@ -289,7 +292,8 @@ def render_copy_tab(gl: dict, dates, meta: dict, signal_month: str) -> None:
     st.markdown(f"##### 和现行同期对比（{rc['compare_from']} 起）")
     _same = rc.get("stats_same_period") or {}
     _cmp = []
-    for _name, _k in (("现行（C 组金银牌）", "current"), ("252 日照搬王朝接力", "copy")):
+    for _name, _k in (("现行（C 组金银牌）", "current"), ("252 日照搬王朝接力", "copy"),
+                      ("252 日照搬（不开差速器）", "copy_plain")):
         _s = _same.get(_k)
         if not _s:
             continue
@@ -319,6 +323,7 @@ def render_copy_tab(gl: dict, dates, meta: dict, signal_month: str) -> None:
     st.markdown("##### 组合收益（起点归一为 1）")
     render_equity_chart(dates, eq, [
         ("ribbon_copy", "252 日照搬王朝接力", "#E84393", True),
+        ("ribbon_copy_plain", "252 日照搬（不开差速器）", "#9B59B6", True),
         ("two_sector", "现行（C 组金银牌）", "#F39C12", True),
         ("spy", "SPY", "#3498DB", True),
     ], "gl_eq_copy", win_lo, win_hi)
@@ -342,7 +347,8 @@ def render_copy_tab(gl: dict, dates, meta: dict, signal_month: str) -> None:
     ):
         st.caption("后端暂未返回 slot_equity。")
     else:
-        st.caption("槽A / 槽B 顶部色带 = 选仓层当月给的两只 ETF。本口径恒分两个板块，没有压暗段。")
+        st.caption("槽A / 槽B 顶部色带 = 选仓层当月给的两只 ETF。槽B 压暗 = 差速器单仓月，"
+                   "两个槽都买槽A 板块的龙头。")
 
     st.markdown("##### 月度明细")
     _rows = [
