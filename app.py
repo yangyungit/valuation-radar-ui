@@ -50,7 +50,7 @@ nav = st.navigation({
     "进攻类策略 ——————": [
         st.Page("pages/20_FCF进攻.py", title="FCF进攻"),
         st.Page("pages/21_戴金龙头.py", title="戴金龙头"),
-        st.Page("pages/32_精选龙头.py", title="精选龙头"),
+        st.Page("pages/32_精选龙头.py", title="精选龙头 2仓"),
         st.Page("pages/22_动量双龙.py", title="动量双龙"),
         st.Page("pages/23_科技龙头.py", title="科技龙头"),
         st.Page("pages/24_纳指100.py", title="纳指100"),
