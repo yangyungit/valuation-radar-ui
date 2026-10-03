@@ -1023,6 +1023,7 @@ st.markdown("<div style='margin-bottom:12px;'></div>", unsafe_allow_html=True)
 _chain_dv   = (_chain_regime or {}).get("horsemen_daily_verdict", {}) or {}
 _chain_dc   = (_chain_regime or {}).get("horsemen_daily_confidence", {}) or {}
 _chain_dp   = (_chain_regime or {}).get("horsemen_daily_chaos_prob", {}) or {}
+_chain_dsp  = (_chain_regime or {}).get("horsemen_daily_slow_prob", {}) or {}
 
 # === Row 1: Regime 当前 + 切换日 ===
 _REG_EN_CN = {"Soft": "软着陆", "Hot": "再通胀", "Stag": "滞胀", "Rec": "衰退"}
@@ -1053,6 +1054,13 @@ if _chain_dp:
     _cp_s = pd.Series([float(v) for v in _chain_dp.values()], index=_cp_idx).dropna().sort_index()
     if not _cp_s.empty:
         _chaos_prob_curr = float(_cp_s.iloc[-1])
+
+_slow_prob_curr = 0.0
+if _chain_dsp:
+    _sp_idx = pd.to_datetime(list(_chain_dsp.keys()), errors="coerce")
+    _sp_s = pd.Series([float(v) for v in _chain_dsp.values()], index=_sp_idx).dropna().sort_index()
+    if not _sp_s.empty:
+        _slow_prob_curr = float(_sp_s.iloc[-1])
 
 _conf_curr = "—"
 if _chain_dc:
@@ -1180,7 +1188,7 @@ else:
     _row2_body = "<b style='color:#888; font-size:15px;'>熊市闸门 —</b>"
 _row2_body += (
     f"<div style='color:#888; font-size:12px; margin-top:4px;'>"
-    f"GBDT 急跌概率 {_chaos_prob_curr:.2f}（仅参考，不驱动仓位）</div>"
+    f"GBDT 急跌 {_chaos_prob_curr:.2f} · 慢跌 {_slow_prob_curr:.2f}（仅参考，不驱动仓位）</div>"
 )
 _row2_color = _bg_color
 st.markdown(_chain_row_html(_row2_color, "② 风险信号", _row2_body), unsafe_allow_html=True)

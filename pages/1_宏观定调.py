@@ -1013,14 +1013,15 @@ if not df.empty and len(df) > 750:
     }
 
     # ── GBDT chaos 概率曲线 ─────────────────────────────────────────
-    st.markdown("##### 🤖 GBDT 急跌概率曲线 — 多变量恐慌信号融合（仅参考）")
+    st.markdown("##### 🤖 GBDT 急跌 / 慢跌概率 — 两个模型并联（仅参考，不驱动仓位）")
     st.caption(
-        "LightGBM 学习「未来 20 交易日 SPY drawdown ≤ -8%」的概率。"
-        "2026-10 起不再驱动仓位（仓位闸门改为 SPY 日线 MA100，见风险预警页）。"
-        "灰色阈值线 = 0.50；红色填充 = 历史触发段。"
+        "急跌模型学「未来 20 交易日 SPY 最低点 ≤ -8%」，慢跌模型学「未来 60 交易日 ≤ -8%」（多 6 个 SPY 慢变量）。"
+        "触发 = 急跌 > 0.50 当日 或 慢跌 > 0.50 连 3 日。历史概率为 walk-forward（训练集末尾剔除标签窗口，无泄露）。"
+        "仓位闸门是 SPY 日线 MA100，见风险预警页。"
     )
     _chaos_prob_raw = (_regime_api or {}).get("horsemen_daily_chaos_prob", {}) or {}
     _chaos_trig_raw = (_regime_api or {}).get("horsemen_daily_chaos_trigger", {}) or {}
+    _slow_prob_raw = (_regime_api or {}).get("horsemen_daily_slow_prob", {}) or {}
     if _chaos_prob_raw:
         _prob_s = pd.Series(
             list(_chaos_prob_raw.values()),
@@ -1030,19 +1031,28 @@ if not df.empty and len(df) > 750:
             list(_chaos_trig_raw.values()),
             index=pd.to_datetime(list(_chaos_trig_raw.keys())),
         ).sort_index().astype(bool) if _chaos_trig_raw else pd.Series(False, index=_prob_s.index)
+        _slow_s = pd.Series(
+            list(_slow_prob_raw.values()),
+            index=pd.to_datetime(list(_slow_prob_raw.keys())),
+        ).sort_index().astype(float) if _slow_prob_raw else pd.Series(dtype=float)
 
         _fig_chaos = go.Figure()
         _fig_chaos.add_trace(go.Scatter(
             x=_prob_s.index, y=_prob_s.values,
-            mode="lines", name="GBDT chaos 概率", line=dict(color="#3498DB", width=1.5),
+            mode="lines", name="急跌概率(20日)", line=dict(color="#3498DB", width=1.5),
         ))
+        if not _slow_s.empty:
+            _fig_chaos.add_trace(go.Scatter(
+                x=_slow_s.index, y=_slow_s.values,
+                mode="lines", name="慢跌概率(60日)", line=dict(color="#E67E22", width=1.5),
+            ))
         _fig_chaos.add_hline(y=0.50, line_dash="dash", line_color="#888",
                              annotation_text="阈值 0.50", annotation_position="top right")
         _trig_idx = _trig_s[_trig_s].index
         if len(_trig_idx) > 0:
             _fig_chaos.add_trace(go.Scatter(
                 x=_trig_idx, y=_prob_s.reindex(_trig_idx).values,
-                mode="markers", name="触发日",
+                mode="markers", name="触发日(急∪慢)",
                 marker=dict(color="#C0392B", size=4, opacity=0.6),
             ))
         _fig_chaos.update_layout(
@@ -1053,13 +1063,17 @@ if not df.empty and len(df) > 750:
         )
         st.plotly_chart(_fig_chaos, use_container_width=True)
 
-        _latest_top = (_regime_api or {}).get("horsemen_daily_chaos_top_features", []) or []
-        if _latest_top:
-            _top_lines = [
-                f"- **{item.get('feature','?')}**：贡献 {float(item.get('shap', 0.0)):+.3f}"
-                for item in _latest_top[:3]
-            ]
-            st.markdown("**最新一日触发因子归因（SHAP top3）**：\n" + "\n".join(_top_lines))
+        for _top_key, _top_title in (
+            ("horsemen_daily_chaos_top_features", "急跌模型最新一日归因（SHAP top3）"),
+            ("horsemen_daily_slow_top_features", "慢跌模型最新一日归因（SHAP top3）"),
+        ):
+            _latest_top = (_regime_api or {}).get(_top_key, []) or []
+            if _latest_top:
+                _top_lines = [
+                    f"- **{item.get('feature','?')}**：贡献 {float(item.get('shap', 0.0)):+.3f}"
+                    for item in _latest_top[:3]
+                ]
+                st.markdown(f"**{_top_title}**：\n" + "\n".join(_top_lines))
     else:
         st.info("GBDT chaos 数据暂不可用（API 字段缺失）。")
 
