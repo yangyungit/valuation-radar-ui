@@ -219,8 +219,11 @@ if _missing:
 red_df = pd.DataFrame({name: reds[name] for name in reds if _avail[name]}).sort_index()
 
 with st.sidebar:
-    if st.button("🔄 强制刷新（清月线缓存）"):
+    if st.button("🔄 强制刷新（清月线 + 后端缓存）"):
+        from api_client import compute_macro_regime_api as _cmr
+
         _monthly_close.clear()
+        _cmr.clear()
         st.rerun()
 
 _win = st.radio("时间跨度", ["5Y", "10Y", "全部"], index=1, horizontal=True, key="risk_win")
