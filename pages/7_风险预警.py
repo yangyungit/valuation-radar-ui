@@ -498,8 +498,7 @@ if not _prob_s.empty:
             _fig_g.add_trace(go.Scatter(
                 x=_pk["date"], y=_spy_d.reindex(_pk["date"], method="nearest").values,
                 mode="markers", name="极致恐慌(≥0.90)",
-                marker=dict(color="#2ECC71", size=11, symbol="triangle-up",
-                            line=dict(color="#1a1a1a", width=1)),
+                marker=dict(color="#2ECC71", size=8, symbol="triangle-up"),
                 customdata=_pk["prob"], text=_pk_cd, hovertemplate=_pk_hover,
             ), row=1, col=1)
         _fig_g.add_trace(go.Scatter(
