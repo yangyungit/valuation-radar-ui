@@ -365,6 +365,7 @@ else:
     st.info("熊市闸门暂不可用（后端 bear_gate_daily 未拉到）。")
 
 # ── GBDT 急跌概率：寂静后首峰读法（后端 horsemen_daily_quiet_spike，与熊市闸门同一次 API 调用）
+_BG_QUIET = 100
 st.markdown("#### 🤖 急跌概率 — 寂静后首峰（仅参考，不驱动仓位）")
 st.caption(
     "急跌模型学「未来 20 交易日 SPY 最低点 ≤ -8%」，历史概率为 walk-forward。"
@@ -372,6 +373,7 @@ st.caption(
     "概率在 0.10 以下安静 ≥ 120 个交易日后第一次冲过 0.10 就报警；"
     "报警后 60 个交易日 SPY 最低点 ≤ -8% 算真。假警那座小山不重置寂静计数，真警或概率冲过 0.50 的大山才重置。"
     "仓位闸门是上面的 SPY 日线 MA100。"
+    f"SPY 线上的橙色菱形 = 熊市闸门安静 ≥ {_BG_QUIET} 个交易日后第一次打开。"
 )
 
 
@@ -424,6 +426,29 @@ if not _prob_s.empty:
             x=_spy_d.index, y=_spy_d.values, mode="lines", name="SPY",
             line=dict(color="#ddd", width=1.2),
         ), row=1, col=1)
+
+    if _spy_d is not None and not _spy_d.empty and _danger_half is not None:
+        _bg_pos = {d: i for i, d in enumerate(_danger_half.index)}
+        _bg_rows, _prev_end = [], None
+        for _s0, _s1 in _bool_segs(_danger_half):
+            _quiet = _bg_pos[_s0] - (_bg_pos[_prev_end] if _prev_end is not None else 0)
+            _prev_end = _s1
+            if _quiet < _BG_QUIET or _s0 < _spy_d.index[0]:
+                continue
+            _i = _spy_d.index.get_indexer([_s0], method="nearest")[0]
+            _fwd = _spy_d.iloc[_i + 1:_i + 61]
+            _mdd = "—" if _fwd.empty else f"{(_fwd.min() / _spy_d.iloc[_i] - 1) * 100:+.1f}%"
+            _bg_rows.append((_spy_d.index[_i], float(_spy_d.iloc[_i]), _quiet, _mdd))
+        if _bg_rows:
+            _fig_g.add_trace(go.Scatter(
+                x=[r[0] for r in _bg_rows], y=[r[1] for r in _bg_rows],
+                mode="markers", name=f"闸门首开(安静≥{_BG_QUIET}日)",
+                marker=dict(color="#E67E22", size=12, symbol="diamond",
+                            line=dict(color="#1a1a1a", width=1)),
+                customdata=[(r[2], r[3]) for r in _bg_rows],
+                hovertemplate=("%{x|%Y-%m-%d}<br>闸门此前安静 %{customdata[0]} 日"
+                               "<br>后 60 日最低 %{customdata[1]}<extra>熊市闸门首开</extra>"),
+            ), row=1, col=1)
 
     _fig_g.add_trace(go.Scatter(
         x=_prob_s.index, y=_prob_s.values, mode="lines", name="急跌概率(20日)",
