@@ -57,7 +57,7 @@ nav = st.navigation({
         st.Page("pages/25_另类资产.py", title="另类资产"),
     ],
     "总结 ——————": [
-        st.Page("pages/26_组合净值.py", title="组合净值"),
+        st.Page("pages/26_组合净值.py", title="ABC投资组合"),
     ],
 })
 

@@ -15,7 +15,7 @@ from api_client import (
 import holdings_viz as hv
 from factor_attrib_view import render_factor_attribution
 
-st.set_page_config(page_title="组合净值", layout="wide")
+st.set_page_config(page_title="ABC投资组合", layout="wide")
 
 # ── 组合口径（与原页保持同源）──
 WINDOW = "10Y"                       # 三条统一 10Y
@@ -37,11 +37,11 @@ _DYN_COST_BPS = 200.0
 _SL_MIN_HOLD = 9
 _SL_COST_BPS = 10.0
 
-st.title("📊 ABC 组合净值")
+st.title("📊 ABC投资组合")
 st.caption(
-    f"**A = FCF%单仓**（带鱼池非科技子集，FCF收益率 Top1 满仓，守擂死区 k={_FCFY_K}，"
+    f"**A = 稳健基石**（FCF%单仓：带鱼池非科技子集，FCF收益率 Top1 满仓，守擂死区 k={_FCFY_K}，"
     f"候选需 logR²≥{_FCFY_LOGR2_GATE}，单边 200bps；同 page 17 主版本）· "
-    "**B = 板块王朝**（C+D 组 ETF，504 日动量 king_score 接力，2 仓，buffer 守擂按 3Y/5Y/10Y maximin 自动定，"
+    "**B = 板块指数**（板块王朝：C+D 组 ETF，504 日动量 king_score 接力，2 仓，buffer 守擂按 3Y/5Y/10Y maximin 自动定，"
     "差速器开，单边 200bps；同 page 19）· "
     f"**C = 精选龙头**（戴金龙头主线 + 最短持有 {_SL_MIN_HOLD} 月，月度再平衡，单边 10bps；同 page 32）· "
     f"三条均 {WINDOW}、周线。合成 = 起始 4:3:3、**每年末再平衡**回此比例。"
@@ -307,7 +307,7 @@ _COLORS = {
     "C": "#E67E22", "SPY": "rgba(170,170,170,0.55)",
 }
 _LABELS = {
-    "合成": "合成 (4:3:3, 年度再平衡)", "A": "A FCF%单仓", "B": "B 板块王朝", "C": "C 精选龙头",
+    "合成": "合成 (4:3:3, 年度再平衡)", "A": "A 稳健基石", "B": "B 板块指数", "C": "C 精选龙头",
 }
 fig = go.Figure()
 for _k in ["SPY", "A", "B", "C", "合成"]:
@@ -324,7 +324,7 @@ for _k in ["SPY", "A", "B", "C", "合成"]:
     fig.add_trace(go.Scatter(x=s.index, y=s.values, mode="lines", name=name, line=line))
 
 fig.update_layout(
-    title=f"ABC 组合净值 vs 各分策略 vs SPY · {_grid[0]:%Y-%m} → {_grid[-1]:%Y-%m}（起点归一 = 1）",
+    title=f"ABC投资组合 vs 各分策略 vs SPY · {_grid[0]:%Y-%m} → {_grid[-1]:%Y-%m}（起点归一 = 1）",
     xaxis=dict(title="日期", gridcolor="rgba(100,100,100,0.3)"),
     yaxis=dict(
         title="NAV（对数，1.0 = 起始）", type="log",
@@ -362,7 +362,7 @@ def _metrics(nav: pd.Series) -> dict:
 
 _rows = []
 _series_for_table = {
-    "合成 (4:3:3)": combined, "A FCF%单仓": _norm["A"], "B 板块王朝": _norm["B"],
+    "合成 (4:3:3)": combined, "A 稳健基石": _norm["A"], "B 板块指数": _norm["B"],
     "C 精选龙头": _norm["C"], "SPY 大盘": spy_norm,
 }
 for _label, _s in _series_for_table.items():
@@ -387,7 +387,7 @@ st.caption(
 )
 
 # ── A/B/C（+SPY）周收益相关矩阵 ──
-_ret_src = {"A FCF%单仓": _norm["A"], "B 板块王朝": _norm["B"], "C 精选龙头": _norm["C"]}
+_ret_src = {"A 稳健基石": _norm["A"], "B 板块指数": _norm["B"], "C 精选龙头": _norm["C"]}
 if not spy_norm.empty:
     _ret_src["SPY 大盘"] = spy_norm
 _ret_df = pd.DataFrame(_ret_src).pct_change().dropna(how="any")
@@ -416,6 +416,6 @@ else:
     )
 
 render_factor_attribution({
-    "合成 (4:3:3)": combined, "A FCF%单仓": _norm["A"],
-    "B 板块王朝": _norm["B"], "C 精选龙头": _norm["C"],
+    "合成 (4:3:3)": combined, "A 稳健基石": _norm["A"],
+    "B 板块指数": _norm["B"], "C 精选龙头": _norm["C"],
 }, kp="combo")
