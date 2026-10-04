@@ -363,7 +363,7 @@ if _danger_half is not None and _cal is not None and bool(_danger_half.any()):
         unsafe_allow_html=True,
     )
     st.caption(
-        "<span style='color:#E67E22;'>▼</span> 下方急跌概率图 SPY 线上的橙色下三角 = 闸门首开："
+        "<span style='color:#E67E22;'>▼</span> 下方急跌概率图 SPY 线上的橙色下三角 = MA100："
         f"闸门连续 ≥ {_BG_QUIET} 个交易日全绿后，第一次变橙的那天。"
         "闸门的判定线是 SPY 自己的 100 日均线（每天在动），连续 5 天收盘在均线下方才变橙，"
         "连续 5 天收回均线上方才变绿。长时间没开过之后的第一次打开，往往是一轮下跌的开头；"
@@ -449,11 +449,11 @@ if not _prob_s.empty:
         if _bg_rows:
             _fig_g.add_trace(go.Scatter(
                 x=[r[0] for r in _bg_rows], y=[r[1] for r in _bg_rows],
-                mode="markers", name=f"闸门首开(安静≥{_BG_QUIET}日)",
+                mode="markers", name="MA100",
                 marker=dict(color="#E67E22", size=8, symbol="triangle-down"),
                 customdata=[(r[2], r[3]) for r in _bg_rows],
                 hovertemplate=("%{x|%Y-%m-%d}<br>闸门此前安静 %{customdata[0]} 日"
-                               "<br>后 60 日最低 %{customdata[1]}<extra>熊市闸门首开</extra>"),
+                               "<br>后 60 日最低 %{customdata[1]}<extra>MA100</extra>"),
             ), row=1, col=1)
 
     _fig_g.add_trace(go.Scatter(
