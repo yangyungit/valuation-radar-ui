@@ -472,7 +472,7 @@ if not _prob_s.empty:
         legend=dict(orientation="h", y=1.06, x=0, font=dict(size=10)),
         hovermode="closest",
     )
-    _fig_g.update_xaxes(**_grid, tickformat="%Y", dtick="M12")
+    _fig_g.update_xaxes(**_grid, tickformat="%Y", dtick="M12", hoverformat="%Y-%m-%d")
     _fig_g.update_yaxes(**_grid, title_text="SPY", row=1, col=1)
     _fig_g.update_yaxes(**_grid, title_text="概率", range=[0, 1], row=2, col=1)
     st.plotly_chart(_fig_g, use_container_width=True, key="risk_gbdt_chart")
