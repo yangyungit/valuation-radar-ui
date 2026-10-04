@@ -1048,6 +1048,17 @@ def fetch_sp500_pit_relay_timeseries(window: str = "5Y") -> dict:
 
 
 @st.cache_data(ttl=3600 * 4)
+def fetch_sp500_breadth() -> dict:
+    """标普500 成分股站上 50/200 日均线占比（日频，PIT 成分）。失败返回 {"success": False, ...}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/sp500_breadth", timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
 def fetch_ndx100_pit_relay_timeseries(window: str = "5Y") -> dict:
     """纳指100 PIT 动态池接力图时序：母体 = NASDAQ-100 每月真实历史成分（含退市，2016-01 起，
     Wikipedia 逆推），每月只在当月成分内横截面排名。返回含 ndx100_membership 供前端按月 mask king_m。
