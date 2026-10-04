@@ -379,7 +379,7 @@ st.caption(
     "急跌模型学「未来 20 交易日 SPY 最低点 ≤ -8%」，历史概率为 walk-forward。"
     "原 0.50 规则 10 年报 24 次中 6 次，假警几乎全挤在大崩盘后一年的余震期，改用新读法："
     "概率在 0.10 以下安静 ≥ 120 个交易日后第一次冲过 0.10 就报警；"
-    "报警后 60 个交易日 SPY 最低点 ≤ -8% 算真。假警那座小山不重置寂静计数，真警或概率冲过 0.50 的大山才重置。"
+    "报警后 60 个交易日 SPY 最低点 ≤ -8% 算真。假警那座小山不重置寂静计数（假警后 60 日内冲过 0.50 也算余波），真警或概率冲过 0.50 的大山才重置。"
     "仓位闸门是上面的 SPY 日线 MA100。"
     "NDX tab 是同一套模型换 QQQ 当标签和价格特征（门槛同 -8%），真假也用 QQQ 验；它比 SPX 版吵、但 2018 以后科技股领跌的几轮都早响几周。"
 )
@@ -512,16 +512,16 @@ def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
             ), row=1, col=1)
             _fig_g.add_trace(go.Scatter(
                 x=_pk["date"], y=_px_d.reindex(_pk["date"], method="nearest").values,
-                mode="markers", name="极致恐慌(≥0.90)",
+                mode="markers", name="极致恐慌(≥0.80)",
                 marker=dict(color="#2ECC71", size=8, symbol="triangle-up"),
                 customdata=_pk["prob"], text=_pk_cd, hovertemplate=_pk_hover,
             ), row=1, col=1)
         _fig_g.add_trace(go.Scatter(
-            x=_pk["date"], y=_pk["prob"], mode="markers", name="极致恐慌(≥0.90)", showlegend=False,
+            x=_pk["date"], y=_pk["prob"], mode="markers", name="极致恐慌(≥0.80)", showlegend=False,
             marker=dict(color="#2ECC71", size=9, symbol="triangle-up", line=dict(color="#1a1a1a", width=1)),
             customdata=_pk["prob"], text=_pk_cd, hovertemplate=_pk_hover,
         ), row=2, col=1)
-        _fig_g.add_hline(y=0.90, line=dict(color="#2ECC71", width=1, dash="dot"), row=2, col=1)
+        _fig_g.add_hline(y=0.80, line=dict(color="#2ECC71", width=1, dash="dot"), row=2, col=1)
 
     # plotly 的 across 竖线只跨「用同一根 x 轴」的子图，所以三行都挂到 x 上
     _fig_g.update_traces(xaxis="x")
@@ -573,10 +573,10 @@ def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
     if not _pk.empty:
         _pk_done = _pk["fwd_ret"].dropna()
         st.caption(
-            f"绿色 ▲ = 红色真警之后概率第一次冲过 0.90，每次真警只配一次，历史 {len(_pk)} 次，"
+            f"绿色 ▲ = 红色真警之后概率第一次冲过 0.80，每次真警只配一次，历史 {len(_pk)} 次，"
             f"{px_ticker} 线上的绿色小点 = 从信号日起连续 10 个交易日（两周）每天买入，"
             f"后 60 日为正 {int((_pk_done > 0).sum())}/{len(_pk_done)}，均值 {_pk_done.mean()*100:+.1f}%。"
-            "读作 2–6 个月视角的加仓区，不是当日抄底：2020-03 / 2022-06 过线后又跌 22% / 12% 才见底。"
+            "读作 2–6 个月视角的加仓区，不是当日抄底：SPX 2020-03 / 2022-06 过线后又跌 18% / 12% 才见底，QQQ 2022-08 又跌 20%。"
         )
 
     if _px_d is not None and not _px_d.empty:
