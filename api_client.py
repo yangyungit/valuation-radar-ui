@@ -790,8 +790,19 @@ def clear_arena_history_backend() -> bool:
 # 3b. 宏观 Regime 缓存 API 客户端
 # ==========================================
 
-@st.cache_data(ttl=3600 * 4)
+class _MacroComputeFailed(Exception):
+    pass
+
+
 def compute_macro_regime_api(z_window: int = 750) -> dict:
+    try:
+        return _compute_macro_regime_cached(z_window)
+    except _MacroComputeFailed:
+        return {}
+
+
+@st.cache_data(ttl=3600 * 4)
+def _compute_macro_regime_cached(z_window: int = 750) -> dict:
     """调用后端 POST /api/v1/macro/compute，后端自拉 yfinance + FRED，返回完整 regime 数据包。
     响应格式：{
         "success": True,
@@ -835,7 +846,11 @@ def compute_macro_regime_api(z_window: int = 750) -> dict:
         )
     else:
         st.warning(f"⚠️ 后端 regime 计算失败，已回退本地计算: {last_exc}")
-    return {}
+    # 抛异常而不是 return {}：st.cache_data 不缓存异常，否则后端没起来那几秒的失败会被缓存 4 小时
+    raise _MacroComputeFailed(err_msg)
+
+
+compute_macro_regime_api.clear = _compute_macro_regime_cached.clear
 
 
 @st.cache_data(ttl=3600 * 4)
