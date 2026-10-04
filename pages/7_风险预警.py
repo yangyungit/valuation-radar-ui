@@ -737,6 +737,37 @@ if _breadth is not None and _br_state is not None and not _breadth.empty:
 else:
     st.info("防守池宽度暂不可用（池子或价格未拉到，其余条带不受影响）。")
 
+# ── 第 5 条：标普500 全体成分股宽度（日频，PIT 成分）
+from api_client import fetch_sp500_breadth
+
+st.markdown("#### 📊 标普500 成分股站上均线占比")
+_br = fetch_sp500_breadth()
+if _br.get("success"):
+    _bl = _br["latest"]
+    _c1, _c2 = st.columns(2)
+    _c1.metric(f"站上 50 日线 · 2016 年以来第 {_bl['rank50']:.0f} 分位", f"{_bl['pct50'] * 100:.0f}%")
+    _c2.metric(f"站上 200 日线 · 2016 年以来第 {_bl['rank200']:.0f} 分位", f"{_bl['pct200'] * 100:.0f}%")
+    _bd = pd.to_datetime(_br["dates"])
+    _fig_br = go.Figure()
+    _fig_br.add_trace(go.Scatter(x=_bd, y=_br["pct50"], name="站上 50 日线", line=dict(color="#F39C12", width=1.2)))
+    _fig_br.add_trace(go.Scatter(x=_bd, y=_br["pct200"], name="站上 200 日线", line=dict(color="#3498DB", width=1.8)))
+    _fig_br.update_layout(
+        height=320, margin=dict(l=50, r=20, t=20, b=28),
+        plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font=dict(color="#ddd"),
+        yaxis=dict(tickformat=".0%", range=[0, 1.02], gridcolor="rgba(255,255,255,0.06)"),
+        xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
+        legend=dict(orientation="h", y=1.08),
+        hovermode="x unified",
+    )
+    st.plotly_chart(_fig_br, use_container_width=True, key="risk_sp500_breadth_chart")
+    st.caption(
+        f"数据截至 {_bl['date']}。每天只数当月真实成分股（含后来被剔除的），没有幸存者偏差。"
+        "和上面的防守池宽度不同：那条只看带鱼池非科技股、月频；这条是全体标普 500、日频。"
+        "参考：2020-03 Covid 底约 1% / 3%，2025-04 关税底约 6% / 19%。"
+    )
+else:
+    st.warning(f"标普500 成分股宽度加载失败：{_br.get('error')}")
+
 # ── 三个比值指标详情图（月线 + MA24），方便肉眼判断走势/破位是否靠谱
 st.markdown("#### 📈 三个比值指标详情（月线 + MA24）")
 for _name, _s, _d, _w, _desc in INDICATORS:

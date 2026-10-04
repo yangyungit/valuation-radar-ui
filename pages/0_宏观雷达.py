@@ -12,7 +12,6 @@ from api_client import (
     compute_macro_regime_api,
     fetch_changepoint,
     fetch_sector_rotation,
-    fetch_sp500_breadth,
 )
 import holdings_viz as hv
 
@@ -2181,31 +2180,3 @@ else:
         </div>
     </div>
     """, unsafe_allow_html=True)
-
-st.markdown("#### 📊 标普500 成分股站上均线占比")
-_br = fetch_sp500_breadth()
-if _br.get("success"):
-    _bl = _br["latest"]
-    _c1, _c2 = st.columns(2)
-    _c1.metric(f"站上 50 日线 · 2016 年以来第 {_bl['rank50']:.0f} 分位", f"{_bl['pct50'] * 100:.0f}%")
-    _c2.metric(f"站上 200 日线 · 2016 年以来第 {_bl['rank200']:.0f} 分位", f"{_bl['pct200'] * 100:.0f}%")
-    _bd = pd.to_datetime(_br["dates"])
-    _fig_br = go.Figure()
-    _fig_br.add_trace(go.Scatter(x=_bd, y=_br["pct50"], name="站上 50 日线", line=dict(color="#F39C12", width=1.2)))
-    _fig_br.add_trace(go.Scatter(x=_bd, y=_br["pct200"], name="站上 200 日线", line=dict(color="#3498DB", width=1.8)))
-    _fig_br.update_layout(
-        height=320, margin=dict(l=40, r=20, t=20, b=30),
-        plot_bgcolor="#111111", paper_bgcolor="#111111", font=dict(color="#ddd"),
-        yaxis=dict(tickformat=".0%", range=[0, 1], gridcolor="rgba(255,255,255,0.06)"),
-        xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-        legend=dict(orientation="h", y=1.08),
-        hovermode="x unified",
-    )
-    st.plotly_chart(_fig_br, use_container_width=True, key="sp500_breadth_chart")
-    st.caption(
-        f"数据截至 {_bl['date']}。每天只数当月真实成分股（含后来被剔除的），没有幸存者偏差。"
-        "和上面的 RSP/SPY 比值不同：比值看大票是否跑赢，这张图直接数有多少股票处于上升趋势。"
-        "参考：2020-03 Covid 底约 1% / 3%，2025-04 关税底约 6% / 19%。"
-    )
-else:
-    st.warning(f"标普500 成分股宽度加载失败：{_br.get('error')}")
