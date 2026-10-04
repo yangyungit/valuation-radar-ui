@@ -5,7 +5,7 @@
 
 - 标普 SPY 跌破月 MA10：大盘趋势总闸（月频，纯前端 yfinance）。
 - 熊市闸门（SPY 日线 MA100）：与「科技龙头」页同源，橙=减半，依赖后端 API。
-- GBDT 急跌/慢跌概率：后端 horsemen_daily_*，SPY 日线上标出触发日，仅参考。
+- GBDT 急跌/慢跌概率：后端 horsemen_daily_*，SPY 日线上标出触发日，SPX / NDX 双 tab，NDX 版用 QQQ，仅参考。
 - 其余（BTC 月 MA10，HYG÷LQD、ARKK÷SPY、SMH÷SPY 月 MA24）：月频 MA 交叉，纯前端 yfinance。
 """
 import pandas as pd
@@ -273,7 +273,7 @@ try:
     )
 
     with st.spinner("📊 加载熊市闸门（后端）..."):
-        df_prices = get_global_data(["SPY"], years=10)
+        df_prices = get_global_data(["SPY", "QQQ"], years=10)
         _chain_regime = compute_macro_regime_api(z_window=750)
 
     if df_prices is not None and not df_prices.empty:
@@ -381,6 +381,7 @@ st.caption(
     "概率在 0.10 以下安静 ≥ 120 个交易日后第一次冲过 0.10 就报警；"
     "报警后 60 个交易日 SPY 最低点 ≤ -8% 算真。假警那座小山不重置寂静计数，真警或概率冲过 0.50 的大山才重置。"
     "仓位闸门是上面的 SPY 日线 MA100。"
+    "NDX tab 是同一套模型换 QQQ 当标签和价格特征（门槛同 -8%），真假也用 QQQ 验；它比 SPX 版吵、但 2018 以后科技股领跌的几轮都早响几周。"
 )
 st.caption(
     "**它在看什么**：本质是问「现在像不像 2004 年以来历次急跌的前夕」，看四类信号（括号内为模型里的分量，月度重训会变）：\n"
@@ -399,9 +400,20 @@ def _api_series(key: str) -> pd.Series:
     return pd.Series(list(raw.values()), index=pd.to_datetime(list(raw.keys()))).sort_index()
 
 
-_prob_s = _api_series("horsemen_daily_chaos_prob").astype(float)
-if not _prob_s.empty:
-    _qs_raw = (_chain_regime or {}).get("horsemen_daily_quiet_spike", {}) or {}
+_QS_STYLE = {
+    "真":   ("#E74C3C", "真警"),
+    "假":   ("#888888", "假警"),
+    "评估中": ("#F1C40F", "评估中"),
+}
+
+
+def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
+                        top_keys: list[tuple[str, str]], chart_key: str) -> None:
+    _prob_s = _api_series(prob_key).astype(float)
+    if _prob_s.empty:
+        st.info(f"{px_ticker} 急跌数据暂不可用（后端 {prob_key} 未拉到）。")
+        return
+    _qs_raw = (_chain_regime or {}).get(qs_key, {}) or {}
     _qs = pd.DataFrame(_qs_raw.get("signals", []) or [])
     _quiet_now = int(_qs_raw.get("quiet_days_now", 0) or 0)
     _pk = pd.DataFrame(_qs_raw.get("panic_peaks", []) or [])
@@ -410,25 +422,20 @@ if not _prob_s.empty:
     if not _qs.empty:
         _qs["date"] = pd.to_datetime(_qs["date"])
         _qs = _qs.sort_values("date")
-    _QS_STYLE = {
-        "真":   ("#E74C3C", "真警"),
-        "假":   ("#888888", "假警"),
-        "评估中": ("#F1C40F", "评估中"),
-    }
 
-    _spy_d = None
-    if df_prices is not None and not df_prices.empty and "SPY" in df_prices.columns:
-        _spy_d = df_prices["SPY"].dropna()
-        _spy_idx = pd.DatetimeIndex(_spy_d.index)
-        _spy_d.index = _spy_idx.tz_localize(None) if _spy_idx.tz is not None else _spy_idx
-        _dd = (_spy_d / _spy_d.cummax() - 1)[_spy_d.index >= _prob_s.index[0]]
-        _spy_d = _spy_d[_spy_d.index >= _prob_s.index[0]]
+    _px_d = None
+    if df_prices is not None and not df_prices.empty and px_ticker in df_prices.columns:
+        _px_d = df_prices[px_ticker].dropna()
+        _spy_idx = pd.DatetimeIndex(_px_d.index)
+        _px_d.index = _spy_idx.tz_localize(None) if _spy_idx.tz is not None else _spy_idx
+        _dd = (_px_d / _px_d.cummax() - 1)[_px_d.index >= _prob_s.index[0]]
+        _px_d = _px_d[_px_d.index >= _prob_s.index[0]]
 
     _fig_g = make_subplots(
         rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.04,
         row_heights=[0.5, 0.25, 0.25],
     )
-    if _spy_d is not None and not _spy_d.empty:
+    if _px_d is not None and not _px_d.empty:
         _fig_g.add_trace(go.Scatter(
             x=_dd.index, y=_dd.values * 100, mode="lines", name="距前高回撤",
             line=dict(color="#E74C3C", width=1), fill="tozeroy", fillcolor="rgba(231,76,60,0.15)",
@@ -436,24 +443,24 @@ if not _prob_s.empty:
         ), row=3, col=1)
         for _lv in (-10, -20):
             _fig_g.add_hline(y=_lv, line=dict(color="#666", width=1, dash="dot"), row=3, col=1)
-    if _spy_d is not None and not _spy_d.empty:
+    if _px_d is not None and not _px_d.empty:
         _fig_g.add_trace(go.Scatter(
-            x=_spy_d.index, y=_spy_d.values, mode="lines", name="SPY",
+            x=_px_d.index, y=_px_d.values, mode="lines", name=px_ticker,
             line=dict(color="#ddd", width=1.2),
         ), row=1, col=1)
 
-    if _spy_d is not None and not _spy_d.empty and _danger_half is not None:
+    if _px_d is not None and not _px_d.empty and _danger_half is not None:
         _bg_pos = {d: i for i, d in enumerate(_danger_half.index)}
         _bg_rows, _prev_end = [], None
         for _s0, _s1 in _bool_segs(_danger_half):
             _quiet = _bg_pos[_s0] - (_bg_pos[_prev_end] if _prev_end is not None else 0)
             _prev_end = _s1
-            if _quiet < _BG_QUIET or _s0 < _spy_d.index[0]:
+            if _quiet < _BG_QUIET or _s0 < _px_d.index[0]:
                 continue
-            _i = _spy_d.index.get_indexer([_s0], method="nearest")[0]
-            _fwd = _spy_d.iloc[_i + 1:_i + 61]
-            _mdd = "—" if _fwd.empty else f"{(_fwd.min() / _spy_d.iloc[_i] - 1) * 100:+.1f}%"
-            _bg_rows.append((_spy_d.index[_i], float(_spy_d.iloc[_i]), _quiet, _mdd))
+            _i = _px_d.index.get_indexer([_s0], method="nearest")[0]
+            _fwd = _px_d.iloc[_i + 1:_i + 61]
+            _mdd = "—" if _fwd.empty else f"{(_fwd.min() / _px_d.iloc[_i] - 1) * 100:+.1f}%"
+            _bg_rows.append((_px_d.index[_i], float(_px_d.iloc[_i]), _quiet, _mdd))
         if _bg_rows:
             _fig_g.add_trace(go.Scatter(
                 x=[r[0] for r in _bg_rows], y=[r[1] for r in _bg_rows],
@@ -479,9 +486,9 @@ if not _prob_s.empty:
                            [("—" if pd.isna(m) else f"{m*100:+.1f}%") for m in _sub["mdd"]]))
             _hover = ("%{x|%Y-%m-%d}<br>概率 %{customdata[0]:.2f} · 寂静 %{customdata[1]} 日"
                       "<br>后 60 日最低 %{customdata[2]}<extra>" + _nm + "</extra>")
-            if _spy_d is not None and not _spy_d.empty:
+            if _px_d is not None and not _px_d.empty:
                 _fig_g.add_trace(go.Scatter(
-                    x=_sub["date"], y=_spy_d.reindex(_sub["date"], method="nearest").values,
+                    x=_sub["date"], y=_px_d.reindex(_sub["date"], method="nearest").values,
                     mode="markers", name=_nm,
                     marker=dict(color=_clr, size=8, symbol="triangle-down"),
                     customdata=_cd, hovertemplate=_hover,
@@ -495,16 +502,16 @@ if not _prob_s.empty:
     if not _pk.empty:
         _pk_cd = [("—" if r is None or pd.isna(r) else f"{r*100:+.1f}%") for r in _pk["fwd_ret"]]
         _pk_hover = "%{x|%Y-%m-%d}<br>概率 %{customdata:.2f} → 后 60 日 %{text}<extra>极致恐慌</extra>"
-        if _spy_d is not None and not _spy_d.empty:
-            _pk_pos = _spy_d.index.get_indexer(_pk["date"], method="nearest")
-            _buy = _spy_d.iloc[sorted({p for s in _pk_pos for p in range(s, min(s + 10, len(_spy_d)))})]
+        if _px_d is not None and not _px_d.empty:
+            _pk_pos = _px_d.index.get_indexer(_pk["date"], method="nearest")
+            _buy = _px_d.iloc[sorted({p for s in _pk_pos for p in range(s, min(s + 10, len(_px_d)))})]
             _fig_g.add_trace(go.Scatter(
                 x=_buy.index, y=_buy.values, mode="markers", name="恐慌后买入(10 交易日)",
                 marker=dict(color="#2ECC71", size=5),
-                hovertemplate="%{x|%Y-%m-%d}<br>SPY %{y:.2f}<extra>买入日</extra>",
+                hovertemplate=f"%{{x|%Y-%m-%d}}<br>{px_ticker} %{{y:.2f}}<extra>买入日</extra>",
             ), row=1, col=1)
             _fig_g.add_trace(go.Scatter(
-                x=_pk["date"], y=_spy_d.reindex(_pk["date"], method="nearest").values,
+                x=_pk["date"], y=_px_d.reindex(_pk["date"], method="nearest").values,
                 mode="markers", name="极致恐慌(≥0.90)",
                 marker=dict(color="#2ECC71", size=8, symbol="triangle-up"),
                 customdata=_pk["prob"], text=_pk_cd, hovertemplate=_pk_hover,
@@ -538,10 +545,10 @@ if not _prob_s.empty:
         spikethickness=1, spikedash="dot", spikecolor="#888",
         row=1, col=1,
     )
-    _fig_g.update_yaxes(**_grid, title_text="SPY", row=1, col=1)
+    _fig_g.update_yaxes(**_grid, title_text=px_ticker, row=1, col=1)
     _fig_g.update_yaxes(**_grid, title_text="概率", range=[0, 1], row=2, col=1)
     _fig_g.update_yaxes(**_grid, title_text="回撤%", ticksuffix="%", row=3, col=1)
-    st.plotly_chart(_fig_g, use_container_width=True, key="risk_gbdt_chart")
+    st.plotly_chart(_fig_g, use_container_width=True, key=chart_key)
 
     _cur_prob_txt = f"{float(_prob_s.iloc[-1]):.2f}"
     if _quiet_now >= 120:
@@ -567,39 +574,36 @@ if not _prob_s.empty:
         _pk_done = _pk["fwd_ret"].dropna()
         st.caption(
             f"绿色 ▲ = 红色真警之后概率第一次冲过 0.90，每次真警只配一次，历史 {len(_pk)} 次，"
-            "SPY 线上的绿色小点 = 从信号日起连续 10 个交易日（两周）每天买入，"
+            f"{px_ticker} 线上的绿色小点 = 从信号日起连续 10 个交易日（两周）每天买入，"
             f"后 60 日为正 {int((_pk_done > 0).sum())}/{len(_pk_done)}，均值 {_pk_done.mean()*100:+.1f}%。"
             "读作 2–6 个月视角的加仓区，不是当日抄底：2020-03 / 2022-06 过线后又跌 22% / 12% 才见底。"
         )
 
-    if _spy_d is not None and not _spy_d.empty:
+    if _px_d is not None and not _px_d.empty:
         _ev = [(d, _QS_STYLE.get(v, ("", v))[1]) for d, v in zip(_qs.get("date", []), _qs.get("verdict", []))]
         _ev += [(d, "极致恐慌") for d in _pk.get("date", [])]
         _rows = []
         for _d, _kind in sorted(_ev):
-            _i = _spy_d.index.get_indexer([_d], method="nearest")[0]
-            _win = _spy_d.iloc[_i:_i + 61]
+            _i = _px_d.index.get_indexer([_d], method="nearest")[0]
+            _win = _px_d.iloc[_i:_i + 61]
             _t = _win.idxmin()
             _rows.append({
-                "信号日": _spy_d.index[_i].date(),
+                "信号日": _px_d.index[_i].date(),
                 "类型": _kind,
                 "当日距前高": f"{_dd.iloc[_i] * 100:+.1f}%",
                 "之后 60 日再跌": f"{(_win.min() / _win.iloc[0] - 1) * 100:+.1f}%",
                 "低点日期": _t.date(),
                 "低点距前高": f"{_dd.loc[_t] * 100:+.1f}%",
-                "信号到低点(交易日)": _spy_d.index.get_loc(_t) - _i,
+                "信号到低点(交易日)": _px_d.index.get_loc(_t) - _i,
             })
         st.caption(
-            f"当前 SPY 距前高 {_dd.iloc[-1] * 100:+.1f}%，本图区间最深 {_dd.min() * 100:.1f}%"
+            f"当前 {px_ticker} 距前高 {_dd.iloc[-1] * 100:+.1f}%，本图区间最深 {_dd.min() * 100:.1f}%"
             f"（{_dd.idxmin().date()}）。下表：每个信号出现后 60 个交易日内的最低点，最后几行窗口可能未走完。"
         )
         if _rows:
             st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True)
 
-    for _top_key, _top_title in (
-        ("horsemen_daily_chaos_top_features", "急跌模型最新一日归因（SHAP top3）"),
-        ("horsemen_daily_slow_top_features", "慢跌模型最新一日归因（SHAP top3）"),
-    ):
+    for _top_key, _top_title in top_keys:
         _latest_top = (_chain_regime or {}).get(_top_key, []) or []
         if _latest_top:
             _top_lines = [
@@ -607,8 +611,22 @@ if not _prob_s.empty:
                 for item in _latest_top[:3]
             ]
             st.markdown(f"**{_top_title}**：\n" + "\n".join(_top_lines))
-else:
-    st.info("GBDT 数据暂不可用（后端 horsemen_daily_chaos_prob 未拉到）。")
+
+
+_tab_spx, _tab_ndx = st.tabs(["SPX（SPY）", "NDX（QQQ）"])
+with _tab_spx:
+    _render_crash_block(
+        "SPY", "horsemen_daily_chaos_prob", "horsemen_daily_quiet_spike",
+        [("horsemen_daily_chaos_top_features", "急跌模型最新一日归因（SHAP top3）"),
+         ("horsemen_daily_slow_top_features", "慢跌模型最新一日归因（SHAP top3）")],
+        "risk_gbdt_chart",
+    )
+with _tab_ndx:
+    _render_crash_block(
+        "QQQ", "horsemen_daily_ndx_prob", "horsemen_daily_ndx_quiet_spike",
+        [("horsemen_daily_ndx_top_features", "NDX 急跌模型最新一日归因（SHAP top3）")],
+        "risk_gbdt_chart_ndx",
+    )
 
 # ── 第 3 条起：风险偏好内部（BTC / HYG÷LQD / ARKK÷SPY / SMH÷SPY）
 st.markdown("#### 🌡️ 风险偏好内部（BTC 月 MA10 / 其余月 MA24 交叉）")
