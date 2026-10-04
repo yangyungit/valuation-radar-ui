@@ -5,8 +5,9 @@ import plotly.graph_objects as go
 
 from api_client import (
     fetch_logr2_stable_pool,
-    fetch_buyback_fcf_relay_timeseries,
     fetch_macro_radar_timeseries,
+    fetch_dynasty_relay_selection_batch,
+    fetch_dynasty_gold_leader,
     fetch_gbdt_oos_prices,
     get_global_data,
     fetch_factor_attribution,
@@ -17,113 +18,68 @@ from factor_attrib_view import render_factor_attribution
 st.set_page_config(page_title="组合净值", layout="wide")
 
 # ── 组合口径（与原页保持同源）──
-WINDOW = "10Y"                       # B/C 周线统一 10Y
+WINDOW = "10Y"                       # 三条统一 10Y
 WEIGHTS = {"A": 0.4, "B": 0.3, "C": 0.3}  # 起始仓位 4:3:3，每年末再平衡回此比例
-_DYNASTY_GROUPS = ["C: 核心板块 (Level 1 Sectors)", "D: 细分赛道 (Level 2/Themes)"]
-_DYNASTY_BUFFER = 4
-_K_ATTACK = 0.75                     # C（FCF进攻）δ 默认，同 page 7
 
-# A（FCF收益率稳定）口径，同 page 8
-_FCFY_TOP_N = 2
-_FCFY_COST = 0.02                    # 单边 200bps
-_FCFY_CASH_APY = 0.04
+# A（FCF%单仓）口径，同 page 17 主版本
+_FCFY_K = 2.0
+_FCFY_LOGR2_GATE = 0.75
+_FCFY_COST_BPS = 200.0
+
+# B（板块王朝）口径，同 page 19 王朝接力净值实验台默认档
+_DYNASTY_GROUPS = ["C: 核心板块 (Level 1 Sectors)", "D: 细分赛道 (Level 2/Themes)"]
+_DYN_N = 2
+_DYN_MOM = "504"
+_DYN_SWEEP_HZ = ["3Y", "5Y", "10Y"]
+_DYN_COST_BPS = 200.0
+
+# C（精选龙头）口径，同 page 32 默认
+_SL_MIN_HOLD = 9
+_SL_COST_BPS = 10.0
 
 st.title("📊 ABC 组合净值")
 st.caption(
-    "**A = FCF收益率稳定**（带鱼池非科技子集，FCF收益率排名等权 Top2、月末调仓，空位现金 4%，单边 200bps；同 page 8）· "
-    "**B = 板块王朝外层 ETF 轮动**（king_score 月末排名接力，左列+右列 50/50，守擂 buffer=4）· "
-    "**C = FCF进攻**（纯科技股 king_score 动量，金+银 2 仓 50/50，δ=0.75）· "
-    f"三条与原页同源（A 月线 / B·C {WINDOW} 周线）。合成 = 起始 4:3:3、**每年末再平衡**回此比例。"
+    f"**A = FCF%单仓**（带鱼池非科技子集，FCF收益率 Top1 满仓，守擂死区 k={_FCFY_K}，"
+    f"候选需 logR²≥{_FCFY_LOGR2_GATE}，单边 200bps；同 page 17 主版本）· "
+    "**B = 板块王朝**（C+D 组 ETF，504 日动量 king_score 接力，2 仓，buffer 守擂按 3Y/5Y/10Y maximin 自动定，"
+    "差速器开，单边 200bps；同 page 19）· "
+    f"**C = 精选龙头**（戴金龙头主线 + 最短持有 {_SL_MIN_HOLD} 月，月度再平衡，单边 10bps；同 page 32）· "
+    f"三条均 {WINDOW}、周线。合成 = 起始 4:3:3、**每年末再平衡**回此比例。"
     "三条 + 合成 + SPY 统一裁到「三条都有数据」的共同窗口、起点归一为 1。"
 )
 
 with st.sidebar:
     if st.button("🔄 强制刷新数据"):
         fetch_logr2_stable_pool.clear()
-        fetch_buyback_fcf_relay_timeseries.clear()
         fetch_macro_radar_timeseries.clear()
+        fetch_dynasty_relay_selection_batch.clear()
+        fetch_dynasty_gold_leader.clear()
         get_global_data.clear()
         fetch_factor_attribution.clear()
         st.rerun()
 
 
-def _inband_streak(rank_df: pd.DataFrame, limit: int) -> pd.DataFrame:
-    """每月「连续在榜」月数：本月在 Top{limit} 则 = 上月 +1，否则清零。"""
-    _ib = (rank_df <= limit).to_numpy()
-    _arr = _ib.astype(int)
-    for _i in range(1, _arr.shape[0]):
-        _arr[_i] = (_arr[_i - 1] + 1) * _ib[_i]
-    return pd.DataFrame(_arr, index=rank_df.index, columns=rank_df.columns)
-
-
-def _relay_navc(score_m, cols, price_cache, spy_wk, k, n_hold=2, entry_min_top2_hits=2):
-    """复刻 buyback_relay_core.render_group 默认档（weekly / 非动态 / 无 MA 留任）的
-    持仓选择 + 左右列 50/50 合成净值，不渲染 UI。用于组合页 A / C 曲线，保证与 page 7/8 同源。
-    """
-    cols = [c for c in cols if c in score_m.columns]
-    if not cols:
+def _avg_slot_navs(navs: list) -> pd.Series:
+    valid = [n for n in navs if not n.empty]
+    if not valid:
         return pd.Series(dtype=float)
-    g_score = score_m[cols]
-    rank_m = g_score.rank(axis=1, ascending=False, method="min")
-    band = n_hold
-    ten6 = (rank_m <= band).astype(int).rolling(6, min_periods=1).sum()
-    streak = _inband_streak(rank_m, band)
-
-    mh: dict = {}
-    prev_h: list = []
-    for ts, row in rank_m.iterrows():
-        r = row.dropna().sort_values()
-        if r.empty:
-            continue
-        order = r.index.tolist()
-        tnow = ten6.loc[ts]
-        snow = streak.loc[ts]
-        sc = g_score.loc[ts].dropna()
-        cut2 = (
-            float(sc.sort_values(ascending=False).iloc[band - 1]) if len(sc) >= band
-            else (float(sc.iloc[0]) if len(sc) else float("nan"))
-        )
-        delta = k * (float(sc.std()) if len(sc) >= 2 else 0.0)
-        hold = [t for t in prev_h if t != "CASH" and t in sc.index and sc[t] >= cut2 - delta][:n_hold] if prev_h else []
-        elig = [t for t in order if r[t] <= band and float(tnow.get(t, 0)) >= entry_min_top2_hits]
-        elig_t = sorted(elig, key=lambda t: (-float(snow.get(t, 0)), r[t]))
-        for t in elig_t:
-            if len(hold) >= n_hold:
-                break
-            if t not in hold:
-                hold.append(t)
-        hold = (hold + ["CASH"] * n_hold)[:n_hold]
-        mh[hv.next_month_key(ts.strftime("%Y-%m"), 1)] = hold
-        prev_h = hold
-
-    exec_months = sorted(mh)
-    if not exec_months:
-        return pd.Series(dtype=float)
-    slots = hv.build_basket_slot_assignments(mh, exec_months)
-    seg_l = hv.build_slot_segments(slots, 0, exec_months)
-    seg_r = hv.build_slot_segments(slots, 1, exec_months)
-    nav_l = hv.calc_slot_stats(seg_l, price_cache, spy_wk, 0.04)[2]
-    nav_r = hv.calc_slot_stats(seg_r, price_cache, spy_wk, 0.04)[2]
-    if nav_l.empty and nav_r.empty:
-        return pd.Series(dtype=float)
-    if nav_l.empty:
-        return nav_r.copy()
-    if nav_r.empty:
-        return nav_l.copy()
-    uidx = nav_l.index.union(nav_r.index)
-    return 0.5 * nav_l.reindex(uidx).ffill().bfill() + 0.5 * nav_r.reindex(uidx).ffill().bfill()
+    uidx = valid[0].index
+    for n in valid[1:]:
+        uidx = uidx.union(n.index)
+    return sum(n.reindex(uidx).ffill().bfill() for n in valid) / len(valid)
 
 
 def _fcfy_stable_nav():
-    """复刻 page 8「FCF收益率稳定」：带鱼池非科技子集内按 FCF收益率排名，等权 Top2
-    月末调仓（空位现金 4%、单边 200bps）。返回 (月线 NAV, SPY 周线 Close 帧)。"""
+    """复刻 page 17「FCF%单仓」Top1 主版本：带鱼池非科技子集，FCF收益率池内排名 × logR² 门槛，
+    守擂死区 k，月末决策次月执行，周线接力引擎扣单边 200bps。返回 (周线 NAV, SPY 周线 Close 帧)。"""
     doc = fetch_logr2_stable_pool()
     if not doc.get("success"):
         return pd.Series(dtype=float), pd.DataFrame()
     pools = {int(y): list(mem) for y, mem in (doc.get("pools") or {}).items()}
     meta = doc.get("meta") or {}
     fcfy_panel = doc.get("fcfy_panel") or {}
-    if not pools or not fcfy_panel:
+    logr2_panel = doc.get("logr2_panel") or {}
+    if not pools or not fcfy_panel or not logr2_panel:
         return pd.Series(dtype=float), pd.DataFrame()
 
     union = sorted({t for mem in pools.values() for t in mem})
@@ -138,8 +94,10 @@ def _fcfy_stable_nav():
     memb = pd.DataFrame(False, index=score_m.index, columns=score_m.columns)
     for y, mem in pools.items():
         memb.loc[memb.index.year == y, [t for t in mem if t in memb.columns]] = True
-    score_in = score_m.where(memb)
-    rank_m = score_in.rank(axis=1, ascending=False, method="min")
+    logr2_m = pd.DataFrame({tk: pd.Series(logr2_panel.get(tk) or {}, dtype=float) for tk in rest})
+    logr2_m.index = pd.to_datetime(logr2_m.index)
+    logr2_m = logr2_m.sort_index().reindex(index=score_m.index, columns=score_m.columns)
+    score_in = score_m.where(memb & (logr2_m >= _FCFY_LOGR2_GATE) & score_m.notna())
 
     _ALIAS = {"BRK.B": "BRK-B"}
     _px = get_global_data([_ALIAS.get(t, t) for t in rest] + ["SPY"], years=12)
@@ -157,26 +115,97 @@ def _fcfy_stable_nav():
                 close_d[t] = arr.assign(date=pd.to_datetime(arr["date"])).set_index("date")["c"].astype(float)
     if not close_d:
         return pd.Series(dtype=float), pd.DataFrame()
-    close_m = pd.DataFrame({t: s.resample("ME").last() for t, s in close_d.items()}).sort_index()
-    ret_m = close_m.pct_change(fill_method=None)
-
-    def _ew_nav(sel):
-        w_raw = sel.reindex(index=ret_m.index, columns=ret_m.columns).fillna(False).astype(float)
-        w = w_raw.div(w_raw.sum(axis=1).replace(0, np.nan), axis=0).fillna(0.0)
-        cash_w = (1 - w.sum(axis=1)).clip(lower=0.0)
-        port = (w.shift(1) * ret_m).sum(axis=1) + cash_w.shift(1).fillna(0) * (_FCFY_CASH_APY / 12)
-        turn = (w - w.shift(1)).abs().sum(axis=1) * 0.5
-        return (1 + port - turn * _FCFY_COST).cumprod()
-
-    memb_px = memb & score_in.notna()
-    nav = _ew_nav((rank_m <= _FCFY_TOP_N) & memb_px).dropna()
-
+    price_cache = {t: s.resample("W-FRI").last().dropna().to_frame(name="Close")
+                   for t, s in close_d.items() if s.resample("W-FRI").last().dropna().shape[0] >= 2}
     spy_wk = pd.DataFrame()
     if _px is not None and "SPY" in _px.columns:
-        _s = _px["SPY"].dropna().resample("W-FRI").last()
-        if len(_s) >= 2:
-            spy_wk = _s.to_frame(name="Close")
+        spy_wk = _px["SPY"].dropna().resample("W-FRI").last().dropna().to_frame(name="Close")
+
+    mh, prev = {}, []
+    for d in score_in.index:
+        row = score_in.loc[d]
+        order = row.dropna().sort_values(ascending=False)
+        if len(order) >= 1:
+            thresh = float(order.iloc[0]) - _FCFY_K * float(row.std())
+            keep = [t for t in prev if pd.notna(row.get(t)) and float(row[t]) >= thresh]
+            hold = keep + [t for t in order.index if t not in keep][:1 - len(keep)]
+        else:
+            hold = []
+        prev = hold
+        mh[hv.next_month_key(d.strftime("%Y-%m"), 1)] = list(hold)
+    m0 = hv.next_month_key((score_in.index[-1] - pd.DateOffset(years=int(WINDOW[:-1]))).strftime("%Y-%m"), 1)
+    mh = {m: h for m, h in mh.items() if m >= m0}
+    exec_months = sorted(mh)
+    if not exec_months:
+        return pd.Series(dtype=float), spy_wk
+    slots = hv.build_basket_slot_assignments(mh, exec_months)
+    seg = hv.build_slot_segments(slots, 0, exec_months)
+    nav = hv.calc_slot_stats(seg, price_cache, spy_wk, hv.CASH_APY, _FCFY_COST_BPS)[2]
     return nav, spy_wk
+
+
+def _dynasty_nav():
+    """复刻 page 19 王朝接力净值实验台默认档：后端选仓，前端周线槽位净值等权合成；
+    buffer_N 在 3Y/5Y/10Y 上按归一化总收益 maximin 选。返回 (周线 NAV, 错误信息)。"""
+    dyn = fetch_macro_radar_timeseries(window=WINDOW, profile="dynasty")
+    if not dyn.get("success"):
+        return pd.Series(dtype=float), dyn.get("error", "未知错误")
+    pool = sorted(tk for tk, p in (dyn.get("tickers", {}) or {}).items() if p.get("group", "") in _DYNASTY_GROUPS)
+    if not pool:
+        return pd.Series(dtype=float), "C/D 组无可用 ETF"
+    pool_csv = ",".join(pool)
+    price_cache, spy_wk = _weekly_cache(pool)
+    if not price_cache:
+        return pd.Series(dtype=float), "ETF 价格缺失"
+
+    def _batch(hz, combos):
+        resp = fetch_dynasty_relay_selection_batch(
+            window=hz, tickers=pool_csv, mom_windows=_DYN_MOM,
+            blend="borda", basis="king_score", gate="seniority", combos=combos,
+        )
+        return resp.get("results") or [] if resp.get("success") else []
+
+    def _navc(mh, single=None):
+        if not mh:
+            return pd.Series(dtype=float)
+        em = sorted(mh)
+        sl = hv.build_basket_slot_assignments(mh, em)
+        for m, t in (single or {}).items():
+            if m in sl:
+                sl[m] = [t] * len(sl[m])
+        ns = max((len(v) for v in sl.values()), default=_DYN_N)
+        return _avg_slot_navs([
+            hv.calc_slot_stats(hv.build_slot_segments(sl, i, em), price_cache, spy_wk, hv.CASH_APY, _DYN_COST_BPS)[2]
+            for i in range(ns)
+        ])
+
+    grid = list(range(_DYN_N, 11))
+    combos = tuple(
+        (("n_holdings", _DYN_N), ("guard", "buffer"), ("buffer_n", bn), ("k_delta", 1.0)) for bn in grid
+    )
+    cum = {bn: {} for bn in grid}
+    for hz in _DYN_SWEEP_HZ:
+        for r in _batch(hz, combos):
+            bn = int(r["buffer_n"])
+            nv = _navc(r.get("monthly_holdings") or {})
+            if bn in cum and not nv.empty:
+                cum[bn][hz] = float(nv.iloc[-1]) / float(nv.iloc[0]) - 1.0
+    peak = {hz: max((cum[bn][hz] for bn in grid if hz in cum[bn]), default=float("nan")) for hz in _DYN_SWEEP_HZ}
+    buf_n, best_key = max(4, _DYN_N), None
+    for bn in grid:
+        sc = [cum[bn][hz] / peak[hz] for hz in _DYN_SWEEP_HZ if hz in cum[bn] and peak[hz] > 0]
+        if len(sc) < len(_DYN_SWEEP_HZ):
+            continue
+        key = (min(sc), -float(np.std(sc)))
+        if best_key is None or key > best_key:
+            best_key, buf_n = key, bn
+
+    main = _batch(WINDOW, (
+        (("n_holdings", _DYN_N), ("guard", "buffer"), ("buffer_n", buf_n), ("k_delta", 1.0), ("diff", True)),
+    ))
+    if not main:
+        return pd.Series(dtype=float), "王朝选仓接口无返回"
+    return _navc(main[0].get("monthly_holdings") or {}, main[0].get("single_months") or {}), None
 
 
 def _weekly_cache(pool, years=10):
@@ -215,75 +244,33 @@ def _combine_433(norm: dict, grid) -> pd.Series:
     return pd.Series(out, index=grid)
 
 
-# ── A：FCF收益率稳定（带鱼池非科技子集，FCF收益率排名等权 Top2 月调，与 page 8 同源）──
-with st.spinner("📊 加载 FCF收益率稳定 面板 + 价格..."):
+# ── A：FCF%单仓（同 page 17 Top1 主版本）──
+with st.spinner("📊 加载 FCF%单仓 面板 + 价格..."):
     nav_a, spy_wk_a = _fcfy_stable_nav()
 
 if nav_a.empty:
-    st.warning("⚠️ FCF收益率稳定 净值不可用（A 曲线缺失，本地重跑 build_logr2_stable_pool.py 并上传后生效）")
+    st.warning("⚠️ FCF%单仓 净值不可用（A 曲线缺失，本地重跑 build_logr2_stable_pool.py 并上传后生效）")
 
-# ── C：FCF进攻（FCF margin 规则池新接口，is_tech 子集，与 page 7 同源）──
-with st.spinner("📊 加载FCF进攻(FCF池)时序 + 价格..."):
-    bbf = fetch_buyback_fcf_relay_timeseries(WINDOW)
+# ── B：板块王朝（同 page 19 王朝接力净值实验台默认档）──
+with st.spinner("📊 加载板块王朝选仓 + ETF 价格（守擂 3Y/5Y/10Y 寻优）..."):
+    nav_b, _dyn_err = _dynasty_nav()
+if _dyn_err:
+    st.warning(f"⚠️ 板块王朝不可用：{_dyn_err}（B 曲线缺失）")
+
+# ── C：精选龙头（同 page 32，后端回测净值）──
+with st.spinner("📊 加载精选龙头回测..."):
+    _gl = fetch_dynasty_gold_leader(window=WINDOW, rebalance=True, cost_bps=_SL_COST_BPS, min_hold=_SL_MIN_HOLD)
 
 nav_c = pd.Series(dtype=float)
-if not bbf.get("success"):
-    st.warning(f"⚠️ FCF进攻(FCF池)时序不可用：{bbf.get('error', '未知错误')}（C 曲线缺失）")
+_sl_eq = (_gl.get("equity") or {}).get("two_sector_locked") or []
+_sl_dates = _gl.get("dates") or []
+if not _gl.get("success"):
+    st.warning(f"⚠️ 精选龙头回测不可用：{_gl.get('error', '未知错误')}（C 曲线缺失）")
+elif len(_sl_eq) != len(_sl_dates) or not _sl_eq:
+    st.warning("⚠️ 后端未返回精选龙头净值（two_sector_locked），C 曲线缺失")
 else:
-    _ft = bbf.get("tickers", {}) or {}
-    _fd = bbf.get("dates", []) or []
-    if _ft and _fd:
-        _fidx = pd.to_datetime(_fd, errors="coerce")
-        _fn = len(_fidx)
-
-        def _alf(v):
-            v = list(v or [])
-            return v if len(v) == _fn else [np.nan] * _fn
-
-        king_m_c = pd.DataFrame({tk: _alf(p.get("king_score")) for tk, p in _ft.items()}, index=_fidx).astype(float).resample("ME").last()
-        _tech_cols = [c for c in king_m_c.columns if (_ft.get(c, {}) or {}).get("is_tech")]
-        with st.spinner("📊 加载FCF进攻价格（Sharadar）..."):
-            # 全池走 Sharadar closeadj（与 page 7、后端排名、离线回测同源），yfinance 仅兜底
-            _fcf_pool = list(_ft.keys())
-            hv.prime_sharadar_prices(fetch_gbdt_oos_prices(tuple(sorted(_fcf_pool + ["SPY"]))))
-            _fcf_cache: dict = {}
-            for _tk in _fcf_pool:
-                _d = hv.fetch_daily_ohlcv(_tk)
-                if not _d.empty:
-                    _fcf_cache[_tk] = _d["Close"].resample("W-FRI").last().dropna().to_frame(name="Close")
-            _spy_d = hv.fetch_daily_ohlcv("SPY")
-            spy_wk_bbf = (_spy_d["Close"].resample("W-FRI").last().dropna().to_frame(name="Close")
-                          if not _spy_d.empty else pd.DataFrame())
-        nav_c = _relay_navc(king_m_c, _tech_cols, _fcf_cache, spy_wk_bbf, _K_ATTACK)   # C
-
-# ── B：板块王朝外层 ETF 轮动（king_score 接力，C+D 组别，buffer=4）──
-with st.spinner("📊 加载板块王朝时序 + ETF 价格..."):
-    dyn = fetch_macro_radar_timeseries(window=WINDOW, profile="dynasty")
-
-nav_b = pd.Series(dtype=float)
-if not dyn.get("success"):
-    st.warning(f"⚠️ 板块王朝时序不可用：{dyn.get('error', '未知错误')}（B 曲线缺失）")
-else:
-    _groups_avail = sorted({
-        p.get("group", "") for p in (dyn.get("tickers", {}) or {}).values() if p.get("group", "")
-    })
-    _groups = [g for g in _DYNASTY_GROUPS if g in _groups_avail] or None
-    _slots, _dnm, _exec = hv.dynasty_relay_slots(dyn, _groups, buffer_n=_DYNASTY_BUFFER)
-    if _slots and _exec:
-        _dyn_pool = sorted({t for m in _exec for t in _slots.get(m, []) if t and t != "CASH"})
-        with st.spinner("📊 加载 ETF 价格..."):
-            _dyn_cache, _dyn_spy = _weekly_cache(_dyn_pool)
-        _seg_l = hv.build_slot_segments(_slots, 0, _exec)
-        _seg_r = hv.build_slot_segments(_slots, 1, _exec)
-        _nl = hv.calc_slot_stats(_seg_l, _dyn_cache, _dyn_spy, 0.04)[2]
-        _nr = hv.calc_slot_stats(_seg_r, _dyn_cache, _dyn_spy, 0.04)[2]
-        if not _nl.empty and not _nr.empty:
-            _u = _nl.index.union(_nr.index)
-            nav_b = 0.5 * _nl.reindex(_u).ffill().bfill() + 0.5 * _nr.reindex(_u).ffill().bfill()
-        elif not _nl.empty:
-            nav_b = _nl.copy()
-        elif not _nr.empty:
-            nav_b = _nr.copy()
+    nav_c = (pd.Series(_sl_eq, index=pd.to_datetime(_sl_dates)).astype(float).dropna()
+             .resample("W-FRI").last().dropna())
 
 _sleeves = {"A": nav_a, "B": nav_b, "C": nav_c}
 _missing = [k for k, v in _sleeves.items() if v is None or v.empty]
@@ -320,7 +307,7 @@ _COLORS = {
     "C": "#E67E22", "SPY": "rgba(170,170,170,0.55)",
 }
 _LABELS = {
-    "合成": "合成 (4:3:3, 年度再平衡)", "A": "A FCF收益率稳定", "B": "B 板块轮动", "C": "C FCF进攻",
+    "合成": "合成 (4:3:3, 年度再平衡)", "A": "A FCF%单仓", "B": "B 板块王朝", "C": "C 精选龙头",
 }
 fig = go.Figure()
 for _k in ["SPY", "A", "B", "C", "合成"]:
@@ -375,8 +362,8 @@ def _metrics(nav: pd.Series) -> dict:
 
 _rows = []
 _series_for_table = {
-    "合成 (4:3:3)": combined, "A FCF收益率稳定": _norm["A"], "B 板块轮动": _norm["B"],
-    "C FCF进攻": _norm["C"], "SPY 大盘": spy_norm,
+    "合成 (4:3:3)": combined, "A FCF%单仓": _norm["A"], "B 板块王朝": _norm["B"],
+    "C 精选龙头": _norm["C"], "SPY 大盘": spy_norm,
 }
 for _label, _s in _series_for_table.items():
     if _s is None or _s.empty:
@@ -400,7 +387,7 @@ st.caption(
 )
 
 # ── A/B/C（+SPY）周收益相关矩阵 ──
-_ret_src = {"A FCF收益率稳定": _norm["A"], "B 板块轮动": _norm["B"], "C FCF进攻": _norm["C"]}
+_ret_src = {"A FCF%单仓": _norm["A"], "B 板块王朝": _norm["B"], "C 精选龙头": _norm["C"]}
 if not spy_norm.empty:
     _ret_src["SPY 大盘"] = spy_norm
 _ret_df = pd.DataFrame(_ret_src).pct_change().dropna(how="any")
@@ -425,20 +412,10 @@ else:
     st.plotly_chart(_hm, use_container_width=True, key="combo_corr")
     st.caption(
         "基于共同窗口的**周收益率**（非净值）皮尔逊相关。ρ 越接近 0 越分散、越接近 1 越同涨同跌、负值为对冲。"
-        "注意 A 为月末调仓，NAV 按月更新，周内多数为 0 收益，故其对 B/C/SPY 的周频相关被稀释、系统性偏低，仅供粗看。"
         "三条全是美股 long-only，与 SPY 一列反映各自的市场 beta 相关，是系统性下跌里同跌的部分。"
     )
 
-# ── 超额拆解：合成改在月末网格上重算，A 用原生月线，避免周线 ffill 让 A 错一个月 ──
-_grid_m = pd.date_range(_lo, _hi, freq="ME")
-if len(_grid_m) >= 3:
-    _norm_m = {}
-    for k, v in _sleeves.items():
-        s = v.reindex(v.index.union(_grid_m)).ffill().reindex(_grid_m)
-        _norm_m[k] = s / float(s.iloc[0])
-    combined_m = _combine_433(_norm_m, _grid_m)
-    _nav_a_win = nav_a[(nav_a.index >= _lo) & (nav_a.index <= _hi)]
-    render_factor_attribution({
-        "合成 (4:3:3)": combined_m, "A FCF收益率稳定": _nav_a_win,
-        "B 板块轮动": _norm["B"], "C FCF进攻": _norm["C"],
-    }, kp="combo")
+render_factor_attribution({
+    "合成 (4:3:3)": combined, "A FCF%单仓": _norm["A"],
+    "B 板块王朝": _norm["B"], "C 精选龙头": _norm["C"],
+}, kp="combo")
