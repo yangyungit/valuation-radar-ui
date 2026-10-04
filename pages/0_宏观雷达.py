@@ -2187,8 +2187,8 @@ _br = fetch_sp500_breadth()
 if _br.get("success"):
     _bl = _br["latest"]
     _c1, _c2 = st.columns(2)
-    _c1.metric("站上 50 日线", f"{_bl['pct50'] * 100:.0f}%", f"2016 年以来第 {_bl['rank50']:.0f} 分位", delta_color="off")
-    _c2.metric("站上 200 日线", f"{_bl['pct200'] * 100:.0f}%", f"2016 年以来第 {_bl['rank200']:.0f} 分位", delta_color="off")
+    _c1.metric(f"站上 50 日线 · 2016 年以来第 {_bl['rank50']:.0f} 分位", f"{_bl['pct50'] * 100:.0f}%")
+    _c2.metric(f"站上 200 日线 · 2016 年以来第 {_bl['rank200']:.0f} 分位", f"{_bl['pct200'] * 100:.0f}%")
     _bd = pd.to_datetime(_br["dates"])
     _fig_br = go.Figure()
     _fig_br.add_trace(go.Scatter(x=_bd, y=_br["pct50"], name="站上 50 日线", line=dict(color="#F39C12", width=1.2)))
