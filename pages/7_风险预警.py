@@ -394,7 +394,7 @@ if not _prob_s.empty:
         _qs["date"] = pd.to_datetime(_qs["date"])
         _qs = _qs.sort_values("date")
     _QS_STYLE = {
-        "真":   ("#2ECC71", "真警"),
+        "真":   ("#E74C3C", "真警"),
         "假":   ("#888888", "假警"),
         "评估中": ("#E67E22", "评估中"),
     }
@@ -458,19 +458,26 @@ if not _prob_s.empty:
         _pk_cd = [("—" if r is None or pd.isna(r) else f"{r*100:+.1f}%") for r in _pk["fwd_ret"]]
         _pk_hover = "%{x|%Y-%m-%d}<br>概率 %{customdata:.2f} → 后 60 日 %{text}<extra>极致恐慌</extra>"
         if _spy_d is not None and not _spy_d.empty:
+            _pk_pos = _spy_d.index.get_indexer(_pk["date"], method="nearest")
+            _buy = _spy_d.iloc[sorted({p for s in _pk_pos for p in range(s, min(s + 10, len(_spy_d)))})]
+            _fig_g.add_trace(go.Scatter(
+                x=_buy.index, y=_buy.values, mode="markers", name="恐慌后买入(10 交易日)",
+                marker=dict(color="#2ECC71", size=5),
+                hovertemplate="%{x|%Y-%m-%d}<br>SPY %{y:.2f}<extra>买入日</extra>",
+            ), row=1, col=1)
             _fig_g.add_trace(go.Scatter(
                 x=_pk["date"], y=_spy_d.reindex(_pk["date"], method="nearest").values,
                 mode="markers", name="极致恐慌(≥0.90)",
-                marker=dict(color="#9B59B6", size=11, symbol="triangle-up",
+                marker=dict(color="#2ECC71", size=11, symbol="triangle-up",
                             line=dict(color="#1a1a1a", width=1)),
                 customdata=_pk["prob"], text=_pk_cd, hovertemplate=_pk_hover,
             ), row=1, col=1)
         _fig_g.add_trace(go.Scatter(
             x=_pk["date"], y=_pk["prob"], mode="markers", name="极致恐慌(≥0.90)", showlegend=False,
-            marker=dict(color="#9B59B6", size=9, symbol="triangle-up", line=dict(color="#1a1a1a", width=1)),
+            marker=dict(color="#2ECC71", size=9, symbol="triangle-up", line=dict(color="#1a1a1a", width=1)),
             customdata=_pk["prob"], text=_pk_cd, hovertemplate=_pk_hover,
         ), row=2, col=1)
-        _fig_g.add_hline(y=0.90, line=dict(color="#9B59B6", width=1, dash="dot"), row=2, col=1)
+        _fig_g.add_hline(y=0.90, line=dict(color="#2ECC71", width=1, dash="dot"), row=2, col=1)
 
     # plotly 的 across 竖线只跨「用同一根 x 轴」的子图，所以三行都挂到 x 上
     _fig_g.update_traces(xaxis="x")
@@ -516,13 +523,14 @@ if not _prob_s.empty:
             f"最近一次 {_last['date'].date()}（概率 {_last['prob']:.2f}，寂静 {int(_last['quiet_days'])} 日）→ "
             f"<span style='color:{_last_clr}; font-weight:bold;'>{_last_nm}</span>。"
             f"当前概率 {_cur_prob:.2f}，{_armed_txt}。"
-            "绿 = 后 60 日跌 ≥ 8%，灰 = 没跌，橙 = 60 日窗口未走完。淡蓝细线 = 原始概率，只当背景。",
+            "红 = 后 60 日跌 ≥ 8%，灰 = 没跌，橙 = 60 日窗口未走完。淡蓝细线 = 原始概率，只当背景。",
             unsafe_allow_html=True,
         )
     if not _pk.empty:
         _pk_done = _pk["fwd_ret"].dropna()
         st.caption(
-            f"紫色 ▲ = 概率首次冲过 0.90（前 20 日没过线），历史 {len(_pk)} 次，"
+            f"绿色 ▲ = 概率首次冲过 0.90（前 20 日没过线），历史 {len(_pk)} 次，"
+            "SPY 线上的绿色小点 = 从信号日起连续 10 个交易日（两周）每天买入，"
             f"后 60 日为正 {int((_pk_done > 0).sum())}/{len(_pk_done)}，均值 {_pk_done.mean()*100:+.1f}%。"
             "读作 2–6 个月视角的加仓区，不是当日抄底：2020-03 / 2022-06 过线后又跌 22% / 12% 才见底。"
         )
