@@ -388,7 +388,10 @@ st.caption(
     "2. **宏观剧本看不清（约 24%）**：软着陆 / 再通胀 / 滞胀 / 衰退四个剧本打得难分高下、近 30 天常处于「混沌」时概率上升；明确处在软着陆时概率被压低。市场怕的不是坏消息，是不知道往哪走。\n"
     "3. **避险资产异动（约 22%）**：这一类里分量最大的是长债跑输短债（利率上行，债券挡不住股票下跌，像 2022），但单靠它推不高概率，股市波动和信用不出事概率仍低；黄金 / SPY 不是单向关系，模型拿它和别的信号组合着看。\n"
     "4. **信用在收紧（约 18%）**：高收益债跑输国债 = 借钱给差公司的人要更高补偿，企业融资变难的早期迹象。\n\n"
-    "边界：这是统计规律不是因果；第一类直接来自价格，所以它更容易在「已经开始抖」时响，风平浪静时很难提前预言。"
+    "边界：这是统计规律不是因果；第一类直接来自价格，所以它更容易在「已经开始抖」时响，风平浪静时很难提前预言。\n\n"
+    "**对照组（橙色虚线）**：只看「SPY 近 20 日波动处在历史哪一档」，查那一档过去 20 日内真急跌的比例，不用模型。"
+    "2004 年起 20 日跌 8% 的独立事件只有约 12 次，17 列模型在 walk-forward 上 AUC 0.63，这条单变量对照 0.62，"
+    "加 VIX 期限结构 / SKEW / VVIX 或删掉滞后价格列都只动 ±0.01。蓝线长期压不过橙线，就别给模型比对照更多的信任。"
 )
 
 
@@ -400,6 +403,7 @@ def _api_series(key: str) -> pd.Series:
 
 
 _prob_s = _api_series("horsemen_daily_chaos_prob").astype(float)
+_vol_base_s = _api_series("horsemen_daily_vol_baseline").astype(float)
 if not _prob_s.empty:
     _qs_raw = (_chain_regime or {}).get("horsemen_daily_quiet_spike", {}) or {}
     _qs = pd.DataFrame(_qs_raw.get("signals", []) or [])
@@ -468,6 +472,13 @@ if not _prob_s.empty:
         x=_prob_s.index, y=_prob_s.values, mode="lines", name="急跌概率(20日)",
         line=dict(color="rgba(52,152,219,0.25)", width=0.6), hoverinfo="skip",
     ), row=2, col=1)
+    if not _vol_base_s.empty:
+        _vol_base_s = _vol_base_s[_vol_base_s.index >= _prob_s.index[0]]
+        _fig_g.add_trace(go.Scatter(
+            x=_vol_base_s.index, y=_vol_base_s.values, mode="lines", name="对照：仅 20 日波动",
+            line=dict(color="rgba(230,126,34,0.7)", width=0.8, dash="dot"),
+            hovertemplate="%{x|%Y-%m-%d}<br>对照 %{y:.2f}<extra></extra>",
+        ), row=2, col=1)
     _fig_g.add_hline(y=0.10, line=dict(color="#888", width=1, dash="dash"), row=2, col=1)
 
     if not _qs.empty:
@@ -544,12 +555,16 @@ if not _prob_s.empty:
     st.plotly_chart(_fig_g, use_container_width=True, key="risk_gbdt_chart")
 
     _cur_prob = float(_prob_s.iloc[-1])
+    if not _vol_base_s.empty:
+        _cur_prob_txt = f"{_cur_prob:.2f}（对照 {float(_vol_base_s.iloc[-1]):.2f}）"
+    else:
+        _cur_prob_txt = f"{_cur_prob:.2f}"
     if _quiet_now >= 120:
         _armed_txt = f"<span style='color:#E67E22; font-weight:bold;'>寂静已满 {_quiet_now} 日，下次冲过 0.10 即报警</span>"
     else:
         _armed_txt = f"寂静累计 {_quiet_now} 日（需 ≥ 120 才会报警）"
     if _qs.empty:
-        st.caption(f"历史上无寂静后首峰信号。当前概率 {_cur_prob:.2f}，{_armed_txt}。", unsafe_allow_html=True)
+        st.caption(f"历史上无寂静后首峰信号。当前概率 {_cur_prob_txt}，{_armed_txt}。", unsafe_allow_html=True)
     else:
         _n_true = int((_qs["verdict"] == "真").sum())
         _n_false = int((_qs["verdict"] == "假").sum())
@@ -559,8 +574,9 @@ if not _prob_s.empty:
             f"历史 {len(_qs)} 次报警：真 {_n_true} · 假 {_n_false}。"
             f"最近一次 {_last['date'].date()}（概率 {_last['prob']:.2f}，寂静 {int(_last['quiet_days'])} 日）→ "
             f"<span style='color:{_last_clr}; font-weight:bold;'>{_last_nm}</span>。"
-            f"当前概率 {_cur_prob:.2f}，{_armed_txt}。"
-            "红 = 后 60 日跌 ≥ 8%，灰 = 没跌，橙 = 60 日窗口未走完。淡蓝细线 = 原始概率，只当背景。",
+            f"当前概率 {_cur_prob_txt}，{_armed_txt}。"
+            "红 = 后 60 日跌 ≥ 8%，灰 = 没跌，橙 = 60 日窗口未走完。淡蓝细线 = 原始概率，只当背景；"
+            "橙色虚线 = 对照组，只凭 SPY 20 日波动查历史急跌率，与蓝线同一标尺。",
             unsafe_allow_html=True,
         )
     if not _pk.empty:
