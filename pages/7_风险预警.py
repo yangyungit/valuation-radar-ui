@@ -472,6 +472,10 @@ if not _prob_s.empty:
         ), row=2, col=1)
         _fig_g.add_hline(y=0.90, line=dict(color="#9B59B6", width=1, dash="dot"), row=2, col=1)
 
+    # plotly 的 across 竖线只跨「用同一根 x 轴」的子图，所以三行都挂到 x 上
+    _fig_g.update_traces(xaxis="x")
+    _fig_g.update_shapes(xref="x domain")
+
     _grid = dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", tickfont=dict(size=10, color="#999"))
     _fig_g.update_layout(
         height=680,
@@ -480,8 +484,16 @@ if not _prob_s.empty:
         font=dict(color="#ddd"),
         legend=dict(orientation="h", y=1.06, x=0, font=dict(size=10)),
         hovermode="closest",
+        spikedistance=-1,
+        xaxis2_visible=False, xaxis3_visible=False,
     )
     _fig_g.update_xaxes(**_grid, tickformat="%Y", dtick="M12", hoverformat="%Y-%m-%d")
+    _fig_g.update_xaxes(
+        anchor="y3", matches=None, showticklabels=True,
+        showspikes=True, spikemode="across", spikesnap="cursor",
+        spikethickness=1, spikedash="dot", spikecolor="#888",
+        row=1, col=1,
+    )
     _fig_g.update_yaxes(**_grid, title_text="SPY", row=1, col=1)
     _fig_g.update_yaxes(**_grid, title_text="概率", range=[0, 1], row=2, col=1)
     _fig_g.update_yaxes(**_grid, title_text="回撤%", ticksuffix="%", row=3, col=1)
