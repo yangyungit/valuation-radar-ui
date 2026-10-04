@@ -261,6 +261,7 @@ if _avail[_spy_name]:
 
 # ── 第 2 条：熊市闸门条带（与「科技龙头」页同源，后端 bear_gate_daily）
 # 橙 = SPY 连续 5 日收盘 < MA100（连续 5 日收回才关）→ 减仓一半
+_BG_QUIET = 100
 _danger_half = None
 _cal = None
 _chain_regime = None
@@ -361,11 +362,18 @@ if _danger_half is not None and _cal is not None and bool(_danger_half.any()):
         f"共 {min(len(_danger_half), 252)} 天 · 绿=满仓",
         unsafe_allow_html=True,
     )
+    st.caption(
+        "<span style='color:#E67E22;'>◆</span> 下方急跌概率图 SPY 线上的橙色菱形 = 闸门首开："
+        f"闸门连续 ≥ {_BG_QUIET} 个交易日全绿后，第一次变橙的那天。"
+        "闸门的判定线是 SPY 自己的 100 日均线（每天在动），连续 5 天收盘在均线下方才变橙，"
+        "连续 5 天收回均线上方才变绿。长时间没开过之后的第一次打开，往往是一轮下跌的开头；"
+        "刚关上不久又打开的不算首开，不标。悬停可看后 60 个交易日 SPY 最低跌幅。",
+        unsafe_allow_html=True,
+    )
 else:
     st.info("熊市闸门暂不可用（后端 bear_gate_daily 未拉到）。")
 
 # ── GBDT 急跌概率：寂静后首峰读法（后端 horsemen_daily_quiet_spike，与熊市闸门同一次 API 调用）
-_BG_QUIET = 100
 st.markdown("#### 🤖 急跌概率 — 寂静后首峰（仅参考，不驱动仓位）")
 st.caption(
     "急跌模型学「未来 20 交易日 SPY 最低点 ≤ -8%」，历史概率为 walk-forward。"
@@ -373,7 +381,6 @@ st.caption(
     "概率在 0.10 以下安静 ≥ 120 个交易日后第一次冲过 0.10 就报警；"
     "报警后 60 个交易日 SPY 最低点 ≤ -8% 算真。假警那座小山不重置寂静计数，真警或概率冲过 0.50 的大山才重置。"
     "仓位闸门是上面的 SPY 日线 MA100。"
-    f"SPY 线上的橙色菱形 = 熊市闸门安静 ≥ {_BG_QUIET} 个交易日后第一次打开。"
 )
 
 
@@ -443,8 +450,7 @@ if not _prob_s.empty:
             _fig_g.add_trace(go.Scatter(
                 x=[r[0] for r in _bg_rows], y=[r[1] for r in _bg_rows],
                 mode="markers", name=f"闸门首开(安静≥{_BG_QUIET}日)",
-                marker=dict(color="#E67E22", size=12, symbol="diamond",
-                            line=dict(color="#1a1a1a", width=1)),
+                marker=dict(color="#E67E22", size=5, symbol="diamond"),
                 customdata=[(r[2], r[3]) for r in _bg_rows],
                 hovertemplate=("%{x|%Y-%m-%d}<br>闸门此前安静 %{customdata[0]} 日"
                                "<br>后 60 日最低 %{customdata[1]}<extra>熊市闸门首开</extra>"),
@@ -469,8 +475,7 @@ if not _prob_s.empty:
                 _fig_g.add_trace(go.Scatter(
                     x=_sub["date"], y=_spy_d.reindex(_sub["date"], method="nearest").values,
                     mode="markers", name=_nm,
-                    marker=dict(color=_clr, size=11, symbol="triangle-down",
-                                line=dict(color="#1a1a1a", width=1)),
+                    marker=dict(color=_clr, size=5, symbol="triangle-down"),
                     customdata=_cd, hovertemplate=_hover,
                 ), row=1, col=1)
             _fig_g.add_trace(go.Scatter(
