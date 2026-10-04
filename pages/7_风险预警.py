@@ -379,9 +379,9 @@ st.caption(
     "急跌模型学「未来 20 交易日 SPY 最低点 ≤ -8%」，历史概率为 walk-forward。"
     "原 0.50 规则 10 年报 24 次中 6 次，假警几乎全挤在大崩盘后一年的余震期，改用新读法："
     "概率在 0.10 以下安静 ≥ 120 个交易日后第一次冲过 0.10 就报警；"
-    "报警后 60 个交易日 SPY 最低点 ≤ -8% 算真。假警那座小山不重置寂静计数（假警后 60 日内冲过 0.50 也算余波），真警或概率冲过 0.50 的大山才重置。"
+    "报警后 60 个交易日 SPY 最低点 ≤ -8% 算真。假警后 60 日内每天照样算寂静（冲过 0.50 也算余波），真警或概率冲过 0.50 的大山才重置；任何报警后 60 日内不再报。"
     "仓位闸门是上面的 SPY 日线 MA100。"
-    "NDX tab 是同一套模型换 QQQ 当标签和价格特征（门槛同 -8%），真假也用 QQQ 验；它比 SPX 版吵、但 2018 以后科技股领跌的几轮都早响几周。"
+    "NDX tab 是同一套模型换 QQQ 当标签和价格特征（门槛同 -8%），真假也用 QQQ 验；它底噪比 SPX 版高，报警线抬到 0.14。"
 )
 st.caption(
     "**它在看什么**：本质是问「现在像不像 2004 年以来历次急跌的前夕」，看四类信号（括号内为模型里的分量，月度重训会变）：\n"
@@ -416,6 +416,7 @@ def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
     _qs_raw = (_chain_regime or {}).get(qs_key, {}) or {}
     _qs = pd.DataFrame(_qs_raw.get("signals", []) or [])
     _quiet_now = int(_qs_raw.get("quiet_days_now", 0) or 0)
+    _qs_th = float(_qs_raw.get("thresh", 0.10) or 0.10)
     _pk = pd.DataFrame(_qs_raw.get("panic_peaks", []) or [])
     if not _pk.empty:
         _pk["date"] = pd.to_datetime(_pk["date"])
@@ -475,7 +476,7 @@ def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
         x=_prob_s.index, y=_prob_s.values, mode="lines", name="急跌概率(20日)",
         line=dict(color="rgba(52,152,219,0.25)", width=0.6), hoverinfo="skip",
     ), row=2, col=1)
-    _fig_g.add_hline(y=0.10, line=dict(color="#888", width=1, dash="dash"), row=2, col=1)
+    _fig_g.add_hline(y=_qs_th, line=dict(color="#888", width=1, dash="dash"), row=2, col=1)
 
     if not _qs.empty:
         for _verdict, (_clr, _nm) in _QS_STYLE.items():
@@ -552,7 +553,7 @@ def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
 
     _cur_prob_txt = f"{float(_prob_s.iloc[-1]):.2f}"
     if _quiet_now >= 120:
-        _armed_txt = f"<span style='color:#E67E22; font-weight:bold;'>寂静已满 {_quiet_now} 日，下次冲过 0.10 即报警</span>"
+        _armed_txt = f"<span style='color:#E67E22; font-weight:bold;'>寂静已满 {_quiet_now} 日，下次冲过 {_qs_th:.2f} 即报警</span>"
     else:
         _armed_txt = f"寂静累计 {_quiet_now} 日（需 ≥ 120 才会报警）"
     if _qs.empty:
