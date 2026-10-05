@@ -160,6 +160,9 @@ else:
 
     # ---- 仓位配置与再平衡 ----
     st.markdown("### 仓位配置与再平衡")
+    rb = summary.get("rebalance") or {}
+    if rb:
+        {"now": st.error, "year_end": st.warning}.get(rb["level"], st.success)(rb["text"])
     rows = []
     for s in summary["sleeves"]:
         row = {
@@ -186,8 +189,8 @@ else:
                        font=dict(color="#ccc"), hovermode="x unified",
                        legend=dict(orientation="h", y=1.15, x=0))
     st.plotly_chart(wfig, width="stretch")
-    st.caption("D 上限 15%，由 MVRV 规则加减；A/B/C 在其余资金里按 4:3:3；"
-               "偏离超过 5 个百分点标『越线』。")
+    st.caption("目标 A 35% / B 25% / C 25% / D 15%。D 越出 10%–20% 带 → 四腿立刻整体回目标；"
+               "A/B/C 偏离超过 5 个百分点只标记，年末归位。D 带内的加减仍按 MVRV 规则。")
 
     # ---- 持仓明细 ----
     st.markdown("### 持仓明细")

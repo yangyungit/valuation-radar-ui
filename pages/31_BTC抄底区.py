@@ -145,7 +145,7 @@ if _pos and _row and _pos["qty"] > 0:
     d1.metric("持有数量", f"{_pos['qty']:,.6g} BTC")
     d2.metric("均价", f"${_pos['avg_cost']:,.0f}")
     d3.metric("浮盈", f"{_pos['unrealized_pct']:+.1%}")
-    d4.metric("占总仓", f"{_row['weight']:.1%}", "上限 15%", "off")
+    d4.metric("占总仓", f"{_row['weight']:.1%}", "目标 15%，带 10–20%", "off")
 else:
     st.caption("实盘账本还没有 D 的记录，去『ABCD 实盘』页录入。")
 
