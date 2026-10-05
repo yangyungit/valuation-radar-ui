@@ -158,6 +158,54 @@ st.dataframe(pd.DataFrame([{
     "出区后 1 年": "未满 1 年" if e["fwd_1y"] is None else f"{e['fwd_1y'] * 100:+.0f}%",
 } for e in reversed(sell_eps)]), width="stretch", hide_index=True, height=300)
 
+st.subheader("D 策略回测")
+bt = res["backtest"]
+st_s, st_h = bt["stats"]["strategy"], bt["stats"]["hold"]
+b1, b2, b3, b4 = st.columns(4)
+b1.metric("策略年化", f"{st_s['cagr']:+.1%}", f"持有 {st_h['cagr']:+.1%}", "off")
+b2.metric("策略累计", f"{st_s['total'] + 1:,.0f} 倍", f"持有 {st_h['total'] + 1:,.0f} 倍", "off")
+b3.metric("策略最大回撤", f"{st_s['max_dd']:.0%}", f"持有 {st_h['max_dd']:.0%}", "off")
+b4.metric("当前 BTC 占比", f"{bt['btc_weight'][-1]:.0%}")
+
+bidx = pd.to_datetime(bt["dates"])
+bfig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04,
+                     row_heights=[0.7, 0.3])
+bfig.add_trace(go.Scatter(x=bidx, y=bt["nav"], name="D 策略",
+                          line=dict(color="#b04ec8", width=1.6)), row=1, col=1)
+bfig.add_trace(go.Scatter(x=bidx, y=bt["hold"], name="全程持有 BTC",
+                          line=dict(color="#ddd", width=1.1, dash="dot")), row=1, col=1)
+nav_at = pd.Series(bt["nav"], index=bidx)
+for side, color, symbol in (("定投开始", "#f39c12", "triangle-up"),
+                            ("定卖开始", "#2ecc71", "triangle-down")):
+    pts = [e for e in bt["events"] if e["side"] == side]
+    if pts:
+        x = pd.to_datetime([e["date"] for e in pts])
+        bfig.add_trace(go.Scatter(
+            x=x, y=nav_at.reindex(x), mode="markers", name=side,
+            customdata=[e["price"] for e in pts],
+            hovertemplate="BTC $%{customdata:,.0f}",
+            marker=dict(color=color, symbol=symbol, size=11,
+                        line=dict(color="#fff", width=1))), row=1, col=1)
+bfig.add_trace(go.Scatter(x=bidx, y=bt["btc_weight"], name="BTC 占比",
+                          line=dict(color="#b04ec8", width=0.8),
+                          fill="tozeroy", fillcolor="rgba(176,78,200,0.25)",
+                          hovertemplate="%{y:.0%}"), row=2, col=1)
+bfig.update_yaxes(title_text="净值（起点 1，对数）", type="log", gridcolor="#222", row=1, col=1)
+bfig.update_yaxes(title_text="BTC 占比", tickformat=".0%", range=[0, 1.05],
+                  gridcolor="#222", row=2, col=1)
+bfig.update_xaxes(gridcolor="#222", row=2, col=1)
+bfig.update_layout(height=560, margin=dict(l=60, r=20, t=30, b=30),
+                   plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
+                   font=dict(color="#ccc"), hovermode="x unified",
+                   legend=dict(orientation="h", y=1.08, x=0))
+st.plotly_chart(bfig, width="stretch")
+st.caption(
+    f"规则：从全现金起步，进抄底区（跌破橙色 −1σ 线）当天的现金分 {bt['buy_days']} 天每天等额买完；"
+    f"进定卖区（涨过绿色 +1σ 线）当天的持仓分 {bt['sell_days']} 天每天等额卖完。"
+    "执行期内同方向信号不重新计时，买入期碰到定卖区就停买改卖。信号按前一天收盘判定、"
+    "今天收盘成交，闲置现金按 0 收益，不计手续费。回测始终用全历史，不受左侧时间窗影响。"
+)
+
 with st.expander("阈值怎么来的 / 这两个信号能信到什么程度"):
     st.markdown(f"""
 **回测对照**（2014-12 起，共 {len(idx) if years is None else '全历史'} 天样本，持有 1 年）：
