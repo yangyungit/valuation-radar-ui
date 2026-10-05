@@ -378,10 +378,11 @@ st.markdown("#### 🤖 急跌概率 — 寂静后首峰（仅参考，不驱动�
 st.caption(
     "急跌模型学「未来 20 交易日 SPY 最低点 ≤ -8%」，历史概率为 walk-forward。"
     "原 0.50 规则 10 年报 24 次中 6 次，假警几乎全挤在大崩盘后一年的余震期，改用新读法："
-    "概率在 0.10 以下安静 ≥ 120 个交易日后第一次冲过 0.10 就报警；"
+    "概率在 0.15 以下安静 ≥ 120 个交易日后第一次冲过 0.15 就报警；"
     "报警后 60 个交易日 SPY 最低点 ≤ -8% 算真。假警后 60 日内每天照样算寂静（冲过 0.50 也算余波），真警或概率冲过 0.50 的大山才重置；任何报警后 60 日内不再报。"
     "仓位闸门是上面的 SPY 日线 MA100。"
-    "NDX tab 是同一套模型换 QQQ 当标签和价格特征（门槛同 -8%），真假也用 QQQ 验；它底噪比 SPX 版高，报警线抬到 0.14。"
+    "NDX tab 是同一套模型换 QQQ 当标签和价格特征（门槛同 -8%），真假也用 QQQ 验；它底噪比 SPX 版高，报警线同样是 0.15。"
+    "回测 2009–2026.9：SPX 15 报 6 真，NDX 18 报 5 真。"
 )
 st.caption(
     "**它在看什么**：本质是问「现在像不像 2004 年以来历次急跌的前夕」，看四类信号（括号内为模型里的分量，月度重训会变）：\n"
@@ -416,7 +417,8 @@ def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
     _qs_raw = (_chain_regime or {}).get(qs_key, {}) or {}
     _qs = pd.DataFrame(_qs_raw.get("signals", []) or [])
     _quiet_now = int(_qs_raw.get("quiet_days_now", 0) or 0)
-    _qs_th = float(_qs_raw.get("thresh", 0.10) or 0.10)
+    _qs_th = float(_qs_raw.get("thresh", 0.15) or 0.15)
+    _pk_th = float(_qs_raw.get("panic_thresh", 0.80) or 0.80)
     _pk = pd.DataFrame(_qs_raw.get("panic_peaks", []) or [])
     if not _pk.empty:
         _pk["date"] = pd.to_datetime(_pk["date"])
@@ -513,16 +515,16 @@ def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
             ), row=1, col=1)
             _fig_g.add_trace(go.Scatter(
                 x=_pk["date"], y=_px_d.reindex(_pk["date"], method="nearest").values,
-                mode="markers", name="极致恐慌(≥0.80)",
+                mode="markers", name=f"极致恐慌(≥{_pk_th:.2f})",
                 marker=dict(color="#2ECC71", size=8, symbol="triangle-up"),
                 customdata=_pk["prob"], text=_pk_cd, hovertemplate=_pk_hover,
             ), row=1, col=1)
         _fig_g.add_trace(go.Scatter(
-            x=_pk["date"], y=_pk["prob"], mode="markers", name="极致恐慌(≥0.80)", showlegend=False,
+            x=_pk["date"], y=_pk["prob"], mode="markers", name=f"极致恐慌(≥{_pk_th:.2f})", showlegend=False,
             marker=dict(color="#2ECC71", size=9, symbol="triangle-up", line=dict(color="#1a1a1a", width=1)),
             customdata=_pk["prob"], text=_pk_cd, hovertemplate=_pk_hover,
         ), row=2, col=1)
-        _fig_g.add_hline(y=0.80, line=dict(color="#2ECC71", width=1, dash="dot"), row=2, col=1)
+        _fig_g.add_hline(y=_pk_th, line=dict(color="#2ECC71", width=1, dash="dot"), row=2, col=1)
 
     # plotly 的 across 竖线只跨「用同一根 x 轴」的子图，所以三行都挂到 x 上
     _fig_g.update_traces(xaxis="x")
@@ -574,10 +576,11 @@ def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
     if not _pk.empty:
         _pk_done = _pk["fwd_ret"].dropna()
         st.caption(
-            f"绿色 ▲ = 红色真警之后概率第一次冲过 0.80，每次真警只配一次，历史 {len(_pk)} 次，"
+            f"绿色 ▲ = 红色真警之后概率第一次冲过 {_pk_th:.2f}，每次真警只配一次，历史 {len(_pk)} 次，"
             f"{px_ticker} 线上的绿色小点 = 从信号日起连续 10 个交易日（两周）每天买入，"
             f"后 60 日为正 {int((_pk_done > 0).sum())}/{len(_pk_done)}，均值 {_pk_done.mean()*100:+.1f}%。"
-            "读作 2–6 个月视角的加仓区，不是当日抄底：SPX 2020-03 / 2022-06 过线后又跌 18% / 12% 才见底，QQQ 2022-08 又跌 20%。"
+            "读作 2–6 个月视角的加仓区，不是当日抄底：SPX 2020-03-10 / 2022-06-02 / 2025-05-09，NDX 2020-03-12 / 2022-08-10 / 2025-05-12；"
+            "SPX 2020-03 / 2022-06 过线后又跌 18% / 12% 才见底，QQQ 2022-08 又跌 20%。"
         )
 
     if _px_d is not None and not _px_d.empty:
