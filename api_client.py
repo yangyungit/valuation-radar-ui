@@ -3516,3 +3516,65 @@ def fetch_crypto_bottom_zone(years: float | None = None) -> dict:
         return r.json()
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ==========================================
+# 实盘账本（后端 portfolio_book.py）
+# ==========================================
+@st.cache_data(ttl=300)
+def fetch_portfolio_summary() -> dict:
+    """份额法净值 + 持仓 + 再平衡目标 + 周报文本。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/portfolio/summary", timeout=60)
+        if r.status_code == 400:
+            return {"success": False, "error": r.json().get("detail")}
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=60)
+def fetch_portfolio_ledger() -> dict:
+    """交易流水 + 出入金流水。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/portfolio/ledger", timeout=30)
+        if r.status_code == 400:
+            return {"success": False, "error": r.json().get("detail")}
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def clear_portfolio_caches() -> None:
+    fetch_portfolio_summary.clear()
+    fetch_portfolio_ledger.clear()
+
+
+def _portfolio_write(method: str, path: str, payload: dict | None = None) -> dict:
+    try:
+        r = requests.request(method, f"{API_BASE_URL}{path}", json=payload, timeout=120)
+        if r.status_code == 400:
+            return {"success": False, "error": r.json().get("detail")}
+        r.raise_for_status()
+        clear_portfolio_caches()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def post_portfolio_trade(payload: dict) -> dict:
+    return _portfolio_write("POST", "/api/v1/portfolio/trade", payload)
+
+
+def delete_portfolio_trade(trade_id: int) -> dict:
+    return _portfolio_write("DELETE", f"/api/v1/portfolio/trade/{int(trade_id)}")
+
+
+def post_portfolio_cash_flow(payload: dict) -> dict:
+    return _portfolio_write("POST", "/api/v1/portfolio/cash_flow", payload)
+
+
+def delete_portfolio_cash_flow(flow_id: int) -> dict:
+    return _portfolio_write("DELETE", f"/api/v1/portfolio/cash_flow/{int(flow_id)}")

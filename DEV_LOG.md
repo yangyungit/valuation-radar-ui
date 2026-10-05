@@ -1,3 +1,9 @@
+## 2026-10-05 新增 ABCD 实盘页（33）+ BTC 页扩展为周期 · D 策略
+
+后端见 `valuation-radar` 764a1b5：账本模块 + 6 个 `/api/v1/portfolio/*` 接口 + 定卖区（z ≥ +1σ）。
+
+**范围**：新建 `pages/33_ABCD实盘.py`（指标行、净值 vs SPY、仓位配置与再平衡表、持仓明细、周报文本、录入表单、流水与删除 + CSV 导出）；`pages/31_BTC抄底区.py` 加定卖区绿带、「本周操作」指标、D 交易点、D 策略持仓、历史定卖区表、折叠区补定卖阈值依据，标题改「BTC 周期 · D 策略」；`api_client.py` 加 7 个账本函数；`app.py` 注册 33 页；26 页 caption 补一句指向实盘页。录入只在本机 8501 可用，远端模式下只读。
+
 ## 2026-10-03 新增精选龙头页（32）：戴金龙头主线 + 每只票最短持有 9 个月
 
 后端见 `valuation-radar` 63c79c7：`gold_leader` 接口加 `min_hold`，>0 时多返回 `two_sector_locked` / `two_sector_locked_timeline`；21 页不传，返回不变。

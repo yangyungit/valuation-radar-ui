@@ -11,18 +11,21 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from api_client import fetch_crypto_bottom_zone
+from api_client import fetch_crypto_bottom_zone, fetch_portfolio_ledger, fetch_portfolio_summary
 
-st.set_page_config(page_title="BTC 抄底区", layout="wide", page_icon="₿")
+st.set_page_config(page_title="BTC 周期 · D 策略", layout="wide", page_icon="₿")
 
 ZONE_COLOR = "rgba(231,76,60,0.16)"
 DEEP_COLOR = "rgba(192,57,43,0.34)"
+SELL_COLOR = "rgba(46,204,113,0.16)"
 
-st.title("₿ BTC 抄底区")
+st.title("₿ BTC 周期 · D 策略")
 st.caption(
     "**浮盈 / 已实现市值**跌破 4 年滚动 −1σ 就进抄底区。已实现市值是全网按每枚币"
     "最后一次链上移动时的价格计的总成本，所以这个比值等于「全网浮盈相当于成本的几倍」，"
     "掉到低位说明平均持币人几乎不赚钱。**阈值是回测定的不是抄来的**，依据在页面底部。"
+    "**浮盈涨到 +1σ 以上进定卖区（绿色）**，历史上这个位置买入 1 年后中位收益接近 0。"
+    "D 策略的仓位按这两条线定投、定卖。"
 )
 
 with st.sidebar:
@@ -41,13 +44,15 @@ if not res.get("success"):
     st.stop()
 
 level = res["level"]
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("当前状态", ["正常", "抄底区", "深度抄底区"][level])
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("当前状态", "定卖区" if res["in_sell_zone"] else ["正常", "抄底区", "深度抄底区"][level])
 c2.metric("浮盈/已实现市值", f"{res['ratio']:.2f}", f"−1σ 线 {res['lower']:.2f}", "off")
 c3.metric("z 值", f"{res['z']:+.2f}", f"触发线 {res['zone_z']:+.1f}", "off")
 c4.metric("BTC", f"${res['price']:,.0f}", f"数据截至 {res['as_of']}", "off")
+c5.metric("本周操作", res["action"])
 
-(st.error if level == 2 else st.warning if level == 1 else st.info)(res["verdict"])
+(st.success if res["in_sell_zone"] else st.error if level == 2
+ else st.warning if level == 1 else st.info)(res["verdict"])
 if res["stale_days"] > 3:
     st.caption(f"⚠️ 链上数据是 {res['stale_days']} 天前的，"
                "CoinMetrics 正常落后 1-2 天，超过说明更新任务没跑。")
@@ -70,7 +75,8 @@ def segs(mask: pd.Series) -> list:
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04,
                     row_heights=[0.52, 0.48])
 for row in (1, 2):
-    for color, mask in ((ZONE_COLOR, lv == 1), (DEEP_COLOR, lv == 2)):
+    for color, mask in ((ZONE_COLOR, lv == 1), (DEEP_COLOR, lv == 2),
+                        (SELL_COLOR, pd.Series(res["sells"], index=idx))):
         for x0, x1 in segs(mask):
             fig.add_vrect(x0=x0, x1=x1, fillcolor=color, line_width=0,
                           layer="below", row=row, col=1)
@@ -80,12 +86,25 @@ fig.add_trace(go.Scatter(x=idx, y=s["price"], name="BTC 价格", line=dict(color
 fig.add_trace(go.Scatter(x=idx, y=s["ratio"], name="浮盈/已实现市值",
                          line=dict(color="#4fc3e8", width=1.3),
                          fill="tozeroy", fillcolor="rgba(79,195,232,0.18)"), row=2, col=1)
-for key, label, color, dash in (("upper", "+1σ", "#5cb85c", "dot"),
+for key, label, color, dash in (("upper", "+1σ（定卖线）", "#5cb85c", "dot"),
                                 ("mean", "4 年均值", "#b04ec8", "solid"),
                                 ("lower", "−1σ（抄底线）", "#f39c12", "dash"),
                                 ("deep", "−1.25σ（深度）", "#e74c3c", "dash")):
     fig.add_trace(go.Scatter(x=idx, y=s[key], name=label,
                              line=dict(color=color, width=1.1, dash=dash)), row=2, col=1)
+
+_led = fetch_portfolio_ledger()
+if _led.get("success"):
+    _d = [t for t in _led["trades"] if t["sleeve"] == "D" and t["ticker"] == "BTC-USD"]
+    for sides, name, color, symbol in ((("OPEN", "BUY"), "D 买入", "#2ecc71", "triangle-up"),
+                                       (("SELL",), "D 卖出", "#e74c3c", "triangle-down")):
+        pts = [t for t in _d if t["side"] in sides]
+        if pts:
+            fig.add_trace(go.Scatter(
+                x=pd.to_datetime([t["date"] for t in pts]), y=[t["price"] for t in pts],
+                mode="markers", name=name,
+                marker=dict(color=color, symbol=symbol, size=11,
+                            line=dict(color="#fff", width=1))), row=1, col=1)
 
 fig.update_yaxes(title_text="BTC 价格（对数）", type="log", gridcolor="#222", row=1, col=1)
 fig.update_yaxes(title_text="浮盈 / 已实现市值", gridcolor="#222", row=2, col=1)
@@ -95,7 +114,7 @@ fig.update_layout(height=660, margin=dict(l=60, r=20, t=30, b=30),
                   font=dict(color="#ccc"), hovermode="x unified",
                   legend=dict(orientation="h", y=1.06, x=0))
 st.plotly_chart(fig, width="stretch")
-st.caption("浅红 = 抄底区（z ≤ −1σ）　深红 = 深度抄底区（z ≤ −1.25σ）")
+st.caption("浅红 = 抄底区（z ≤ −1σ）　深红 = 深度抄底区（z ≤ −1.25σ）　绿 = 定卖区（z ≥ +1σ）")
 
 # ---- 历史区间表 ----
 st.subheader("历史抄底区")
@@ -116,7 +135,30 @@ if done:
     st.caption(f"走完的 {len(done)} 段里 {wins} 段出区后 1 年上涨，"
                f"最差一段 {worst['start']} 起 {worst['fwd_1y'] * 100:+.0f}%。")
 
-with st.expander("阈值怎么来的 / 这个信号能信到什么程度"):
+st.subheader("D 策略持仓")
+_sm = fetch_portfolio_summary()
+_pos = next((p for p in _sm.get("positions", [])
+             if p["sleeve"] == "D" and p["ticker"] == "BTC-USD"), None) if _sm.get("success") else None
+_row = next((r for r in _sm.get("sleeves", []) if r["sleeve"] == "D"), None) if _sm.get("success") else None
+if _pos and _row and _pos["qty"] > 0:
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("持有数量", f"{_pos['qty']:,.6g} BTC")
+    d2.metric("均价", f"${_pos['avg_cost']:,.0f}")
+    d3.metric("浮盈", f"{_pos['unrealized_pct']:+.1%}")
+    d4.metric("占总仓", f"{_row['weight']:.1%}", "上限 15%", "off")
+else:
+    st.caption("实盘账本还没有 D 的记录，去『ABCD 实盘』页录入。")
+
+st.subheader("历史定卖区")
+sell_eps = res["sell_episodes"]
+st.dataframe(pd.DataFrame([{
+    "起": e["start"], "止": e["end"], "天数": e["days"],
+    "区间最高价": f"${e['max_price']:,.0f}",
+    "最高 z": f"{e['max_z']:+.2f}",
+    "出区后 1 年": "未满 1 年" if e["fwd_1y"] is None else f"{e['fwd_1y'] * 100:+.0f}%",
+} for e in reversed(sell_eps)]), width="stretch", hide_index=True, height=300)
+
+with st.expander("阈值怎么来的 / 这两个信号能信到什么程度"):
     st.markdown(f"""
 **回测对照**（2014-12 起，共 {len(idx) if years is None else '全历史'} 天样本，持有 1 年）：
 
@@ -143,4 +185,17 @@ with st.expander("阈值怎么来的 / 这个信号能信到什么程度"):
 **口径**：指标 = CapMVRVCur − 1，{res['window_days']} 天滚动均值 ± 标准差。
 数据 CoinMetrics community 档（免费免 key，2010-07 起日频，落后现实 1-2 天）。
 报警由 `crypto/bottom_zone_alert.py` 每天跑，进出区间时推 Discord，冷却 2 天。
+
+**定卖区阈值依据**（本地 `onchain_daily.parquet`，2014-12-30 ~ 2026-10-03，持有 1 年后收益）：
+
+| 条件 | 占交易日 | 1 年后中位 | 胜率 |
+|---|---|---|---|
+| z ≥ +0.5 | 25.6% | −6% | 47% |
+| z ≥ +0.75 | 18.5% | −6% | 47% |
+| **z ≥ +1.0（定卖线）** | 12.9% | −1% | 50% |
+| z ≥ +1.5 | 5.9% | −3% | 49% |
+| z ≥ +2.0 | 2.1% | −25% | 36% |
+| 任意一天 | 100% | +77% | 73% |
+
+周期顶 z 值：2017-12-16 为 3.70，2021-11-08 为 1.41，2025-10-06 为 **0.99（没碰到 +1σ）**；+1σ 在 2025-07 碰过（$120,068）。顶部一轮比一轮低，这条线说的是「往后一年的预期收益没了」，不是「这就是顶」。
 """)
