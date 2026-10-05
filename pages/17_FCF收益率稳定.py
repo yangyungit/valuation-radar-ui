@@ -151,6 +151,90 @@ _common = dict(
     stitched_name_style="cn_ticker",
 )
 
+# ── 换仓距离（Top1 主版本，k 取默认 K_TOP1）──
+def _cut(row, k):
+    return float(row.max()) - k * float(row.std())
+
+
+def _solve(row, tk, holder, k):
+    """tk 的 FCF收益率改到多少时 holder 恰好掉出守擂线；够不着返回 None。"""
+    def out(v):
+        r = row.copy()
+        r[tk] = v
+        return float(r[holder]) < _cut(r, k)
+    lo, hi = (-50.0, float(row[tk])) if tk == holder else (float(row[tk]), 100.0)
+    if out(lo) == out(hi):
+        return None
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if out(mid) == out(lo):
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def _gate_eta(t):
+    """按近 6 个月 logR² 斜率外推跌破门槛的月份。"""
+    s = pd.Series(logr2_panel.get(t) or {}, dtype=float)
+    s.index = pd.to_datetime(s.index)
+    s = s.sort_index().loc[:last_month].tail(6)
+    if len(s) < 3 or s.iloc[-1] < LOGR2_GATE:
+        return None
+    slope = (s.iloc[-1] - s.iloc[0]) / (len(s) - 1)
+    if slope >= 0:
+        return None
+    return (last_month + pd.DateOffset(months=int((s.iloc[-1] - LOGR2_GATE) / -slope) + 1)).strftime("%Y-%m")
+
+
+_row = score_in.loc[last_month].dropna()
+_hold_map, _ = _deadband_holdings(1, K_TOP1)
+_holder = list(_hold_map.values())[-1][0] if _hold_map else None
+if _holder in _row.index:
+    _now = {}
+    for t in _row.index:
+        c = close_d.get(t)
+        dk = raw[t].dropna().index[-1]
+        _now[t] = float(_row[t] * c.asof(dk) / c.iloc[-1]) if c is not None and pd.notna(c.asof(dk)) else float("nan")
+    _now = pd.Series(_now).dropna()
+    _today = pd.Timestamp.today().normalize()
+    _show = [_holder] + [t for t in _row.sort_values(ascending=False).index if t != _holder][:5]
+    _recs = []
+    for t in _show:
+        keys = raw[t].dropna().index
+        # 修订申报会多出 datekey，不能按「倒数第 4 个」取去年同季
+        prior = keys[keys > keys[-1] - pd.DateOffset(years=1) + pd.Timedelta(days=30)]
+        nxt = prior[0] + pd.DateOffset(years=1) if len(prior) else None
+        need = _solve(_row, t, _holder, K_TOP1)
+        _recs.append({
+            "标的": f"{cn_map.get(t) or name_map.get(t, t)} {t}" + ("（在任）" if t == _holder else ""),
+            "FCF收益率%": round(float(_row[t]), 2),
+            "按今天股价%": round(_now[t], 2) if t in _now else None,
+            "logR²": round(float(logr2_m.loc[last_month, t]), 3),
+            "最近财报": keys[-1].strftime("%Y-%m-%d"),
+            "下次财报(估)": "—" if nxt is None else nxt.strftime("%Y-%m-%d") + ("（应已发布，待合并 Sharadar）" if nxt < _today else ""),
+            "触发换仓需要": "—" if need is None else (f"自身跌破 {need:.1f}" if t == _holder else f"升到 {need:.1f}"),
+            "logR²跌破0.75(估)": _gate_eta(t) or "—",
+        })
+    _cut_now = _cut(_row, K_TOP1)
+    _msg = (f"**{last_month:%Y-%m} 月末**：在任 **{_holder}** FCF收益率 {_row[_holder]:.2f}%，"
+            f"守擂线 {_cut_now:.2f}%（Top1 {_row.max():.2f} − {K_TOP1}×std {_row.std():.2f}），余量 {_row[_holder] - _cut_now:.2f} 个点。")
+    if _holder in _now and len(_now) > 1:
+        _c2 = _cut(_now, K_TOP1)
+        _top_now = _now.idxmax()
+        _msg += (f"  \n**按今天股价重算**：{_holder} {_now[_holder]:.2f}%，守擂线 {_c2:.2f}% → "
+                 + ("不换" if _now[_holder] >= _c2 else f"⚠️ 会换成 **{_top_now}**"))
+    with st.expander("🔭 换仓距离：离下一次换仓还差多远", expanded=True):
+        st.markdown(_msg)
+        st.dataframe(pd.DataFrame(_recs), hide_index=True, width="stretch")
+        st.caption(
+            "「触发换仓需要」= 其他票不变时，该票 FCF收益率要变到多少在任票才会被换掉。"
+            "「按今天股价」= 财报日的 FCF收益率 × 财报日股价 ÷ 最新股价，只反映股价变化，"
+            "策略本身只在财报日更新市值，所以这一列是提前预警，不是实际持仓依据（复权价含分红、不含股数变化，有小偏差）。"
+            "「下次财报」按去年同季发布日 + 1 年估算；新财报要等 Sharadar 合并并重建池子后才进入排名。"
+            "「logR²跌破0.75」按近 6 个月斜率直线外推。每年 1 月起改用新一年的池子，成员可能变化，这里算不到。"
+        )
+
 tab1, tab2 = st.tabs(["🥇 Top1 单仓（主版本）", "🥈 Top2 双仓（对照）"])
 
 with tab1:
