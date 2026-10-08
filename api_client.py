@@ -932,6 +932,17 @@ def fetch_buyback_fcf_relay_timeseries(window: str = "5Y") -> dict:
 
 
 @st.cache_data(ttl=3600 * 4)
+def fetch_quality_deep_drawdown() -> dict:
+    """优质股深跌：回购 FCF 池回撤 ≥40% 信号 + 当年池回撤排行 + 回测统计。失败返回 {"success": False, ...}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/quality_deep_drawdown", timeout=300)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
 def _fetch_buyback_stable_relay_timeseries_cached(window: str = "5Y") -> dict:
     """page 8 ROIC 稳定规则池（判据1+不稀释门+ROIC≥10%+ROIC 前 40，排名轴 roic）接力图时序。
     失败返回 {"success": False, "error": ...}。

@@ -1,3 +1,9 @@
+## 2026-10-08 新增优质股深跌页（34）
+
+后端见 `valuation-radar` 849b039：`GET /api/v1/macro/quality_deep_drawdown`。
+
+**范围**：新建 `pages/34_优质股深跌.py`（指标行、持有期内信号、当年池回撤排行带状态底色、信号 vs 对照统计表、每年信号次数柱图、历史信号折叠表）；`api_client.py` 加 `fetch_quality_deep_drawdown`；`app.py` 挂到「大类观察」组。
+
 ## 2026-10-05 新增 ABCD 实盘页（33）+ BTC 页扩展为周期 · D 策略
 
 后端见 `valuation-radar` 764a1b5：账本模块 + 6 个 `/api/v1/portfolio/*` 接口 + 定卖区（z ≥ +1σ）。
