@@ -9,7 +9,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import holdings_viz as hv
 from api_client import fetch_quality_deep_drawdown
+from cn_names import cn_name_map
+from gold_leader_viz import norm_series, render_equity_chart, render_time_window_slider
 
 st.set_page_config(page_title="优质股深跌", layout="wide", page_icon="📉")
 
@@ -47,44 +50,69 @@ c4.metric("数据截至", res["as_of"])
 
 # ---- 2 仓位策略 ----
 st.subheader(f"{n_slots} 仓位策略")
-k = pf["kpi"]
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("策略年化", f"{k['filtered']['cagr']:.1f}%", f"SPY {k['spy']['cagr']:.1f}%")
-c2.metric("最大回撤", f"{k['filtered']['mdd']:.1f}%", f"SPY {k['spy']['mdd']:.1f}%", delta_color="off")
-c3.metric("买入次数 / 跑赢 SPY", f"{k['filtered']['n_buys']} / {k['filtered']['n_win']}")
-c4.metric("不过滤对照年化", f"{k['raw']['cagr']:.1f}%", f"回撤 {k['raw']['mdd']:.1f}%", delta_color="off")
+dates = pd.to_datetime(pf["dates"])
+win_lo, win_hi = render_time_window_slider(dates, "qdd")
 
-nav_fig = go.Figure()
-nav_fig.add_trace(go.Scatter(x=pf["dates"], y=pf["nav"], mode="lines",
-                             name=f"加财报日暴跌过滤 {k['filtered']['multiple']:.0f} 倍",
-                             line=dict(color="#c0392b", width=2)))
-nav_fig.add_trace(go.Scatter(x=pf["dates"], y=pf["nav_raw"], mode="lines", name="不过滤对照",
-                             line=dict(color="#e59866", dash="dash")))
-nav_fig.add_trace(go.Scatter(x=pf["dates"], y=pf["spy"], mode="lines", name="SPY",
-                             line=dict(color="#7f8c8d")))
-nav_fig.update_layout(height=420, yaxis_type="log", hovermode="x unified",
-                      margin=dict(l=10, r=10, t=30, b=10))
-st.plotly_chart(nav_fig, use_container_width=True)
+st.markdown("##### 组合收益（起点归一为 1）")
+eq = {"nav": pf["nav"], "spy": pf["spy"]}
+eq.update({f"slot{i}": s for i, s in enumerate(pf["slot_nav"])})
+render_equity_chart(dates, eq, [
+    ("nav", "优质股深跌（加财报日暴跌过滤）", "#E74C3C", True),
+    ("spy", "SPY", "#3498DB", True),
+    ("slot0", "仓位 1", "rgba(231,76,60,0.55)", False, "dot"),
+    ("slot1", "仓位 2", "rgba(170,178,189,0.75)", False, "dot"),
+], "qdd_eq", win_lo, win_hi)
+st.caption("每个仓位各占一半资金，开始后不再平衡，组合 = 两仓之和。仓位虚线默认隐藏，点图例打开。")
 
-x_range = [pf["dates"][0], pf["dates"][-1]]
-relay = go.Figure()
-for t in pf["trades"]:
-    y = 1 if t["slot"] == 1 else 0
-    x1 = pf["dates"][-1] if t["open"] else t["exit_date"]
-    relay.add_shape(type="rect", x0=t["entry_date"], x1=x1, y0=y - 0.4, y1=y + 0.4,
-                    fillcolor="#27ae60" if t["excess"] > 0 else "#e74c3c",
-                    opacity=0.8, line_width=0)
-    mid = pd.Timestamp(t["entry_date"]) + (pd.Timestamp(x1) - pd.Timestamp(t["entry_date"])) / 2
-    relay.add_annotation(x=mid, y=y, showarrow=False, font=dict(size=10),
-                         text=f"{'持有中 ' if t['open'] else ''}{t['ticker']}<br>{t['excess']:+.0f}%")
-relay.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10),
-                    xaxis=dict(type="date", range=x_range),
-                    yaxis=dict(tickvals=[1, 0], ticktext=["仓位 1", "仓位 2"], range=[-0.6, 1.6]))
-st.plotly_chart(relay, use_container_width=True)
-st.caption("色块 = 持仓期，空白 = 这半仓放在 SPY；数字 = 持有期间相对 SPY 的超额")
+st.markdown("##### 统计卡")
+s, ss = pf["stats"], pf["spy_stats"]
+r2 = hv.compute_nav_kpi(norm_series(pf["nav"], dates).resample("W").last()).get("r2", float("nan"))
+for row in (
+    [("总收益", f"{s['cum_return'] * 100:.0f}%"),
+     ("CAGR", f"{s['cagr'] * 100:.1f}%"),
+     ("MaxDD", f"{s['max_dd'] * 100:.1f}%"),
+     ("Calmar", f"{s['calmar']:.2f}"),
+     ("超额 vs SPY", f"{s['excess_vs_spy'] * 100:.0f}%")],
+    [("买入次数 / 跑赢 SPY", f"{s['n_buys']} / {s['n_win']}"),
+     ("单笔平均超额", f"{s['avg_excess']:+.1f}%"),
+     ("放 SPY 时间占比", f"{s['spy_share'] * 100:.0f}%"),
+     ("Sortino", f"{s['sortino']:.2f}"),
+     ("logR²", f"{r2:.2f}")],
+):
+    for col, (label, val) in zip(st.columns(len(row)), row):
+        col.metric(label, val)
+st.caption(
+    f"SPY 同期：总收益 {ss['cum_return'] * 100:.0f}%｜CAGR {ss['cagr'] * 100:.1f}%｜"
+    f"MaxDD {ss['max_dd'] * 100:.1f}%｜Calmar {ss['calmar']:.2f}｜Sortino {ss['sortino']:.2f}。"
+    "统计按整个回测期算，不跟随时间窗口滑块；单笔平均超额 = 每笔持有期间相对 SPY 的超额取平均。"
+)
+
+st.markdown("##### 仓位分段收益")
+spy_s = norm_series(pf["spy"], dates)
+spy_s = spy_s[(spy_s.index >= win_lo) & (spy_s.index <= win_hi)]
+lo_d, hi_d = win_lo.strftime("%Y-%m-%d"), win_hi.strftime("%Y-%m-%d")
+for k, slot_vals in enumerate(pf["slot_nav"]):
+    slot_s = norm_series(slot_vals, dates)
+    slot_s = slot_s[(slot_s.index >= win_lo) & (slot_s.index <= win_hi)]
+    segs, cur = [], pf["dates"][0]
+    for t in (t for t in pf["trades"] if t["slot"] == k + 1):
+        end = t["exit_date"] or pf["dates"][-1]
+        segs += [("SPY", cur, t["entry_date"]), (t["ticker"], t["entry_date"], end)]
+        cur = end
+    segs.append(("SPY", cur, pf["dates"][-1]))
+    segs = [(tk, max(a, lo_d), min(b, hi_d)) for tk, a, b in segs if b > a and b >= lo_d and a <= hi_d]
+    names = cn_name_map(tk for tk, _, _ in segs)
+    names["SPY"] = "空仓"
+    fig = hv.build_stitched_fig(
+        segs, f"仓位 {k + 1} 接力 持仓段", pd.DataFrame({"Close": spy_s}),
+        {tk: pd.DataFrame({"Close": slot_s}) for tk, _, _ in segs}, names, names,
+        name_style="cn_ticker",
+    )
+    st.plotly_chart(fig, use_container_width=True, key=f"qdd_slot_{k}")
+st.caption("每段 = 一笔持仓（持满 252 个交易日即卖），「空仓(SPY)」段 = 这半仓没信号时拿着 SPY。")
 
 ydf = pd.DataFrame(pf["yearly"])
-ydf.columns = ["年份", "策略%", "不过滤%", "SPY%"]
+ydf.columns = ["年份", "策略%", "SPY%"]
 st.dataframe(ydf, hide_index=True, use_container_width=True)
 
 with st.expander("全部交易"):

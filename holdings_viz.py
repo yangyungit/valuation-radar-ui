@@ -603,6 +603,13 @@ def _layout_segment_labels(items: list, total_x: float, plot_px: float = 1000.0)
     return anns, base_top + int(box_h_max)
 
 
+def _seg_range(s_m: str, e_m: str) -> tuple:
+    """段起止既可是 "YYYY-MM"（整月）也可是 "YYYY-MM-DD"（按日，34 页月中买卖用）。"""
+    sd = pd.Timestamp(s_m if len(s_m) > 7 else f"{s_m}-01")
+    ed = pd.Timestamp(e_m) if len(e_m) > 7 else pd.Timestamp(f"{e_m}-01") + pd.offsets.MonthEnd(1)
+    return sd, ed
+
+
 def build_stitched_fig(
     segs: list, slot_name: str,
     spy_wk: pd.DataFrame = None,
@@ -656,8 +663,7 @@ def build_stitched_fig(
     for ci, (tk, s_m, e_m) in enumerate(segs):
         if tk == "CASH":
             if spy_wk is not None and not spy_wk.empty:
-                sd = pd.Timestamp(f"{s_m}-01")
-                ed = pd.Timestamp(f"{e_m}-01") + pd.offsets.MonthEnd(1)
+                sd, ed = _seg_range(s_m, e_m)
                 cash_idx = spy_wk.index[(spy_wk.index >= sd) & (spy_wk.index <= ed)]
                 if len(cash_idx) >= 1:
                     if cost_bps and last_tk is not None and last_tk != "CASH":
@@ -700,8 +706,7 @@ def build_stitched_fig(
         wkd = pc.get(tk)
         if wkd is None or wkd.empty:
             continue
-        sd = pd.Timestamp(f"{s_m}-01")
-        ed = pd.Timestamp(f"{e_m}-01") + pd.offsets.MonthEnd(1)
+        sd, ed = _seg_range(s_m, e_m)
         mask = (wkd.index >= sd) & (wkd.index <= ed)
         closes = wkd[mask]["Close"].astype(float).dropna()
         if len(closes) < 2:
