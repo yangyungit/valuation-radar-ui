@@ -58,8 +58,8 @@ eq = {"nav": pf["nav"], "spy": pf["spy"]}
 eq.update({f"slot{i}": s for i, s in enumerate(pf["slot_nav"])})
 render_equity_chart(dates, eq, [
     ("spy", "SPY", "rgba(170,170,170,0.45)", True, "dot"),
-    ("slot0", "仓位 1", "#2ECC71", True),
-    ("slot1", "仓位 2", "#3498DB", True),
+    ("slot0", "仓位 1", "#2ECC71", True, None, 0.8),
+    ("slot1", "仓位 2", "#3498DB", True, None, 0.8),
     ("nav", "优质股深跌（加财报日暴跌过滤）", "#F1C40F", True),
 ], "qdd_eq", win_lo, win_hi)
 st.caption("每个仓位各占一半资金，开始后不再平衡，组合 = 两仓之和。")

@@ -241,6 +241,7 @@ def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str,
                       line_width=0, layer="below")
     for key, name, color, vis_default, *_style in series_cfg:
         dash = _style[0] if _style else None
+        width = _style[1] if len(_style) > 1 else (1.3 if dash else (2 if vis_default else 1.4))
         vals = equity.get(key, []) or []
         if not vals:
             continue
@@ -254,8 +255,7 @@ def render_equity_chart(dates, equity: dict, series_cfg: list, chart_key: str,
             s = s / s.iloc[0]
         fig.add_trace(go.Scatter(
             x=s.index, y=s.values, name=name,
-            line=dict(color=color, width=1.3 if dash else (2 if vis_default else 1.4),
-                      dash=dash),
+            line=dict(color=color, width=width, dash=dash),
             visible=True if vis_default else "legendonly",
         ))
     fig.update_layout(
