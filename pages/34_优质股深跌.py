@@ -57,12 +57,12 @@ st.markdown("##### 组合收益（起点归一为 1）")
 eq = {"nav": pf["nav"], "spy": pf["spy"]}
 eq.update({f"slot{i}": s for i, s in enumerate(pf["slot_nav"])})
 render_equity_chart(dates, eq, [
-    ("nav", "优质股深跌（加财报日暴跌过滤）", "#E74C3C", True),
-    ("spy", "SPY", "#3498DB", True),
-    ("slot0", "仓位 1", "rgba(231,76,60,0.55)", False, "dot"),
-    ("slot1", "仓位 2", "rgba(170,178,189,0.75)", False, "dot"),
+    ("spy", "SPY", "rgba(170,170,170,0.45)", True, "dot"),
+    ("slot0", "仓位 1", "#2ECC71", True),
+    ("slot1", "仓位 2", "#3498DB", True),
+    ("nav", "优质股深跌（加财报日暴跌过滤）", "#F1C40F", True),
 ], "qdd_eq", win_lo, win_hi)
-st.caption("每个仓位各占一半资金，开始后不再平衡，组合 = 两仓之和。仓位虚线默认隐藏，点图例打开。")
+st.caption("每个仓位各占一半资金，开始后不再平衡，组合 = 两仓之和。")
 
 st.markdown("##### 统计卡")
 s, ss = pf["stats"], pf["spy_stats"]
