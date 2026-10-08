@@ -36,7 +36,6 @@ nav = st.navigation({
         st.Page("pages/13_因子轮动.py", title="因子轮动"),
         st.Page("pages/28_主题簇.py", title="主题簇"),
         st.Page("pages/29_供给紧度.py", title="供给紧度"),
-        st.Page("pages/34_优质股深跌.py", title="优质股深跌"),
     ],
     "稳定类策略 ——————": [
         st.Page("pages/14_黄金带鱼.py", title="黄金带鱼"),
@@ -56,6 +55,7 @@ nav = st.navigation({
         st.Page("pages/24_纳指100.py", title="纳指100"),
         st.Page("pages/31_BTC抄底区.py", title="BTC周期·D策略"),
         st.Page("pages/25_另类资产.py", title="另类资产"),
+        st.Page("pages/34_优质股深跌.py", title="优质股深跌"),
     ],
     "总结 ——————": [
         st.Page("pages/26_组合净值.py", title="ABC投资组合"),
