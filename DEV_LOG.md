@@ -1,3 +1,13 @@
+## 2026-10-08 优质股深跌页（34）加 2 仓位净值与接力图
+
+后端见 `valuation-radar` 0bef36f：`quality_deep_drawdown` 多返回 `portfolio` / `slots` / `earn_shock_th`，信号带 `earn_shock` / `skipped` / `status`，`stats` 多 `clean` / `shock` 两组。
+
+**范围**：`pages/34_优质股深跌.py` 新增「2 仓位策略」区块（4 个指标、对数净值图三条线、按日仓位接力图、逐年收益表、全部交易折叠表）；持有期信号表加组合状态和财报日跌幅；回测依据表拆成全部 / 无暴跌 / 有暴跌 / 对照 4 行；历史信号表加财报日跌幅和过滤列；底部 caption 换成带过滤说明的版本。
+
+**核对**（页面实测）：策略年化 39.1%、回撤 −35.0%、买 15 跑赢 13；不过滤对照年化 30.7%、回撤 −37.6%；持仓 RMBS + KLAC。和 plan 第 3 节的差异（持仓 LRCX→KLAC、对照 29.2%→30.7%、2026 至今 +43.6%→+42.5%）来自后端排序规则变动，见后端 DEV_LOG。
+
+**注意**：`fetch_quality_deep_drawdown` 缓存 4 小时，后端字段刚上线时旧缓存缺 `portfolio` 会 KeyError，点侧栏「强制刷新」即可。接力图 x 轴必须显式 `type="date"`，否则只有 shape 没有 trace 时 plotly 当数字轴画。
+
 ## 2026-10-08 新增优质股深跌页（34）
 
 后端见 `valuation-radar` 849b039：`GET /api/v1/macro/quality_deep_drawdown`。
