@@ -11,7 +11,8 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from api_client import fetch_crypto_bottom_zone, fetch_portfolio_ledger, fetch_portfolio_summary
+from api_client import (fetch_crypto_bottom_zone, fetch_crypto_ssa_cycle,
+                        fetch_portfolio_ledger, fetch_portfolio_summary)
 
 st.set_page_config(page_title="BTC 周期 · D 策略", layout="wide", page_icon="₿")
 
@@ -33,6 +34,7 @@ with st.sidebar:
     span = st.selectbox("时间窗", ["全部", "近 3 年", "近 5 年", "近 8 年"], index=0)
     if st.button("🔄 强制刷新"):
         fetch_crypto_bottom_zone.clear()
+        fetch_crypto_ssa_cycle.clear()
         st.rerun()
 
 years = {"全部": None, "近 3 年": 3.0, "近 5 年": 5.0, "近 8 年": 8.0}[span]
@@ -262,3 +264,67 @@ with st.expander("阈值怎么来的 / 这两个信号能信到什么程度"):
 
 周期顶 z 值：2017-12-16 为 3.70，2021-11-08 为 1.41，2025-10-06 为 **0.99（没碰到 +1σ）**；+1σ 在 2025-07 碰过（$120,068）。顶部一轮比一轮低，这条线说的是「往后一年的预期收益没了」，不是「这就是顶」。
 """)
+
+# ---- SSA 周期外推：参考证据，不进 D 策略规则 ----
+st.subheader("SSA 周期外推（参考，预测力弱）")
+ssa = fetch_crypto_ssa_cycle()
+if not ssa.get("success"):
+    st.warning(f"⚠️ SSA 外推不可用：{ssa.get('error', '未知错误')}")
+else:
+    ss = ssa["stats"]
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("1 年后外推", f"${ssa['fut'][-1]:,.0f}", f"现价 ${ssa['price'][-1]:,.0f}", "off")
+    if ss.get("n"):
+        k2.metric("历次重测方向命中", f"{ss['ssa']['hit']:.0%}", f"永远猜涨 {ss['always_up_hit']:.0%}", "off")
+        k3.metric("误差中位数", f"{ss['ssa']['median_err']:.0%}", f"只用幂律 {ss['power']['median_err']:.0%}", "off")
+        k4.metric("最差一次", f"差 {ss['ssa']['worst_ratio']:.1f} 倍", f"已走完 {ss['n']} 次", "off")
+
+    sd, fd = pd.to_datetime(ssa["dates"]), pd.to_datetime(ssa["fut_dates"])
+    sfig = go.Figure()
+    sfig.add_trace(go.Scatter(x=sd, y=ssa["price"], name="BTC 价格", line=dict(color="#ddd", width=1)))
+    sfig.add_trace(go.Scatter(x=sd.append(fd), y=ssa["trend"] + ssa["fut_trend"], name="幂律趋势",
+                              line=dict(color="#4fc3e8", width=1.2, dash="dot")))
+    sfig.add_trace(go.Scatter(x=sd, y=ssa["fitted"], name="当前拟合（用了全部历史）",
+                              line=dict(color="#f39c12", width=1.4)))
+    shown = set()
+    for t in ssa["track"]:
+        done = t["actual"] is not None
+        grp = "已走完的历次外推" if done else "未走完的历次外推"
+        sfig.add_trace(go.Scatter(
+            x=pd.to_datetime([t["fit_date"]] + t["path_dates"]), y=[t["price"]] + t["path"],
+            name=grp, legendgroup=grp, showlegend=grp not in shown,
+            line=dict(color="rgba(176,78,200,0.6)" if done else "rgba(241,196,15,0.8)", width=1),
+            hovertemplate=f"{t['fit_date']} 拟合<br>%{{x|%Y-%m-%d}} $%{{y:,.0f}}<extra></extra>"))
+        shown.add(grp)
+    sfig.add_trace(go.Scatter(x=fd, y=ssa["fut"], name="当前外推 1 年",
+                              line=dict(color="#e74c3c", width=2, dash="dash")))
+    sfig.update_yaxes(title_text="BTC 价格（对数）", type="log", gridcolor="#222")
+    sfig.update_xaxes(gridcolor="#222")
+    sfig.update_layout(height=560, margin=dict(l=60, r=20, t=30, b=30),
+                       plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
+                       font=dict(color="#ccc"), hovermode="closest",
+                       legend=dict(orientation="h", y=1.06, x=0))
+    st.plotly_chart(sfig, width="stretch")
+
+    st.dataframe(pd.DataFrame([{
+        "拟合日": t["fit_date"],
+        "当时价格": f"${t['price']:,.0f}",
+        "外推 1 年后": f"${t['pred']:,.0f}",
+        "只用幂律": f"${t['pred_power']:,.0f}",
+        "实际 1 年后": "未满 1 年" if t["actual"] is None else f"${t['actual']:,.0f}",
+        "外推 / 实际": "" if t["actual"] is None else f"{t['pred'] / t['actual']:.2f}",
+        "方向对": "" if t["actual"] is None else
+                 ("✓" if (t["pred"] > t["price"]) == (t["actual"] > t["price"]) else "✗"),
+        "周期（天）": " / ".join(str(v) for v in t["periods"]),
+    } for t in reversed(ssa["track"])]), width="stretch", hide_index=True)
+
+    st.caption(
+        f"做法：log 价格对 log(创世以来天数) 拟合一条直线当趋势（幂律，涨幅随时间自然衰减），"
+        f"减掉趋势后剩下的波动做 SSA（窗口 {ssa['window']} 天 ≈ 一个减半周期，取前 {ssa['rank']} 个成分），"
+        f"按线性递推外推 {ssa['horizon']} 天再加回趋势。数据每更新一天就重新拟合一次，数据截至 {ssa['as_of']}。"
+        "紫色细线 = 2019 年起每半年只用当时数据重拟合一次的外推，黄色 = 还没走完一年的。"
+        "橙色拟合线用了全部历史，过去贴得好不代表能预测。"
+        "样本只有十几次，相邻两次预测期重叠半年；趋势本身是幂律外推，幂律过去也错过 2–3 倍。"
+        f"周期一栏里大于窗口 {ssa['window']} 天的数不可靠（窗口装不下）。"
+        "只作参考证据，不改 D 策略的买卖规则；不受左侧时间窗影响，始终画全历史。"
+    )

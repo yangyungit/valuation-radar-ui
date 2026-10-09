@@ -1,3 +1,9 @@
+## 2026-10-09 BTC 抄底区页（31）加 SSA 周期外推参考图
+
+后端见 `valuation-radar` eaa6db6：`GET /api/v1/crypto/ssa_cycle`。
+
+**范围**：`pages/31_BTC抄底区.py` 末尾新增「SSA 周期外推」区块（4 个指标、对数价格图叠幂律趋势 / 当前拟合 / 历次重测外推 / 当前外推、重测记录表、做法与边界说明）；侧栏强制刷新同时清这个缓存；`api_client.py` 加 `fetch_crypto_ssa_cycle`。
+
 ## 2026-10-08 优质股深跌页（34）加 2 仓位净值与接力图
 
 后端见 `valuation-radar` 0bef36f：`quality_deep_drawdown` 多返回 `portfolio` / `slots` / `earn_shock_th`，信号带 `earn_shock` / `skipped` / `status`，`stats` 多 `clean` / `shock` 两组。

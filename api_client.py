@@ -3529,6 +3529,19 @@ def fetch_crypto_bottom_zone(years: float | None = None) -> dict:
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=3600 * 4)
+def fetch_crypto_ssa_cycle() -> dict:
+    """BTC 幂律趋势 + 残差 SSA 外推 1 年，附历次重测记录（后端 crypto/ssa_cycle.py）。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/crypto/ssa_cycle", timeout=120)
+        if r.status_code in (400, 503):
+            return {"success": False, "error": r.json().get("detail", "后端拿不到链上数据")}
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # ==========================================
 # 实盘账本（后端 portfolio_book.py）
 # ==========================================
