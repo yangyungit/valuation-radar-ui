@@ -15,7 +15,6 @@ Moltbot 质检员 (Quality Inspector)
 """
 
 import os
-import json
 import time
 import platform
 import importlib
