@@ -301,7 +301,6 @@ def check_dependencies():
         "plotly": "plotly",
         "requests": "requests",
         "numpy": "numpy",
-        "pandas_datareader": "pandas_datareader",
         "deep_translator": "deep-translator",
         "matplotlib": "matplotlib",
     }
