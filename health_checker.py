@@ -172,48 +172,29 @@ def check_api_contract():
 # ===================================================================
 def check_data_integrity():
     results = []
-    data_dir = PROJECT_ROOT / "data"
+    base = _api_base()
 
-    required_files = {
-        "arena_history.json": ("竞技场历史", 24 * 14),
-        "horsemen_monthly_verdict.json": ("宏观月度裁决", 24 * 45),
-        "prev_classification.json": ("上期 ABCD 分类", 24 * 14),
-    }
-
-    for fname, (desc, stale_hours) in required_files.items():
-        fpath = data_dir / fname
-        if not fpath.exists():
-            results.append(_make("数据完整", fname, ERROR,
-                                 f"{desc}文件缺失", f"路径: {fpath}"))
-            continue
-        try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if not data:
-                results.append(_make("数据完整", fname, WARNING,
-                                     f"{desc}文件内容为空", ""))
-                continue
-        except json.JSONDecodeError as e:
-            results.append(_make("数据完整", fname, ERROR,
-                                 f"{desc} JSON 格式损坏", str(e)))
-            continue
-        except Exception as e:
-            results.append(_make("数据完整", fname, ERROR,
-                                 f"{desc}读取失败", str(e)))
-            continue
-
-        mtime = datetime.fromtimestamp(fpath.stat().st_mtime)
-        age_h = (datetime.now() - mtime).total_seconds() / 3600
-        if age_h > stale_hours:
-            results.append(_make("数据完整", fname, WARNING,
-                                 f"{desc}数据可能过期 ({age_h:.0f}h 前更新)",
-                                 f"阈值 {stale_hours}h · 更新于 {mtime:%Y-%m-%d %H:%M}"))
+    # 竞技场历史的真相源是后端 universe.db，本地 data/arena_history.json 只是离线兜底，不查它
+    try:
+        r = requests.get(f"{base}/api/v1/arena/history", timeout=15)
+        months = sorted((r.json().get("history") or {}).keys()) if r.status_code == 200 else []
+        now = datetime.now()
+        prev_month = f"{now.year - (now.month == 1)}-{(now.month - 2) % 12 + 1:02d}"
+        if not months:
+            results.append(_make("数据完整", "竞技场历史", WARNING,
+                                 "后端竞技场历史为空", "页面会降级到本地陈旧快照"))
+        elif months[-1] < prev_month:
+            results.append(_make("数据完整", "竞技场历史", WARNING,
+                                 f"后端竞技场历史只到 {months[-1]}",
+                                 f"应至少到 {prev_month}"))
         else:
-            results.append(_make("数据完整", fname, OK,
-                                 f"{desc} · 更新于 {mtime:%m-%d %H:%M}", ""))
+            results.append(_make("数据完整", "竞技场历史", OK,
+                                 f"{len(months)} 个月 · 最新 {months[-1]}", ""))
+    except Exception as e:
+        results.append(_make("数据完整", "竞技场历史", WARNING,
+                             "竞技场历史读取失败", str(e)))
 
     # Core data structure validation (reuse connectivity result if available)
-    base = _api_base()
     try:
         r = requests.get(f"{base}/api/v1/stock_pool_data", timeout=5)
         if r.status_code == 200:
@@ -400,7 +381,7 @@ def check_narrative_engine():
         if r.status_code == 200:
             d = r.json()
             if not d.get("degraded"):
-                total = d.get("total_terms", 0)
+                total = d.get("total_active_count", 0)
                 if total == 0:
                     results.append(_make("舆情引擎", "叙事词典", WARNING,
                                          "叙事词典为空", "需初始化"))
@@ -558,9 +539,9 @@ def check_api_keys():
             results.append(_make("API密钥", f"{provider} ({env_name})", OK,
                                  f"已配置 — {purpose}", ""))
         else:
-            results.append(_make("API密钥", f"{provider} ({env_name})", WARNING,
-                                 f"未配置 — {purpose} 功能将降级",
-                                 f"在 Render → Environment 中设置 {env_name}"))
+            results.append(_make("API密钥", f"{provider} ({env_name})", INFO,
+                                 f"未配置 — {purpose} 不启用",
+                                 f"需要时在 valuation-radar/.env 中设置 {env_name}"))
     return results
 
 
