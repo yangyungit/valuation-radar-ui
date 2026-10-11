@@ -54,6 +54,7 @@ nav = st.navigation({
         st.Page("pages/23_科技龙头.py", title="科技龙头"),
         st.Page("pages/24_纳指100.py", title="纳指100"),
         st.Page("pages/31_BTC抄底区.py", title="BTC周期·D策略"),
+        st.Page("pages/35_VMD信号.py", title="BTC VMD信号"),
         st.Page("pages/25_另类资产.py", title="另类资产"),
         st.Page("pages/34_优质股深跌.py", title="优质股深跌"),
     ],

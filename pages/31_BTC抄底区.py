@@ -12,8 +12,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from api_client import (fetch_crypto_bottom_zone, fetch_crypto_ssa_cycle,
-                        fetch_crypto_vmd_cycle, fetch_portfolio_ledger,
-                        fetch_portfolio_summary)
+                        fetch_portfolio_ledger, fetch_portfolio_summary)
 
 st.set_page_config(page_title="BTC 周期 · D 策略", layout="wide", page_icon="₿")
 
@@ -36,7 +35,6 @@ with st.sidebar:
     if st.button("🔄 强制刷新"):
         fetch_crypto_bottom_zone.clear()
         fetch_crypto_ssa_cycle.clear()
-        fetch_crypto_vmd_cycle.clear()
         st.rerun()
 
 years = {"全部": None, "近 3 年": 3.0, "近 5 年": 5.0, "近 8 年": 8.0}[span]
@@ -329,95 +327,4 @@ else:
         "样本只有十几次，相邻两次预测期重叠半年；趋势本身是幂律外推，幂律过去也错过 2–3 倍。"
         f"周期一栏里大于窗口 {ssa['window']} 天的数不可靠（窗口装不下）。"
         "只作参考证据，不改 D 策略的买卖规则；不受左侧时间窗影响，始终画全历史。"
-    )
-
-# ---- VMD 大势 / 小势：参考证据，不进 D 策略规则 ----
-st.subheader("VMD 大势 / 小势（参考，小势拐点目前没跑赢随便买）")
-vmd = fetch_crypto_vmd_cycle()
-if not vmd.get("success"):
-    st.warning(f"⚠️ VMD 不可用：{vmd.get('error', '未知错误')}")
-else:
-    vs = vmd["stats"]
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("1 年后外推", f"${vmd['fut'][-1]:,.0f}", f"现价 ${vmd['price'][-1]:,.0f}", "off")
-    if vs.get("n"):
-        k2.metric("历次重测方向命中", f"{vs['hit']:.0%}", f"已走完 {vs['n']} 次", "off")
-        k3.metric("误差中位数", f"{vs['median_err']:.0%}")
-        k4.metric("最差一次", f"差 {vs['worst_ratio']:.1f} 倍")
-
-    vd, vf = pd.to_datetime(vmd["dates"]), pd.to_datetime(vmd["fut_dates"])
-    rt = pd.DataFrame(vmd["realtime"])
-    rt["date"] = pd.to_datetime(rt["date"])
-    sig = pd.DataFrame(vmd["signals"])
-    big_p, small_p, l3_p, l4_p = vmd["periods"]
-    vfig = make_subplots(rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.03,
-                         row_heights=[0.36, 0.16, 0.16, 0.16, 0.16],
-                         subplot_titles=("价格 = 趋势 × 大势 × 小势", f"大势（约 {big_p} 天一轮）",
-                                         f"小势（约 {small_p} 天一轮）", f"第 3 层（约 {l3_p} 天一轮）",
-                                         f"第 4 层（约 {l4_p} 天一轮）"))
-    vfig.add_trace(go.Scatter(x=vd, y=vmd["price"], name="BTC 价格", line=dict(color="#ddd", width=1)), 1, 1)
-    vfig.add_trace(go.Scatter(x=vd.append(vf), y=vmd["trend"] + vmd["fut_trend"], name="幂律趋势",
-                              line=dict(color="#4fc3e8", width=1.2, dash="dot")), 1, 1)
-    vfig.add_trace(go.Scatter(x=vd, y=vmd["fitted"], name="趋势 + 大势 + 小势（用了全部历史）",
-                              line=dict(color="#f39c12", width=1.4)), 1, 1)
-    vfig.add_trace(go.Scatter(x=vf, y=vmd["fut"], name="当前外推 1 年",
-                              line=dict(color="#e74c3c", width=2, dash="dash")), 1, 1)
-    vfig.add_trace(go.Scatter(x=vd, y=vmd["big"], name="大势（全部历史拆）", showlegend=False,
-                              line=dict(color="#9b59b6", width=1.6)), 2, 1)
-    vfig.add_trace(go.Scatter(x=vf, y=vmd["fut_big"], showlegend=False,
-                              line=dict(color="#9b59b6", width=1.6, dash="dash")), 2, 1)
-    vfig.add_trace(go.Scatter(x=rt["date"], y=rt["small"], name="小势（每周当时看到的）",
-                              line=dict(color="#1abc9c", width=1.2)), 3, 1)
-    vfig.add_trace(go.Scatter(x=vd, y=vmd["layer3"], name="第 3 层（全部历史拆）", showlegend=False,
-                              line=dict(color="#3498db", width=1)), 4, 1)
-    vfig.add_trace(go.Scatter(x=vd, y=vmd["layer4"], name="第 4 层（全部历史拆）", showlegend=False,
-                              line=dict(color="#e67e22", width=1)), 5, 1)
-    vfig.update_traces(hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.3~f}<extra>%{fullData.name}</extra>")
-    vfig.update_traces(hovertemplate="%{x|%Y-%m-%d}<br>$%{y:,.0f}<extra>%{fullData.name}</extra>", row=1, col=1)
-    # plotly 的 across 竖线只跨「用同一根 x 轴」的子图，所以所有行都挂到 x 上
-    vfig.update_traces(xaxis="x")
-    vfig.update_yaxes(title_text="BTC（对数）", type="log", row=1, col=1)
-    vfig.update_yaxes(title_text="log 偏离", row=2, col=1)
-    vfig.update_yaxes(title_text="log 偏离", row=3, col=1)
-    vfig.update_yaxes(title_text="log 偏离", row=4, col=1)
-    vfig.update_yaxes(title_text="log 偏离", row=5, col=1)
-    vfig.update_yaxes(gridcolor="#222", zeroline=True, zerolinecolor="#555")
-    vfig.update_xaxes(gridcolor="#222", hoverformat="%Y-%m-%d")
-    vfig.update_xaxes(anchor="y5", matches=None, showticklabels=True,
-                      showspikes=True, spikemode="across", spikesnap="cursor",
-                      spikethickness=1, spikedash="dot", spikecolor="#888", row=1, col=1)
-    vfig.update_layout(height=1200, margin=dict(l=60, r=20, t=50, b=30),
-                       plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
-                       font=dict(color="#ccc"), hovermode="closest", spikedistance=-1,
-                       xaxis2_visible=False, xaxis3_visible=False, xaxis4_visible=False,
-                       xaxis5_visible=False,
-                       legend=dict(orientation="h", y=1.05, x=0))
-    st.plotly_chart(vfig, width="stretch")
-
-    pct = lambda v: "" if v is None else f"{v:+.1%}"
-    share = lambda v: "" if v is None else f"{v:.0%}"
-    st.markdown("**小势实时拐点之后的收益**（对照组 = 同期每周任意一天）")
-    st.dataframe(pd.DataFrame([{
-        "信号": g["group"], "次数": g["n"],
-        "30 天中位收益": pct(g["median_30d"]), "30 天上涨比例": share(g["up_30d"]),
-        "90 天中位收益": pct(g["median_90d"]), "90 天上涨比例": share(g["up_90d"]),
-    } for g in vmd["signal_stats"]]), width="stretch", hide_index=True)
-
-    if len(sig):
-        st.markdown("**最近 10 个实时拐点**")
-        st.dataframe(pd.DataFrame([{
-            "日期": s["date"], "信号": f"小势{s['kind']}", "大势": "向上" if s["big_up"] else "向下",
-            "价格": f"${s['price']:,.0f}",
-            "30 天后": "未满" if s["ret_30d"] is None else pct(s["ret_30d"]),
-            "90 天后": "未满" if s["ret_90d"] is None else pct(s["ret_90d"]),
-        } for s in reversed(vmd["signals"][-10:])]), width="stretch", hide_index=True)
-
-    st.caption(
-        f"做法：和上面同一条幂律趋势，剩下的波动用 VMD 拆 {vmd['k']} 层，取最慢两层：大势约 {big_p} 天、"
-        f"小势约 {small_p} 天一轮，合起来占波动的九成以上。两层各按自己的频率拟合正弦外推 {vmd['horizon']} 天，"
-        "加回趋势就是红色虚线。第 3、4 层合计约占波动 2.5%，只画出来看，不进外推。橙线、紫线和第 3、4 层是用全部历史拆的，顶底看着准是因为看到了后面的走势，不能当信号。"
-        "绿线是实时小势：2014 年起每周只用当时已有数据重拆一次，记下「当天」的值。"
-        "下表的拐点从绿线算：7 天斜率由负转正且在零线下记低点，由正转负且在零线上记高点，低点高点必须交替，连续同类只记第一个。"
-        "VMD 末端最不准，当时看到的小势和事后曲线差很多，所以拐点滞后、假信号多。"
-        f"只作参考证据，不改 D 策略的买卖规则；不受左侧时间窗影响，数据截至 {vmd['as_of']}。"
     )

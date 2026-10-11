@@ -3555,6 +3555,19 @@ def fetch_crypto_vmd_cycle() -> dict:
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=3600)
+def fetch_crypto_vmd_cta() -> dict:
+    """BTC VMD 第 4/3/2 层实时拐点 + 4h/日/周 K 线（后端 crypto/vmd_cta.py）。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/crypto/vmd_cta", timeout=180)
+        if r.status_code in (400, 503):
+            return {"success": False, "error": r.json().get("detail", "后端拿不到数据")}
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # ==========================================
 # 实盘账本（后端 portfolio_book.py）
 # ==========================================
