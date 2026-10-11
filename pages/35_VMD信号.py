@@ -124,15 +124,24 @@ def _cta_chart(lay: dict, kl: dict, big_up: list | None) -> go.Figure:
     rt = rt[rt.index >= t0.normalize()]
     fig.add_trace(go.Scatter(x=rt.index, y=rt.values, line=dict(color="#e67e22", width=1.2),
                              name=f"{lay['name']}（每天当时看到的）"), 2, 1)
-    fig.add_hline(y=0, line_color="#555", row=2, col=1)
 
     fig.update_yaxes(title_text="BTC", type="linear" if chart == "4h" else "log", gridcolor="#222", row=1, col=1)
-    fig.update_yaxes(title_text="log 偏离", gridcolor="#222", row=2, col=1)
-    fig.update_xaxes(gridcolor="#222")
+    fig.update_yaxes(title_text="log 偏离", gridcolor="#222", zeroline=True, zerolinecolor="#555", row=2, col=1)
+    xfmt = "%Y-%m-%d %H:%M" if chart == "4h" else "%Y-%m-%d"
+    fig.update_traces(hovertemplate=f"%{{x|{xfmt}}}<br>%{{y:,.3~f}}<extra>%{{fullData.name}}</extra>")
+    fig.update_traces(hovertemplate=f"%{{x|{xfmt}}}<br>$%{{y:,.0f}}<extra>%{{fullData.name}}</extra>",
+                      row=1, col=1)
+    # plotly 的 across 竖线只跨「用同一根 x 轴」的子图，所以两行都挂到 x 上
+    fig.update_traces(xaxis="x")
+    fig.update_xaxes(gridcolor="#222", hoverformat=xfmt)
+    fig.update_xaxes(anchor="y2", matches=None, showticklabels=True,
+                     showspikes=True, spikemode="across", spikesnap="cursor",
+                     spikethickness=1, spikedash="dot", spikecolor="#888", row=1, col=1)
     fig.update_layout(
         title=f"{CHART_LABEL[chart]} · {lay['name']}（约 {lay['period']} 天一轮） · 斜率看 {lay['slope_days']} 天",
         height=620, xaxis_rangeslider_visible=False, margin=dict(l=60, r=20, t=70, b=30),
         plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font=dict(color="#ccc"),
+        hovermode="closest", spikedistance=-1, xaxis2_visible=False,
         legend=dict(orientation="h", y=1.04, x=0))
     return fig
 
