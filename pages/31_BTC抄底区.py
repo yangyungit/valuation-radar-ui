@@ -365,10 +365,6 @@ else:
                               line=dict(color="#9b59b6", width=1.6)), 2, 1)
     vfig.add_trace(go.Scatter(x=vf, y=vmd["fut_big"], showlegend=False,
                               line=dict(color="#9b59b6", width=1.6, dash="dash")), 2, 1)
-    vfig.add_trace(go.Scatter(x=vd, y=vmd["small"], name="小势（全部历史拆，事后曲线）",
-                              line=dict(color="#555", width=1.2)), 3, 1)
-    vfig.add_trace(go.Scatter(x=vf, y=vmd["fut_small"], showlegend=False,
-                              line=dict(color="#555", width=1.2, dash="dash")), 3, 1)
     vfig.add_trace(go.Scatter(x=rt["date"], y=rt["small"], name="小势（每周当时看到的）",
                               line=dict(color="#1abc9c", width=1.2)), 3, 1)
     for kind, color, symbol in (("低点", "#2ecc71", "triangle-up"), ("高点", "#e74c3c", "triangle-down")):
