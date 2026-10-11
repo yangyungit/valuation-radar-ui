@@ -3542,6 +3542,19 @@ def fetch_crypto_ssa_cycle() -> dict:
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=3600 * 4)
+def fetch_crypto_vmd_cycle() -> dict:
+    """BTC 幂律趋势 + 残差 VMD 大势/小势两层，外推 1 年，附小势实时拐点（后端 crypto/vmd_cycle.py）。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/crypto/vmd_cycle", timeout=180)
+        if r.status_code in (400, 503):
+            return {"success": False, "error": r.json().get("detail", "后端拿不到链上数据")}
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # ==========================================
 # 实盘账本（后端 portfolio_book.py）
 # ==========================================
