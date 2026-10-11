@@ -349,11 +349,12 @@ else:
     rt = pd.DataFrame(vmd["realtime"])
     rt["date"] = pd.to_datetime(rt["date"])
     sig = pd.DataFrame(vmd["signals"])
-    big_p, small_p, l3_p = vmd["periods"]
-    vfig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.035,
-                         row_heights=[0.4, 0.2, 0.2, 0.2],
+    big_p, small_p, l3_p, l4_p = vmd["periods"]
+    vfig = make_subplots(rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.03,
+                         row_heights=[0.36, 0.16, 0.16, 0.16, 0.16],
                          subplot_titles=("价格 = 趋势 × 大势 × 小势", f"大势（约 {big_p} 天一轮）",
-                                         f"小势（约 {small_p} 天一轮）", f"第 3 层（约 {l3_p} 天一轮）"))
+                                         f"小势（约 {small_p} 天一轮）", f"第 3 层（约 {l3_p} 天一轮）",
+                                         f"第 4 层（约 {l4_p} 天一轮）"))
     vfig.add_trace(go.Scatter(x=vd, y=vmd["price"], name="BTC 价格", line=dict(color="#ddd", width=1)), 1, 1)
     vfig.add_trace(go.Scatter(x=vd.append(vf), y=vmd["trend"] + vmd["fut_trend"], name="幂律趋势",
                               line=dict(color="#4fc3e8", width=1.2, dash="dot")), 1, 1)
@@ -369,23 +370,27 @@ else:
                               line=dict(color="#1abc9c", width=1.2)), 3, 1)
     vfig.add_trace(go.Scatter(x=vd, y=vmd["layer3"], name="第 3 层（全部历史拆）", showlegend=False,
                               line=dict(color="#3498db", width=1)), 4, 1)
+    vfig.add_trace(go.Scatter(x=vd, y=vmd["layer4"], name="第 4 层（全部历史拆）", showlegend=False,
+                              line=dict(color="#e67e22", width=1)), 5, 1)
     vfig.update_traces(hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.3~f}<extra>%{fullData.name}</extra>")
     vfig.update_traces(hovertemplate="%{x|%Y-%m-%d}<br>$%{y:,.0f}<extra>%{fullData.name}</extra>", row=1, col=1)
-    # plotly 的 across 竖线只跨「用同一根 x 轴」的子图，所以三行都挂到 x 上
+    # plotly 的 across 竖线只跨「用同一根 x 轴」的子图，所以所有行都挂到 x 上
     vfig.update_traces(xaxis="x")
     vfig.update_yaxes(title_text="BTC（对数）", type="log", row=1, col=1)
     vfig.update_yaxes(title_text="log 偏离", row=2, col=1)
     vfig.update_yaxes(title_text="log 偏离", row=3, col=1)
     vfig.update_yaxes(title_text="log 偏离", row=4, col=1)
+    vfig.update_yaxes(title_text="log 偏离", row=5, col=1)
     vfig.update_yaxes(gridcolor="#222", zeroline=True, zerolinecolor="#555")
     vfig.update_xaxes(gridcolor="#222", hoverformat="%Y-%m-%d")
-    vfig.update_xaxes(anchor="y4", matches=None, showticklabels=True,
+    vfig.update_xaxes(anchor="y5", matches=None, showticklabels=True,
                       showspikes=True, spikemode="across", spikesnap="cursor",
                       spikethickness=1, spikedash="dot", spikecolor="#888", row=1, col=1)
-    vfig.update_layout(height=1050, margin=dict(l=60, r=20, t=50, b=30),
+    vfig.update_layout(height=1200, margin=dict(l=60, r=20, t=50, b=30),
                        plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
                        font=dict(color="#ccc"), hovermode="closest", spikedistance=-1,
                        xaxis2_visible=False, xaxis3_visible=False, xaxis4_visible=False,
+                       xaxis5_visible=False,
                        legend=dict(orientation="h", y=1.05, x=0))
     st.plotly_chart(vfig, width="stretch")
 
@@ -410,7 +415,7 @@ else:
     st.caption(
         f"做法：和上面同一条幂律趋势，剩下的波动用 VMD 拆 {vmd['k']} 层，取最慢两层：大势约 {big_p} 天、"
         f"小势约 {small_p} 天一轮，合起来占波动的九成以上。两层各按自己的频率拟合正弦外推 {vmd['horizon']} 天，"
-        "加回趋势就是红色虚线。第 3 层约占波动 2%，只画出来看，不进外推。橙线、紫线、蓝线是用全部历史拆的，顶底看着准是因为看到了后面的走势，不能当信号。"
+        "加回趋势就是红色虚线。第 3、4 层合计约占波动 2.5%，只画出来看，不进外推。橙线、紫线和第 3、4 层是用全部历史拆的，顶底看着准是因为看到了后面的走势，不能当信号。"
         "绿线是实时小势：2014 年起每周只用当时已有数据重拆一次，记下「当天」的值。"
         "下表的拐点从绿线算：7 天斜率由负转正且在零线下记低点，由正转负且在零线上记高点，低点高点必须交替，连续同类只记第一个。"
         "VMD 末端最不准，当时看到的小势和事后曲线差很多，所以拐点滞后、假信号多。"
