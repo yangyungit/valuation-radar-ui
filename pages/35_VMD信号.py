@@ -56,11 +56,11 @@ def _x(chart: str, d: str) -> pd.Timestamp:
 def _cta_chart(lay: dict, kl: dict) -> go.Figure:
     chart = lay["chart"]
     t = pd.to_datetime(kl["t"])
-    bars = pd.DataFrame({"o": kl["o"], "h": kl["h"], "l": kl["l"], "c": kl["c"]}, index=t)
+    bars = pd.DataFrame({"c": kl["c"]}, index=t)
     t0, t1 = t[0], t[-1]
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.75, 0.25], vertical_spacing=0.03)
-    fig.add_trace(go.Candlestick(x=t, open=bars["o"], high=bars["h"], low=bars["l"], close=bars["c"],
-                                 increasing_line_color=UP, decreasing_line_color=DOWN, name="BTCUSDT"), 1, 1)
+    fig.add_trace(go.Scatter(x=t, y=bars["c"], mode="lines", name="BTCUSDT",
+                             line=dict(color="#4a9eff", width=1.5)), 1, 1)
 
     sig = lay["signals"]
     for i, s in enumerate(sig):
@@ -80,7 +80,7 @@ def _cta_chart(lay: dict, kl: dict) -> go.Figure:
             x = _x(chart, s["date"])
             if x in bars.index:
                 xs.append(x)
-                ys.append(bars.at[x, "l" if kind == "低点" else "h"] * factor)
+                ys.append(bars.at[x, "c"] * factor)
         return xs, ys
 
     for kind, sym, color, text, pos, f in (("低点", "triangle-up", UP, "多", "bottom center", 0.97),
