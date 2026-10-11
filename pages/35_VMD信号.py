@@ -207,7 +207,7 @@ else:
                               line=dict(color="#f39c12", width=1.4)), 1, 1)
     vfig.add_trace(go.Scatter(x=vf, y=vmd["fut"], name="当前外推 1 年",
                               line=dict(color="#e74c3c", width=2, dash="dash")), 1, 1)
-    vfig.add_trace(go.Scatter(x=vd, y=vmd["big"], name="大势（全部历史拆）", showlegend=False,
+    vfig.add_trace(go.Scatter(x=rt["date"], y=rt["big"], name="大势（每周当时看到的）",
                               line=dict(color="#9b59b6", width=1.6)), 2, 1)
     vfig.add_trace(go.Scatter(x=vf, y=vmd["fut_big"], showlegend=False,
                               line=dict(color="#9b59b6", width=1.6, dash="dash")), 2, 1)
@@ -242,8 +242,8 @@ else:
     st.caption(
         f"做法：和上面同一条幂律趋势，剩下的波动用 VMD 拆 {vmd['k']} 层，取最慢两层：大势约 {big_p} 天、"
         f"小势约 {small_p} 天一轮，合起来占波动的九成以上。两层各按自己的频率拟合正弦外推 {vmd['horizon']} 天，"
-        "加回趋势就是红色虚线。第 3、4 层合计约占波动 2.5%，只画出来看，不进外推。橙线、紫线和第 3、4 层是用全部历史拆的，顶底看着准是因为看到了后面的走势，不能当信号。"
-        "绿线是实时小势：2014 年起每周只用当时已有数据重拆一次，记下「当天」的值。"
-        "VMD 末端最不准，当时看到的小势和事后曲线差很多，所以拐点滞后、假信号多。"
+        "加回趋势就是红色虚线。第 3、4 层合计约占波动 2.5%，只画出来看，不进外推。橙线和第 3、4 层是用全部历史拆的，顶底看着准是因为看到了后面的走势，不能当信号。"
+        "紫线（大势）和绿线（小势）是实时版：2014 年起每周只用当时已有数据重拆一次，记下「当天」的值，事后不会被改。"
+        "VMD 末端最不准，当时看到的值和事后曲线差很多，所以拐点滞后、假信号多。紫色虚线外推接在最新一次拆解后面。"
         f"只作参考证据，不改 D 策略的买卖规则；不受左侧时间窗影响，数据截至 {vmd['as_of']}。"
     )
