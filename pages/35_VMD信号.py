@@ -84,12 +84,7 @@ def _cta_chart(lay: dict, kl: dict, big_up: list | None) -> go.Figure:
                              line=dict(color="#4a9eff", width=1.5)), 1, 1)
 
     sig = lay["signals"]
-    if chart == "1w":
-        spans = big_up or []
-    else:
-        spans = [(_x(chart, s["date"]), _x(chart, sig[i + 1]["date"]) if i + 1 < len(sig) else t1)
-                 for i, s in enumerate(sig) if s["kind"] == "高点"]
-    for x0, x1 in spans:
+    for x0, x1 in big_up or []:
         x0, x1 = max(x0, t0), min(x1, t1)
         if x0 < x1:
             fig.add_vrect(x0=x0, x1=x1, fillcolor="rgba(150,150,150,0.15)", line_width=0, row=1, col=1)
@@ -174,8 +169,7 @@ st.caption(
     "（约 38 / 99 / 265 天一轮）。从 2014-11 起**每天只用当天以前的数据重拆一次**，记下这一层在「当天」的值，"
     "下方橙线就是它。信号看橙线自身的斜率（38 天层看 1 天、99 天层看 3 天、265 天层看 7 天），"
     "橙线走平拐头、斜率由负转正且在零线下记「多」，"
-    "由正转负且在零线上记「空」，多空必须交替，被筛掉的翻转画成灰点。4H、1D 图的灰底是空头区间；"
-    "1W 图的灰底是大势向上的区间：每周日只用当时数据重拆一次记下大势当天的值，"
+    "由正转负且在零线上记「空」，多空必须交替，被筛掉的翻转画成灰点。灰底是大势向上的区间：每周日只用当时数据重拆一次记下大势当天的值，"
     "从最低点回升超过 0.03 就从次日起染灰，从最高点回落超过 0.03 就结束。"
     "信号日期按 UTC 日，4 小时图上标在信号日次日 00:00 UTC 那根。"
     "回测只做多、空头拿现金、信号后再晚一天进出、单边手续费 0.1%。"
