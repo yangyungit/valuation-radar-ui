@@ -53,14 +53,20 @@ def _x(chart: str, d: str) -> pd.Timestamp:
     return t
 
 
-def _big_up_spans(rt: list[dict]) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
-    """大势实时 7 天斜率为正的区间；周日收盘才算出来，从次日开始染。"""
-    spans, start = [], None
-    for r in rt:
+def _big_up_spans(rt: list[dict], confirm: int = 2) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """大势实时值逐周比较，连续 confirm 周同向才翻转；周日收盘才算出来，从次日开始染。
+    不用每次拆出来的末端 7 天斜率：VMD 末端最不准，那个斜率每周在零附近来回翻。"""
+    spans, start, up, run = [], None, False, 0
+    for prev, r in zip(rt, rt[1:]):
+        rising = r["big"] > prev["big"]
+        run = run + 1 if rising != up else 0
+        if run < confirm:
+            continue
+        up, run = rising, 0
         d = pd.Timestamp(r["date"]) + pd.Timedelta(days=1)
-        if r["big_slope"] > 0 and start is None:
+        if up:
             start = d
-        elif r["big_slope"] <= 0 and start is not None:
+        else:
             spans.append((start, d))
             start = None
     if start is not None:
@@ -160,7 +166,8 @@ st.caption(
     "下方橙线就是它。信号看橙线自身的斜率（38 天层看 1 天、99 天层看 3 天、265 天层看 7 天），"
     "橙线走平拐头、斜率由负转正且在零线下记「多」，"
     "由正转负且在零线上记「空」，多空必须交替，被筛掉的翻转画成灰点。4H、1D 图的灰底是空头区间；"
-    "1W 图的灰底是大势向上的区间：每周日只用当时数据重拆一次，大势 7 天斜率为正就从次日起染灰。"
+    "1W 图的灰底是大势向上的区间：每周日只用当时数据重拆一次记下大势当天的值，"
+    "连续 2 周比上周高就从次日起染灰，连续 2 周比上周低就结束。"
     "信号日期按 UTC 日，4 小时图上标在信号日次日 00:00 UTC 那根。"
     "回测只做多、空头拿现金、信号后再晚一天进出、单边手续费 0.1%。"
     "VMD 末端最不准，拐点会滞后、会有假信号；page31 原来的小势拐点没跑赢随便买，"
