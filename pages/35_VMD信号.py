@@ -53,7 +53,22 @@ def _x(chart: str, d: str) -> pd.Timestamp:
     return t
 
 
-def _cta_chart(lay: dict, kl: dict) -> go.Figure:
+def _big_up_spans(rt: list[dict]) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """大势实时 7 天斜率为正的区间；周日收盘才算出来，从次日开始染。"""
+    spans, start = [], None
+    for r in rt:
+        d = pd.Timestamp(r["date"]) + pd.Timedelta(days=1)
+        if r["big_slope"] > 0 and start is None:
+            start = d
+        elif r["big_slope"] <= 0 and start is not None:
+            spans.append((start, d))
+            start = None
+    if start is not None:
+        spans.append((start, pd.Timestamp.max))
+    return spans
+
+
+def _cta_chart(lay: dict, kl: dict, big_up: list | None) -> go.Figure:
     chart = lay["chart"]
     t = pd.to_datetime(kl["t"])
     bars = pd.DataFrame({"c": kl["c"]}, index=t)
@@ -63,11 +78,12 @@ def _cta_chart(lay: dict, kl: dict) -> go.Figure:
                              line=dict(color="#4a9eff", width=1.5)), 1, 1)
 
     sig = lay["signals"]
-    for i, s in enumerate(sig):
-        if s["kind"] != "高点":
-            continue
-        x0 = _x(chart, s["date"])
-        x1 = _x(chart, sig[i + 1]["date"]) if i + 1 < len(sig) else t1
+    if chart == "1w":
+        spans = big_up or []
+    else:
+        spans = [(_x(chart, s["date"]), _x(chart, sig[i + 1]["date"]) if i + 1 < len(sig) else t1)
+                 for i, s in enumerate(sig) if s["kind"] == "高点"]
+    for x0, x1 in spans:
         x0, x1 = max(x0, t0), min(x1, t1)
         if x0 < x1:
             fig.add_vrect(x0=x0, x1=x1, fillcolor="rgba(150,150,150,0.15)", line_width=0, row=1, col=1)
@@ -115,9 +131,11 @@ def _cta_chart(lay: dict, kl: dict) -> go.Figure:
     return fig
 
 
+vmd = fetch_crypto_vmd_cycle()
+big_up = _big_up_spans(vmd["realtime"]) if vmd.get("success") else None
 for lay in res["layers"]:
     a, b = lay["fwd"]
-    st.plotly_chart(_cta_chart(lay, res["klines"][lay["chart"]]), width="stretch")
+    st.plotly_chart(_cta_chart(lay, res["klines"][lay["chart"]], big_up), width="stretch")
     st.dataframe(pd.DataFrame([{
         "信号": g["group"], "次数": g["n"],
         f"{a} 天中位收益": pct(g["median_a"]), f"{a} 天上涨比例": share(g["up_a"]),
@@ -141,7 +159,8 @@ st.caption(
     "（约 38 / 99 / 265 天一轮）。从 2014-11 起**每天只用当天以前的数据重拆一次**，记下这一层在「当天」的值，"
     "下方橙线就是它。信号看橙线自身的斜率（38 天层看 1 天、99 天层看 3 天、265 天层看 7 天），"
     "橙线走平拐头、斜率由负转正且在零线下记「多」，"
-    "由正转负且在零线上记「空」，多空必须交替，被筛掉的翻转画成灰点。灰底是空头区间。"
+    "由正转负且在零线上记「空」，多空必须交替，被筛掉的翻转画成灰点。4H、1D 图的灰底是空头区间；"
+    "1W 图的灰底是大势向上的区间：每周日只用当时数据重拆一次，大势 7 天斜率为正就从次日起染灰。"
     "信号日期按 UTC 日，4 小时图上标在信号日次日 00:00 UTC 那根。"
     "回测只做多、空头拿现金、信号后再晚一天进出、单边手续费 0.1%。"
     "VMD 末端最不准，拐点会滞后、会有假信号；page31 原来的小势拐点没跑赢随便买，"
@@ -151,7 +170,6 @@ st.caption(
 
 st.divider()
 st.subheader("VMD 四层拆解（全部历史）")
-vmd = fetch_crypto_vmd_cycle()
 if not vmd.get("success"):
     st.warning(f"⚠️ VMD 不可用：{vmd.get('error', '未知错误')}")
 else:
