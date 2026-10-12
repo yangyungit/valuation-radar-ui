@@ -94,7 +94,7 @@ def _cta_chart(lay: dict, kl: dict, big_up: list | None) -> go.Figure:
         for s in items:
             if s["kind"] != kind:
                 continue
-            x = _x(chart, s["date"])
+            x = pd.Timestamp(s["date"]) - pd.Timedelta(days=1) if lay["key"] == "l5" else _x(chart, s["date"])
             if x in bars.index:
                 xs.append(x)
                 ys.append(bars.at[x, "c"] * factor)
@@ -199,7 +199,7 @@ st.caption(
     "最近一个拐点后面的淡色底是下一个拐点的预计时间，点线是历史间隔中位数、淡色底是 80% 的间隔范围，"
     "只说明按节奏差不多该到了，不保证会出。灰底是大势向上的区间：每周日只用当时数据重拆一次记下大势当天的值，"
     "从最低点回升超过 0.03 就从次日起染灰，从最高点回落超过 0.03 就结束。"
-    "信号日期按 UTC 日，4 小时图上标在信号日次日 00:00 UTC 那根。"
+    "信号日期按 UTC 日，4 小时图上标在信号日次日 00:00 UTC 那根；第 5 层例外，箭头对齐橙线拐点（信号日前一天），比实际能知道的时间早两天。"
     "回测只做多、空头拿现金、信号后再晚一天进出、单边手续费 0.1%。"
     "VMD 末端最不准，拐点会滞后、会有假信号；page31 原来的小势拐点没跑赢随便买，"
     "这里的回测表就是看第 3、4、5 层是不是更好。"
