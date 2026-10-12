@@ -95,6 +95,7 @@ def _cta_chart(lays: list[dict], kl: dict, big_up: list | None) -> go.Figure:
         fig.add_shape(type="line", xref="x", yref="y2 domain", x0=x, x1=x, y0=0, y1=1,
                       line=dict(color=color, width=1, dash=dash), opacity=0.7)
 
+    right = t1
     for lay, sty in zip(lays, STYLES):
         sig = lay["signals"]
         rt = pd.Series(lay["realtime"]["value"], index=pd.to_datetime(lay["realtime"]["dates"]))
@@ -146,11 +147,10 @@ def _cta_chart(lays: list[dict], kl: dict, big_up: list | None) -> go.Figure:
         if turns:
             d, kind = turns[-1]
             color = UP if kind == "高点" else DOWN
-            fig.add_shape(type="rect", xref="x", yref="y2 domain", x0=d + lo, x1=d + hi, y0=0, y1=1,
-                          fillcolor=color, opacity=0.12, line_width=0)
-            vline(d + mid, color, "dot")
-            fig.add_annotation(x=d + mid, text=f"{tag}预计 {(d + mid):%m-%d}",
+            fig.add_annotation(x=d, xanchor="left",
+                               align="left", text=f" {tag}{d:%m-%d}<br> 约 {mid.days} 天（{lo.days}–{hi.days}）",
                                font=dict(size=10, color=color), **note)
+            right = max(right, d)
 
     fig.update_yaxes(title_text="BTC", type="linear" if chart == "4h" else "log", gridcolor="#222", row=1, col=1)
     fig.update_yaxes(title_text="log 偏离", gridcolor="#222", zeroline=True, zerolinecolor="#555", row=2, col=1)
@@ -160,7 +160,8 @@ def _cta_chart(lays: list[dict], kl: dict, big_up: list | None) -> go.Figure:
                       row=1, col=1)
     # plotly 的 across 竖线只跨「用同一根 x 轴」的子图，所以两行都挂到 x 上
     fig.update_traces(xaxis="x")
-    fig.update_xaxes(gridcolor="#222", hoverformat=xfmt)
+    # 最后一个拐点右边要放「约 N 天」的字，留出空白
+    fig.update_xaxes(gridcolor="#222", hoverformat=xfmt, range=[t0, max(t1, right + (t1 - t0) * 0.25)])
     fig.update_xaxes(anchor="y2", matches=None, showticklabels=True,
                      showspikes=True, spikemode="across", spikesnap="cursor",
                      spikethickness=1, spikedash="dot", spikecolor="#888", row=1, col=1)
@@ -216,7 +217,7 @@ st.caption(
     "橙线走平拐头、斜率由负转正且在零线下记「多」，"
     "由正转负且在零线上记「空」，多空必须交替，被筛掉的翻转画成灰点。"
     "每张图下方橙线图上，虚线是橙线实际拐点（红峰绿谷），中间数字是相邻拐点隔了几天；"
-    "最近一个拐点后面的淡色底是下一个拐点的预计时间，点线是历史间隔中位数、淡色底是 80% 的间隔范围，"
+    "最近一个拐点旁边标了它的日期和「约 N 天（A–B）」：N 是到下一个拐点的历史间隔中位数，A–B 是 80% 的间隔范围，"
     "只说明按节奏差不多该到了，不保证会出。灰底是大势向上的区间：每周日只用当时数据重拆一次记下大势当天的值，"
     "从最低点回升超过 0.03 就从次日起染灰，从最高点回落超过 0.03 就结束。"
     "红绿点直接点在价格线上、对齐橙线拐点（周线图点在拐点所在那周），比实际出信号早几天（斜率看几天就最多早几天），"
