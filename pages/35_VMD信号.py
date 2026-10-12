@@ -100,15 +100,22 @@ def _cta_chart(lay: dict, kl: dict, big_up: list | None) -> go.Figure:
                 ys.append(bars.at[x, "c"] * factor)
         return xs, ys
 
+    dot = lay["key"] == "l5"
     for kind, sym, color, text, pos, f in (("低点", "triangle-up", UP, "多", "bottom center", 0.97),
                                            ("高点", "triangle-down", DOWN, "空", "top center", 1.03)):
+        if dot:
+            xs, ys = pts(sig, kind, 1)
+            fig.add_trace(go.Scatter(x=xs, y=ys, mode="markers", name=text,
+                                     marker=dict(symbol="circle", size=8, color="#2ecc71" if color == UP else color,
+                                                 line=dict(width=1, color="#111"))), 1, 1)
+            continue
         xs, ys = pts(sig, kind, f)
         fig.add_trace(go.Scatter(x=xs, y=ys, mode="markers+text", name=text,
                                  marker=dict(symbol=sym, size=12, color=color),
                                  text=[text] * len(xs), textposition=pos,
                                  textfont=dict(color=color)), 1, 1)
     wx, wy = [], []
-    for kind, f in (("低点", 0.985), ("高点", 1.015)):
+    for kind, f in (("低点", 1 if dot else 0.985), ("高点", 1 if dot else 1.015)):
         xs, ys = pts(lay["weak"], kind, f)
         wx += xs
         wy += ys
