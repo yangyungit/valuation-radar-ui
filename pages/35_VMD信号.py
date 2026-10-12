@@ -43,14 +43,11 @@ for col, lay in zip(st.columns(len(res["layers"])), res["layers"]):
                    "normal" if s["side"] == "多" else "inverse")
 
 
-def _x(chart: str, d: str) -> pd.Timestamp:
-    """信号日 → K 线上的位置：4h 标在次日 00:00 那根（收盘后才知道），周 K 标在当周周一开盘那根。"""
-    t = pd.Timestamp(d)
-    if chart == "4h":
-        return t + pd.Timedelta(days=1)
-    if chart == "1w":
-        return t - pd.Timedelta(days=t.weekday())
-    return t
+def _turn(rt: pd.Series, s: dict, k: int) -> pd.Timestamp:
+    """信号 → 橙线拐点：斜率要看 k 天，信号比拐点晚 1 到 k 天，往前 2k 天里找橙线最高 / 最低那天。"""
+    d = pd.Timestamp(s["date"])
+    w = rt[d - pd.Timedelta(days=2 * k):d]
+    return w.idxmax() if s["kind"] == "高点" else w.idxmin()
 
 
 def _big_up_spans(rt: list[dict], th: float = 0.03) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
@@ -89,68 +86,62 @@ def _cta_chart(lay: dict, kl: dict, big_up: list | None) -> go.Figure:
         if x0 < x1:
             fig.add_vrect(x0=x0, x1=x1, fillcolor="rgba(150,150,150,0.15)", line_width=0, row=1, col=1)
 
-    def pts(items: list[dict], kind: str, factor: float) -> tuple[list, list]:
+    rt = pd.Series(lay["realtime"]["value"], index=pd.to_datetime(lay["realtime"]["dates"]))
+    k = lay["slope_days"]
+
+    def pts(items: list[dict], kind: str) -> tuple[list, list]:
         xs, ys = [], []
         for s in items:
             if s["kind"] != kind:
                 continue
-            x = pd.Timestamp(s["date"]) - pd.Timedelta(days=1) if lay["key"] == "l5" else _x(chart, s["date"])
+            x = _turn(rt, s, k)
+            if chart == "1w":
+                x -= pd.Timedelta(days=x.weekday())
             if x in bars.index:
                 xs.append(x)
-                ys.append(bars.at[x, "c"] * factor)
+                ys.append(bars.at[x, "c"])
         return xs, ys
 
-    dot = lay["key"] == "l5"
-    for kind, sym, color, text, pos, f in (("低点", "triangle-up", UP, "多", "bottom center", 0.97),
-                                           ("高点", "triangle-down", DOWN, "空", "top center", 1.03)):
-        if dot:
-            xs, ys = pts(sig, kind, 1)
-            fig.add_trace(go.Scatter(x=xs, y=ys, mode="markers", name=text,
-                                     marker=dict(symbol="circle", size=8, color="#2ecc71" if color == UP else color,
-                                                 line=dict(width=1, color="#111"))), 1, 1)
-            continue
-        xs, ys = pts(sig, kind, f)
-        fig.add_trace(go.Scatter(x=xs, y=ys, mode="markers+text", name=text,
-                                 marker=dict(symbol=sym, size=12, color=color),
-                                 text=[text] * len(xs), textposition=pos,
-                                 textfont=dict(color=color)), 1, 1)
+    for kind, color, text in (("低点", "#2ecc71", "多"), ("高点", DOWN, "空")):
+        xs, ys = pts(sig, kind)
+        fig.add_trace(go.Scatter(x=xs, y=ys, mode="markers", name=text,
+                                 marker=dict(symbol="circle", size=8, color=color,
+                                             line=dict(width=1, color="#111"))), 1, 1)
     wx, wy = [], []
-    for kind, f in (("低点", 1 if dot else 0.985), ("高点", 1 if dot else 1.015)):
-        xs, ys = pts(lay["weak"], kind, f)
+    for kind in ("低点", "高点"):
+        xs, ys = pts(lay["weak"], kind)
         wx += xs
         wy += ys
     fig.add_trace(go.Scatter(x=wx, y=wy, mode="markers", name="非信号",
                              marker=dict(symbol="circle", size=5, color="#999")), 1, 1)
 
-    rt = pd.Series(lay["realtime"]["value"], index=pd.to_datetime(lay["realtime"]["dates"]))
-    rt = rt[rt.index >= t0.normalize()]
-    fig.add_trace(go.Scatter(x=rt.index, y=rt.values, line=dict(color="#e67e22", width=1.2),
+    shown = rt[rt.index >= t0.normalize()]
+    fig.add_trace(go.Scatter(x=shown.index, y=shown.values, line=dict(color="#e67e22", width=1.2),
                              name=f"{lay['name']}（每天当时看到的）"), 2, 1)
-    if lay["key"] == "l5":
-        gaps = pd.to_datetime([s["date"] for s in sig]).to_series().diff().dt.days.dropna()
-        lo, mid, hi = (pd.Timedelta(days=d) for d in gaps.quantile([0.1, 0.5, 0.9]).round())
-        # 斜率变号那天才出信号，橙线拐点在前一天
-        turns = [(pd.Timestamp(s["date"]) - pd.Timedelta(days=1), s["kind"]) for s in sig]
-        turns = [(d, k) for d, k in turns if d >= t0.normalize()]
 
-        def vline(x, color, dash):
-            fig.add_shape(type="line", xref="x", yref="y2 domain", x0=x, x1=x, y0=0, y1=1,
-                          line=dict(color=color, width=1, dash=dash), opacity=0.7)
+    turns = [(_turn(rt, s, k), s["kind"]) for s in sig]
+    gaps = pd.Series([d for d, _ in turns]).diff().dt.days.dropna()
+    lo, mid, hi = (pd.Timedelta(days=d) for d in gaps.quantile([0.1, 0.5, 0.9]).round())
+    turns = [(d, kind) for d, kind in turns if d >= t0.normalize()]
 
-        for i, (d, k) in enumerate(turns):
-            vline(d, DOWN if k == "高点" else UP, "dash")
-            if i:
-                prev = turns[i - 1][0]
-                fig.add_annotation(x=prev + (d - prev) / 2, y=1, xref="x", yref="y2 domain", yanchor="top",
-                                   text=str((d - prev).days), showarrow=False, font=dict(size=10, color="#aaa"))
-        if turns:
-            d, k = turns[-1]
-            color = UP if k == "高点" else DOWN
-            fig.add_shape(type="rect", xref="x", yref="y2 domain", x0=d + lo, x1=d + hi, y0=0, y1=1,
-                          fillcolor=color, opacity=0.12, line_width=0)
-            vline(d + mid, color, "dot")
-            fig.add_annotation(x=d + mid, y=1, xref="x", yref="y2 domain", yanchor="top",
-                               text=f"预计 {(d + mid):%m-%d}", showarrow=False, font=dict(size=10, color=color))
+    def vline(x, color, dash):
+        fig.add_shape(type="line", xref="x", yref="y2 domain", x0=x, x1=x, y0=0, y1=1,
+                      line=dict(color=color, width=1, dash=dash), opacity=0.7)
+
+    for i, (d, kind) in enumerate(turns):
+        vline(d, DOWN if kind == "高点" else UP, "dash")
+        if i:
+            prev = turns[i - 1][0]
+            fig.add_annotation(x=prev + (d - prev) / 2, y=1, xref="x", yref="y2 domain", yanchor="top",
+                               text=str((d - prev).days), showarrow=False, font=dict(size=10, color="#aaa"))
+    if turns:
+        d, kind = turns[-1]
+        color = UP if kind == "高点" else DOWN
+        fig.add_shape(type="rect", xref="x", yref="y2 domain", x0=d + lo, x1=d + hi, y0=0, y1=1,
+                      fillcolor=color, opacity=0.12, line_width=0)
+        vline(d + mid, color, "dot")
+        fig.add_annotation(x=d + mid, y=1, xref="x", yref="y2 domain", yanchor="top",
+                           text=f"预计 {(d + mid):%m-%d}", showarrow=False, font=dict(size=10, color=color))
 
     fig.update_yaxes(title_text="BTC", type="linear" if chart == "4h" else "log", gridcolor="#222", row=1, col=1)
     fig.update_yaxes(title_text="log 偏离", gridcolor="#222", zeroline=True, zerolinecolor="#555", row=2, col=1)
@@ -202,11 +193,12 @@ st.caption(
     "记下这一层在「当天」的值，下方橙线就是它。信号看橙线自身的斜率（19、38 天层看 1 天、99 天层看 3 天、265 天层看 7 天），"
     "橙线走平拐头、斜率由负转正且在零线下记「多」，"
     "由正转负且在零线上记「空」，多空必须交替，被筛掉的翻转画成灰点。"
-    "第 5 层下方橙线图上，虚线是橙线实际拐点（红峰绿谷），中间数字是相邻拐点隔了几天；"
+    "每张图下方橙线图上，虚线是橙线实际拐点（红峰绿谷），中间数字是相邻拐点隔了几天；"
     "最近一个拐点后面的淡色底是下一个拐点的预计时间，点线是历史间隔中位数、淡色底是 80% 的间隔范围，"
     "只说明按节奏差不多该到了，不保证会出。灰底是大势向上的区间：每周日只用当时数据重拆一次记下大势当天的值，"
     "从最低点回升超过 0.03 就从次日起染灰，从最高点回落超过 0.03 就结束。"
-    "信号日期按 UTC 日，4 小时图上标在信号日次日 00:00 UTC 那根；第 5 层例外，红绿点直接点在价格线上、对齐橙线拐点（信号日前一天），比实际能知道的时间早两天。"
+    "红绿点直接点在价格线上、对齐橙线拐点（周线图点在拐点所在那周），比实际出信号早 1 到 7 天（斜率看几天就最多早几天），"
+    "当时还不知道已经拐了。"
     "回测只做多、空头拿现金、信号后再晚一天进出、单边手续费 0.1%。"
     "VMD 末端最不准，拐点会滞后、会有假信号；page31 原来的小势拐点没跑赢随便买，"
     "这里的回测表就是看第 3、4、5 层是不是更好。"
