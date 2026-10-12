@@ -82,7 +82,9 @@ def _cta_chart(lays: list[dict], kl: dict, big_up: list | None) -> go.Figure:
     t = pd.to_datetime(kl["t"])
     bars = pd.DataFrame({"c": kl["c"]}, index=t)
     t0, t1 = t[0], t[-1]
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.75, 0.25], vertical_spacing=0.03)
+    n = len(lays)
+    fig = make_subplots(rows=n + 1, cols=1, shared_xaxes=True, vertical_spacing=0.03,
+                        row_heights=[0.75, 0.25] if n == 1 else [0.6] + [0.4 / n] * n)
     fig.add_trace(go.Scatter(x=t, y=bars["c"], mode="lines", name="BTCUSDT",
                              line=dict(color="#4a9eff", width=1.5)), 1, 1)
 
@@ -91,12 +93,12 @@ def _cta_chart(lays: list[dict], kl: dict, big_up: list | None) -> go.Figure:
         if x0 < x1:
             fig.add_vrect(x0=x0, x1=x1, fillcolor="rgba(150,150,150,0.15)", line_width=0, row=1, col=1)
 
-    def vline(x, color, dash):
-        fig.add_shape(type="line", xref="x", yref="y2 domain", x0=x, x1=x, y0=0, y1=1,
+    def vline(x, color, dash, row):
+        fig.add_shape(type="line", xref="x", yref=f"y{row} domain", x0=x, x1=x, y0=0, y1=1,
                       line=dict(color=color, width=1, dash=dash), opacity=0.7)
 
     right = t1
-    for lay, sty in zip(lays, STYLES):
+    for row, (lay, sty) in enumerate(zip(lays, STYLES), start=2):
         sig = lay["signals"]
         rt = pd.Series(lay["realtime"]["value"], index=pd.to_datetime(lay["realtime"]["dates"]))
         k = lay["slope_days"]
@@ -130,16 +132,16 @@ def _cta_chart(lays: list[dict], kl: dict, big_up: list | None) -> go.Figure:
 
         shown = rt[rt.index >= t0.normalize()]
         fig.add_trace(go.Scatter(x=shown.index, y=shown.values, line=dict(color=sty["line"], width=1.2),
-                                 name=f"{lay['name']}（每天当时看到的）"), 2, 1)
+                                 name=f"{lay['name']}（每天当时看到的）"), row, 1)
 
         turns = [(_turn(rt, s, k), s["kind"]) for s in sig]
         gaps = pd.Series([d for d, _ in turns]).diff().dt.days.dropna()
         lo, mid, hi = (pd.Timedelta(days=d) for d in gaps.quantile([0.1, 0.5, 0.9]).round())
         turns = [(d, kind) for d, kind in turns if d >= t0.normalize()]
-        note = dict(y=sty["y"], xref="x", yref="y2 domain", yanchor=sty["anchor"], showarrow=False)
+        note = dict(y=sty["y"], xref="x", yref=f"y{row} domain", yanchor=sty["anchor"], showarrow=False)
 
         for i, (d, kind) in enumerate(turns):
-            vline(d, DOWN if kind == "高点" else UP, sty["dash"])
+            vline(d, DOWN if kind == "高点" else UP, sty["dash"], row)
             if i:
                 prev = turns[i - 1][0]
                 fig.add_annotation(x=prev + (d - prev) / 2, text=str((d - prev).days),
@@ -153,25 +155,27 @@ def _cta_chart(lays: list[dict], kl: dict, big_up: list | None) -> go.Figure:
             right = max(right, d)
 
     fig.update_yaxes(title_text="BTC", type="linear" if chart == "4h" else "log", gridcolor="#222", row=1, col=1)
-    fig.update_yaxes(title_text="log 偏离", gridcolor="#222", zeroline=True, zerolinecolor="#555", row=2, col=1)
+    for row in range(2, n + 2):
+        fig.update_yaxes(title_text="log 偏离", gridcolor="#222", zeroline=True, zerolinecolor="#555", row=row, col=1)
     xfmt = "%Y-%m-%d %H:%M" if chart == "4h" else "%Y-%m-%d"
     fig.update_traces(hovertemplate=f"%{{x|{xfmt}}}<br>%{{y:,.3~f}}<extra>%{{fullData.name}}</extra>")
     fig.update_traces(hovertemplate=f"%{{x|{xfmt}}}<br>$%{{y:,.0f}}<extra>%{{fullData.name}}</extra>",
                       row=1, col=1)
-    # plotly 的 across 竖线只跨「用同一根 x 轴」的子图，所以两行都挂到 x 上
+    # plotly 的 across 竖线只跨「用同一根 x 轴」的子图，所以所有行都挂到 x 上
     fig.update_traces(xaxis="x")
     # 最后一个拐点右边要放「约 N 天」的字，留出空白
     fig.update_xaxes(gridcolor="#222", hoverformat=xfmt, range=[t0, max(t1, right + (t1 - t0) * 0.25)])
-    fig.update_xaxes(anchor="y2", matches=None, showticklabels=True,
+    fig.update_xaxes(anchor=f"y{n + 1}", matches=None, showticklabels=True,
                      showspikes=True, spikemode="across", spikesnap="cursor",
                      spikethickness=1, spikedash="dot", spikecolor="#888", row=1, col=1)
     fig.update_layout(
         title=f"{CHART_LABEL[chart]} · " + " + ".join(
             f"{l['name']}（约 {l['period']} 天一轮，斜率看 {l['slope_days']} 天）" for l in lays),
-        height=620, xaxis_rangeslider_visible=False, margin=dict(l=60, r=20, t=70, b=30),
+        height=620 + 160 * (n - 1), xaxis_rangeslider_visible=False, margin=dict(l=60, r=20, t=70, b=30),
         plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font=dict(color="#ccc"),
-        hovermode="closest", spikedistance=-1, xaxis2_visible=False,
+        hovermode="closest", spikedistance=-1,
         legend=dict(orientation="h", y=1.04, x=0))
+    fig.update_layout({f"xaxis{r}_visible": False for r in range(2, n + 2)})
     return fig
 
 
