@@ -1,4 +1,4 @@
-"""BTC VMD 信号：日线拆 VMD，第 4 / 3 / 2 层的实时拐点分别标在 4 小时 / 日线 / 周线 K 线上。
+"""BTC VMD 信号：日线拆 VMD，第 5、4 / 3 / 2 层的实时拐点分别标在 4 小时 / 日线 / 周线 K 线上。
 
 拆层、每天重拆、信号判定、统计和回测全在后端 crypto/vmd_cta.py，这页只负责展示。
 """
@@ -33,7 +33,7 @@ if res["klines_stale"]:
 pct = lambda v: "" if v is None else f"{v:+.1%}"
 share = lambda v: "" if v is None else f"{v:.0%}"
 
-for col, lay in zip(st.columns(3), res["layers"]):
+for col, lay in zip(st.columns(len(res["layers"])), res["layers"]):
     s = lay["state"]
     label = f"{CHART_LABEL[lay['chart']]} · {lay['name']}（约 {lay['period']} 天）"
     if s["since"] is None:
@@ -165,21 +165,21 @@ for lay in res["layers"]:
         } for s in reversed(lay["signals"][-10:])]), hide_index=True, width="stretch")
 
 st.caption(
-    "三层都是用 BTC 日收盘价（CoinMetrics，2011 起）减掉幂律趋势后拆 VMD 8 层得到的，取第 4、3、2 层"
-    "（约 38 / 99 / 265 天一轮）。从 2014-11 起**每天只用当天以前的数据重拆一次**，记下这一层在「当天」的值，"
-    "下方橙线就是它。信号看橙线自身的斜率（38 天层看 1 天、99 天层看 3 天、265 天层看 7 天），"
+    "四层都是用 BTC 日收盘价（CoinMetrics，2011 起）减掉幂律趋势后拆 VMD 8 层得到的，取第 5、4、3、2 层"
+    "（约 19 / 38 / 99 / 265 天一轮），第 5、4 层都配 4 小时图。从 2014-11 起**每天只用当天以前的数据重拆一次**，"
+    "记下这一层在「当天」的值，下方橙线就是它。信号看橙线自身的斜率（19、38 天层看 1 天、99 天层看 3 天、265 天层看 7 天），"
     "橙线走平拐头、斜率由负转正且在零线下记「多」，"
     "由正转负且在零线上记「空」，多空必须交替，被筛掉的翻转画成灰点。灰底是大势向上的区间：每周日只用当时数据重拆一次记下大势当天的值，"
     "从最低点回升超过 0.03 就从次日起染灰，从最高点回落超过 0.03 就结束。"
     "信号日期按 UTC 日，4 小时图上标在信号日次日 00:00 UTC 那根。"
     "回测只做多、空头拿现金、信号后再晚一天进出、单边手续费 0.1%。"
     "VMD 末端最不准，拐点会滞后、会有假信号；page31 原来的小势拐点没跑赢随便买，"
-    "这里的回测表就是看第 3、4 层是不是更好。"
+    "这里的回测表就是看第 3、4、5 层是不是更好。"
     f"只作参考，不进 D 策略规则；数据截至 {res['as_of']}。"
 )
 
 st.divider()
-st.subheader("VMD 四层拆解（全部历史）")
+st.subheader("VMD 四层拆解")
 if not vmd.get("success"):
     st.warning(f"⚠️ VMD 不可用：{vmd.get('error', '未知错误')}")
 else:
@@ -213,10 +213,11 @@ else:
                               line=dict(color="#9b59b6", width=1.6, dash="dash")), 2, 1)
     vfig.add_trace(go.Scatter(x=rt["date"], y=rt["small"], name="小势（每周当时看到的）",
                               line=dict(color="#1abc9c", width=1.2)), 3, 1)
-    vfig.add_trace(go.Scatter(x=vd, y=vmd["layer3"], name="第 3 层（全部历史拆）", showlegend=False,
-                              line=dict(color="#3498db", width=1)), 4, 1)
-    vfig.add_trace(go.Scatter(x=vd, y=vmd["layer4"], name="第 4 层（全部历史拆）", showlegend=False,
-                              line=dict(color="#e67e22", width=1)), 5, 1)
+    lay_rt = {l["key"]: l["realtime"] for l in res["layers"]}
+    for key, row, color in (("l3", 4, "#3498db"), ("l4", 5, "#e67e22")):
+        vfig.add_trace(go.Scatter(x=pd.to_datetime(lay_rt[key]["dates"]), y=lay_rt[key]["value"],
+                                  name=f"第 {key[1]} 层（每天当时看到的）", showlegend=False,
+                                  line=dict(color=color, width=1)), row, 1)
     vfig.update_traces(hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.3~f}<extra>%{fullData.name}</extra>")
     vfig.update_traces(hovertemplate="%{x|%Y-%m-%d}<br>$%{y:,.0f}<extra>%{fullData.name}</extra>", row=1, col=1)
     # plotly 的 across 竖线只跨「用同一根 x 轴」的子图，所以所有行都挂到 x 上
@@ -242,8 +243,9 @@ else:
     st.caption(
         f"做法：和上面同一条幂律趋势，剩下的波动用 VMD 拆 {vmd['k']} 层，取最慢两层：大势约 {big_p} 天、"
         f"小势约 {small_p} 天一轮，合起来占波动的九成以上。两层各按自己的频率拟合正弦外推 {vmd['horizon']} 天，"
-        "加回趋势就是红色虚线。第 3、4 层合计约占波动 2.5%，只画出来看，不进外推。橙线和第 3、4 层是用全部历史拆的，顶底看着准是因为看到了后面的走势，不能当信号。"
-        "紫线（大势）和绿线（小势）是实时版：2014 年起每周只用当时已有数据重拆一次，记下「当天」的值，事后不会被改。"
+        "加回趋势就是红色虚线。第 3、4 层合计约占波动 2.5%，只画出来看，不进外推。价格图里的橙线是用全部历史拆的，顶底看着准是因为看到了后面的走势，不能当信号。"
+        "紫线（大势）和绿线（小势）是实时版：2014 年起每周只用当时已有数据重拆一次，记下「当天」的值，事后不会被改；"
+        "第 3、4 层同样是实时版，和上方信号图的橙线是同一份数据（每天重拆一次）。"
         "VMD 末端最不准，当时看到的值和事后曲线差很多，所以拐点滞后、假信号多。紫色虚线外推接在最新一次拆解后面。"
         f"只作参考证据，不改 D 策略的买卖规则；不受左侧时间窗影响，数据截至 {vmd['as_of']}。"
     )
