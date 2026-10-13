@@ -49,11 +49,12 @@ def entry_forms() -> None:
     tab_trade, tab_flow = st.tabs(["交易", "入金出金"])
     with tab_trade:
         with st.form("trade_form", clear_on_submit=False):
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3, c4, c9 = st.columns(5)
             d = c1.date_input("日期", value=date.today())
             sleeve = c2.selectbox("仓位", ["A", "B", "C", "D"])
             ticker = c3.text_input("代码", placeholder="如 AAPL / 0700.HK / BTC-USD")
             side = c4.selectbox("类型", ["OPEN", "BUY", "SELL", "DIV"])
+            broker = c9.selectbox("券商", ["IBKR", "嘉信"])
             c5, c6, c7, c8 = st.columns(4)
             qty = c5.number_input("数量", min_value=0.0, value=0.0, format="%.8f")
             price = c6.number_input(
@@ -65,6 +66,7 @@ def entry_forms() -> None:
                 res = post_portfolio_trade({
                     "date": d.isoformat(), "sleeve": sleeve, "ticker": ticker,
                     "side": side, "qty": qty, "price": price, "fee": fee, "note": note,
+                    "broker": broker,
                 })
                 if res.get("success"):
                     st.success("已记录")
@@ -73,13 +75,15 @@ def entry_forms() -> None:
                     st.error(res.get("error", "未知错误"))
     with tab_flow:
         with st.form("flow_form", clear_on_submit=False):
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
             d = c1.date_input("日期", value=date.today(), key="flow_date")
-            amount = c2.number_input("金额（USD，出金填负数）", value=0.0, format="%.2f")
-            note = c3.text_input("备注", key="flow_note")
+            amount = c2.number_input("金额（USD，出金填负数）", value=0.0, format="%.2f",
+                                     help="券商间划转记两笔：转出方负数、转入方正数")
+            broker = c3.selectbox("券商", ["IBKR", "嘉信"], key="flow_broker")
+            note = c4.text_input("备注", key="flow_note")
             if st.form_submit_button("提交出入金"):
                 res = post_portfolio_cash_flow(
-                    {"date": d.isoformat(), "amount": amount, "note": note})
+                    {"date": d.isoformat(), "amount": amount, "note": note, "broker": broker})
                 if res.get("success"):
                     st.success("已记录")
                     st.rerun()
@@ -141,6 +145,7 @@ else:
     if not hide_amt:
         cols[5].metric("总市值", money(summary["total_value"]))
     st.caption(f"起点 {summary['start']}　截至 {summary['as_of']}")
+    st.caption("现金：" + " · ".join(f"{b} {money(v)}" for b, v in summary["cash_by_broker"].items()))
 
     # ---- 净值图 ----
     ser = summary["series"]
@@ -205,7 +210,7 @@ else:
     pos_rows = []
     for p in summary["positions"]:
         row = {
-            "仓位": p["sleeve"], "代码": p["ticker"], "币种": p["ccy"],
+            "仓位": p["sleeve"], "券商": p["broker"], "代码": p["ticker"], "币种": p["ccy"],
             "数量": f"{p['qty']:,.6g}", "均价": f"{p['avg_cost']:,.2f}",
             "现价": f"{p['last_price']:,.2f}", "占总仓": f"{p['weight']:.1%}",
             "浮盈 %": f"{p['unrealized_pct']:+.1%}",
