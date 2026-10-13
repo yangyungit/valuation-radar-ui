@@ -1,3 +1,7 @@
+## 2026-10-13 ABCD 实盘页显示急跌报警阶段
+
+后端见 `valuation-radar` 83a3214：`/api/v1/portfolio/summary` 新增 `alarm` 字段。`pages/33_ABCD实盘.py` 在再平衡横幅下加蓝色提示（守仓中 / 买回中第 n/4 周、SPY 回撤、最晚回满仓日），常显报警来源的数据截至日；目标仓位 caption 补一句报警规则。
+
 ## 2026-10-11 新增 BTC VMD 信号页（35），VMD 段从 page31 搬出
 
 后端见 `valuation-radar` 20068bc：`GET /api/v1/crypto/vmd_cta`。

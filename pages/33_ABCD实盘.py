@@ -163,6 +163,13 @@ else:
     rb = summary.get("rebalance") or {}
     if rb:
         {"now": st.error, "year_end": st.warning}.get(rb["level"], st.success)(rb["text"])
+    al = summary.get("alarm") or {}
+    if al.get("phase") in ("defend", "buyback"):
+        stage = "守仓中（B、C 已清）" if al["phase"] == "defend" else f"买回中 第 {al['tranche']}/4 周"
+        dd = f"{al['spy_dd']:.1%}" if al.get("spy_dd") is not None else "—"
+        st.info(f"急跌报警 {al['alarm_date']}｜阶段：{stage}｜SPY 距一年高点 {dd}｜最晚 {al['deadline']} 回满仓")
+    if al.get("weather_asof"):
+        st.caption(f"报警来源：宏观天气（数据截至 {al['weather_asof']}）")
     rows = []
     for s in summary["sleeves"]:
         row = {
@@ -190,7 +197,8 @@ else:
                        legend=dict(orientation="h", y=1.15, x=0))
     st.plotly_chart(wfig, width="stretch")
     st.caption("目标 A 35% / B 25% / C 25% / D 15%。D 越出 10%–20% 带 → 四腿立刻整体回目标；"
-               "A/B/C 偏离超过 5 个百分点只标记，年末归位。D 带内的加减仍按 MVRV 规则。")
+               "A/B/C 偏离超过 5 个百分点只标记，年末归位。D 带内的加减仍按 MVRV 规则。"
+               "急跌模型寂静首峰报警 → 卖光 B、C；SPY 距一年高点回撤 ≥10% 后分 4 周买回，12 周没跌到直接买回。")
 
     # ---- 持仓明细 ----
     st.markdown("### 持仓明细")
