@@ -29,7 +29,7 @@ st.caption(
     "后缀窗当「当前段」，段斜率越陡排名越前；无达标段 = 无资格。**🥇 金牌 = 斜率 Top1 / 🥈 银牌 = Top2**。"
     "**组合 = 带鱼持有 + 通道斩仓**：斜率排名只决定买什么，不决定卖什么——槽位买入后一直持有，"
     "直到月末收盘 ≤ MA6×(1−0.25σ) 破线才斩仓换现金（单月确认）；腾出的槽给当月斜率 Top2 里"
-    "通道上方、且**价在自身近 12 月高点 5% 内**（浅V不容忍：挡深V反抽半山腰进场）的未持有票，"
+    "通道上方、且**月末收盘创自身近 12 月新高**（只追已确认的趋势：挡反弹到前高下方就进场）的未持有票，"
     "新仓头 2 月半仓试用（另一半现金），且头 3 月内月收盘跌破进场价 10% 提前斩（与通道线先破者算）；"
     "没有就拿现金 4%（掉出 Top2 不卖：一直参与直的，直到被打破才找下一个）。"
     "回测（round12-15，2017-04→2026-06，单边 200bps）：全程 CAGR 17.2% / DD -17.8% / Calmar 0.97"
@@ -37,6 +37,11 @@ st.caption(
     "换手 0.77 次/年，常态空仓 40%。同池对照：无半仓/止损的持到破位版 = 16.3/-23.9/0.68——"
     "9 个 whipsaw 亏损段（EA -20/LULU -19/LLY re-entry ×2 等，全是 1~3 月短命仓）是主要失血，"
     "半仓+止损砍伤害不砍赢家（AMZN/PYPL/LLY 大段无伤）。"
+    "**round16（2026-10）进场门从「距 12 月高点 5% 内」收紧到「创 12 月新高」**：前端月线复现 2017-04→2026-09，"
+    "持仓段 19→13、1~4 月短命亏损段 8→3（砍掉 VEEV/LULU/LLY 2025-02/ISRG/AMZN 2019 这批反弹半山腰进场），"
+    "CAGR 15.1→16.9 / DD -18.0→-13.5 / Calmar 0.84→1.25；0.95→1.0 逐档单调变好非孤峰，"
+    "代价是 AMZN 2020、PWR 2025 晚进 1 个月。仍是同一段历史上调参，13 段样本小，打折看。"
+    "上列 round12-15 数字是旧门口径。"
     "**四条警告**：① 本组合是 round7-15 20+ 形态择优（k=0.25 取平台 [0.15,0.35] 中心非孤峰），预期打折看待；"
     "② 近 3Y Calmar 1.05 低于旧月调版的 2.15，价值在全程回撤和持有纪律——这是**进攻腿**，"
     "与 FCF收益率稳定页（防守腿）互补，别当同类；"
@@ -56,8 +61,8 @@ TOP_N = 2
 K_STOP = 0.25
 MA_W, SIG_W = 6, 12
 COST_BPS = 200.0     # 单边 200bps
-NEAR_HIGH = 0.95     # 浅V不容忍：新进场须月末价 ≥ 自身近 12 月最高价 ×0.95（5% 内），
-                     # 深V反抽还远在前高下方直接挡掉（REGN/AGN 2016、MSCI 2022、PWR 2025-02 那批）
+NEAR_HIGH = 1.0      # 新进场须月末收盘 = 自身近 12 月最高收盘（创新高）。0.95 时反弹到前高下方
+                     # 就进场的票 1 月内破线是碎仓主因；旧峰滚出 12 月窗口后「离高点近」会失真（LULU 2022-11）
 STOP_S = 0.10        # 锚定止损：进场后头 3 月内，月收盘 ≤ 进场价×0.90 即斩（round15）
 STOP_WIN_M = 3
 PROB_M = 2           # 试用期半仓：新仓头 2 月半槽，另一半按现金 4% 记账（round15）
@@ -108,7 +113,8 @@ rest = [t for t in union if not (meta.get(t) or {}).get("is_tech")]
 slope_m = pd.DataFrame({tk: pd.Series({d: v[0] for d, v in (seg_panel.get(tk) or {}).items()},
                                       dtype=float) for tk in rest})
 slope_m.index = pd.to_datetime(slope_m.index)
-slope_m = slope_m.sort_index()
+_this_month = pd.Timestamp.today().normalize().replace(day=1)
+slope_m = slope_m[slope_m.index < _this_month].sort_index()
 
 # ── 价格（yfinance + Sharadar 补缺，BRK.B 走别名）──
 _ALIAS = {"BRK.B": "BRK-B"}
@@ -138,8 +144,8 @@ if _px is not None and "SPY" in _px.columns:
 close_m = pd.DataFrame({t: s.resample("ME").last() for t, s in close_d.items()}).sort_index()
 
 
-# ── seg_panel 的最后一个月停在 Sharadar 价格末日（2026-06-12，退订日，不会再更新），
-#    之后的月份后端给不出，页面持仓就一直卡在那个月。这里用本页已经加载的实时周线按
+# ── seg_panel 的最后一个月停在后端价格末日，可能落后于今天，也可能是没走完的当月
+#    （后者已在上面丢掉，只用已收月出信号）。这里用本页已经加载的实时周线按
 #    同一公式把排名轴补到最近一个已收月，让持仓跟得上今天（与「戴金龙头」页一致：
 #    月末出信号、次月执行）。后端末月本身可能是残月（价格末日落在月中），一并重算覆盖。
 #    重叠月实测（2026-01~05，80 只）：斜率中位差 0.03、最大 0.5，两边口径一致。──
@@ -159,15 +165,14 @@ def _seg_slope_monthly(close_map: dict) -> pd.DataFrame:
 
 _panel_end = slope_m.index[-1]
 _tail = _seg_slope_monthly(close_d)
-_tail = _tail[(_tail.index >= _panel_end)
-              & (_tail.index < pd.Timestamp.today().normalize().replace(day=1))]
+_tail = _tail[(_tail.index >= _panel_end) & (_tail.index < _this_month)]
 if not _tail.empty:
     slope_m = slope_m.reindex(slope_m.index.union(_tail.index))
     slope_m.loc[_tail.index] = _tail.reindex(columns=slope_m.columns)
 _px_asof = max((s.index[-1] for s in close_d.values()), default=None)
 _added = "、".join(d.strftime("%Y-%m") for d in _tail.index if d > _panel_end)
 st.caption(
-    f"后端 seg_panel 截至 **{_panel_end:%Y-%m}**（Sharadar 价格末日 2026-06-12 之后不再更新）；"
+    f"后端 seg_panel 已收月截至 **{_panel_end:%Y-%m}**（没走完的当月不出信号）；"
     + (f"本页用实时周线按同一公式补算 **{_added}**；" if _added else "无需补算；")
     + (f"价格截至 **{_px_asof:%Y-%m-%d}**；" if _px_asof is not None else "")
     + f"最新信号月 **{slope_m.index[-1]:%Y-%m}** → 执行月 "
@@ -190,9 +195,9 @@ sig12 = ret_m.rolling(SIG_W).std()
 floor_m = ma6 * (1 - K_STOP * sig12)
 above = (close_m > floor_m).reindex(index=slope_m.index, columns=slope_m.columns).fillna(False)
 
-# ── 浅V不容忍进场门：月末价距自身近 12 月最高价 ≥ NEAR_HIGH（在高位、非深V反抽）才准新进场。
+# ── 新高进场门：月末收盘 ≥ 自身近 12 月最高收盘 × NEAR_HIGH 才准新进场。
 #    只卡新进场，不卡在任票（带鱼持有不受此门约束）。深V被 seg 选段的 R²≥0.70 软过滤放行，
-#    这道门在下游把「反抽半山腰」的进场再挡一层（实测 Calmar 0.23→0.31、换手降 30%）。──
+#    这道门在下游把「反抽半山腰」的进场挡掉（round16：0.95→1.0 短命亏损段 8→3）。──
 _roll_high = close_m.rolling(12, min_periods=3).max()
 near_high = (close_m / _roll_high).reindex(index=slope_m.index, columns=slope_m.columns)
 near_ok = (near_high >= NEAR_HIGH).fillna(False)
