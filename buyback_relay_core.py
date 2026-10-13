@@ -1039,7 +1039,7 @@ def render_group(
         )
         for _i, _seg in enumerate(_slot_segs[:max_n_hold]):
             st.plotly_chart(
-                hv.build_stitched_fig(_seg, f"{group_label}接力 槽{_i + 1}", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, name_style=stitched_name_style),
+                hv.build_stitched_fig(_seg, f"{group_label}接力 槽{_i + 1}", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, name_style=stitched_name_style, cost_bps=cost_bps),
                 use_container_width=True, key=f"{kp}_nav_slot_{_i}",
             )
     elif n_hold < 2:
@@ -1051,7 +1051,7 @@ def render_group(
         if segment_window_slider and _seg0:
             _seg0, _spy_seg = _crop_segments_by_slider(_seg0, spy_wk, kp)
         st.plotly_chart(
-            hv.build_stitched_fig(_seg0, f"{group_label}接力 持仓段", _spy_seg, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, weight_by_month=precomputed_weights, name_style=stitched_name_style),
+            hv.build_stitched_fig(_seg0, f"{group_label}接力 持仓段", _spy_seg, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, weight_by_month=precomputed_weights, name_style=stitched_name_style, cost_bps=cost_bps),
             use_container_width=True, key=f"{kp}_nav_l",
         )
     elif retention_band is not None:
@@ -1080,11 +1080,11 @@ def render_group(
             use_container_width=True, key=f"{kp}_nav_combined",
         )
         st.plotly_chart(
-            hv.build_stitched_fig(_slot_segs[0], f"{group_label}接力 左列 (Slot 0)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, weight_by_month=precomputed_weights, name_style=stitched_name_style),
+            hv.build_stitched_fig(_slot_segs[0], f"{group_label}接力 左列 (Slot 0)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, weight_by_month=precomputed_weights, name_style=stitched_name_style, cost_bps=cost_bps),
             use_container_width=True, key=f"{kp}_nav_l",
         )
         st.plotly_chart(
-            hv.build_stitched_fig(_slot_segs[1], f"{group_label}接力 右列 (Slot 1)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, weight_by_month=precomputed_weights, name_style=stitched_name_style),
+            hv.build_stitched_fig(_slot_segs[1], f"{group_label}接力 右列 (Slot 1)", spy_wk, price_cache, name_map, grade_map, danger_daily=_dg_seg, danger_half_daily=_dh_seg, weight_by_month=precomputed_weights, name_style=stitched_name_style, cost_bps=cost_bps),
             use_container_width=True, key=f"{kp}_nav_r",
         )
 

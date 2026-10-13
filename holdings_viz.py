@@ -719,6 +719,15 @@ def build_stitched_fig(
         n = len(closes)
         x_vals = list(range(x_offset, x_offset + n))
         color = SLOT_COLORS[ci % len(SLOT_COLORS)]
+        _wts = None
+        if weight_by_month:
+            _wts = pd.Series(
+                [float((weight_by_month.get(f"{d.year:04d}-{d.month:02d}") or {}).get(tk, 1.0))
+                 for d in closes.index],
+                index=closes.index,
+            )
+            if not bool((_wts < 1.0).any()):
+                _wts = None
         # 熊市防御：清仓 bar 收益换现金(年化 CASH_APY)净值走平，减半 bar 换 0.5×个股+0.5×现金，
         # 其余 bar 照旧跟随个股。cumprod(pct_change) 起点等于 running_nav，与原口径一致。
         _state = None  # 0=满仓 1=减仓一半 2=清仓
@@ -730,27 +739,36 @@ def build_stitched_fig(
                    if danger_half_daily is not None else pd.Series(False, index=closes.index))
             _dh = _dh & ~_dg
             _seg_ret = closes.pct_change()
+            if _wts is not None:
+                _seg_ret = _wts * _seg_ret + (1.0 - _wts) * _cash_wr
             _seg_ret = _seg_ret.where(~_dh, 0.5 * _seg_ret + 0.5 * _cash_wr)
             _seg_ret = _seg_ret.where(~_dg, _cash_wr).fillna(0.0)
             seg_nav = running_nav * (1.0 + _seg_ret).cumprod()
             _state = pd.Series(0, index=closes.index)
             _state[_dh] = 1
             _state[_dg] = 2
-        else:
+        elif _wts is None:
             seg_nav = (closes / float(closes.iloc[0])) * running_nav
+        else:
+            # 按权重分段、段内买入持有（权重<1 的部分拿现金），与 calc_slot_stats 逐段同算法，两图末值对得上
+            parts, nav0, i0 = [], running_nav, 0
+            for i in range(1, n + 1):
+                if i == n or _wts.iloc[i] != _wts.iloc[i0]:
+                    c = closes.iloc[i0:i]
+                    base = float(closes.iloc[i0 - 1]) if i0 > 0 else float(c.iloc[0])
+                    w_ = float(_wts.iloc[i0])
+                    cash_ret = (1.0 + CASH_APY) ** ((c.index - c.index[0]).days.to_numpy() / 365.0) - 1.0
+                    p = nav0 * (1.0 + w_ * (c / base - 1.0) + (1.0 - w_) * cash_ret)
+                    parts.append(p)
+                    nav0, i0 = float(p.iloc[-1]), i
+            seg_nav = pd.concat(parts)
 
-        # 试用期半仓（precomputed_weights 里权重<1 的月）只染白、不改个股净值路径——
-        # 半仓的组合权重已在合成净值里按半现金记账，这里的接力图画的是个股自身走势。
-        if weight_by_month:
-            _half_wk = pd.Series(
-                [float((weight_by_month.get(f"{d.year:04d}-{d.month:02d}") or {}).get(tk, 1.0)) < 1.0
-                 for d in closes.index],
-                index=closes.index,
-            )
-            if bool(_half_wk.any()):
-                if _state is None:
-                    _state = pd.Series(0, index=closes.index)
-                _state = _state.mask((_state == 0) & _half_wk, 1)
+        # 试用期半仓（权重<1 的月）染白
+        if _wts is not None:
+            _half_wk = _wts < 1.0
+            if _state is None:
+                _state = pd.Series(0, index=closes.index)
+            _state = _state.mask((_state == 0) & _half_wk, 1)
 
         _y_vals = [max(0.001, v) for v in seg_nav]
         _dates = [d.strftime("%Y-%m-%d") for d in closes.index]
