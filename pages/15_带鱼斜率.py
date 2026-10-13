@@ -122,11 +122,15 @@ window = st.radio("时间跨度", ["3Y", "5Y", "10Y"], index=2, horizontal=True,
 with st.spinner("📊 加载价格..."):
     _px = get_global_data([_ALIAS.get(t, t) for t in rest] + ["SPY"], years=12)
 close_d = {}
+# 退市票 yfinance 可能只给退市后的残段（EA 私有化后只剩 2026-08 起几十个点），
+# 覆盖不到首次入池前一年就当缺失，走 Sharadar
+_first_y = {t: min(y for y, mem in pools.items() if t in mem) for t in rest}
 if _px is not None and not _px.empty:
     for t in rest:
         col = _ALIAS.get(t, t)
-        if col in _px.columns and _px[col].notna().sum() >= 2:
-            close_d[t] = _px[col].dropna()
+        s = _px[col].dropna() if col in _px.columns else pd.Series(dtype=float)
+        if len(s) >= 2 and s.index[0] <= pd.Timestamp(_first_y[t] - 1, 1, 1):
+            close_d[t] = s
 _missing = [t for t in rest if t not in close_d]
 if _missing:
     for t, rows_p in (fetch_gbdt_oos_prices(tuple(sorted(_missing))) or {}).items():
