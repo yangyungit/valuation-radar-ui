@@ -550,7 +550,8 @@ def _thin_ticks(vals: list, texts: list, total_x: float, plot_px: float = 1000.0
     return [vals[i] for i in keep], [texts[i] for i in keep]
 
 
-def _layout_segment_labels(items: list, total_x: float, plot_px: float = 1000.0) -> tuple:
+def _layout_segment_labels(items: list, total_x: float, plot_px: float = 1000.0,
+                           max_box_px: float = _LABEL_MAX_BOX_PX) -> tuple:
     """段名标注斜 45° 排（和 x 轴日期一个方向）：名字占的横向宽度只剩斜边投影，
     横排时长中文名互撞的问题没了，窄段也能留住中文名。
     所有名字贴同一条基线，挤不下的左右互推——颜色已经和线段对应，
@@ -569,7 +570,7 @@ def _layout_segment_labels(items: list, total_x: float, plot_px: float = 1000.0)
         # 但名字太长时斜过来会把顶部空白撑得很高，超过上限也退化
         if full != short and (
             _est_label_px(full) > seg_w * px_per_x * 3.0
-            or (_est_label_px(full) + _LABEL_FONT_PX) * _SIN45 > _LABEL_MAX_BOX_PX
+            or (_est_label_px(full) + _LABEL_FONT_PX) * _SIN45 > max_box_px
         ):
             text = short
         texts.append(text)
@@ -1447,35 +1448,38 @@ def build_slot_gantt_nav_fig(
 
     annotations: list = []
     shapes: list = []
-    for i, (x0, x1, tk) in enumerate(seg_bounds):
+    _t0 = seg_bounds[0][0] if seg_bounds else pd.Timestamp("2000-01-01")
+    _total_d = (seg_bounds[-1][1] - _t0).days if seg_bounds else 0
+    label_items: list = []
+    for x0, x1, tk in seg_bounds:
         if not tk:
-            color, label = "#999", "💰 空仓"
+            color, full, short = "#999", "💰 空仓", "💰 空仓"
         else:
             color = color_map.get(tk, "#888")
             _cn = gm.get(tk, "")
-            label = f"{_cn}({tk})" if _cn and _cn != tk else tk
-        _mid = (x0 + (x1 - x0) / 2).to_pydatetime()
-        # 名字贴着图表上方（y≈1.0）
-        annotations.append(dict(
-            x=_mid, y=1.01, xref="x", yref="paper",
-            text=label, showarrow=False,
-            font=dict(size=12, color=color), xanchor="center", yanchor="bottom",
+            full = f"{_cn}({tk})" if _cn and _cn != tk else tk
+            short = tk
+        label_items.append(((x0 - _t0).days + (x1 - x0).days / 2, (x1 - x0).days, full, short, color))
+    name_anns, top_margin = _layout_segment_labels(label_items, _total_d, max_box_px=170.0)
+    for a in name_anns:
+        a["x"] = (_t0 + pd.Timedelta(days=a["x"])).to_pydatetime()
+    annotations.extend(name_anns)
+
+    # 换股日期放在斜排名字上方：竖杠从图顶按像素拉到名字区上沿再标日期
+    _date_px = top_margin - 40
+    for x0, _, _ in seg_bounds[1:]:
+        _bx = x0.to_pydatetime()
+        shapes.append(dict(
+            type="line", xref="x", yref="paper", ysizemode="pixel", yanchor=1.0,
+            x0=_bx, x1=_bx, y0=0, y1=_date_px,
+            line=dict(color="rgba(200,200,200,0.6)", width=1),
         ))
-        if i > 0:
-            _bx = x0.to_pydatetime()
-            # 换股边界：竖杠只需从图顶到名字上方那点（换股日期），比原来短一截
-            shapes.append(dict(
-                type="line", xref="x", yref="paper",
-                x0=_bx, x1=_bx, y0=1.0, y1=1.08,
-                line=dict(color="rgba(200,200,200,0.6)", width=1),
-            ))
-            # 换股日期放名字上方，斜排
-            annotations.append(dict(
-                x=_bx, y=1.08, xref="x", yref="paper",
-                text=x0.strftime("%Y-%m-%d"), showarrow=False,
-                font=dict(size=9, color="#999"), xanchor="left", yanchor="bottom",
-                textangle=-40,
-            ))
+        annotations.append(dict(
+            x=_bx, y=1.0, xref="x", yref="paper", yshift=_date_px,
+            text=x0.strftime("%Y-%m-%d"), showarrow=False,
+            font=dict(size=9, color="#999"), xanchor="left", yanchor="bottom",
+            textangle=-40,
+        ))
 
     _y_all: list = []  # 收集全部实际画出的 y 值，用于固定 log 轴 range（下方引导线要精确打到轴底）
     if nav is not None and not nav.empty:
@@ -1602,10 +1606,10 @@ def build_slot_gantt_nav_fig(
             gridcolor="rgba(100,100,100,0.3)",
         ),
         annotations=annotations, shapes=shapes,
-        height=640, margin=dict(l=10, r=10, t=70, b=130),
+        height=600 + top_margin, margin=dict(l=10, r=10, t=top_margin + 45, b=130),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(30,30,30,0.6)",
         font=dict(color="#ccc", size=12),
-        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
+        legend=dict(orientation="h", yanchor="top", y=0.99, xanchor="left", x=0.01),
         showlegend=True,
     )
     return fig
