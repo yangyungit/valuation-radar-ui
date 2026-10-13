@@ -24,7 +24,7 @@ WEIGHTS = {"A": 0.4, "B": 0.3, "C": 0.3}  # 起始仓位 4:3:3，每年末再平
 # A（FCF%单仓）口径，同 page 17 主版本
 _FCFY_K = 2.0
 _FCFY_LOGR2_GATE = 0.75
-_FCFY_COST_BPS = 200.0
+_FCFY_COST_BPS = 100.0     # 每边 1%，同 page 17 / 回测 turnover×2%
 
 # B（板块王朝）口径，同 page 19 王朝接力净值实验台默认档
 _DYNASTY_GROUPS = ["C: 核心板块 (Level 1 Sectors)", "D: 细分赛道 (Level 2/Themes)"]
@@ -40,7 +40,7 @@ _SL_COST_BPS = 10.0
 st.title("📊 ABC投资组合")
 st.caption(
     f"**A = 稳健基石**（FCF%单仓：带鱼池非科技子集，FCF收益率 Top1 满仓，守擂死区 k={_FCFY_K}，"
-    f"候选需 logR²≥{_FCFY_LOGR2_GATE}，单边 200bps；同 page 17 主版本）· "
+    f"候选需 logR²≥{_FCFY_LOGR2_GATE}，每边 1%；同 page 17 主版本）· "
     "**B = 板块指数**（板块王朝：C+D 组 ETF，504 日动量 king_score 接力，2 仓，buffer 守擂按 3Y/5Y/10Y maximin 自动定，"
     "差速器开，单边 200bps；同 page 19）· "
     f"**C = 精选龙头**（戴金龙头主线 + 最短持有 {_SL_MIN_HOLD} 月，月度再平衡，单边 10bps；同 page 32）· "
