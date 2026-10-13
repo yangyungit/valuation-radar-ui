@@ -920,6 +920,7 @@ def calc_slot_stats(
     nav_all: list = []
     running_nav = 1.0
     last_tk = None  # 上一段「实际渲染」的标的（用于判断换仓边界）
+    last_close = None
     for seg in segs:
         tk, s_m, e_m = seg[0], seg[1], seg[2]
         w = float(seg[3]) if len(seg) > 3 else 1.0
@@ -950,14 +951,18 @@ def calc_slot_stats(
         if cost_bps and last_tk != tk:
             sides = (1 if (last_tk is not None and last_tk != "CASH") else 0) + 1
             running_nav *= max(0.0, 1.0 - sides * cost_bps / 10000.0)
+        # 同一只票被按权重拆成连续两段（试用期半仓→满仓）时从上一段末价接着算，
+        # 否则两段之间那一周的涨跌会丢掉
+        base = last_close if (tk == last_tk and last_close is not None) else float(closes.iloc[0])
         if w < 1.0:
             days = (closes.index - closes.index[0]).days.to_numpy()
             cash_ret = pd.Series((1.0 + cash_rate) ** (days / 365.0) - 1.0, index=closes.index)
-            seg_nav = running_nav * (1.0 + w * (closes / float(closes.iloc[0]) - 1.0) + (1.0 - w) * cash_ret)
+            seg_nav = running_nav * (1.0 + w * (closes / base - 1.0) + (1.0 - w) * cash_ret)
         else:
-            seg_nav = (closes / float(closes.iloc[0])) * running_nav
+            seg_nav = (closes / base) * running_nav
         running_nav = float(seg_nav.iloc[-1])
         last_tk = tk
+        last_close = float(closes.iloc[-1])
         nav_all.append(seg_nav)
     if not nav_all:
         return 0.0, 0.0, pd.Series(dtype=float)
