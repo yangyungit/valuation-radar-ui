@@ -145,12 +145,13 @@ for t in tickers:
     z.append(flags)
     ylabels.append(f"{t} {sum(flags) / n_months * 100:.0f}%")
 
-st.markdown(f"#### 逐月持仓（共 {n_switch} 次换仓 / {n_months} 个月）")
-fig_h = go.Figure(go.Heatmap(z=z, x=months, y=ylabels, zmin=0, zmax=1,
-                             colorscale=[[0, "#f2f2f2"], [1, "#d62728"]], showscale=False,
-                             xgap=1, ygap=1))
-fig_h.update_layout(height=360, margin=dict(t=10, b=10), yaxis=dict(autorange="reversed"))
-st.plotly_chart(fig_h, width="stretch")
+with st.expander(f"逐月持仓（共 {n_switch} 次换仓 / {n_months} 个月）"):
+    fig_h = go.Figure(go.Heatmap(z=z, x=months, y=ylabels, zmin=0, zmax=1,
+                                 colorscale=[[0, "#1f2329"], [1, "#d62728"]], showscale=False,
+                                 xgap=1, ygap=1))
+    fig_h.update_layout(height=360, margin=dict(t=10, b=10), template="plotly_dark",
+                        yaxis=dict(autorange="reversed"))
+    st.plotly_chart(fig_h, width="stretch")
 
 # ---- 分段统计 ----
 st.markdown("#### 分段统计")
