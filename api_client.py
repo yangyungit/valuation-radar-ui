@@ -988,6 +988,17 @@ def fetch_logr2_stable_pool() -> dict:
 
 
 @st.cache_data(ttl=3600 * 4)
+def fetch_etf_tsmom() -> dict:
+    """ETF 时序动量轮动（round32 V4）：当前持仓、预览、信号表、回测净值。失败返回 {"success": False}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/etf_tsmom", timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
 def fetch_factor_attribution(navs_json: str, region: str = "USA") -> dict:
     """SPY + QMJ + UMD 超额收益拆解。navs_json = {曲线名: {"YYYY-MM-DD": nav}} 的 JSON 串（字符串便于缓存）。"""
     try:

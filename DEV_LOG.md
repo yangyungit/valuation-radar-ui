@@ -1,3 +1,7 @@
+## 2026-10-14 新增 ETF 动量轮动页（36）
+
+后端见 `valuation-radar` 273d506：`/api/v1/macro/etf_tsmom`。`pages/36_ETF动量轮动.py` 展示本月持仓、下月预览、信号表、V4/V1/60-40/SPY 净值与回撤、逐月持仓条带、分段统计和换仓记录；`api_client.py` 加 `fetch_etf_tsmom`，`app.py` 在「稳定类策略」下加入口「ETF轮动 3仓」。
+
 ## 2026-10-13 ABCD 实盘页显示急跌报警阶段
 
 后端见 `valuation-radar` 83a3214：`/api/v1/portfolio/summary` 新增 `alarm` 字段。`pages/33_ABCD实盘.py` 在再平衡横幅下加蓝色提示（守仓中 / 买回中第 n/4 周、SPY 回撤、最晚回满仓日），常显报警来源的数据截至日；目标仓位 caption 补一句报警规则。
