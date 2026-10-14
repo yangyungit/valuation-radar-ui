@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from api_client import fetch_etf_tsmom
-from gold_leader_viz import render_equity_chart
+from gold_leader_viz import render_equity_chart, render_slot_segment_returns, render_time_window_slider
 
 st.set_page_config(page_title="ETF轮动 3仓", layout="wide")
 
@@ -105,15 +105,23 @@ STYLE = {
 }
 series = {k: pd.Series(nav[k], index=dates, dtype="float64") for k in STYLE}
 
-SLOTS = [("slot1", "第1强", "#2ECC71"), ("slot2", "第2强", "#E74C3C"), ("slot3", "第3强", "#9B59B6")]
+SLOTS = [("slot1", "槽A", "#2ECC71"), ("slot2", "槽B", "#E74C3C"), ("slot3", "槽C", "#9B59B6")]
 st.markdown("#### 净值（2007-03 = 1）")
+win_lo, win_hi = render_time_window_slider(dates, "etf")
 render_equity_chart(dates, nav, [
     ("V4", f"V4 合成 {series['V4'].iloc[-1]:.2f}", STYLE["V4"][0], True, None, 2.5),
     ("SPY", f"SPY {series['SPY'].iloc[-1]:.2f}", STYLE["SPY"][0], True, None, 1.5),
-    *[(k, f"{name}仓", color, True, None, 1) for k, name, color in SLOTS if k in nav],
-], "etf_nav")
-st.caption("黄线 = 3 仓合成净值。细线 = 按 12 月涨幅排第 1/2/3 的那一仓单独的净值（没排上的月份拿现金），"
-           "每条细线是一仓的收益，不是 1/3 仓位的收益。")
+    *[(k, name, color, True, None, 1) for k, name, color in SLOTS if k in nav],
+], "etf_nav", win_lo, win_hi)
+st.caption("黄线 = 3 仓合成净值。细线 = 三个仓位各自的净值：槽A = 每月 12 月涨幅排第 1 的那只，槽B = 第 2，槽C = 第 3，"
+           "没排上的月份拿现金。每条细线是该仓 100% 的收益，不是 1/3 仓位的收益。")
+
+st.markdown("#### 仓位接力")
+if not render_slot_segment_returns(
+    [{"slot": i, "equity": nav[k]} for i, (k, _, _) in enumerate(SLOTS) if k in nav],
+    res.get("slot_timeline") or [], dates, nav["SPY"], "etf", win_lo, win_hi,
+):
+    st.caption("后端暂未返回仓位明细，请重启后端。")
 
 fig_dd = go.Figure()
 for k, (color, width) in STYLE.items():
