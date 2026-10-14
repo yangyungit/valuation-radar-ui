@@ -161,6 +161,7 @@ st.markdown("#### 仓位接力")
 if not render_slot_segment_returns(
     [{"slot": i, "equity": nav[k]} for i, (k, _, _) in enumerate(SLOTS) if k in nav],
     res.get("slot_timeline") or [], dates, nav["SPY"], "etf", win_lo, win_hi,
+    name_map={r["ticker"]: r["name"] for r in table},
 ):
     st.caption("后端暂未返回仓位明细，请重启后端。")
 

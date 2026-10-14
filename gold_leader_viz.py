@@ -80,7 +80,8 @@ def render_time_window_slider(dates, key_prefix: str) -> tuple:
 def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
                                 spy_values: list, key_prefix: str,
                                 win_lo, win_hi, shade_months: set = None,
-                                ribbons: list = None, ribbon_labels: tuple = ()) -> bool:
+                                ribbons: list = None, ribbon_labels: tuple = (),
+                                name_map: dict = None) -> bool:
     if not slot_equity or not timeline or len(dates) == 0:
         return False
 
@@ -103,6 +104,8 @@ def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
             continue
         price_cache = {tk: pd.DataFrame({"Close": slot_s}) for tk, _, _ in segs if tk != "CASH"}
         _cn = cn_name_map(tk for tk, _, _ in segs)
+        if name_map:
+            _cn = {tk: name_map.get(tk) or v for tk, v in _cn.items()}
         fig = hv.build_stitched_fig(
             segs, f"{slot_name}接力 持仓段", spy_wk, price_cache, _cn, _cn,
             name_style="cn_ticker", shade_months=shade_months,
