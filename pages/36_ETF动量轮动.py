@@ -116,7 +116,7 @@ st.markdown("#### 净值（2007-03 = 1）")
 win_lo, win_hi = render_time_window_slider(dates, "etf")
 render_equity_chart(dates, nav, [
     ("V4", f"V4 合成 {series['V4'].iloc[-1]:.2f}", STYLE["V4"][0], True, None, 2.5),
-    ("SPY", f"SPY {series['SPY'].iloc[-1]:.2f}", STYLE["SPY"][0], True, None, 1.5),
+    ("SPY", f"SPY {series['SPY'].iloc[-1]:.2f}", STYLE["SPY"][0], True, "dot", 1.5),
     *[(k, name, color, True, None, 1) for k, name, color in SLOTS if k in nav],
 ], "etf_nav", win_lo, win_hi)
 st.caption("黄线 = 3 仓合成净值。细线 = 三个仓位各自的净值：一只 ETF 买入后一直占同一个槽，卖出时换入者接它的槽，"
