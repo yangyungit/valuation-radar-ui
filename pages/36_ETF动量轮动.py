@@ -106,11 +106,11 @@ nav = res["nav"]
 dates = pd.to_datetime(nav["dates"])
 STYLE = {
     "V4": ("#F1C40F", 2.5),
-    "SPY": ("#3498DB", 1.5),
+    "SPY": ("#95A5A6", 1.5),
 }
 series = {k: pd.Series(nav[k], index=dates, dtype="float64") for k in STYLE}
 
-SLOTS = [("slot1", "槽A", "#2ECC71"), ("slot2", "槽B", "#E74C3C"), ("slot3", "槽C", "#9B59B6")]
+SLOTS = [("slot1", "槽A", "#2ECC71"), ("slot2", "槽B", "#E74C3C"), ("slot3", "槽C", "#3498DB")]
 st.markdown("#### 净值（2007-03 = 1）")
 win_lo, win_hi = render_time_window_slider(dates, "etf")
 render_equity_chart(dates, nav, [
