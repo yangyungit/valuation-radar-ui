@@ -551,7 +551,7 @@ def _thin_ticks(vals: list, texts: list, total_x: float, plot_px: float = 1000.0
 
 
 def _layout_segment_labels(items: list, total_x: float, plot_px: float = 1000.0,
-                           max_box_px: float = _LABEL_MAX_BOX_PX) -> tuple:
+                           max_box_px: float = _LABEL_MAX_BOX_PX, keep_names: bool = False) -> tuple:
     """段名标注斜 45° 排（和 x 轴日期一个方向）：名字占的横向宽度只剩斜边投影，
     横排时长中文名互撞的问题没了，窄段也能留住中文名。
     所有名字贴同一条基线，挤不下的左右互推——颜色已经和线段对应，
@@ -569,7 +569,7 @@ def _layout_segment_labels(items: list, total_x: float, plot_px: float = 1000.0,
         # 斜标的横向占位只剩斜边投影，段窄到名字 3 倍以上才退化成纯代码；
         # 但名字太长时斜过来会把顶部空白撑得很高，超过上限也退化
         if full != short and (
-            _est_label_px(full) > seg_w * px_per_x * 3.0
+            (not keep_names and _est_label_px(full) > seg_w * px_per_x * 3.0)
             or (_est_label_px(full) + _LABEL_FONT_PX) * _SIN45 > max_box_px
         ):
             text = short
@@ -626,6 +626,7 @@ def build_stitched_fig(
     shade_color: str = "#F39C12",
     ribbon: list = None,
     ribbon_label: str = "",
+    keep_names: bool = False,
 ) -> go.Figure:
     """cost_bps：单边换仓成本，口径与 calc_slot_stats 一致（卖出+买入各扣一次，
     CASH 不算成本资产）。首段不扣——calc_slot_stats 的总收益用首点做分母，
@@ -837,7 +838,7 @@ def build_stitched_fig(
         x_dates.extend(closes.index)
         x_offset += n
 
-    name_annotations, top_margin = _layout_segment_labels(label_items, x_offset)
+    name_annotations, top_margin = _layout_segment_labels(label_items, x_offset, keep_names=keep_names)
     tick_vals, tick_texts = _thin_ticks(tick_vals, tick_texts, x_offset)
 
     if shade_months and x_dates:

@@ -81,7 +81,7 @@ def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
                                 spy_values: list, key_prefix: str,
                                 win_lo, win_hi, shade_months: set = None,
                                 ribbons: list = None, ribbon_labels: tuple = (),
-                                name_map: dict = None) -> bool:
+                                name_map: dict = None, keep_names: bool = False) -> bool:
     if not slot_equity or not timeline or len(dates) == 0:
         return False
 
@@ -111,6 +111,7 @@ def render_slot_segment_returns(slot_equity: list, timeline: list, dates,
             name_style="cn_ticker", shade_months=shade_months,
             ribbon=ribbons[slot_i] if ribbons and slot_i < len(ribbons) else None,
             ribbon_label=ribbon_labels[slot_i] if slot_i < len(ribbon_labels) else "",
+            keep_names=keep_names,
         )
         st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_slot_segment_{slot_i}")
     return True

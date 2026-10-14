@@ -111,6 +111,8 @@ STYLE = {
 }
 series = {k: pd.Series(nav[k], index=dates, dtype="float64") for k in STYLE}
 
+SHORT_NAMES = {"SPY": "标普", "QQQ": "纳指", "IWM": "罗素", "EFA": "发达", "EEM": "新兴",
+               "TLT": "长债", "IEF": "中债", "GLD": "黄金", "VNQ": "地产", "DBC": "商品"}
 SLOTS = [("slot1", "槽A", "#2ECC71"), ("slot2", "槽B", "#E74C3C"), ("slot3", "槽C", "#3498DB")]
 st.markdown("#### 净值（2007-03 = 1）")
 win_lo, win_hi = render_time_window_slider(dates, "etf")
@@ -161,7 +163,7 @@ st.markdown("#### 仓位接力")
 if not render_slot_segment_returns(
     [{"slot": i, "equity": nav[k]} for i, (k, _, _) in enumerate(SLOTS) if k in nav],
     res.get("slot_timeline") or [], dates, nav["SPY"], "etf", win_lo, win_hi,
-    name_map={r["ticker"]: r["name"] for r in table},
+    name_map=SHORT_NAMES, keep_names=True,
 ):
     st.caption("后端暂未返回仓位明细，请重启后端。")
 
