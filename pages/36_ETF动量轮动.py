@@ -100,8 +100,6 @@ nav = res["nav"]
 dates = pd.to_datetime(nav["dates"])
 STYLE = {
     "V4": ("#d62728", 2.5),
-    "V1": ("#1f77b4", 1.5),
-    "60/40": ("#7f7f7f", 1.5),
     "SPY": ("#222222", 1.5),
 }
 series = {k: pd.Series(nav[k], index=dates, dtype="float64") for k in STYLE}
@@ -146,6 +144,13 @@ st.plotly_chart(fig_h, width="stretch")
 
 # ---- 分段统计 ----
 st.markdown("#### 分段统计")
+st.caption(
+    "**V4** = 本页策略（站上 10 月均线的里挑 12 月涨幅前 3 只，各 1/3）。"
+    "**60/40** = 60% SPY + 40% IEF（7-10 年美债），固定不动，华尔街最经典的股债组合，"
+    "用来回答「轮动值不值得折腾，还是直接买 60/40 就行」。"
+    "**V1** = 10 只里每只站上 10 月均线的各放 1/10，不排名、不限数量，没站上的那份拿现金。"
+    "**SPY** = 100% 标普 500。"
+)
 tabs = st.tabs(["全程", "前半 2007-2016", "后半 2017-至今"])
 for tab, seg in zip(tabs, ["全程", "前半 2007-2016", "后半 2017-至今"]):
     with tab:
