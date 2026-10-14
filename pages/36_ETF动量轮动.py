@@ -107,7 +107,7 @@ nav = res["nav"]
 dates = pd.to_datetime(nav["dates"])
 STYLE = {
     "V4": ("#F1C40F", 2.5),
-    "SPY": ("#95A5A6", 1.5),
+    "SPY": ("rgba(170,178,189,0.75)", 1.5),
 }
 series = {k: pd.Series(nav[k], index=dates, dtype="float64") for k in STYLE}
 
