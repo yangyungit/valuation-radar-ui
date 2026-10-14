@@ -45,7 +45,7 @@ nav = st.navigation({
         st.Page("pages/18_回购稳定.py", title="回购稳定"),
         st.Page("pages/19_板块王朝.py", title="板块王朝2仓"),
         st.Page("pages/27_行业龙头.py", title="行业龙头"),
-        st.Page("pages/36_ETF动量轮动.py", title="ETF轮动 3仓"),
+        st.Page("pages/36_ETF动量轮动.py", title="ETF轮动 2仓"),
     ],
     "进攻类策略 ——————": [
         st.Page("pages/20_FCF进攻.py", title="FCF进攻"),
