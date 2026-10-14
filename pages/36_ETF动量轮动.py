@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from api_client import fetch_etf_tsmom
+from gold_leader_viz import render_equity_chart
 
 st.set_page_config(page_title="ETF轮动 3仓", layout="wide")
 
@@ -99,26 +100,27 @@ st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 nav = res["nav"]
 dates = pd.to_datetime(nav["dates"])
 STYLE = {
-    "V4": ("#d62728", 2.5),
-    "SPY": ("#222222", 1.5),
+    "V4": ("#F1C40F", 2.5),
+    "SPY": ("#3498DB", 1.5),
 }
 series = {k: pd.Series(nav[k], index=dates, dtype="float64") for k in STYLE}
 
-fig = go.Figure()
-for k, (color, width) in STYLE.items():
-    s = series[k]
-    fig.add_trace(go.Scatter(x=s.index, y=s.values, name=f"{k} {s.iloc[-1]:.2f}",
-                             line=dict(color=color, width=width)))
-fig.update_layout(title="净值（2007-03 = 1，对数轴）", yaxis_type="log", height=420,
-                  margin=dict(t=40, b=10), hovermode="x unified")
-st.plotly_chart(fig, width="stretch")
+SLOTS = [("slot1", "第1强", "#2ECC71"), ("slot2", "第2强", "#E74C3C"), ("slot3", "第3强", "#9B59B6")]
+st.markdown("#### 净值（2007-03 = 1）")
+render_equity_chart(dates, nav, [
+    ("V4", f"V4 合成 {series['V4'].iloc[-1]:.2f}", STYLE["V4"][0], True, None, 2.5),
+    ("SPY", f"SPY {series['SPY'].iloc[-1]:.2f}", STYLE["SPY"][0], True, None, 1.5),
+    *[(k, f"{name}仓", color, True, None, 1) for k, name, color in SLOTS if k in nav],
+], "etf_nav")
+st.caption("黄线 = 3 仓合成净值。细线 = 按 12 月涨幅排第 1/2/3 的那一仓单独的净值（没排上的月份拿现金），"
+           "每条细线是一仓的收益，不是 1/3 仓位的收益。")
 
 fig_dd = go.Figure()
 for k, (color, width) in STYLE.items():
     s = series[k]
     dd = s / s.cummax() - 1
     fig_dd.add_trace(go.Scatter(x=dd.index, y=dd.values, name=k, line=dict(color=color, width=width)))
-fig_dd.update_layout(title="回撤", yaxis_tickformat=".0%", height=220,
+fig_dd.update_layout(title="回撤", yaxis_tickformat=".0%", height=220, template="plotly_dark",
                      margin=dict(t=40, b=10), hovermode="x unified")
 st.plotly_chart(fig_dd, width="stretch")
 
