@@ -4,6 +4,7 @@
 信号、净值、统计全在后端 etf_tsmom.py，这页只负责展示。
 """
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -120,6 +121,41 @@ render_equity_chart(dates, nav, [
 ], "etf_nav", win_lo, win_hi)
 st.caption("黄线 = 3 仓合成净值。细线 = 三个仓位各自的净值：一只 ETF 买入后一直占同一个槽，卖出时换入者接它的槽，"
            "槽空着的月份拿现金。每条细线是该仓 100% 的收益，不是 1/3 仓位的收益。")
+
+def _nav_kpi(s: pd.Series) -> dict:
+    """月度净值的 CAGR / MaxDD / Calmar / Sortino / logR²（口径同 32 页统计卡，月频按 √12 年化）。"""
+    years = (len(s) - 1) / 12
+    cagr = (s.iloc[-1] / s.iloc[0]) ** (1 / years) - 1
+    max_dd = (s / s.cummax() - 1).min()
+    neg = s.pct_change().dropna()
+    neg = neg[neg < 0]
+    log_nav = np.log(s.values)
+    x = np.arange(len(log_nav))
+    resid = log_nav - np.polyval(np.polyfit(x, log_nav, 1), x)
+    return {
+        "cum": s.iloc[-1] / s.iloc[0] - 1, "cagr": cagr, "max_dd": max_dd, "calmar": cagr / abs(max_dd),
+        "sortino": cagr / (neg.std() * 12 ** 0.5),
+        "r2": 1 - (resid ** 2).sum() / ((log_nav - log_nav.mean()) ** 2).sum(),
+    }
+
+
+_k, _k_spy = _nav_kpi(series["V4"]), _nav_kpi(series["SPY"])
+_turnover = res["stats"]["全程"]["V4"]["换手/年"]
+_held = [set(h["holdings"]) for h in res["holdings_history"]]
+_n_switch = sum(1 for a, b in zip(_held, _held[1:]) if a != b)
+st.markdown("##### 统计卡（V4 合成，全程）")
+for _row in (
+    [("总收益", f"{_k['cum'] * 100:.0f}%"), ("CAGR", f"{_k['cagr'] * 100:.1f}%"),
+     ("MaxDD", f"{_k['max_dd'] * 100:.1f}%"), ("Calmar", f"{_k['calmar']:.2f}"),
+     ("CAGR 超额 vs SPY", f"{(_k['cagr'] - _k_spy['cagr']) * 100:+.1f}%")],
+    [("换仓次数", f"{_n_switch}"), ("年化换手", f"{_turnover:.2f}"),
+     ("Sortino", f"{_k['sortino']:.2f}"), ("logR²", f"{_k['r2']:.2f}")],
+):
+    for _col, (_label, _val) in zip(st.columns(len(_row)), _row):
+        _col.metric(_label, _val)
+st.caption(f"SPY 对照：总收益 {_k_spy['cum'] * 100:.0f}% / CAGR {_k_spy['cagr'] * 100:.1f}% / "
+           f"MaxDD {_k_spy['max_dd'] * 100:.1f}% / Calmar {_k_spy['calmar']:.2f} / "
+           f"Sortino {_k_spy['sortino']:.2f} / logR² {_k_spy['r2']:.2f}。统计按全程算，不跟随时间窗口滑块。")
 
 st.markdown("#### 仓位接力")
 if not render_slot_segment_returns(
