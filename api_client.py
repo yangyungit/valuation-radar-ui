@@ -3537,9 +3537,21 @@ def fetch_portfolio_ledger() -> dict:
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=300)
+def fetch_portfolio_thesis() -> dict:
+    """持仓论点卡 + 探针当前值。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/portfolio/thesis", timeout=60)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def clear_portfolio_caches() -> None:
     fetch_portfolio_summary.clear()
     fetch_portfolio_ledger.clear()
+    fetch_portfolio_thesis.clear()
 
 
 def _portfolio_write(method: str, path: str, payload: dict | None = None) -> dict:
@@ -3568,3 +3580,11 @@ def post_portfolio_cash_flow(payload: dict) -> dict:
 
 def delete_portfolio_cash_flow(flow_id: int) -> dict:
     return _portfolio_write("DELETE", f"/api/v1/portfolio/cash_flow/{int(flow_id)}")
+
+
+def put_portfolio_thesis(ticker: str, payload: dict) -> dict:
+    return _portfolio_write("PUT", f"/api/v1/portfolio/thesis/{ticker}", payload)
+
+
+def delete_portfolio_thesis(ticker: str) -> dict:
+    return _portfolio_write("DELETE", f"/api/v1/portfolio/thesis/{ticker}")

@@ -1,3 +1,7 @@
+## 2026-10-16 ABCD 实盘页加论点卡
+
+后端见 `valuation-radar` ae9baa1：`/api/v1/portfolio/thesis`。`pages/33_ABCD实盘.py` 持仓明细后每只持仓一个 expander：顺风 / 什么时候坏 / 决策日志编号 / 探针表（当前值、阈值、碰线标红、数据截至），碰线的默认展开；本机可编辑，探针按 `metric,op,threshold,label` 一行一个录。`api_client.py` 加 `fetch_portfolio_thesis` / `put_portfolio_thesis` / `delete_portfolio_thesis`。
+
 ## 2026-10-14 ETF 轮动页改 2 仓、只在跌破均线时卖
 
 后端 `etf_tsmom.py` 改 `TOP_K=2`、删排名缓冲：已持有的只要站在 10 月均线上就不卖。回测 CAGR 9.2→10.2、回撤 −21.4→−19.2、换手 1.25→1.08/年；死区 δ（固定 / 按截面标准差 / 按比例）和最小持有期都扫过，换手单调降、收益在 8–10% 噪音里，拉满即本规则。页面标题、规则说明、槽位改 2 个，`app.py` 入口改「ETF轮动 2仓」。

@@ -14,11 +14,14 @@ from api_client import (
     IS_PROD_REMOTE,
     clear_portfolio_caches,
     delete_portfolio_cash_flow,
+    delete_portfolio_thesis,
     delete_portfolio_trade,
     fetch_portfolio_ledger,
     fetch_portfolio_summary,
+    fetch_portfolio_thesis,
     post_portfolio_cash_flow,
     post_portfolio_trade,
+    put_portfolio_thesis,
 )
 
 st.set_page_config(page_title="ABCD 实盘", layout="wide", page_icon="📒")
@@ -125,6 +128,49 @@ def ledger_section() -> None:
                        file_name="portfolio_cash_flows.csv", mime="text/csv")
 
 
+METRIC_LABELS = {
+    "gross_margin": "毛利率 %", "rev_qoq": "季收入环比 %", "rev_yoy": "季收入同比 %",
+    "hyperscaler_capex_yoy": "四家云厂商 capex 同比 %",
+    "rs_vs_52w_high": "相对 SPY 距 52 周高点 %", "pe": "PE",
+}
+
+
+def thesis_form(tk: str, card: dict | None) -> None:
+    card = card or {"tailwind": "", "break_when": "", "probes": [], "dl_refs": ""}
+    with st.form(f"thesis_{tk}"):
+        tail = st.text_area("顺风是什么", card["tailwind"], key=f"tw_{tk}")
+        brk = st.text_area("什么时候坏", card["break_when"], key=f"bw_{tk}")
+        dl = st.text_input("决策日志编号（逗号分隔）", card["dl_refs"], key=f"dl_{tk}")
+        st.caption("探针：每行一个，格式 `metric,op,threshold,label`，metric 取下方词表")
+        st.caption(" · ".join(f"`{k}` {v}" for k, v in METRIC_LABELS.items()))
+        raw = "\n".join(f"{p['metric']},{p['op']},{p['threshold']:g},{p['label']}" for p in card["probes"])
+        txt = st.text_area("看哪个数", raw, key=f"pr_{tk}", height=110)
+        c1, c2 = st.columns([1, 5])
+        if c1.form_submit_button("保存"):
+            probes = []
+            try:
+                for line in txt.splitlines():
+                    parts = [s.strip() for s in line.split(",", 3)]
+                    if len(parts) == 4 and parts[0]:
+                        probes.append({"metric": parts[0], "op": parts[1],
+                                       "threshold": float(parts[2]), "label": parts[3]})
+            except ValueError:
+                st.error("阈值不是数字")
+            else:
+                res = put_portfolio_thesis(tk, {"tailwind": tail, "break_when": brk,
+                                                "probes": probes, "dl_refs": dl})
+                if res.get("success"):
+                    st.rerun()
+                else:
+                    st.error(res.get("error", "未知错误"))
+        if c2.form_submit_button("删卡"):
+            res = delete_portfolio_thesis(tk)
+            if res.get("success"):
+                st.rerun()
+            else:
+                st.error(res.get("error", "未知错误"))
+
+
 summary = fetch_portfolio_summary()
 if not summary.get("success"):
     st.error(f"⚠️ 后端拿不到账本数据：{summary.get('error', '未知错误')}")
@@ -223,6 +269,42 @@ else:
     st.dataframe(pd.DataFrame(pos_rows), width="stretch", hide_index=True)
     for w in summary.get("warnings", []):
         st.warning(w)
+
+    # ---- 论点卡 ----
+    st.markdown("### 论点卡")
+    st.caption("每只持仓三句话：顺风是什么 / 什么时候坏 / 看哪个数知道坏了。"
+               "能从本地 Sharadar 算的数由后端盯，碰线标红；算不了的（capex 指引、综合成本率）靠人读财报。"
+               "坏法写成带日期阈值的判断进中台决策日志，编号填在卡上。")
+    th = fetch_portfolio_thesis()
+    if not th.get("success"):
+        st.caption(f"拿不到论点卡：{th.get('error', '未知错误')}")
+    else:
+        da = th.get("data_asof") or {}
+        st.caption(f"探针数据截至：财报 {da.get('sf1', '—')} · 价格 {da.get('price', '—')}")
+        cards = {c["ticker"]: c for c in th.get("cards", [])}
+        held = [p["ticker"] for p in summary["positions"]]
+        for tk in held + [t for t in cards if t not in held]:
+            c = cards.get(tk)
+            n_hit = sum(1 for p in (c or {}).get("probes", []) if p.get("breached"))
+            tag = "　🔴 碰线 %d" % n_hit if n_hit else ("" if c else "　还没写卡")
+            with st.expander(f"{tk}{tag}{'' if tk in held else '　（已不在持仓）'}", expanded=bool(n_hit)):
+                if c:
+                    st.markdown(f"**顺风**：{c['tailwind'] or '—'}")
+                    st.markdown(f"**什么时候坏**：{c['break_when'] or '—'}")
+                    if c.get("dl_refs"):
+                        st.markdown(f"**决策日志**：{c['dl_refs']}")
+                    prow = [{
+                        "看哪个数": p["label"], "指标": p["metric"],
+                        "当前": "无数据" if p.get("value") is None else f"{p['value']:.1f}",
+                        "阈值": f"{p['op']} {p['threshold']:g}",
+                        "状态": "🔴 碰线" if p.get("breached") else ("—" if p.get("value") is None else "🟢"),
+                        "数据截至": p.get("as_of") or "—",
+                    } for p in c["probes"]]
+                    if prow:
+                        st.dataframe(pd.DataFrame(prow), width="stretch", hide_index=True)
+                    st.caption(f"更新于 {c['updated_at'][:10]}")
+                if not IS_PROD_REMOTE:
+                    thesis_form(tk, c)
 
     st.markdown("### 周报文本")
     st.code(summary["weekly_text"], language="markdown")
