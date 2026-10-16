@@ -7,6 +7,7 @@ import yfinance as yf
 from _yf_session import new_yf_session  # curl_cffi 浏览器指纹，绕 Yahoo 401
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import streamlit.components.v1 as components
 from api_client import (fetch_core_data, fetch_vcp_analysis, fetch_screen_results,
                         fetch_arena_history)
 from shared_state import SharedKeys  # 跨页面 session_state key 集中定义（约束 4）
@@ -36,6 +37,147 @@ st.markdown("""
     .timing-box { background: rgba(46,204,113,0.06); border-left: 4px solid #2ECC71; padding: 18px 20px; border-radius: 0 8px 8px 0; margin: 10px 0 18px 0; font-size: 14px; color: #ddd; line-height: 1.8; }
 </style>
 """, unsafe_allow_html=True)
+
+_LWC_JS = "https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"
+
+
+def _render_tv_vcp_chart(hist_chart: pd.DataFrame, ma_windows: tuple, ma_labels: tuple,
+                         vol_ma_period: int, vol_ma_label: str, vcp: dict, height: int = 650) -> None:
+    idx = hist_chart.index
+    times = idx.strftime("%Y-%m-%d").tolist()
+    close = hist_chart["Close"].astype(float)
+    opn = hist_chart["Open"].astype(float)
+    vol = hist_chart["Volume"].astype(float)
+
+    def _line(s: pd.Series) -> list:
+        return [{"time": d.strftime("%Y-%m-%d"), "value": round(float(x), 4)} for d, x in s.dropna().items()]
+
+    # 周线 K 的日期是周五，VCP 的日期是日线日期，要落到所在那根 K 上
+    def _snap(date_str: str):
+        pos = idx.searchsorted(pd.Timestamp(date_str), side="left")
+        return times[pos] if pos < len(times) else None
+
+    candles = [
+        {"time": t, "open": round(o, 4), "high": round(h, 4), "low": round(l, 4), "close": round(c, 4)}
+        for t, o, h, l, c in zip(times, opn, hist_chart["High"].astype(float),
+                                 hist_chart["Low"].astype(float), close)
+    ]
+    volume = [
+        {"time": t, "value": float(v), "color": "rgba(231,76,60,0.6)" if c < o else "rgba(46,204,113,0.6)"}
+        for t, v, c, o in zip(times, vol, close, opn)
+    ]
+
+    contraction_markers = []
+    for cw in vcp.get("contractions", []):
+        t = _snap(cw["trough_date"])
+        if t:
+            contraction_markers.append({"time": t, "position": "belowBar", "color": "#E74C3C",
+                                        "shape": "arrowUp", "text": f"W{cw['wave']}: {cw['depth_pct']:.1f}%"})
+    contraction_markers.sort(key=lambda m: m["time"])
+
+    extrema_pts: dict = {}
+    for e in vcp.get("extrema", []):
+        t = _snap(e["date"])
+        if t:
+            extrema_pts[t] = e
+    extrema_line = [{"time": t, "value": e["price"]} for t, e in sorted(extrema_pts.items())]
+    extrema_markers = [{"time": t, "position": "inBar", "shape": "circle",
+                        "color": "#E74C3C" if e["type"] == "H" else "#2ECC71"}
+                       for t, e in sorted(extrema_pts.items())]
+
+    price_lines = [{"price": vcp["pivot"]["price"], "color": "cyan", "style": 2, "title": "枢轴点"}]
+    twap = vcp["twap"]
+    if twap["action"] in ("EXECUTE", "PREPARE"):
+        price_lines += [
+            {"price": twap["entry_price"], "color": "#2ECC71", "style": 1, "title": "Entry"},
+            {"price": twap["stop_loss"], "color": "#E74C3C", "style": 1, "title": "Stop"},
+            {"price": twap["target_price"], "color": "#F1C40F", "style": 1, "title": "Target"},
+        ]
+
+    ma_colors = ("#3498DB", "#F39C12", "#E74C3C")
+    payload = {
+        "candles": candles,
+        "mas": [{"label": lb, "color": cl, "width": 2 if i == 2 else 1,
+                 "data": _line(close.rolling(w).mean())}
+                for i, (w, lb, cl) in enumerate(zip(ma_windows, ma_labels, ma_colors))],
+        "volume": volume,
+        "vol_ma": {"label": vol_ma_label, "data": _line(vol.rolling(vol_ma_period).mean())},
+        "contraction_markers": contraction_markers,
+        "extrema_line": extrema_line,
+        "extrema_markers": extrema_markers,
+        "price_lines": price_lines,
+    }
+
+    html = f"""
+<div id="lg" style="font:12px sans-serif;color:#ccc;padding:4px 2px;height:22px"></div>
+<div id="c" style="width:100%;height:{height}px"></div>
+<script src="{_LWC_JS}"></script>
+<script>
+const P = {json.dumps(payload)};
+const L = LightweightCharts;
+const chart = L.createChart(document.getElementById('c'), {{
+  autoSize: true,
+  layout: {{ background: {{ color: '#0e1117' }}, textColor: '#ccc' }},
+  grid: {{ vertLines: {{ color: '#1c2030' }}, horzLines: {{ color: '#1c2030' }} }},
+  crosshair: {{ mode: L.CrosshairMode.Normal }},
+  rightPriceScale: {{ scaleMargins: {{ top: 0.05, bottom: 0.3 }} }},
+  timeScale: {{ borderColor: '#333' }},
+}});
+const candle = chart.addCandlestickSeries({{
+  upColor: '#2ECC71', downColor: '#E74C3C', borderVisible: false,
+  wickUpColor: '#2ECC71', wickDownColor: '#E74C3C',
+  autoscaleInfoProvider: base => {{
+    const r = base();
+    if (!r) return r;
+    const ps = P.price_lines.map(p => p.price);
+    r.priceRange.minValue = Math.min(r.priceRange.minValue, ...ps);
+    r.priceRange.maxValue = Math.max(r.priceRange.maxValue, ...ps);
+    return r;
+  }},
+}});
+candle.setData(P.candles);
+candle.setMarkers(P.contraction_markers);
+P.price_lines.forEach(p => candle.createPriceLine({{
+  price: p.price, color: p.color, lineWidth: 1, lineStyle: p.style,
+  axisLabelVisible: true, title: p.title,
+}}));
+P.mas.forEach(m => chart.addLineSeries({{
+  color: m.color, lineWidth: m.width, priceLineVisible: false,
+  lastValueVisible: false, crosshairMarkerVisible: false,
+}}).setData(m.data));
+const ext = chart.addLineSeries({{
+  color: 'rgba(255,255,255,0.4)', lineWidth: 1, lineStyle: L.LineStyle.Dotted,
+  priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+}});
+ext.setData(P.extrema_line);
+ext.setMarkers(P.extrema_markers);
+const volS = chart.addHistogramSeries({{
+  priceScaleId: 'vol', priceFormat: {{ type: 'volume' }},
+  priceLineVisible: false, lastValueVisible: false,
+}});
+volS.setData(P.volume);
+chart.addLineSeries({{
+  priceScaleId: 'vol', color: '#F39C12', lineWidth: 1,
+  priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+}}).setData(P.vol_ma.data);
+chart.priceScale('vol').applyOptions({{ scaleMargins: {{ top: 0.75, bottom: 0 }} }});
+chart.timeScale().fitContent();
+
+const keys = P.mas.map(m => `<span style="color:${{m.color}}">${{m.label}}</span>`).join(' · ')
+  + ` · <span style="color:#F39C12">${{P.vol_ma.label}}</span>`;
+const lg = document.getElementById('lg');
+lg.innerHTML = keys;
+chart.subscribeCrosshairMove(p => {{
+  const b = p.time && p.seriesData.get(candle);
+  if (!b) {{ lg.innerHTML = keys; return; }}
+  const clr = b.close >= b.open ? '#2ECC71' : '#E74C3C';
+  lg.innerHTML = `${{p.time}} 开 ${{b.open.toFixed(2)}} 高 ${{b.high.toFixed(2)}} `
+    + `低 ${{b.low.toFixed(2)}} <span style="color:${{clr}}">收 ${{b.close.toFixed(2)}}</span> · ${{keys}}`;
+}});
+</script>
+"""
+    components.html(html, height=height + 30)
+
 
 # ── VCP 目标选择逻辑（数据预处理，不渲染 UI）──
 _screen_cache_p5 = fetch_screen_results()
@@ -2032,102 +2174,13 @@ if target_ticker:
         tf_tag = "周线 · 卫星图" if is_weekly else "日线 · 狙击镜"
         st.caption(f"📡 当前视图: **{tf_tag}** — 回溯 {len(hist_chart)} 根 K 线")
 
-        fig = make_subplots(
-            rows=2, cols=1, shared_xaxes=True,
-            vertical_spacing=0.03, row_heights=[0.7, 0.3],
+        _render_tv_vcp_chart(
+            hist_chart, (ma_short, ma_mid, ma_long), ma_labels,
+            vol_ma_period=10 if is_weekly else 50,
+            vol_ma_label='10周均量' if is_weekly else '50日均量',
+            vcp=vcp,
         )
-
-        fig.add_trace(go.Candlestick(
-            x=hist_chart.index,
-            open=hist_chart['Open'].astype(float),
-            high=hist_chart['High'].astype(float),
-            low=hist_chart['Low'].astype(float),
-            close=hist_chart['Close'].astype(float),
-            name="K线",
-            increasing_line_color='#2ECC71', decreasing_line_color='#E74C3C',
-        ), row=1, col=1)
-
-        ma_s = hist_chart['Close'].astype(float).rolling(ma_short).mean()
-        ma_m = hist_chart['Close'].astype(float).rolling(ma_mid).mean()
-        ma_l = hist_chart['Close'].astype(float).rolling(ma_long).mean()
-        fig.add_trace(go.Scatter(x=hist_chart.index, y=ma_s, line=dict(color='#3498DB', width=1), name=ma_labels[0]), row=1, col=1)
-        fig.add_trace(go.Scatter(x=hist_chart.index, y=ma_m, line=dict(color='#F39C12', width=1), name=ma_labels[1]), row=1, col=1)
-        fig.add_trace(go.Scatter(x=hist_chart.index, y=ma_l, line=dict(color='#E74C3C', width=1.5), name=ma_labels[2]), row=1, col=1)
-
-        for ci, cw in enumerate(vcp.get("contractions", [])):
-            fig.add_shape(
-                type="rect",
-                x0=cw["peak_date"], x1=cw["trough_date"],
-                y0=cw["trough_price"], y1=cw["peak_price"],
-                fillcolor=f"rgba(231, 76, 60, {0.08 + ci * 0.04})",
-                line=dict(color="rgba(231, 76, 60, 0.4)", width=1),
-                row=1, col=1,
-            )
-            fig.add_annotation(
-                x=cw["trough_date"], y=cw["trough_price"],
-                text=f"W{cw['wave']}: {cw['depth_pct']:.1f}%",
-                showarrow=True, arrowhead=2, arrowcolor="#E74C3C",
-                font=dict(size=11, color="#E74C3C"),
-                row=1, col=1,
-            )
-
-        ext = vcp.get("extrema", [])
-        if ext:
-            ext_colors = ['#E74C3C' if e['type'] == 'H' else '#2ECC71' for e in ext]
-            fig.add_trace(go.Scatter(
-                x=[e["date"] for e in ext],
-                y=[e["price"] for e in ext],
-                mode='lines+markers',
-                line=dict(color='rgba(255,255,255,0.4)', width=1, dash='dot'),
-                marker=dict(size=7, color=ext_colors),
-                name='峰谷极值',
-            ), row=1, col=1)
-
-        fig.add_hline(
-            y=vcp["pivot"]["price"], line_dash="dash", line_color="cyan",
-            annotation_text=f"枢轴点 ${vcp['pivot']['price']:.2f}",
-            annotation_position="top left", row=1, col=1,
-        )
-
         twap = vcp["twap"]
-        if twap["action"] in ("EXECUTE", "PREPARE"):
-            fig.add_hline(y=twap["entry_price"], line_dash="dot", line_color="#2ECC71",
-                          annotation_text=f"Entry ${twap['entry_price']:.2f}",
-                          annotation_position="bottom right", row=1, col=1)
-            fig.add_hline(y=twap["stop_loss"], line_dash="dot", line_color="#E74C3C",
-                          annotation_text=f"Stop ${twap['stop_loss']:.2f}",
-                          annotation_position="bottom right", row=1, col=1)
-            fig.add_hline(y=twap["target_price"], line_dash="dot", line_color="#F1C40F",
-                          annotation_text=f"Target ${twap['target_price']:.2f}",
-                          annotation_position="top right", row=1, col=1)
-
-        vol_colors = []
-        for c_val, o_val in zip(hist_chart['Close'].astype(float), hist_chart['Open'].astype(float)):
-            vol_colors.append('#E74C3C' if float(c_val) < float(o_val) else '#2ECC71')
-        fig.add_trace(go.Bar(
-            x=hist_chart.index, y=hist_chart['Volume'].astype(float),
-            marker_color=vol_colors, name='成交量', opacity=0.6,
-        ), row=2, col=1)
-
-        vol_ma_period = 10 if is_weekly else 50
-        vol_ma = hist_chart['Volume'].astype(float).rolling(vol_ma_period).mean()
-        vol_ma_label = '10周均量' if is_weekly else '50日均量'
-        fig.add_trace(go.Scatter(
-            x=hist_chart.index, y=vol_ma,
-            line=dict(color='#F39C12', width=1), name=vol_ma_label,
-        ), row=2, col=1)
-
-        fig.update_layout(
-            height=650, template="plotly_dark",
-            xaxis_rangeslider_visible=False,
-            showlegend=True,
-            legend=dict(orientation="h", y=1.05, font=dict(size=11)),
-            margin=dict(t=40, l=10, r=10, b=10),
-        )
-        fig.update_yaxes(title_text="价格", row=1, col=1)
-        fig.update_yaxes(title_text="成交量", row=2, col=1)
-
-        st.plotly_chart(fig, use_container_width=True)
 
         # ── Analysis Panels ──
         col_l, col_r = st.columns(2)
