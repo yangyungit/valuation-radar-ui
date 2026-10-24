@@ -282,7 +282,7 @@ else:
         da = th.get("data_asof") or {}
         st.caption(f"探针数据截至：财报 {da.get('sf1', '—')} · 价格 {da.get('price', '—')}")
         cards = {c["ticker"]: c for c in th.get("cards", [])}
-        held = [p["ticker"] for p in summary["positions"]]
+        held = list(dict.fromkeys(p["ticker"] for p in summary["positions"]))
         for tk in held + [t for t in cards if t not in held]:
             c = cards.get(tk)
             n_hit = sum(1 for p in (c or {}).get("probes", []) if p.get("breached"))
