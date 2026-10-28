@@ -79,6 +79,7 @@ for r in cur:
         "EV/EBIT": r.get("evebit"),
         "组内分位": None if r.get("evebit_pct") is None else r["evebit_pct"] * 100,
         "相对自身5年": r.get("evebit_rel"),
+        "FCF/EV": None if r.get("fcf_ev") is None else r["fcf_ev"] * 100,
         "估值提示": r.get("flag") or "",
         "11题": quiz_txt,
     })
@@ -103,7 +104,7 @@ st.dataframe(
     df.style
       .format({"ROIC": "{:.0f}%", "5年中位": "{:.0f}%", "5年波动pp": "{:.1f}", "营收3年增速": "{:+.0f}%",
                "FCF转化": "{:.2f}", "市值$B": "{:.1f}", "EV/EBIT": "{:.1f}", "组内分位": "{:.0f}%",
-               "相对自身5年": "{:.2f}x"}, na_rep="—")
+               "相对自身5年": "{:.2f}x", "FCF/EV": "{:.1f}%"}, na_rep="—")
       .map(_flag_color, subset=["估值提示"])
       .map(_quiz_color, subset=["11题"]),
     hide_index=True, use_container_width=True, height=min(60 + 36 * len(df), 1400),
@@ -112,6 +113,8 @@ st.caption(
     "ROIC 是 Sharadar 税前口径（EBIT ÷ 平均投入资本），芒格说的 18% 更像税后，对应税前约 24%。"
     "「连续年数」是最新财年往前数、ROIC ≥18% 一年没断的年数（回购到负资本且 EBIT 为正的算过）。"
     "「组内分位」是 EV/EBIT 在当前池里的百分位（越低越便宜）；「相对自身 5 年」是现在的 EV/EBIT ÷ 自己过去 60 个月中位。"
+    "「FCF/EV」是近 5 个财年平均自由现金流 ÷ 当前企业价值（市值 + 负债 − 现金），即整家买下来每年吐多少现金；"
+    "没扣股权激励，和 EV/EBIT 对着看：EV/EBIT 便宜但 FCF/EV 偏低，说明利润没变成现金。"
     "「11 题」来自 biz_quiz.db：机器按 拼合 > opus > cheap 取第一个答满的，A=2 B=1，≥16 好 ≤6 烂；没答过的留空。"
 )
 
