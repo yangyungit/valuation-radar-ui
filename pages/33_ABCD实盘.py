@@ -180,7 +180,7 @@ def _md(ts: str | None) -> str:
 def watch_section() -> None:
     st.markdown("### 持仓盯盘")
     st.caption("每天北京 07:20 跑。DeepSeek 对照卡上「什么时候坏」读新 8-K 和新闻，自己决定下次搜什么；"
-               "判 threatened 或探针新碰线才交给 Claude 联网核实，判理由被推翻 / 削弱才推 #simtrade。")
+               "判 threatened 或探针新碰线才交给 Claude 联网核实，判理由被推翻 / 削弱才推 #choice。")
     w = fetch_portfolio_watch()
     if not w.get("success"):
         st.caption(f"拿不到盯盘记录：{w.get('error', '未知错误')}")
