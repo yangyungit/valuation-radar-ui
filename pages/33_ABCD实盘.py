@@ -19,6 +19,7 @@ from api_client import (
     fetch_portfolio_ledger,
     fetch_portfolio_summary,
     fetch_portfolio_thesis,
+    fetch_portfolio_watch,
     post_portfolio_cash_flow,
     post_portfolio_trade,
     put_portfolio_thesis,
@@ -128,21 +129,15 @@ def ledger_section() -> None:
                        file_name="portfolio_cash_flows.csv", mime="text/csv")
 
 
-METRIC_LABELS = {
-    "gross_margin": "毛利率 %", "rev_qoq": "季收入环比 %", "rev_yoy": "季收入同比 %",
-    "hyperscaler_capex_yoy": "四家云厂商 capex 同比 %",
-    "rs_vs_52w_high": "相对 SPY 距 52 周高点 %", "pe": "PE",
-}
-
-
-def thesis_form(tk: str, card: dict | None) -> None:
-    card = card or {"tailwind": "", "break_when": "", "probes": [], "dl_refs": ""}
+def thesis_form(tk: str, card: dict | None, labels: dict) -> None:
+    card = card or {"tailwind": "", "break_when": "", "probes": [], "dl_refs": "", "news_terms": ""}
     with st.form(f"thesis_{tk}"):
         tail = st.text_area("顺风是什么", card["tailwind"], key=f"tw_{tk}")
         brk = st.text_area("什么时候坏", card["break_when"], key=f"bw_{tk}")
         dl = st.text_input("决策日志编号（逗号分隔）", card["dl_refs"], key=f"dl_{tk}")
+        terms = st.text_input("盯盘关键词（逗号分隔，空 = 不盯）", card.get("news_terms", ""), key=f"nt_{tk}")
         st.caption("探针：每行一个，格式 `metric,op,threshold,label`，metric 取下方词表")
-        st.caption(" · ".join(f"`{k}` {v}" for k, v in METRIC_LABELS.items()))
+        st.caption(" · ".join(f"`{k}` {v}" for k, v in labels.items()))
         raw = "\n".join(f"{p['metric']},{p['op']},{p['threshold']:g},{p['label']}" for p in card["probes"])
         txt = st.text_area("看哪个数", raw, key=f"pr_{tk}", height=110)
         c1, c2 = st.columns([1, 5])
@@ -158,7 +153,7 @@ def thesis_form(tk: str, card: dict | None) -> None:
                 st.error("阈值不是数字")
             else:
                 res = put_portfolio_thesis(tk, {"tailwind": tail, "break_when": brk,
-                                                "probes": probes, "dl_refs": dl})
+                                                "probes": probes, "dl_refs": dl, "news_terms": terms})
                 if res.get("success"):
                     st.rerun()
                 else:
@@ -169,6 +164,76 @@ def thesis_form(tk: str, card: dict | None) -> None:
                 st.rerun()
             else:
                 st.error(res.get("error", "未知错误"))
+
+
+WATCH_STATUS = {
+    "intact": "🟢 没碰理由", "watch": "🟡 有关但没坏", "threatened": "🔴 可能在坏",
+    "no_new": "⚪ 没新材料", "no_card": "还没写卡", "error": "❌ 出错",
+}
+DEEP_VERDICT = {"broken": "理由被推翻", "weakened": "理由被削弱", "false_alarm": "虚惊"}
+
+
+def _md(ts: str | None) -> str:
+    return (ts or "")[5:10]
+
+
+def watch_section() -> None:
+    st.markdown("### 持仓盯盘")
+    st.caption("每天北京 07:20 跑。DeepSeek 对照卡上「什么时候坏」读新 8-K 和新闻，自己决定下次搜什么；"
+               "判 threatened 或探针新碰线才交给 Claude 联网核实，判理由被推翻 / 削弱才推 #simtrade。")
+    w = fetch_portfolio_watch()
+    if not w.get("success"):
+        st.caption(f"拿不到盯盘记录：{w.get('error', '未知错误')}")
+        return
+    cost = w.get("cost_30d")
+    st.caption(f"近 30 天模型花费 {'—' if cost is None else f'${cost:.2f}'}")
+    tickers = w.get("tickers", [])
+    if not tickers:
+        st.caption("还没有运行记录")
+        return
+    st.dataframe(pd.DataFrame([{
+        "代码": t["ticker"],
+        "最近运行": f"{_md(t['last_run'])} {t['last_run'][11:16]}",
+        "判断": WATCH_STATUS.get(t["status"], t["status"]),
+        "新 8-K": t["n_filings"], "新标题": t["n_headlines"],
+        "交给 Claude": "是" if t["escalated"] else "否",
+        "卡外风险": t.get("novel_risk") or "—",
+    } for t in tickers]), width="stretch", hide_index=True)
+
+    runs, mats, deeps = w.get("runs", []), w.get("materials", []), w.get("deep", [])
+    for t in tickers:
+        tk = t["ticker"]
+        tk_deep = [d for d in deeps if d["ticker"] == tk]
+        with st.expander(f"{tk} 近 14 天", expanded=bool(tk_deep) or t["status"] == "threatened"):
+            st.markdown("**它在搜什么**：" + (" · ".join(t.get("queries") or []) or "—"))
+            tk_mats = [m for m in mats if m["ticker"] == tk][:30]
+            st.markdown("**它读了什么**")
+            if tk_mats:
+                st.dataframe(pd.DataFrame([{
+                    "日期": (m.get("published") or "")[:10],
+                    "类型": "8-K" if m["kind"] == "8-K" else "新闻",
+                    "标题": m.get("title") or m["ref"],
+                    "链接": m.get("url") or None,
+                } for m in tk_mats]), width="stretch", hide_index=True,
+                    column_config={"链接": st.column_config.LinkColumn("链接", display_text="打开")})
+            else:
+                st.caption("没有")
+            st.markdown("**它怎么判的**")
+            for r in (r for r in runs if r["ticker"] == tk):
+                why = "；".join(h.get("why_zh", "") for h in r.get("hits_json", []))
+                st.markdown(f"- {_md(r['run_at'])} {WATCH_STATUS.get(r['status'], r['status'])}"
+                            + (f" · {why}" if why else ""))
+                if r.get("novel_risk"):
+                    st.markdown(f"　卡外风险：{r['novel_risk']}（要加进卡请手动改上面的『什么时候坏』）")
+            if tk_deep:
+                st.markdown("**Claude 深判**")
+            for d in tk_deep:
+                st.markdown(f"- {_md(d['run_at'])} **{DEEP_VERDICT.get(d['verdict'], d['verdict'])}**"
+                            f"{'　已推送' if d.get('pushed') else ''}：{d.get('summary_zh') or d.get('error') or ''}")
+                for e in d.get("evidence_json", []):
+                    st.markdown(f"　　- “{e.get('quote', '')}” — {e.get('source', '')}")
+                if d.get("searches_json"):
+                    st.caption("搜了：" + " · ".join(d["searches_json"]))
 
 
 summary = fetch_portfolio_summary()
@@ -293,6 +358,7 @@ else:
                     st.markdown(f"**什么时候坏**：{c['break_when'] or '—'}")
                     if c.get("dl_refs"):
                         st.markdown(f"**决策日志**：{c['dl_refs']}")
+                    st.markdown(f"**盯盘关键词**：{c.get('news_terms') or '不盯'}")
                     prow = [{
                         "看哪个数": p["label"], "指标": p["metric"],
                         "当前": "无数据" if p.get("value") is None else f"{p['value']:.1f}",
@@ -304,7 +370,9 @@ else:
                         st.dataframe(pd.DataFrame(prow), width="stretch", hide_index=True)
                     st.caption(f"更新于 {c['updated_at'][:10]}")
                 if not IS_PROD_REMOTE:
-                    thesis_form(tk, c)
+                    thesis_form(tk, c, th.get("metric_labels", {}))
+
+    watch_section()
 
     st.markdown("### 周报文本")
     st.code(summary["weekly_text"], language="markdown")

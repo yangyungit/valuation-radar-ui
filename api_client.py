@@ -3548,10 +3548,22 @@ def fetch_portfolio_thesis() -> dict:
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=300)
+def fetch_portfolio_watch(days: int = 14) -> dict:
+    """持仓盯盘：每只最近运行、材料、深判记录。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/portfolio/watch", params={"days": days}, timeout=60)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def clear_portfolio_caches() -> None:
     fetch_portfolio_summary.clear()
     fetch_portfolio_ledger.clear()
     fetch_portfolio_thesis.clear()
+    fetch_portfolio_watch.clear()
 
 
 def _portfolio_write(method: str, path: str, payload: dict | None = None) -> dict:
