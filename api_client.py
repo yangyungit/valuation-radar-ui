@@ -943,6 +943,17 @@ def fetch_quality_deep_drawdown() -> dict:
 
 
 @st.cache_data(ttl=3600 * 4)
+def fetch_long_slope_roic() -> dict:
+    """长坡 ROIC 持有池：当前候选 + 留档回测 + 11 题总评。失败返回 {"success": False, ...}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/long_slope_roic", timeout=60)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
 def _fetch_buyback_stable_relay_timeseries_cached(window: str = "5Y") -> dict:
     """page 8 ROIC 稳定规则池（判据1+不稀释门+ROIC≥10%+ROIC 前 40，排名轴 roic）接力图时序。
     失败返回 {"success": False, "error": ...}。
