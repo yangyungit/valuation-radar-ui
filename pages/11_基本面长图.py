@@ -108,6 +108,8 @@ OVERLAYS = [
     ("每股收益(EPS) (TTM,$)",  "eps_ttm",          "#ff7f0e", "dollar", "toggle"),
     ("市盈率(PE) (TTM)",     "pe",               "#8c564b", "ratio",  False),
     ("市净率(PB) (最新季)",  "pb",               "#f28e2b", "ratio",  False),
+    ("市销率(PS) (TTM)",     "ps",               "#b07aa1", "ratio",  False),
+    ("市值/经营利润 (TTM)",  "p_opinc",          "#d4a373", "ratio",  False),
     ("自由现金流(FCF) (TTM,$)",  "fcf_usd",          "#17becf", "dollar", "toggle"),
     ("自由现金流(FCF) (单季,$)", "fcf_q_usd",        "#00e5c0", "dollar", "toggle"),
     ("经营现金流(OCF) (TTM,$)","ocf_usd",      "#98df8a", "dollar", "toggle"),
@@ -122,7 +124,10 @@ sel_overlays = st.multiselect(
     default=["营收(Rev) (TTM,$)", "经营现金流(OCF) (TTM,$)", "自由现金流(FCF) (TTM,$)", "净利润(NI) (TTM,$)"],
     help="ROIC/Rule40/净利率/毛利率/经营利润率/营收同比/净利润同比/股东总回报率/净回购率/FCF 收益率挂左侧 % 轴；"
          "FCF/FCF(单季)/OCF/毛利润(GP)/净利润(NI)/营收(Rev)共用同一根右轴（量级可比，谁高谁低是真实大小，不是各轴缩放巧合）；"
-         "EPS/资本开支(CapEx)/PE/PB 各自独立右侧轴（每股 $、恒负现金流出、倍数，量纲不同没法合并）。"
+         "EPS/资本开支(CapEx)/PE/PB/PS/市值÷经营利润 各自独立右侧轴（每股 $、恒负现金流出、倍数，量纲不同没法合并）。"
+         "PS 和 市值÷经营利润 不含投资收益等营业外项目——GOOGL 2026Q2 经营利润 408 亿、"
+         "税前利润 1388 亿，PE 被压到 15.9 倍，这两条不受影响。PS 连利润率变化也抹掉了，"
+         "利润率在扩张的公司 PS 上升有一部分是合理的，市值÷经营利润 能把这部分保留下来。"
          "FCF = OCF + CapEx（CapEx 本身是负数）。"
          "FCF (单季) 是当季原始数，不做 4 季滚动——TTM 会把拐点推迟约 4 个月。"
          "FCF 收益率 = TTM FCF / 当期市值，越高越便宜，可当 PE 的抗干扰替代——"
