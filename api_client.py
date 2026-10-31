@@ -1192,10 +1192,10 @@ def fetch_sector_rotation() -> dict:
 
 
 @st.cache_data(ttl=1800)
-def fetch_spx_breakdown(period: str = "ytd", start: str | None = None) -> dict:
-    """大盘分解：S&P 500 按 11 个行业拆涨跌和贡献。start 给了就忽略 period。"""
+def fetch_spx_breakdown(period: str = "ytd", start: str | None = None, grouping: str = "sector") -> dict:
+    """大盘分解：S&P 500 按行业拆涨跌和贡献。start 给了就忽略 period；grouping = sector / theme / industry。"""
     try:
-        params = {"period": period, **({"start": start} if start else {})}
+        params = {"period": period, "grouping": grouping, **({"start": start} if start else {})}
         r = requests.get(f"{API_BASE_URL}/api/v1/spx_breakdown", params=params, timeout=120)
         r.raise_for_status()
         return r.json()
