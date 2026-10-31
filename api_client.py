@@ -1191,6 +1191,18 @@ def fetch_sector_rotation() -> dict:
     return {"success": False, "error": str(last_exc)}
 
 
+@st.cache_data(ttl=1800)
+def fetch_spx_breakdown(period: str = "ytd", start: str | None = None) -> dict:
+    """大盘分解：S&P 500 按 11 个行业拆涨跌和贡献。start 给了就忽略 period。"""
+    try:
+        params = {"period": period, **({"start": start} if start else {})}
+        r = requests.get(f"{API_BASE_URL}/api/v1/spx_breakdown", params=params, timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @st.cache_data(ttl=3600)
 def fetch_dynasty_leaders(sector_etf: str, start: str, end: str, top_n: int = 3) -> dict:
     """给定一段板块连续金块期 (sector_etf, start, end),返回该 GICS sector 成分股

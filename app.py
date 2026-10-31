@@ -14,6 +14,7 @@ nav = st.navigation({
     ],
     "宏观与舆情 ——————": [
         st.Page("pages/0_宏观雷达.py", title="宏观雷达"),
+        st.Page("pages/38_大盘分解.py", title="大盘分解"),
         st.Page("pages/1_宏观定调.py", title="宏观定调"),
         st.Page("pages/2_舆情监控.py", title="舆情监控"),
     ],
