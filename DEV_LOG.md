@@ -1,3 +1,7 @@
+## 2026-10-31 基本面长图加单季现金流柱状窗口
+
+后端见 `valuation-radar` 95a5bf1：基本面 JSON 新增 `ocf_q_usd` / `capex_q_usd` / `net_income_q_usd`。`pages/11_基本面长图.py` 主图下方加固定线性轴的柱状窗口，默认画单季 FCF（负数标红）/ OCF / CapEx，可选单季净利润，和主图共用时间轴。主图 TTM 线和 Log/Linear 开关不变。起因：GOOGL 2026Q2、Q3 单季 FCF 已为负，TTM 仍为正，主图 log 轴上看不出来。
+
 ## 2026-10-16 ABCD 实盘页加论点卡
 
 后端见 `valuation-radar` ae9baa1：`/api/v1/portfolio/thesis`。`pages/33_ABCD实盘.py` 持仓明细后每只持仓一个 expander：顺风 / 什么时候坏 / 决策日志编号 / 探针表（当前值、阈值、碰线标红、数据截至），碰线的默认展开；本机可编辑，探针按 `metric,op,threshold,label` 一行一个录。`api_client.py` 加 `fetch_portfolio_thesis` / `put_portfolio_thesis` / `delete_portfolio_thesis`。

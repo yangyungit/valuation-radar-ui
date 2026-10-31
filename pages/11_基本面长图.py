@@ -136,6 +136,16 @@ sel_overlays = st.multiselect(
          "不认回购花了多少钱——公司一边大额回购一边发期权时，钱花了但股数没降，这条线就贴着 0。"
          "和 EPS 并排看，能分清每股收益上涨是赚出来的还是缩股缩出来的",
 )
+BARS = [
+    ("自由现金流(FCF) (单季)", "fcf_q_usd",        None),       # None = 正负分色
+    ("经营现金流(OCF) (单季)", "ocf_q_usd",        "#98df8a"),
+    ("资本开支(CapEx) (单季)", "capex_q_usd",      "#c49c94"),
+    ("净利润(NI) (单季)",      "net_income_q_usd", "#ff9896"),
+]
+sel_bars = st.multiselect(
+    "下方单季柱状图（固定线性轴）", [b[0] for b in BARS], default=[b[0] for b in BARS[:3]],
+    help="单季原始数、不做 4 季滚动，固定线性轴不跟 Log/Linear 开关走——会转负的指标在 log 轴上画不出来。"
+         "FCF 柱子负数标红。净利润含投资浮盈等营业外项目，GOOGL 2026Q2 单季 1122 亿里约 980 亿是营业外。")
 
 # 默认只看股价：closeadj 把股息按当天价格再投入，会系统性把高股息股画得比股价实际走势好看
 # （MO 1998 年至今 closeadj 34.8 倍、只看股价 6.6 倍），拿它判断「EPS 增长有没有带动股价上涨」
@@ -381,6 +391,21 @@ fig.update_layout(
     **axis_layout,
 )
 
+bar_sel = [b for b in BARS if b[0] in sel_bars and _series(b[1]) is not None]
+if bar_sel:
+    for label, key, color in bar_sel:
+        ys = _series(key)
+        mc = ["#e15759" if (v is not None and v < 0) else "#17becf" for v in ys] if color is None else color
+        fig.add_trace(go.Bar(x=fi, y=ys, name=label, marker_color=mc, yaxis="y20"))
+    # x 轴默认贴在主图底边，日期刻度会夹在主图和柱状窗口之间
+    fig.update_layout(
+        height=880, barmode="group",
+        xaxis=dict(anchor="y20"),
+        yaxis=dict(domain=[0.30, 1.0]),
+        yaxis20=dict(domain=[0.0, 0.24], anchor="x", side="left", title="单季 $",
+                     showgrid=True, gridcolor="#2a2a2a", zeroline=True, zerolinecolor="#888"),
+    )
+
 segs = _segments(*_monthly(px["date"], px[px_key]), stall_months) if seg_on else []
 for sg in segs:
     fig.add_vrect(x0=sg["t0"], x1=sg["t1"], layer="below", line_width=0, opacity=0.13,
@@ -391,8 +416,12 @@ with scale_col:
     st.radio("美元序列坐标轴", ["Linear", "Log"], key="fund_chart_scale",
              horizontal=True, label_visibility="collapsed",
              help="控制 FCF/经营现金流/毛利润/净利润/营收/EPS 这几条 $ 序列走线性还是对数轴；"
-                  "股价固定 log，资本开支固定线性，不受此开关影响。")
+                  "股价固定 log，资本开支固定线性，不受此开关影响。"
+                  "下方单季柱状图固定线性，也不受此开关影响。")
 st.plotly_chart(fig, use_container_width=True)
+if sel_bars and not bar_sel:
+    st.caption("当前数据没有单季现金流，柱状窗口不画。yfinance 年报来源的票没有单季数据；"
+               "后端刚加字段时按右上角 Clear cache 再刷新。")
 if "每股收益(EPS) (TTM,$)" in sel_overlays and d.get("adj_eps"):
     st.caption("EPS 实线是分析师口径的调整后 EPS（yfinance 财报日数据，4 季相加，按财报发布日对齐），"
                "剔除了卖资产亏损、投资浮亏、诉讼和解等一次性项目，市场定价和「超预期/不及预期」看的是它；"
