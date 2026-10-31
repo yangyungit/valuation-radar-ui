@@ -145,7 +145,8 @@ BARS = [
 sel_bars = st.multiselect(
     "下方单季柱状图（固定线性轴）", [b[0] for b in BARS], default=[b[0] for b in BARS[:3]],
     help="单季原始数、不做 4 季滚动，固定线性轴不跟 Log/Linear 开关走——会转负的指标在 log 轴上画不出来。"
-         "FCF 柱子负数标红。净利润含投资浮盈等营业外项目，GOOGL 2026Q2 单季 1122 亿里约 980 亿是营业外。")
+         "OCF 宽柱打底、FCF 窄柱叠在里面，OCF 高出 FCF 的那截就是 CapEx（FCF = OCF − CapEx）；"
+         "FCF 柱子负数标红，净利润画成圆点。净利润含投资浮盈等营业外项目，GOOGL 2026Q2 单季 1122 亿里约 980 亿是营业外。")
 
 # 默认只看股价：closeadj 把股息按当天价格再投入，会系统性把高股息股画得比股价实际走势好看
 # （MO 1998 年至今 closeadj 34.8 倍、只看股价 6.6 倍），拿它判断「EPS 增长有没有带动股价上涨」
@@ -393,13 +394,25 @@ fig.update_layout(
 
 bar_sel = [b for b in BARS if b[0] in sel_bars and _series(b[1]) is not None]
 if bar_sel:
-    for label, key, color in bar_sel:
+    # overlay 而非 group：OCF 宽柱打底、FCF 窄柱叠在里面，OCF 露出的那截 = CapEx；
+    # group 模式下 4 根柱分一个季度的宽度，20 年尺度上细得看不清
+    day_ms = 86400000
+    draw_order = ["ocf_q_usd", "capex_q_usd", "fcf_q_usd", "net_income_q_usd"]
+    for label, key, color in sorted(bar_sel, key=lambda b: draw_order.index(b[1])):
         ys = _series(key)
+        if key == "net_income_q_usd":
+            fig.add_trace(go.Scatter(x=fi, y=ys, name=label, mode="markers", yaxis="y20", legend="legend2",
+                                     marker=dict(color=color, size=5, line=dict(color="#111", width=0.5))))
+            continue
         mc = ["#e15759" if (v is not None and v < 0) else "#17becf" for v in ys] if color is None else color
-        fig.add_trace(go.Bar(x=fi, y=ys, name=label, marker_color=mc, yaxis="y20"))
+        wide = key != "fcf_q_usd"
+        fig.add_trace(go.Bar(x=fi, y=ys, name=label, marker_color=mc, yaxis="y20", legend="legend2",
+                             width=(75 if wide else 40) * day_ms, opacity=0.55 if wide else 1.0,
+                             marker_line_width=0))
     # x 轴默认贴在主图底边，日期刻度会夹在主图和柱状窗口之间
     fig.update_layout(
-        height=880, barmode="group",
+        height=880, barmode="overlay",
+        legend2=dict(orientation="h", x=0, y=0.245, yanchor="bottom", font=dict(color="#ddd")),
         xaxis=dict(anchor="y20"),
         yaxis=dict(domain=[0.30, 1.0]),
         yaxis20=dict(domain=[0.0, 0.24], anchor="x", side="left", title="单季 $",
