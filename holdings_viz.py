@@ -661,6 +661,7 @@ def build_stitched_fig(
     spy_base = None
     last_tk = None
     x_dates: list = []  # 第 i 个元素 = x=i 那个点的日期，给 shade_months 换算区间用
+    tail_pending = None  # 刚换进来、只有 ≤1 个成交日的最后一段画不成线，改用文字标在右端
 
     for ci, (tk, s_m, e_m) in enumerate(segs):
         if tk == "CASH":
@@ -712,6 +713,8 @@ def build_stitched_fig(
         mask = (wkd.index >= sd) & (wkd.index <= ed)
         closes = wkd[mask]["Close"].astype(float).dropna()
         if len(closes) < 2:
+            if ci == len(segs) - 1:
+                tail_pending = (tk, closes.index[0].strftime("%Y-%m-%d") if len(closes) else s_m)
             continue
 
         if cost_bps and last_tk is not None and last_tk != tk:
@@ -840,6 +843,18 @@ def build_stitched_fig(
 
     name_annotations, top_margin = _layout_segment_labels(label_items, x_offset, keep_names=keep_names)
     tick_vals, tick_texts = _thin_ticks(tick_vals, tick_texts, x_offset)
+
+    if tail_pending and x_offset > 0:
+        _tk, _since = tail_pending
+        _g = gm.get(_tk, "")
+        _txt = f"{_g}({_tk})" if _g and _g != _tk else _tk
+        fig.add_annotation(
+            x=x_offset - 1, y=0.97, xref="x", yref="paper",
+            text=f"→ 已换成 {_txt}<br>{_since} 起，价格还没攒够画线",
+            showarrow=False, xanchor="right", yanchor="top", align="right",
+            font=dict(size=11, color="#eee"),
+            bgcolor="rgba(30,30,30,0.85)", bordercolor="#888", borderwidth=1, borderpad=4,
+        )
 
     if shade_months and x_dates:
         spans: list = []
