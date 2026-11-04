@@ -1203,6 +1203,36 @@ def fetch_spx_breakdown(period: str = "ytd", start: str | None = None, grouping:
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=3600 * 4)
+def fetch_trend_slope(scope: str = "union", extra: str = "", price: str = "net",
+                      edge_a: float = 15.0, edge_b: float = 25.0) -> dict:
+    """斜率分档：带鱼池每只票平稳段的年化斜率和 A/B/C 档。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/trend_slope",
+                         params={"scope": scope, "extra": extra, "price": price,
+                                 "edge_a": edge_a, "edge_b": edge_b}, timeout=180)
+        if r.status_code == 400:
+            return {"success": False, "error": r.json().get("detail")}
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
+def fetch_trend_slope_detail(ticker: str, price: str = "net", start: str | None = None) -> dict:
+    """单票周线 + 拟合线（自动段 / 手填起点段）。"""
+    try:
+        params = {"ticker": ticker, "price": price, **({"start": start} if start else {})}
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/trend_slope/detail", params=params, timeout=120)
+        if r.status_code == 400:
+            return {"success": False, "error": r.json().get("detail")}
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @st.cache_data(ttl=3600)
 def fetch_dynasty_leaders(sector_etf: str, start: str, end: str, top_n: int = 3) -> dict:
     """给定一段板块连续金块期 (sector_etf, start, end),返回该 GICS sector 成分股

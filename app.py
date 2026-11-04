@@ -62,6 +62,7 @@ nav = st.navigation({
     ],
     "总结 ——————": [
         st.Page("pages/26_组合净值.py", title="ABC投资组合"),
+        st.Page("pages/39_斜率分档.py", title="斜率分档"),
         st.Page("pages/33_ABCD实盘.py", title="ABCD实盘"),
     ],
 })

@@ -1,3 +1,11 @@
+## 2026-11-04 | 新增「斜率分档」页：带鱼池平稳段年化斜率分 A/B/C
+
+后端见 `valuation-radar` f467a94：`/api/v1/macro/trend_slope`（+ `/detail`）。
+
+**改动**：`api_client.py` 加 `fetch_trend_slope` / `fetch_trend_slope_detail`；新增 `pages/39_斜率分档.py`（A/B/C 计数、年化斜率横条图 + SPY/QQQ/分档边界竖线、明细表、单票详情 log 图可手填起点）；`app.py`「总结」组加入口「斜率分档」。
+
+**核验**：页面五个 metric 有数（A 40 / B 61 / C 27 / 无段 34）；WM 详情机器段 2007-09 起 16.1%，填 2012-09-01 得 17.6%。
+
 ## 2026-10-31 基本面长图加单季现金流柱状窗口
 
 后端见 `valuation-radar` 95a5bf1：基本面 JSON 新增 `ocf_q_usd` / `capex_q_usd` / `net_income_q_usd`。`pages/11_基本面长图.py` 主图下方加固定线性轴的柱状窗口，默认画单季 FCF（负数标红）/ OCF / CapEx，可选单季净利润，和主图共用时间轴。主图 TTM 线和 Log/Linear 开关不变。起因：GOOGL 2026Q2、Q3 单季 FCF 已为负，TTM 仍为正，主图 log 轴上看不出来。
