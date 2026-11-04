@@ -70,17 +70,59 @@ fig_bar.update_layout(height=max(400, 22 * len(has)), xaxis_title="平稳段年�
                       margin=dict(l=40, r=120, t=40, b=40), showlegend=False)
 st.plotly_chart(fig_bar, width="stretch")
 
+st.markdown("### 斜率 × 水下痛苦值")
+basis = st.radio("口径", [f"统一近 10 年（{d['window_start']} 起）", "各自平稳段"], horizontal=True)
+win = basis.startswith("统一")
+xk, yk, mk, uk = ("ulcer10", "slope10", "martin10", "uw10") if win else ("ulcer", "slope", "martin", "uw")
+pts = df[df[xk].notna() & df[yk].notna()]
+fig_sc = go.Figure(go.Scatter(
+    x=pts[xk], y=pts[yk], mode="markers+text", text=pts["ticker"], textposition="top right",
+    textfont=dict(size=9, color="#aaa"),
+    marker=dict(size=9, line=dict(width=0.5, color="#222"),
+                **(dict(color=[TIER_COLOR[t] for t in pts["tier"]]) if win else
+                   dict(color=pts["years"], colorscale="Viridis", reversescale=True,
+                        colorbar=dict(title="段长(年)")))),
+    customdata=pts[[mk, uk, "start", "years"]].to_numpy(),
+    hovertemplate="%{text}<br>斜率 %{y}% · Ulcer %{x}<br>Martin %{customdata[0]} · 最长水下 %{customdata[1]} 年"
+                  "<br>段 %{customdata[2]} 起 %{customdata[3]} 年<extra></extra>",
+))
+xmax = float(pts[xk].max()) * 1.05
+ymax = min(float(pts[yk].max()) * 1.1, 80)
+for m in (1, 2, 4):
+    fig_sc.add_trace(go.Scatter(x=[0, xmax], y=[0, m * xmax], mode="lines", hoverinfo="skip",
+                                line=dict(color="#666", dash="dash", width=1), showlegend=False))
+    xa = min(xmax, ymax / m) * 0.92
+    fig_sc.add_annotation(x=xa, y=xa * m, text=f"Martin={m}", showarrow=False,
+                          font=dict(color="#888", size=10), xanchor="left")
+for key, color in (("SPY", "#3b9eff"), ("QQQ", "#a56cf0")):
+    b = bench.get(key)
+    if b and b.get(xk) is not None:
+        fig_sc.add_trace(go.Scatter(x=[b[xk]], y=[b[yk]], mode="markers+text", text=[key],
+                                    textposition="bottom center", showlegend=False,
+                                    marker=dict(symbol="star", size=15, color=color)))
+fig_sc.update_layout(height=600, xaxis=dict(title="Ulcer（水下痛苦值，越左越舒服）", range=[0, xmax]),
+                     yaxis=dict(title="年化斜率 %", range=[0, ymax]),
+                     showlegend=False, margin=dict(l=40, r=20, t=20, b=40))
+st.plotly_chart(fig_sc, width="stretch")
+st.caption("左上角 = 涨得快、拿着不痛苦。虚线是 Martin（斜率 ÷ Ulcer）等值线，越陡越好。"
+           + ("统一窗口下所有票考同一张卷子，上市不满 10 年或已退市的不画；颜色 = 分档。" if win else
+              "各自平稳段口径下颜色浅 = 段短，多半是还没赶上 2008 / 2020 这类大跌，Martin 偏高不全是真本事。"))
+
 tbl = df.copy()
 tbl["name"] = tbl["name"] + tbl["is_tech"].map({True: "（科技）", False: ""}) \
     + tbl["active"].map({True: "", False: "（已退市）"})
 tbl = tbl.sort_values("slope", ascending=False, na_position="last")
-tbl = tbl[["ticker", "name", "sector", "tier", "slope", "start", "years", "r2", "mdd", "calmar", "ulcer", "martin", "in_pool"]]
+tbl = tbl[["ticker", "name", "sector", "tier", "slope", "start", "years", "r2", "mdd", "calmar", "ulcer", "martin", "uw",
+           "slope10", "ulcer10", "martin10", "uw10", "in_pool"]]
 tbl.columns = ["代码", "名称", "行业", "档", "年化斜率%", "段起点", "段长(年)", "R²",
-               "段内最大回撤%", "Calmar", "Ulcer", "Martin", "在池"]
+               "段内最大回撤%", "Calmar", "Ulcer", "Martin", "最长水下(年)",
+               "10年斜率%", "10年Ulcer", "10年Martin", "10年最长水下(年)", "在池"]
 st.dataframe(tbl, hide_index=True, width="stretch")
 st.caption("回撤都按日线、从段起点算到最新。Calmar = 年化斜率 ÷ 最大回撤，只看最惨一天；"
            "Ulcer = 每天离前高跌幅的均方根（水下多深、泡多久），Martin = 年化斜率 ÷ Ulcer，受单次大跌影响小。"
-           "段越长越容易撞上 2008 / 2020，长段两个比值都偏低，Calmar 更明显。")
+           "段越长越容易撞上 2008 / 2020，长段两个比值都偏低，Calmar 更明显。"
+           f"最长水下 = 最久一次低于前高熬了几年（还没回到前高的也算）。"
+           f"「10年」几列统一用 {d['window_start']} 到数据末日同一段时间算，斜率同法拟合但不挑段，跨票比较看这几列。")
 
 st.markdown("### 单票详情")
 c1, c2 = st.columns([1, 1])
