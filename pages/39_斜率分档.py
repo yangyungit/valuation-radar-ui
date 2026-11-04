@@ -74,10 +74,13 @@ tbl = df.copy()
 tbl["name"] = tbl["name"] + tbl["is_tech"].map({True: "（科技）", False: ""}) \
     + tbl["active"].map({True: "", False: "（已退市）"})
 tbl = tbl.sort_values("slope", ascending=False, na_position="last")
-tbl = tbl[["ticker", "name", "sector", "tier", "slope", "start", "years", "r2", "mdd", "calmar", "in_pool"]]
-tbl.columns = ["代码", "名称", "行业", "档", "年化斜率%", "段起点", "段长(年)", "R²", "段内最大回撤%", "Calmar", "在池"]
+tbl = tbl[["ticker", "name", "sector", "tier", "slope", "start", "years", "r2", "mdd", "calmar", "ulcer", "martin", "in_pool"]]
+tbl.columns = ["代码", "名称", "行业", "档", "年化斜率%", "段起点", "段长(年)", "R²",
+               "段内最大回撤%", "Calmar", "Ulcer", "Martin", "在池"]
 st.dataframe(tbl, hide_index=True, width="stretch")
-st.caption("Calmar = 年化斜率 ÷ 段内最大回撤（日线，从段起点到最新）。段越长越容易撞上 2008 / 2020 这类大跌，长段的 Calmar 天然偏低。")
+st.caption("回撤都按日线、从段起点算到最新。Calmar = 年化斜率 ÷ 最大回撤，只看最惨一天；"
+           "Ulcer = 每天离前高跌幅的均方根（水下多深、泡多久），Martin = 年化斜率 ÷ Ulcer，受单次大跌影响小。"
+           "段越长越容易撞上 2008 / 2020，长段两个比值都偏低，Calmar 更明显。")
 
 st.markdown("### 单票详情")
 c1, c2 = st.columns([1, 1])
