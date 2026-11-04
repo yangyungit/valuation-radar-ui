@@ -476,7 +476,8 @@ def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
 
     _fig_g.add_trace(go.Scatter(
         x=_prob_s.index, y=_prob_s.values, mode="lines", name="急跌概率(20日)",
-        line=dict(color="rgba(52,152,219,0.25)", width=0.6), hoverinfo="skip",
+        line=dict(color="#3498DB", width=1.3),
+        hovertemplate="%{x|%Y-%m-%d}<br>概率 %{y:.3f}<extra></extra>",
     ), row=2, col=1)
     _fig_g.add_hline(y=_qs_th, line=dict(color="#888", width=1, dash="dash"), row=2, col=1)
 
@@ -570,7 +571,7 @@ def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
             f"最近一次 {_last['date'].date()}（概率 {_last['prob']:.2f}，寂静 {int(_last['quiet_days'])} 日）→ "
             f"<span style='color:{_last_clr}; font-weight:bold;'>{_last_nm}</span>。"
             f"当前概率 {_cur_prob_txt}，{_armed_txt}。"
-            "红 = 后 60 日跌 ≥ 8%，灰 = 没跌，橙 = 60 日窗口未走完。淡蓝细线 = 原始概率，只当背景。",
+            "红 = 后 60 日跌 ≥ 8%，灰 = 没跌，橙 = 60 日窗口未走完。蓝线 = 原始概率。",
             unsafe_allow_html=True,
         )
     if not _pk.empty:
