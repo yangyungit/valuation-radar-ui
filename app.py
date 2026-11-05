@@ -47,6 +47,8 @@ nav = st.navigation({
         st.Page("pages/19_板块王朝.py", title="板块王朝2仓"),
         st.Page("pages/27_行业龙头.py", title="行业龙头"),
         st.Page("pages/36_ETF动量轮动.py", title="ETF轮动 2仓"),
+        st.Page("pages/39_斜率分档.py", title="斜率分档"),
+        st.Page("pages/40_生意盯盘.py", title="生意盯盘"),
     ],
     "进攻类策略 ——————": [
         st.Page("pages/20_FCF进攻.py", title="FCF进攻"),
@@ -62,7 +64,6 @@ nav = st.navigation({
     ],
     "总结 ——————": [
         st.Page("pages/26_组合净值.py", title="ABC投资组合"),
-        st.Page("pages/39_斜率分档.py", title="斜率分档"),
         st.Page("pages/33_ABCD实盘.py", title="ABCD实盘"),
     ],
 })

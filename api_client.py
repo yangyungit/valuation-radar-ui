@@ -1220,6 +1220,19 @@ def fetch_trend_slope(scope: str = "union", extra: str = "", price: str = "net",
 
 
 @st.cache_data(ttl=3600 * 4)
+def fetch_biz_watch(min_score: int = 14, min_slope: float = 8.0, top_n: int = 16, holdings: str = "") -> dict:
+    """生意盯盘：现役表斜率 / Ulcer / PE 分位候选表 + 持仓跌破提示。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/biz_watch",
+                         params={"min_score": min_score, "min_slope": min_slope, "top_n": top_n,
+                                 "holdings": holdings}, timeout=180)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
 def fetch_trend_slope_detail(ticker: str, price: str = "net", start: str | None = None) -> dict:
     """单票周线 + 拟合线（自动段 / 手填起点段）。"""
     try:
