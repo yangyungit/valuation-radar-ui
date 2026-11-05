@@ -5,6 +5,7 @@ import streamlit as st
 from api_client import (
     clear_valuation_caches,
     fetch_benchmark_tickers,
+    fetch_valuation_aggregate,
     fetch_valuation_concentration,
     fetch_valuation_history,
     fetch_valuation_lookup,
@@ -376,8 +377,84 @@ else:
                  f"中间月份 Sharadar 停更后补不上，是直线连过去的。")
     st.markdown(f"<div style='font-size:13px;color:#666'>{note}</div>", unsafe_allow_html=True)
 
+# ============ 图 B2：个股溢价 ============
+agg = fetch_valuation_aggregate(ticker or None)
+prem = agg.get("premium") if agg.get("success") else None
+if prem:
+    st.markdown(f"**{prem['ticker']} 比自己所在大类（{zh(prem['sector'])}）贵几倍**")
+    px_ = pd.Series(prem["ratio"], index=pd.to_datetime(prem["index"])).astype(float).dropna()
+    fig_p = go.Figure(go.Scatter(x=px_.index, y=px_, mode="lines", line=dict(color="#d62728", width=2),
+                                 hovertemplate="%{x|%Y-%m} %{y:.2f} 倍<extra></extra>"))
+    fig_p.add_hline(y=1, line=dict(color="gray", dash="dot"),
+                    annotation_text=f"1 倍 = 和{zh(prem['sector'])}整体一样贵", annotation_position="bottom right")
+    fig_p.update_layout(height=320, yaxis_title="个股市盈率 ÷ 大类整体市盈率",
+                        margin=dict(l=10, r=10, t=20, b=10), hovermode="x unified")
+    st.plotly_chart(fig_p, use_container_width=True)
+    st.markdown(f"<div style='font-size:13px;color:#666'>现在 {prem['now']:.1f} 倍，处于它自己历史的 "
+                f"{prem['pct']:.0f}% 分位。两边市盈率都用 3 年平均利润算，截至 {agg['as_of']}。</div>",
+                unsafe_allow_html=True)
+
 # ============ 图 C：大环境 ============
 st.divider()
+st.subheader("整个市场贵不贵")
+st.caption("按市值加权：所有市值 ≥ 20 亿美元公司的总市值 ÷ 总利润，亏损公司也算进分母。"
+           "粗红线分母用过去 3 年平均利润，利润塌方的年份不会冒假尖峰。不随顶部指标切换。")
+if not agg.get("success"):
+    st.warning(agg.get("error", "拿不到整体市盈率"))
+else:
+    aidx = pd.to_datetime(pd.Series(agg["index"]))
+    mk = {k: pd.Series(v, index=aidx).astype(float) for k, v in agg["market"].items()}
+    fig_t = go.Figure()
+    for key, name, style, smooth in (
+        ("pe_1y", "整体市盈率（当年利润）", dict(color="#c0392b", width=1), True),
+        ("pe_3y", "整体市盈率（3 年平均利润）", dict(color="#c0392b", width=2.4), False),
+        ("pe_median", "典型公司（中位数）", dict(color="#1a4d7a", width=1.6), True),
+    ):
+        s = mk[key].rolling(3, min_periods=1).mean() if smooth else mk[key]
+        s = s.dropna()
+        fig_t.add_trace(go.Scatter(x=s.index, y=s, mode="lines", name=name, line=style,
+                                   opacity=0.45 if key == "pe_1y" else 1.0,
+                                   hovertemplate="%{x|%Y-%m} " + name + " %{y:.1f}x<extra></extra>"))
+    now = agg["market_now"]
+    if now.get("peak_ym"):
+        fig_t.add_annotation(x=pd.Timestamp(now["peak_ym"]), y=now["peak_pe_3y"],
+                             text=f"{now['peak_ym']} {now['peak_pe_3y']:.0f} 倍", showarrow=True)
+    if pd.notna(mk["pe_3y"].get(pd.Timestamp("2004-01"))):
+        fig_t.add_annotation(x=pd.Timestamp("2004-01"), y=mk["pe_3y"][pd.Timestamp("2004-01")],
+                             text="2004 年尖峰：2001-02 巨额减值<br>还压在 3 年平均利润里，不是更贵",
+                             showarrow=True, ax=90, ay=-10, xanchor="left", font=dict(size=11))
+    last3 = mk["pe_3y"].dropna()
+    fig_t.add_annotation(x=last3.index[-1], y=last3.iloc[-1], showarrow=True,
+                         text=f"现在 {now['pe_3y']:.0f} 倍<br>比 {now['pct']}% 的月份都贵")
+    for x0, x1, lab in CRISES:
+        fig_t.add_vrect(x0=x0, x1=x1, fillcolor="grey", opacity=0.15, line_width=0,
+                        annotation_text=lab, annotation_position="top left",
+                        annotation_font_size=13)
+    fig_t.update_layout(height=430, yaxis_range=[5, 55], yaxis_title="市盈率",
+                        margin=dict(l=10, r=10, t=40, b=10), hovermode="x unified",
+                        legend=dict(orientation="h", y=1.08, x=0))
+    st.plotly_chart(fig_t, use_container_width=True)
+    st.markdown(f"<div style='font-size:13px;color:#666'>粗红线和蓝线之间的距离 = 巨头比典型公司贵出来的部分。"
+                f"截至 {agg['as_of']}，不拼实时。</div>", unsafe_allow_html=True)
+
+    st.markdown("**各大类每年年底有多贵**")
+    hm = agg["heatmap"]
+    rows = hm["rows"]
+    fig_h = go.Figure(go.Heatmap(
+        z=[r["pct"] for r in rows], x=hm["cols"], y=[zh(r["sector"]) for r in rows],
+        text=[[("" if v is None else f"{v:.0f}") for v in r["pe_3y"]] for r in rows],
+        texttemplate="%{text}", textfont=dict(size=10),
+        colorscale="RdYlBu", reversescale=True, zmin=0, zmax=100,
+        colorbar=dict(title="历史分位 %"),
+        hovertemplate="%{y} %{x}<br>市盈率 %{text}x｜历史 %{z:.0f}% 分位<extra></extra>",
+    ))
+    fig_h.update_layout(height=460, yaxis_autorange="reversed",
+                        margin=dict(l=10, r=10, t=20, b=10), xaxis_tickangle=-60)
+    st.plotly_chart(fig_h, use_container_width=True)
+    st.markdown("<div style='font-size:13px;color:#666'>颜色 = 这个大类在自己 1999 年以来历史里的位置"
+                "（红 = 最贵，蓝 = 最便宜），格子数字 = 当时整体市盈率（3 年平均利润）。"
+                "最右一列是最新月份。</div>", unsafe_allow_html=True)
+
 st.subheader("大环境：各大类行业中位数")
 
 sec = fetch_valuation_sector_history(metric, "2000-01")

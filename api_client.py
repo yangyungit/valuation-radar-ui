@@ -3433,6 +3433,12 @@ def fetch_valuation_concentration(start: str = "2005-12") -> dict:
 
 
 @st.cache_data(ttl=3600 * 12)
+def fetch_valuation_aggregate(ticker: str | None = None, start: str = "1999-01") -> dict:
+    """整体市盈率（总市值÷总利润）：大盘体温 + 大类热力图 + 个股溢价。"""
+    return _h13f_get("/api/v1/valuation/aggregate", {"ticker": ticker, "start": start}, timeout=30)
+
+
+@st.cache_data(ttl=3600 * 12)
 def fetch_valuation_lookup(ticker: str) -> dict:
     """票 → 所属 sector / industry。"""
     return _h13f_get("/api/v1/valuation/lookup", {"ticker": ticker}, timeout=20)
@@ -3457,6 +3463,7 @@ def clear_valuation_caches():
     fetch_valuation_history.clear()
     fetch_valuation_sector_history.clear()
     fetch_valuation_concentration.clear()
+    fetch_valuation_aggregate.clear()
     fetch_valuation_lookup.clear()
 
 
