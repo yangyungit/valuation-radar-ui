@@ -108,20 +108,60 @@ st.caption("左上角 = 涨得快、拿着不痛苦。虚线是 Martin（斜率 
            + ("统一窗口下所有票考同一张卷子，上市不满 10 年或已退市的不画；颜色 = 分档。" if win else
               "各自平稳段口径下颜色浅 = 段短，多半是还没赶上 2008 / 2020 这类大跌，Martin 偏高不全是真本事。"))
 
+st.markdown("### 体验感：又直又匀")
+rk, ck = ("r210", "conc10") if win else ("r2", "conc")
+f1, f2 = st.columns(2)
+r2_min = f1.number_input("R² 至少", value=0.95, step=0.01, format="%.2f")
+conc_max = f2.number_input("月度收益集中度至多", value=1.30, step=0.05, format="%.2f")
+CONC_CAP = 4.0   # 集中度 > 4 基本是十年没怎么涨、分母接近 0 的票（FISV 158、CMCSA 78），画上去把横轴压扁
+pts2 = df[df[rk].notna() & df[ck].notna() & (df[rk] > 0) & (df[ck] <= CONC_CAP)]
+good = pts2[(pts2[rk] >= r2_min) & (pts2[ck] <= conc_max)].sort_values(ck)
+fig_ex = go.Figure()
+fig_ex.add_shape(type="rect", x0=0, x1=conc_max, y0=r2_min, y1=1.0, line=dict(width=0),
+                 fillcolor="rgba(79,195,232,0.12)", layer="below")
+fig_ex.add_trace(go.Scatter(
+    x=pts2[ck], y=pts2[rk], mode="markers+text", text=pts2["ticker"], textposition="top right",
+    textfont=dict(size=9, color="#aaa"),
+    marker=dict(size=9, line=dict(width=0.5, color="#222"),
+                color=["#4fc3e8" if t in set(good["ticker"]) else "#666" for t in pts2["ticker"]]),
+    customdata=pts2[[yk, xk]].to_numpy(),
+    hovertemplate="%{text}<br>R² %{y} · 集中度 %{x}<br>斜率 %{customdata[0]}% · Ulcer %{customdata[1]}<extra></extra>",
+))
+for key, color in (("SPY", "#3b9eff"), ("QQQ", "#a56cf0")):
+    b = bench.get(key)
+    if b and b.get(ck) is not None:
+        fig_ex.add_trace(go.Scatter(x=[b[ck]], y=[b[rk]], mode="markers+text", text=[key],
+                                    textposition="bottom center", showlegend=False,
+                                    marker=dict(symbol="star", size=15, color=color)))
+fig_ex.update_layout(height=520, showlegend=False, margin=dict(l=40, r=20, t=20, b=40),
+                     xaxis=dict(title="月度收益集中度（涨幅最大的 20% 月份贡献几成总涨幅，越左越匀速）"),
+                     yaxis=dict(title="logR²（越高越像一条直线）", range=[max(0.5, float(pts2[rk].min()) - 0.02), 1.0]))
+st.plotly_chart(fig_ex, width="stretch")
+st.caption("R² 量「像不像直线」，集中度量「涨幅是不是靠几个月猛拉」。两个都好 = 左上角蓝色区域。"
+           "集中度 1.0 = 总涨幅刚好全来自最好的 20% 月份，1.5 = 其余 80% 月份合计倒亏了一半。"
+           f"集中度 > {CONC_CAP:.0f} 的不画（总涨幅接近 0，比值没意义）。"
+           + ("统一 10 年窗口，上市不满 10 年或已退市的不画。" if win else
+              "各自平稳段口径下 R² 天然 ≥ 0.90（挑段时就按这个选的），区分度主要看集中度。"))
+if len(good):
+    st.markdown(f"**通过筛选 {len(good)} 只**（按集中度从匀到跳）：" + "、".join(
+        f"{r.ticker} {getattr(r, rk):.2f}/{getattr(r, ck):.2f}" for r in good.itertuples()))
+else:
+    st.info("没有票同时过两条线，放宽一点试试")
+
 tbl = df.copy()
 tbl["name"] = tbl["name"] + tbl["is_tech"].map({True: "（科技）", False: ""}) \
     + tbl["active"].map({True: "", False: "（已退市）"})
 tbl = tbl.sort_values("slope", ascending=False, na_position="last")
-tbl = tbl[["ticker", "name", "sector", "tier", "slope", "start", "years", "r2", "mdd", "calmar", "ulcer", "martin", "uw",
-           "slope10", "ulcer10", "martin10", "uw10", "in_pool"]]
-tbl.columns = ["代码", "名称", "行业", "档", "年化斜率%", "段起点", "段长(年)", "R²",
+tbl = tbl[["ticker", "name", "sector", "tier", "slope", "start", "years", "r2", "conc", "mdd", "calmar", "ulcer", "martin", "uw",
+           "slope10", "r210", "conc10", "ulcer10", "martin10", "uw10", "in_pool"]]
+tbl.columns = ["代码", "名称", "行业", "档", "年化斜率%", "段起点", "段长(年)", "R²", "月收益集中度",
                "段内最大回撤%", "Calmar", "Ulcer", "Martin", "最长水下(年)",
-               "10年斜率%", "10年Ulcer", "10年Martin", "10年最长水下(年)", "在池"]
+               "10年斜率%", "10年R²", "10年月收益集中度", "10年Ulcer", "10年Martin", "10年最长水下(年)", "在池"]
 st.dataframe(tbl, hide_index=True, width="stretch")
 st.caption("回撤都按日线、从段起点算到最新。Calmar = 年化斜率 ÷ 最大回撤，只看最惨一天；"
            "Ulcer = 每天离前高跌幅的均方根（水下多深、泡多久），Martin = 年化斜率 ÷ Ulcer，受单次大跌影响小。"
            "段越长越容易撞上 2008 / 2020，长段两个比值都偏低，Calmar 更明显。"
-           f"最长水下 = 最久一次低于前高熬了几年（还没回到前高的也算）。"
+           f"最长水下 = 最久一次低于前高熬了几年（还没回到前高的也算）。月收益集中度见上一节。"
            f"「10年」几列统一用 {d['window_start']} 到数据末日同一段时间算，斜率同法拟合但不挑段，跨票比较看这几列。")
 
 st.markdown("### 单票详情")
