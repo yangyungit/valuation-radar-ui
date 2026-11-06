@@ -1204,6 +1204,17 @@ def fetch_spx_breakdown(period: str = "ytd", start: str | None = None, grouping:
 
 
 @st.cache_data(ttl=3600 * 4)
+def fetch_ff_history() -> dict:
+    """百年风格：Ken French 12 行业权重 / 贡献、6 因子十年溢价、动量多头。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/ff_history", timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
 def fetch_trend_slope(scope: str = "union", extra: str = "", price: str = "net",
                       edge_a: float = 15.0, edge_b: float = 25.0, cap_months: int = 12) -> dict:
     """斜率分档：带鱼池每只票平稳段的年化斜率和 A/B/C 档，附近 cap_months 个月相对 SPY 的捕获率。"""
