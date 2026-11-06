@@ -1205,12 +1205,12 @@ def fetch_spx_breakdown(period: str = "ytd", start: str | None = None, grouping:
 
 @st.cache_data(ttl=3600 * 4)
 def fetch_trend_slope(scope: str = "union", extra: str = "", price: str = "net",
-                      edge_a: float = 15.0, edge_b: float = 25.0) -> dict:
-    """斜率分档：带鱼池每只票平稳段的年化斜率和 A/B/C 档。"""
+                      edge_a: float = 15.0, edge_b: float = 25.0, cap_months: int = 12) -> dict:
+    """斜率分档：带鱼池每只票平稳段的年化斜率和 A/B/C 档，附近 cap_months 个月相对 SPY 的捕获率。"""
     try:
         r = requests.get(f"{API_BASE_URL}/api/v1/macro/trend_slope",
                          params={"scope": scope, "extra": extra, "price": price,
-                                 "edge_a": edge_a, "edge_b": edge_b}, timeout=180)
+                                 "edge_a": edge_a, "edge_b": edge_b, "cap_months": cap_months}, timeout=180)
         if r.status_code == 400:
             return {"success": False, "error": r.json().get("detail")}
         r.raise_for_status()

@@ -26,6 +26,7 @@ with st.sidebar:
     price = PRICES[st.radio("价格", list(PRICES))]
     edge_a = st.number_input("A / B 边界（年化 %）", value=15.0, step=1.0)
     edge_b = st.number_input("B / C 边界（年化 %）", value=25.0, step=1.0)
+    cap_months = int(st.number_input("跟涨不跟跌看近几个月", value=12, min_value=1, max_value=120, step=1))
     if st.button("🔄 强制刷新"):
         fetch_trend_slope.clear()
         fetch_trend_slope_detail.clear()
@@ -34,7 +35,7 @@ with st.sidebar:
 if not edge_a < edge_b:
     st.error("A/B 边界必须小于 B/C 边界")
     st.stop()
-d = fetch_trend_slope(scope, extra, price, edge_a, edge_b)
+d = fetch_trend_slope(scope, extra, price, edge_a, edge_b, cap_months)
 if not d.get("success"):
     st.error(f"后端没返回数据：{d.get('error')}")
     st.stop()
@@ -148,21 +149,65 @@ if len(good):
 else:
     st.info("没有票同时过两条线，放宽一点试试")
 
+st.markdown(f"### 近期跟涨不跟跌（近 {d['cap_months']} 个月，参照 {d['cap_ref']}）")
+g1, g2, g3 = st.columns(3)
+up_min = g1.number_input("上行捕获至少", value=80.0, step=10.0)
+gap_min = g2.number_input("上行 − 下行 至少", value=30.0, step=10.0)
+off_max = g3.number_input("离窗口内高点最多跌 %", value=15.0, step=5.0)
+pc = df[df["up_cap"].notna() & df["dn_cap"].notna()].copy()
+pc["gap"] = pc["up_cap"] - pc["dn_cap"]
+asym = pc[(pc["up_cap"] >= up_min) & (pc["gap"] >= gap_min) & (pc["off_high"] >= -off_max)] \
+    .sort_values("gap", ascending=False)
+fig_cp = go.Figure()
+lo = min(0.0, float(pc["dn_cap"].min()) * 1.05)
+hi = max(float(pc["dn_cap"].max()), float(pc["up_cap"].max())) * 1.05
+fig_cp.add_trace(go.Scatter(x=[lo, hi], y=[lo, hi], mode="lines", hoverinfo="skip", showlegend=False,
+                            line=dict(color="#666", dash="dash", width=1)))
+fig_cp.add_trace(go.Scatter(
+    x=pc["dn_cap"], y=pc["up_cap"], mode="markers+text", text=pc["ticker"], textposition="top right",
+    textfont=dict(size=9, color="#aaa"),
+    marker=dict(size=9, line=dict(width=0.5, color="#222"),
+                color=["#4fc3e8" if t in set(asym["ticker"]) else "#666" for t in pc["ticker"]]),
+    customdata=pc[["off_high", "tier", "slope"]].to_numpy(),
+    hovertemplate="%{text}<br>上行 %{y} · 下行 %{x}<br>离近期高点 %{customdata[0]}%"
+                  "<br>档 %{customdata[1]} · 斜率 %{customdata[2]}%<extra></extra>",
+))
+for key, color in (("SPY", "#3b9eff"), ("QQQ", "#a56cf0")):
+    b = bench.get(key)
+    if b and b.get("up_cap") is not None:
+        fig_cp.add_trace(go.Scatter(x=[b["dn_cap"]], y=[b["up_cap"]], mode="markers+text", text=[key],
+                                    textposition="bottom center", showlegend=False,
+                                    marker=dict(symbol="star", size=15, color=color)))
+fig_cp.update_layout(height=560, showlegend=False, margin=dict(l=40, r=20, t=20, b=40),
+                     xaxis=dict(title=f"下行捕获（{d['cap_ref']} 跌的日子它跟着跌几成）", range=[lo, hi]),
+                     yaxis=dict(title=f"上行捕获（{d['cap_ref']} 涨的日子它跟着涨几成）", range=[lo, hi]))
+st.plotly_chart(fig_cp, width="stretch")
+st.caption(f"{d['cap_start']} 起的日收益。左上角 = 涨跟得多、跌跟得少；对角线上 = 只是 {d['cap_ref']} 的缩放版；"
+           "横轴为负 = 大盘跌它反而涨（脱钩）。捕获率是整段平均，会把「刚崩过」平均掉，所以第三个条件卡离近期高点的跌幅。"
+           "蓝色 = 三个条件都过。")
+if len(asym):
+    st.markdown(f"**跟涨不跟跌 {len(asym)} 只**（按上行 − 下行从大到小）：" + "、".join(
+        f"{r.ticker} {r.up_cap:.0f}/{r.dn_cap:.0f}·离高 {r.off_high:.0f}%" for r in asym.itertuples()))
+else:
+    st.info("没有票同时过三条线，放宽一点试试")
+
 tbl = df.copy()
 tbl["name"] = tbl["name"] + tbl["is_tech"].map({True: "（科技）", False: ""}) \
     + tbl["active"].map({True: "", False: "（已退市）"})
 tbl = tbl.sort_values("slope", ascending=False, na_position="last")
 tbl = tbl[["ticker", "name", "sector", "tier", "slope", "start", "years", "r2", "conc", "mdd", "calmar", "ulcer", "martin", "uw",
-           "slope10", "r210", "conc10", "ulcer10", "martin10", "uw10", "in_pool"]]
+           "slope10", "r210", "conc10", "ulcer10", "martin10", "uw10", "up_cap", "dn_cap", "off_high", "in_pool"]]
 tbl.columns = ["代码", "名称", "行业", "档", "年化斜率%", "段起点", "段长(年)", "R²", "月收益集中度",
                "段内最大回撤%", "Calmar", "Ulcer", "Martin", "最长水下(年)",
-               "10年斜率%", "10年R²", "10年月收益集中度", "10年Ulcer", "10年Martin", "10年最长水下(年)", "在池"]
+               "10年斜率%", "10年R²", "10年月收益集中度", "10年Ulcer", "10年Martin", "10年最长水下(年)",
+               "上行捕获", "下行捕获", "离近期高点%", "在池"]
 st.dataframe(tbl, hide_index=True, width="stretch")
 st.caption("回撤都按日线、从段起点算到最新。Calmar = 年化斜率 ÷ 最大回撤，只看最惨一天；"
            "Ulcer = 每天离前高跌幅的均方根（水下多深、泡多久），Martin = 年化斜率 ÷ Ulcer，受单次大跌影响小。"
            "段越长越容易撞上 2008 / 2020，长段两个比值都偏低，Calmar 更明显。"
            f"最长水下 = 最久一次低于前高熬了几年（还没回到前高的也算）。月收益集中度见上一节。"
-           f"「10年」几列统一用 {d['window_start']} 到数据末日同一段时间算，斜率同法拟合但不挑段，跨票比较看这几列。")
+           f"「10年」几列统一用 {d['window_start']} 到数据末日同一段时间算，斜率同法拟合但不挑段，跨票比较看这几列。"
+           f"上行 / 下行捕获和离高点跌幅按近 {d['cap_months']} 个月日线算，见上一节。")
 
 st.markdown("### 单票详情")
 c1, c2 = st.columns([1, 1])
