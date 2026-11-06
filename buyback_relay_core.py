@@ -176,7 +176,8 @@ def render_group(
              日频价格规则进出场，产出日线 NAV。设置后忽略 retention_mask/entry_mask，
              nav_engine 须为 "daily"，daily_price_cache 须是 {ticker: 日线收盘 Series}。
     stitched_name_style = "full"（默认，段标题=英文全称(代码)·grade_map）或
-             "cn_ticker"（段标题只留 grade_map 中文名(代码)，grade_map 需已是中文名，见 page20）。
+             "cn_ticker"（段标题只留 grade_map 中文名(代码)，grade_map 需已是中文名，见 page20）或
+             "ticker_cn"（代码 + name_map 中文简称，去掉英文发行商前缀，见 page13）。
     """
     n_hold = max(1, int(n_hold))
     max_n_hold = max(1, int(max_n_hold))

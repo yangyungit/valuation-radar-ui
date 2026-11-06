@@ -604,6 +604,13 @@ def _layout_segment_labels(items: list, total_x: float, plot_px: float = 1000.0,
     return anns, base_top + int(box_h_max)
 
 
+def _ticker_cn(tk: str, cn: str) -> str:
+    """"SPMO", "Invesco 标普动量" → "SPMO 标普动量"：去掉开头的英文发行商。"""
+    head, _, rest = cn.partition(" ")
+    short = rest if rest and head.isascii() else cn
+    return f"{tk} {short}" if short and short != tk else tk
+
+
 def _seg_range(s_m: str, e_m: str) -> tuple:
     """段起止既可是 "YYYY-MM"（整月）也可是 "YYYY-MM-DD"（按日，34 页月中买卖用）。"""
     sd = pd.Timestamp(s_m if len(s_m) > 7 else f"{s_m}-01")
@@ -634,6 +641,8 @@ def build_stitched_fig(
     name_style="full"（默认）：段上标题=英文全称(代码)·grade_map；
     name_style="cn_ticker"：段上标题只留 grade_map 的中文名(代码)，不带英文全称
     （grade_map 需已存的是中文名而非 sector，见 page20 FCF进攻）。
+    name_style="ticker_cn"：段上标题=代码 + name_map 中文简称，去掉开头的英文发行商
+    （"Invesco 标普动量" → "SPMO 标普动量"，见 page13 因子轮动）。
     shade_months：要染底色的月份（"YYYY-MM"）。x 轴是拼接后的序号不是日期，
     所以要按每个点的真实日期换算成序号区间再画 vrect。
     ribbon：relay_ribbon_segments 返回的某一条轨道，画成图顶部一条色带，和净值线
@@ -832,6 +841,8 @@ def build_stitched_fig(
         _cn = nm.get(tk, "")
         if name_style == "cn_ticker":
             _ann_text = f"{_g}({tk})" if _g and _g != tk else tk
+        elif name_style == "ticker_cn":
+            _ann_text = _ticker_cn(tk, _cn)
         else:
             _base = f"{_cn}({tk})" if _cn and _cn != tk else tk
             _ann_text = f"{_base}·{_g}" if _g else _base
@@ -841,13 +852,19 @@ def build_stitched_fig(
         x_dates.extend(closes.index)
         x_offset += n
 
-    name_annotations, top_margin = _layout_segment_labels(label_items, x_offset, keep_names=keep_names)
+    # ticker_cn 窄段也留名字，斜标变长后相邻段更容易压字，按 600px 估算拉开间距
+    _tc = name_style == "ticker_cn"
+    name_annotations, top_margin = _layout_segment_labels(
+        label_items, x_offset, plot_px=600.0 if _tc else 1000.0, keep_names=keep_names or _tc)
     tick_vals, tick_texts = _thin_ticks(tick_vals, tick_texts, x_offset)
 
     if tail_pending and x_offset > 0:
         _tk, _since = tail_pending
         _g = gm.get(_tk, "")
-        _txt = f"{_g}({_tk})" if _g and _g != _tk else _tk
+        if name_style == "ticker_cn":
+            _txt = _ticker_cn(_tk, nm.get(_tk, ""))
+        else:
+            _txt = f"{_g}({_tk})" if _g and _g != _tk else _tk
         fig.add_annotation(
             x=x_offset - 1, y=0.97, xref="x", yref="paper",
             text=f"→ 已换成 {_txt}<br>{_since} 起，价格还没攒够画线",

@@ -119,4 +119,5 @@ _COMMON = dict(
 _all_cols = list(king_m.columns)
 st.markdown("## 🔄 全因子 ETF 轮动（纯动量）")
 render_group("因子 ETF", _all_cols, "fac_all",
-             score_m=king_m, sweep_score_m=king_m_long, default_k=0.75, factor_attrib=True, **_COMMON)
+             score_m=king_m, sweep_score_m=king_m_long, default_k=0.75, factor_attrib=True,
+             stitched_name_style="ticker_cn", **_COMMON)
