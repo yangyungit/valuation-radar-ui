@@ -3643,7 +3643,21 @@ def fetch_portfolio_watch(days: int = 14) -> dict:
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=300)
+def fetch_portfolio_tax(year: int) -> dict:
+    """ABCD 账本按年的中国个税估算。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/portfolio/tax", params={"year": year}, timeout=60)
+        if r.status_code == 400:
+            return {"success": False, "error": r.json().get("detail")}
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def clear_portfolio_caches() -> None:
+    fetch_portfolio_tax.clear()
     fetch_portfolio_summary.clear()
     fetch_portfolio_ledger.clear()
     fetch_portfolio_thesis.clear()

@@ -18,6 +18,7 @@ from api_client import (
     delete_portfolio_trade,
     fetch_portfolio_ledger,
     fetch_portfolio_summary,
+    fetch_portfolio_tax,
     fetch_portfolio_thesis,
     fetch_portfolio_watch,
     post_portfolio_cash_flow,
@@ -49,6 +50,10 @@ def money(v: float) -> str:
     return "***" if hide_amt else f"${v:,.0f}"
 
 
+def cny(v: float) -> str:
+    return "\\*\\*\\*" if hide_amt else f"¥{v:,.0f}"
+
+
 def entry_forms() -> None:
     tab_trade, tab_flow = st.tabs(["交易", "入金出金"])
     with tab_trade:
@@ -63,7 +68,7 @@ def entry_forms() -> None:
             qty = c5.number_input("数量", min_value=0.0, value=0.0, format="%.8f")
             price = c6.number_input(
                 "价格", min_value=0.0, value=0.0, format="%.6f",
-                help="本币单价；OPEN 填真实均价；DIV 填到账总额，数量填 0")
+                help="本币单价；OPEN 填真实均价；DIV 填税前到账总额、数量填 0，美国预扣税填在手续费栏")
             fee = c7.number_input("手续费", min_value=0.0, value=0.0, format="%.4f")
             note = c8.text_input("备注")
             if st.form_submit_button("提交交易"):
@@ -236,6 +241,69 @@ def watch_section() -> None:
                     st.caption("搜了：" + " · ".join(d["searches_json"]))
 
 
+def tax_section() -> None:
+    st.markdown("### 个税估算（中国税务居民）")
+    this_year = date.today().year
+    t0 = fetch_portfolio_tax(this_year)
+    if not t0.get("success"):
+        st.caption(f"拿不到个税估算：{t0.get('error', '未知错误')}")
+        return
+    if t0.get("empty"):
+        st.caption("账本里还没有交易")
+        return
+    years = t0.get("years") or [this_year]
+    y = st.selectbox("年份", years[::-1], key="tax_year")
+    t = t0 if y == this_year else fetch_portfolio_tax(y)
+    if not t.get("success"):
+        st.caption(f"拿不到 {y} 年估算：{t.get('error', '未知错误')}")
+        return
+    if t.get("empty"):
+        st.caption(f"{y} 年没有交易")
+        return
+    g, dv, hv = t["gains"], t["dividends"], t.get("harvest")
+    c = st.columns(4)
+    c[0].metric("已实现盈亏", cny(g["realized_cny"]))
+    c[1].metric("股息（税前）", cny(dv["gross_cny"]))
+    c[2].metric("美国已扣", cny(dv["withholding_cny"]))
+    c[3].metric("预估应交", cny(t["total_tax_cny"]))
+    st.caption(f"汇率 USD/CNY {t['usdcny']:.4f}（{t['usdcny_date']}）")
+    if hv and hv["usable_cny"] > 0:
+        st.info(f"浮亏可抵 {cny(hv['usable_cny'])}，约省 {cny(hv['saving_cny'])}。"
+                "中国没有洗售规则，12 月 31 日前卖出、当天买回即可，仓位不变")
+        hrows = []
+        for r in hv["rows"]:
+            row = {"代码": r["ticker"], "券商": r["broker"], "仓位": r["sleeve"], "数量": f"{r['qty']:,.6g}"}
+            if not hide_amt:
+                row["浮亏 ¥"] = f"¥{r['unrealized_cny']:,.0f}"
+            hrows.append(row)
+        st.dataframe(pd.DataFrame(hrows), width="stretch", hide_index=True)
+    if g["rows"]:
+        st.markdown("**卖出已实现**")
+        grows = []
+        for r in g["rows"]:
+            row = {"代码": r["ticker"], "券商": r["broker"], "卖出笔数": r["n_sells"]}
+            if not hide_amt:
+                row["已实现 USD"] = f"${r['realized_usd']:+,.0f}"
+                row["已实现 ¥"] = f"¥{r['realized_cny']:+,.0f}"
+            grows.append(row)
+        st.dataframe(pd.DataFrame(grows), width="stretch", hide_index=True)
+    if dv["rows"]:
+        st.markdown("**股息**")
+        drows = []
+        for r in dv["rows"]:
+            row = {"日期": r["date"], "代码": r["ticker"], "券商": r["broker"]}
+            if not hide_amt:
+                row["税前 USD"] = f"${r['gross_usd']:,.2f}"
+                row["预扣 USD"] = f"${r['withholding_usd']:,.2f}"
+            drows.append(row)
+        st.dataframe(pd.DataFrame(drows), width="stretch", hide_index=True)
+    if t["crypto_realized_cny"]:
+        st.caption(f"加密货币已实现 {cny(t['crypto_realized_cny'])}，口径不明未计税")
+    with st.expander("口径说明"):
+        for a in t["assumptions"]:
+            st.markdown(f"- {a}")
+
+
 summary = fetch_portfolio_summary()
 if not summary.get("success"):
     st.error(f"⚠️ 后端拿不到账本数据：{summary.get('error', '未知错误')}")
@@ -334,6 +402,8 @@ else:
     st.dataframe(pd.DataFrame(pos_rows), width="stretch", hide_index=True)
     for w in summary.get("warnings", []):
         st.warning(w)
+
+    tax_section()
 
     # ---- 论点卡 ----
     st.markdown("### 论点卡")
