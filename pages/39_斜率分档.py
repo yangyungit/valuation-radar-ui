@@ -223,7 +223,7 @@ for key, color, label in (("auto", "#f39c12", "机器段"), ("manual", "#4fc3e8"
     seg = dd.get(key)
     if seg:
         fig.add_trace(go.Scatter(x=seg["dates"], y=seg["values"], mode="lines",
-                                 name=f"{label} {seg['start'][:7]} 起 · {seg['slope']}%/年 · R² {seg['r2']}",
+                                 name=f"{label} {seg['start'][:7]} 起 · 斜率 {seg['slope']}%/年 · R² {seg['r2']}",
                                  line=dict(color=color, width=2, dash="dash" if key == "manual" else "solid")))
 fig.update_layout(yaxis_type="log", height=480, legend=dict(orientation="h", y=1.08),
                   margin=dict(l=40, r=20, t=40, b=40))
