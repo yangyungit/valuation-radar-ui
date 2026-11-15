@@ -449,6 +449,59 @@ if tail_from:
                "那几条线到此为止。"
                "价格线也是从 Sharadar 末日起接的 yfinance。")
 
+# 现金去向：零线上方是钱从哪来，下方是花到哪去。barmode="relative" 正值往上叠、负值往下叠，
+# 每根柱子上下两半的差 = 当期现金净变动
+FLOWS = [
+    ("经营现金流 OCF",     "ocf_usd",         "#2ca02c"),
+    ("资本开支",           "capex_usd",       "#c49c94"),
+    ("收购（−）/卖业务（+）", "acq_usd",       "#e15759"),
+    ("买卖证券",           "invest_usd",      "#4fc3f7"),
+    ("借债（+）/还债（−）", "debt_flow_usd",   "#f28e2b"),
+    ("发股（+）/回购（−）", "equity_flow_usd", "#9467bd"),
+    ("分红",               "div_paid_usd",    "#bcbd22"),
+    ("其他",               "cf_other_usd",    "#7f7f7f"),
+]
+if all(_series(k) is not None for k in ("acq_usd", "debt_flow_usd", "debt_usd")):
+    from plotly.subplots import make_subplots
+    st.markdown("**💸 钱从哪来、花到哪去（TTM，每根柱子是截至该披露日的过去 4 季合计）**")
+    figc = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.68, 0.32],
+                         vertical_spacing=0.04, specs=[[{}], [{"secondary_y": True}]])
+    for label, key, color in FLOWS:
+        if (ys := _series(key)) is not None:
+            figc.add_trace(go.Bar(x=fi, y=ys, name=label, marker_color=color, marker_line_width=0,
+                                  width=75 * 86400000), row=1, col=1)
+    figc.add_trace(go.Scatter(x=fi, y=f.get("fcf_usd"), name="自由现金流 FCF", mode="lines",
+                              line=dict(color="#17becf", width=2)), row=1, col=1)
+    debt = pd.Series(f["debt_usd"], dtype=float)
+    net_debt = debt - pd.Series(f.get("cash_usd"), dtype=float)
+    fcf_s = pd.Series(f.get("fcf_usd"), dtype=float)
+    # FCF ≤ 0 时「几年还清」没有意义；净现金（净债务为负）记 0
+    payback = (net_debt.clip(lower=0) / fcf_s.where(fcf_s > 0)).where(net_debt.notna())
+    figc.add_trace(go.Scatter(x=fi, y=debt, name="总债务", fill="tozeroy", mode="lines",
+                              line=dict(color="#f28e2b", width=0.5), fillcolor="rgba(242,142,43,0.25)"),
+                   row=2, col=1)
+    figc.add_trace(go.Scatter(x=fi, y=net_debt, name="净债务（债务 − 现金）", mode="lines",
+                              line=dict(color="#f28e2b", width=2)), row=2, col=1)
+    figc.add_trace(go.Scatter(x=fi, y=payback, name="净债务 ÷ FCF（几年还清，右轴）", mode="lines",
+                              line=dict(color="#ddd", width=1.2, dash="dash")),
+                   row=2, col=1, secondary_y=True)
+    pb_vals = payback.dropna()
+    figc.update_yaxes(title_text="年", secondary_y=True, row=2, col=1, showgrid=False,
+                      range=[0, min(float(pb_vals.quantile(0.95)) * 1.2, 15)] if len(pb_vals) else None)
+    figc.update_yaxes(title_text="TTM $", row=1, col=1, gridcolor="#2a2a2a",
+                      zeroline=True, zerolinecolor="#888")
+    figc.update_yaxes(title_text="$", row=2, col=1, secondary_y=False, gridcolor="#2a2a2a")
+    figc.update_xaxes(gridcolor="#2a2a2a")
+    figc.update_layout(barmode="relative", height=620, hovermode="x unified",
+                       plot_bgcolor="#111", paper_bgcolor="#111", font=dict(color="#ddd"),
+                       legend=dict(orientation="h", y=1.06), margin=dict(l=50, r=50, t=40, b=40))
+    st.plotly_chart(figc, use_container_width=True)
+    st.caption("上图零线上方是现金来源，下方是去向，同一根柱子上下之差就是当期现金余额的变化。"
+               "红色收购大于绿色经营现金流、同时橙色借债冲上去，就是借钱买公司；"
+               "之后几年橙色转到零线下方（还债）、下图净债务回落，说明买完靠现金流还掉了。"
+               "「其他」含少数股东交易、汇率影响等。下图虚线 = 净债务 ÷ TTM FCF，"
+               "FCF 为负时不画，净现金记 0。yfinance 补的尾部季度没有这些字段，柱子到 Sharadar 末日为止。")
+
 if seg_on:
     st.markdown("**🟡 停滞段 / 🟢 趋势段**")
     if not segs:
