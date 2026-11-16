@@ -1,3 +1,7 @@
+## 2026-11-16 | 「新药贡献」页挪到 system 8502 板块地图的医疗板块
+
+**改动**：删 `pages/41_新药贡献.py`、`app.py` 导航那一行、`api_client.py` 的 `fetch_drug_revenue`。内容原样搬进 `system/pages/12_板块地图.py` 的 `render_drug_revenue()`，选「医疗」时接在细分龙头图后面；原侧边栏的「获批几年内算新药 / 显示几个季度」改到这一节里，强制刷新按钮去掉（缓存 1 小时）。
+
 ## 2026-11-16 | 新增「新药贡献」页：大药企红绿柱看新药有没有盖住老药下滑
 
 后端见 `valuation-radar` d82abbe：`/api/v1/drug_revenue`。
