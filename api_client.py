@@ -1243,6 +1243,18 @@ def fetch_biz_watch(min_score: int = 14, min_slope: float = 8.0, top_n: int = 16
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=3600)
+def fetch_drug_revenue(years: int = 5, ticker: str = "", drugs: str = "") -> dict:
+    """新药贡献：大药企总收入同比拆成新药增量 + 其余变化。ticker + drugs 给了就按自选名单重算那一家。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/drug_revenue",
+                         params={"years": years, "ticker": ticker, "drugs": drugs}, timeout=60)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @st.cache_data(ttl=3600 * 4)
 def fetch_trend_slope_detail(ticker: str, price: str = "net", start: str | None = None) -> dict:
     """单票周线 + 拟合线（自动段 / 手填起点段）。"""
