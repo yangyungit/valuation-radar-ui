@@ -1,3 +1,9 @@
+## 2026-11-20 | 新增「通胀利率」页：CPI 同比 + 原油、联邦基金利率 + 2 年期美债
+
+后端见 `valuation-radar` f5fbde2：`/api/v1/macro/inflation_rates`。
+
+**改动**：`pages/41_通胀利率.py` 新页；`api_client.py` 加 `fetch_inflation_rates`；`app.py` 在「大类观察」组末尾加一行。上图整体 / 核心 CPI 同比叠 WTI 原油（右轴），下图联邦基金利率上限（阶梯）叠 2 年期美债，侧边栏切 2Y / 5Y / 10Y。
+
 ## 2026-11-16 | 「新药贡献」页挪到 system 8502 板块地图的医疗板块
 
 **改动**：删 `pages/41_新药贡献.py`、`app.py` 导航那一行、`api_client.py` 的 `fetch_drug_revenue`。内容原样搬进 `system/pages/12_板块地图.py` 的 `render_drug_revenue()`，选「医疗」时接在细分龙头图后面；原侧边栏的「获批几年内算新药 / 显示几个季度」改到这一节里，强制刷新按钮去掉（缓存 1 小时）。
