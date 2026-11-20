@@ -222,6 +222,48 @@ k2.metric(f"变化率相关（{chg_win} 周环比）", f"{corr_chg:+.2f}",
           help="去掉趋势后的真实同步程度。这个才是判断「流动性驱动」是否成立的口径。")
 
 st.markdown("---")
+st.subheader("美元指数 DXY")
+dxy = fetch_close_series("DX-Y.NYB", years + 1)
+if dxy.empty:
+    st.warning("拿不到美元指数（DX-Y.NYB）。")
+else:
+    dxy_ma = dxy.rolling(200).mean()
+    dxy = dxy[dxy.index >= df.index.min()]
+    dxy_ma = dxy_ma.reindex(dxy.index)
+    dxy_w = dxy.resample("W-FRI").last()
+    dxy_chg = dxy_w.pct_change(chg_win, fill_method=None)
+    dxy_corr = dxy_chg.corr(px_chg.reindex(dxy_chg.index))
+
+    d1, d2, d3 = st.columns(3)
+    d1.metric("美元指数", f"{dxy.iloc[-1]:.2f}",
+              f"{dxy_chg.iloc[-1]:+.1%} / {chg_win}周" if pd.notna(dxy_chg.iloc[-1]) else None,
+              help=f"ICE 美元指数，最新 {dxy.index[-1].date()}。涨 = 美元变强")
+    d2.metric("距 200 日均线", f"{dxy.iloc[-1] / dxy_ma.iloc[-1] - 1:+.1%}",
+              help="在均线上方 = 美元处于强势趋势")
+    d3.metric(f"DXY 与{BENCHMARKS[ticker]}变化率相关（{chg_win}周）", f"{dxy_corr:+.2f}",
+              help="负数 = 美元走强时该标的通常走弱")
+
+    fig3 = make_subplots(specs=[[{"secondary_y": True}]])
+    xd = dxy.index.to_pydatetime()
+    fig3.add_trace(go.Scatter(x=xd, y=dxy, name="美元指数（左轴）",
+                              line=dict(color="#1abc9c", width=2)), secondary_y=False)
+    fig3.add_trace(go.Scatter(x=xd, y=dxy_ma, name="200 日均线",
+                              line=dict(color="#888", width=1.2, dash="dash")), secondary_y=False)
+    fig3.add_trace(go.Scatter(x=x, y=df["price"], name=f"{BENCHMARKS[ticker]}（右轴，对数）",
+                              line=dict(color="#f5a623", width=1.4), opacity=0.6), secondary_y=True)
+    fig3.update_layout(
+        height=380, plot_bgcolor="#111", paper_bgcolor="#111",
+        font=dict(color="#ddd", size=13),
+        legend=dict(orientation="h", y=1.12, x=0),
+        margin=dict(l=60, r=60, t=30, b=40), hovermode="x unified",
+    )
+    fig3.update_yaxes(title_text="DXY", gridcolor="#222", secondary_y=False)
+    fig3.update_yaxes(title_text=f"{BENCHMARKS[ticker]} 价格", type="log",
+                      showgrid=False, secondary_y=True)
+    fig3.update_xaxes(gridcolor="#222")
+    st.plotly_chart(fig3, width="stretch")
+
+st.markdown("---")
 st.subheader("三个分项谁在推动")
 fig2 = make_subplots(specs=[[{"secondary_y": True}]])
 fig2.add_trace(go.Scatter(x=x, y=df["fed"] / 1000.0, name="美联储总资产（左轴，万亿）",
