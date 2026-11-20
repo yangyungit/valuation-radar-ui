@@ -16,7 +16,7 @@ import requests as _requests
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from api_client import fetch_close_series
+from api_client import fetch_close_series, fetch_inflation_rates
 
 st.set_page_config(page_title="币圈流动性", layout="wide", page_icon="💧")
 
@@ -282,6 +282,63 @@ fig2.update_yaxes(title_text="万亿美元", gridcolor="#222", secondary_y=False
 fig2.update_yaxes(title_text="十亿美元", showgrid=False, secondary_y=True)
 fig2.update_xaxes(gridcolor="#222")
 st.plotly_chart(fig2, width="stretch")
+
+
+def _render_inflation_rates(years: int) -> None:
+    """通胀 / 利率图。数据在后端 /api/v1/macro/inflation_rates（FRED），窗口跟随页面「回看年数」。"""
+    d = fetch_inflation_rates()
+    if not d.get("success"):
+        st.error(f"后端没返回通胀利率数据：{d.get('error')}")
+        return
+    lt = d["latest"]
+    st.caption(f"FRED · CPI 截至 {lt['cpi_month']} · 原油 / 利率截至 {lt['week']}")
+
+    def _frame(block: dict) -> pd.DataFrame:
+        f = pd.DataFrame(block)
+        f.index = pd.to_datetime(f.pop("dates"))
+        return f.astype(float)
+
+    start = pd.Timestamp.today() - pd.DateOffset(years=years)
+    cpi = _frame(d["cpi"]).loc[start:]
+    wk = _frame(d["weekly"]).loc[start:]
+    layout = dict(
+        height=420, xaxis_tickformat="%Y-%m", legend=dict(orientation="h", y=1.12, x=0),
+        margin=dict(l=60, r=60, t=70, b=40), hovermode="x unified",
+        plot_bgcolor="#111", paper_bgcolor="#111", font=dict(color="#ddd", size=13),
+    )
+
+    f1 = make_subplots(specs=[[{"secondary_y": True}]])
+    for col, name, color in (("headline", "整体 CPI", "#e74c3c"), ("core", "核心 CPI", "#3498db")):
+        s = cpi[col].dropna()
+        f1.add_trace(go.Scatter(x=s.index, y=s, name=name, line=dict(color=color, width=2)),
+                     secondary_y=False)
+    s = wk["wti"].dropna()
+    f1.add_trace(go.Scatter(x=s.index, y=s, name="WTI", line=dict(color="#999", width=1.2), opacity=0.6),
+                 secondary_y=True)
+    f1.update_yaxes(title_text="同比 %", gridcolor="#222", secondary_y=False)
+    f1.update_yaxes(title_text="美元/桶", secondary_y=True, showgrid=False)
+    f1.update_xaxes(gridcolor="#222")
+    f1.update_layout(
+        title=f"通胀　整体 {lt['headline']:.2f}% · 核心 {lt['core']:.2f}% · WTI {lt['wti']:.0f}", **layout)
+    st.plotly_chart(f1, width="stretch")
+    st.caption("核心 CPI 去掉食品和能源。整体和核心差得多，说明是油价在推。")
+
+    f2 = go.Figure()
+    s = wk["fed_upper"].dropna()
+    f2.add_trace(go.Scatter(x=s.index, y=s, name="联邦基金利率上限",
+                            line=dict(color="#ddd", width=2, shape="hv")))
+    s = wk["dgs2"].dropna()
+    f2.add_trace(go.Scatter(x=s.index, y=s, name="2 年期美债", line=dict(color="#f39c12", width=2)))
+    f2.update_yaxes(title_text="%", gridcolor="#222")
+    f2.update_xaxes(gridcolor="#222")
+    f2.update_layout(title=f"利率　基金上限 {lt['fed_upper']:.2f}% · 2 年期 {lt['dgs2']:.2f}%", **layout)
+    st.plotly_chart(f2, width="stretch")
+    st.caption("2 年期在基金利率上方，市场在押继续加息。")
+
+
+st.markdown("---")
+st.subheader("通胀与利率")
+_render_inflation_rates(years)
 
 with st.expander("这页怎么读 / 数据口径"):
     st.markdown(f"""

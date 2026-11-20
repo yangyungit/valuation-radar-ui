@@ -36,7 +36,6 @@ nav = st.navigation({
         st.Page("pages/12_价格台阶.py", title="价格台阶"),
         st.Page("pages/13_因子轮动.py", title="因子轮动"),
         st.Page("pages/28_主题簇.py", title="主题簇"),
-        st.Page("pages/41_通胀利率.py", title="通胀利率"),
     ],
     "稳定类策略 ——————": [
         st.Page("pages/14_黄金带鱼.py", title="黄金带鱼"),
