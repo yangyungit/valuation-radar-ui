@@ -1,3 +1,9 @@
+## 2026-11-22 | 风险预警页新增两块日频图：涨跌线 vs SPY、高收益债利差 + 联邦基金利率
+
+后端见 `valuation-radar` a62a18c：`/api/v1/macro/ad_line`、`/api/v1/macro/hy_spread`。
+
+**改动**：`api_client.py` 加 `fetch_ad_line` / `fetch_hy_spread`；`pages/7_风险预警.py` 在标普 500 成分股宽度后面加两块。涨跌线图 SPY 对数主轴 + 涨跌线副轴，红三角标 7 个之后跌超 15% 的 SPY 顶，橙色虚线标最近 252 日涨跌线高点；图注里的段数、比例全读接口，不写死。利差图利差主轴 + DFF 阶梯副轴。
+
 ## 2026-11-20 | 新增「通胀利率」页：CPI 同比 + 原油、联邦基金利率 + 2 年期美债
 
 后端见 `valuation-radar` f5fbde2：`/api/v1/macro/inflation_rates`。

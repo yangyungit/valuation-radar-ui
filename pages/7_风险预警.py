@@ -7,6 +7,7 @@
 - 熊市闸门（SPY 日线 MA100）：与「科技龙头」页同源，橙=减半，依赖后端 API。
 - GBDT 急跌/慢跌概率：后端 horsemen_daily_*，SPY 日线上标出触发日，SPX / NDX 双 tab，NDX 版用 QQQ，仅参考。
 - 其余（BTC 月 MA10，HYG÷LQD、ARKK÷SPY、SMH÷SPY 月 MA24）：月频 MA 交叉，纯前端 yfinance。
+- 涨跌线 vs SPY、高收益债利差 + DFF：日频，后端 ad_line / hy_spread 接口。
 """
 import pandas as pd
 import plotly.graph_objects as go
@@ -771,6 +772,98 @@ if _br.get("success"):
     )
 else:
     st.warning(f"标普500 成分股宽度加载失败：{_br.get('error')}")
+
+# ── 第 6 条：全美股涨跌线 vs SPY（日频，后端 ad_line）
+from api_client import fetch_ad_line, fetch_hy_spread
+
+_dark_layout = dict(
+    margin=dict(l=50, r=50, t=20, b=28),
+    plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font=dict(color="#ddd"),
+    xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
+    legend=dict(orientation="h", y=1.08),
+    hovermode="x unified",
+)
+
+st.markdown("#### 📉 全美股涨跌线 vs SPY（日频）")
+_ad = fetch_ad_line()
+if _ad.get("success"):
+    _al = _ad["latest"]
+    _c1, _c2, _c3 = st.columns(3)
+    _c1.metric("涨跌线 252 日高点", _al["ad_high_date"])
+    _c2.metric("距今", f"{_al['ad_high_days_ago']} 个交易日")
+    _c3.metric("SPY 此后是否创新高",
+               f"是（{_al['spy_high_date']}）· 背离" if _al["spy_new_high_after"] else "否")
+
+    _spy_by_date = dict(zip(_ad["dates"], _ad["spy"]))
+    _fig_ad = make_subplots(specs=[[{"secondary_y": True}]])
+    _fig_ad.add_trace(go.Scatter(x=_ad["dates"], y=_ad["spy"], name="SPY（对数）",
+                                 line=dict(color="#ddd", width=1.2)), secondary_y=False)
+    _fig_ad.add_trace(go.Scatter(x=_ad["dates"], y=_ad["ad"], name="涨跌线（上涨−下跌家数累加）",
+                                 line=dict(color="#3498DB", width=1.4)), secondary_y=True)
+    _fig_ad.add_trace(go.Scatter(
+        x=[p["spy_top"] for p in _ad["peaks"]],
+        y=[_spy_by_date.get(p["spy_top"]) for p in _ad["peaks"]],
+        mode="markers", name="SPY 大顶（之后跌超 15%）",
+        marker=dict(symbol="triangle-down", color="#E74C3C", size=9),
+        hovertext=[f"SPY 顶 {p['spy_top']}<br>涨跌线先见顶 {p['ad_high']}（提前 {p['lead_days']} 天）"
+                   for p in _ad["peaks"]],
+        hoverinfo="text",
+    ), secondary_y=False)
+    _fig_ad.add_vline(x=_al["ad_high_date"], line=dict(color="#F39C12", dash="dash"))
+    _fig_ad.add_annotation(
+        x=_al["ad_high_date"], y=0.02, yref="paper", xanchor="right", yanchor="bottom", showarrow=False,
+        text=f"涨跌线 252 日高点 {_al['ad_high_date']} · 距今 {_al['ad_high_days_ago']} 个交易日",
+        font=dict(size=11, color="#F39C12"),
+    )
+    _fig_ad.update_layout(height=380, **_dark_layout)
+    _fig_ad.update_yaxes(type="log", tickvals=[50, 100, 200, 300, 500, 700, 1000],
+                         gridcolor="rgba(255,255,255,0.06)", secondary_y=False)
+    _fig_ad.update_yaxes(showgrid=False, secondary_y=True)
+    st.plotly_chart(_fig_ad, use_container_width=True, key="risk_ad_line_chart")
+
+    _dv = _ad["divergence"]
+    _b = {x["lo"]: x for x in _dv["buckets"]}
+    _leads = [p["lead_days"] for p in _ad["peaks"]]
+    st.caption(
+        f"数据截至 {_al['date']}。全美普通股（NYSE / NASDAQ / NYSEMKT，当日收盘 ≥ 3 美元），"
+        "每天「上涨家数 − 下跌家数」从 1998-01-02 起累加，用复权价比涨跌。"
+        f"红三角 = SPY 之后跌超 15% 的 {len(_leads)} 个顶，这几次涨跌线都先见顶（提前 {min(_leads)}–{max(_leads)} 天）。"
+        f"**但这是排除法，不是卖出信号**：{_dv['since'][:4]} 年以来「SPY 创 252 日新高、涨跌线高点已超 40 个交易日」"
+        f"共 {_dv['seg_count']} 段，只有 {_dv['seg_crash_count']} 段（{'、'.join(_dv['seg_crash_years'])}）之后 6 个月跌超 15%。"
+        f"SPY 创新高的日子里，涨跌线高点在 20 个交易日内（不背离）的，之后跌超 15% 的比例 {_b[0]['crash_pct']:.0f}%；"
+        f"背离超 60 个交易日的只有 {_b[60]['crash_pct']:.0f}%，反而更低——2018、2020 那种快崩，涨跌线只提前三到五周见顶。"
+        "读法：涨跌线还在创新高 → 近期大跌的可能性低；背离本身说明不了什么。"
+    )
+else:
+    st.warning(f"涨跌线加载失败：{_ad.get('error')}")
+
+# ── 第 7 条：高收益债利差 + 联邦基金利率（日频，FRED）
+st.markdown("#### 💳 高收益债信用利差 + 联邦基金利率（日频）")
+_hy = fetch_hy_spread()
+if _hy.get("success"):
+    _hl = _hy["latest"]
+    _c1, _c2, _c3 = st.columns(3)
+    _c1.metric("高收益债利差", f"{_hl['hy']:.2f}%", f"较今年最低 +{_hl['hy_vs_ytd_min_bp']}bp", delta_color="inverse")
+    _c2.metric("今年最低", f"{_hl['hy_ytd_min']:.2f}%", _hl["hy_ytd_min_date"], delta_color="off", delta_arrow="off")
+    _c3.metric("联邦基金利率 DFF", f"{_hl['dff']:.2f}%")
+
+    _fig_hy = make_subplots(specs=[[{"secondary_y": True}]])
+    _fig_hy.add_trace(go.Scatter(x=_hy["dates"], y=_hy["hy"], name="高收益债利差",
+                                 line=dict(color="#E74C3C", width=1.6)), secondary_y=False)
+    _fig_hy.add_trace(go.Scatter(x=_hy["dates"], y=_hy["dff"], name="联邦基金利率 DFF",
+                                 line=dict(color="#95A5A6", width=1.2), line_shape="hv"), secondary_y=True)
+    _fig_hy.update_layout(height=320, **_dark_layout)
+    _fig_hy.update_yaxes(ticksuffix="%", gridcolor="rgba(255,255,255,0.06)", secondary_y=False)
+    _fig_hy.update_yaxes(ticksuffix="%", showgrid=False, secondary_y=True)
+    st.plotly_chart(_fig_hy, use_container_width=True, key="risk_hy_spread_chart")
+    st.caption(
+        f"数据截至 {_hl['date']}。FRED 的 BAMLH0A0HYM2 只公开最近 3 年（本图从 {_hl['hy_start']} 起），更早历史拿不到。"
+        "利差 = 垃圾债比国债多要的利息。**利差走阔 = 放贷人开始怕违约，是变坏信号。**"
+        "加息 = 环境变紧，但作用滞后 1–2 年，本身不代表已经变坏（2022 加息当年就熊市，1994 加息没衰退）。"
+        "和上面月频的 HYG÷LQD 条带分工：那条看趋势破位，这张看利差原值、日频。"
+    )
+else:
+    st.warning(f"高收益债利差加载失败：{_hy.get('error')}")
 
 # ── 三个比值指标详情图（月线 + MA24），方便肉眼判断走势/破位是否靠谱
 st.markdown("#### 📈 三个比值指标详情（月线 + MA24）")

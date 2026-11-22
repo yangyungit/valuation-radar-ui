@@ -1091,6 +1091,28 @@ def fetch_sp500_breadth() -> dict:
         return {"success": False, "error": str(e)}
 
 
+@st.cache_data(ttl=3600)
+def fetch_ad_line() -> dict:
+    """全美股涨跌线 + SPY（日频）。失败返回 {"success": False, ...}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/ad_line", timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@st.cache_data(ttl=3600 * 4)
+def fetch_hy_spread() -> dict:
+    """高收益债利差 + 联邦基金利率 DFF（日频，FRED）。失败返回 {"success": False, ...}。"""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/v1/macro/hy_spread", timeout=60)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @st.cache_data(ttl=3600 * 4)
 def fetch_inflation_rates() -> dict:
     """整体 / 核心 CPI 同比（月）+ WTI、联邦基金利率上限、2 年期美债（周）。失败返回 {"success": False, ...}。"""
