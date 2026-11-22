@@ -814,6 +814,16 @@ if _ad.get("success"):
                    for p in _ad["peaks"]],
         hoverinfo="text",
     ), secondary_y=False)
+    _ad_by_date = dict(zip(_ad["dates"], _ad["ad"]))
+    _fig_ad.add_trace(go.Scatter(
+        x=[p["ad_high"] for p in _ad["peaks"]],
+        y=[_ad_by_date.get(p["ad_high"]) for p in _ad["peaks"]],
+        mode="markers", name="涨跌线先见顶",
+        marker=dict(symbol="triangle-down", color="#5DADE2", size=9, line=dict(color="#fff", width=1)),
+        hovertext=[f"涨跌线顶 {p['ad_high']}<br>领先 SPY 顶 {p['spy_top']} {p['lead_days']} 天"
+                   for p in _ad["peaks"]],
+        hoverinfo="text",
+    ), secondary_y=True)
     _fig_ad.add_vline(x=_al["ad_high_date"], line=dict(color="#F39C12", dash="dash"))
     _fig_ad.add_annotation(
         x=_al["ad_high_date"], y=0.02, yref="paper", xanchor="right", yanchor="bottom", showarrow=False,
