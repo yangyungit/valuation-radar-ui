@@ -379,11 +379,11 @@ st.markdown("#### 🤖 急跌概率 — 寂静后首峰（仅参考，不驱动�
 st.caption(
     "急跌模型学「未来 20 交易日 SPY 最低点 ≤ -8%」，历史概率为 walk-forward。"
     "原 0.50 规则 10 年报 24 次中 6 次，假警几乎全挤在大崩盘后一年的余震期，改用新读法："
-    "概率在 0.15 以下安静 ≥ 120 个交易日后第一次冲过 0.15 就报警；"
+    "概率在 0.15 以下安静 ≥ 50 个交易日后第一次冲过 0.15 就报警，但距上次真警不满 250 个交易日（约一年，挡大跌后的余震）不报；"
     "报警后 60 个交易日 SPY 最低点 ≤ -8% 算真。假警后 60 日内每天照样算寂静（冲过 0.50 也算余波），真警或概率冲过 0.50 的大山才重置；任何报警后 60 日内不再报。"
     "仓位闸门是上面的 SPY 日线 MA100。"
     "NDX tab 是同一套模型换 QQQ 当标签和价格特征（门槛同 -8%），真假也用 QQQ 验；它底噪比 SPX 版高，报警线同样是 0.15。"
-    "回测 2009–2026.9：SPX 15 报 6 真，NDX 18 报 5 真。"
+    "回测 2009–2026.11：SPX 19 报 7 真，NDX 24 报 6 真。"
 )
 st.caption(
     "**它在看什么**：本质是问「现在像不像 2004 年以来历次急跌的前夕」，看四类信号（括号内为模型里的分量，月度重训会变）：\n"
@@ -419,6 +419,9 @@ def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
     _qs = pd.DataFrame(_qs_raw.get("signals", []) or [])
     _quiet_now = int(_qs_raw.get("quiet_days_now", 0) or 0)
     _qs_th = float(_qs_raw.get("thresh", 0.15) or 0.15)
+    _min_quiet = int(_qs_raw.get("min_quiet_days", 50) or 50)
+    _min_gap = int(_qs_raw.get("min_gap_days", 250) or 250)
+    _gap_now = _qs_raw.get("gap_days_now")
     _pk_th = float(_qs_raw.get("panic_thresh", 0.80) or 0.80)
     _pk = pd.DataFrame(_qs_raw.get("panic_peaks", []) or [])
     if not _pk.empty:
@@ -556,10 +559,12 @@ def _render_crash_block(px_ticker: str, prob_key: str, qs_key: str,
     st.plotly_chart(_fig_g, use_container_width=True, key=chart_key)
 
     _cur_prob_txt = f"{float(_prob_s.iloc[-1]):.2f}"
-    if _quiet_now >= 120:
-        _armed_txt = f"<span style='color:#E67E22; font-weight:bold;'>寂静已满 {_quiet_now} 日，下次冲过 {_qs_th:.2f} 即报警</span>"
+    _gap_ok = _gap_now is None or int(_gap_now) >= _min_gap
+    _gap_txt = "" if _gap_now is None else f"，距上次真警 {int(_gap_now)} 日（需 ≥ {_min_gap}）"
+    if _quiet_now >= _min_quiet and _gap_ok:
+        _armed_txt = f"<span style='color:#E67E22; font-weight:bold;'>寂静已满 {_quiet_now} 日{_gap_txt}，下次冲过 {_qs_th:.2f} 即报警</span>"
     else:
-        _armed_txt = f"寂静累计 {_quiet_now} 日（需 ≥ 120 才会报警）"
+        _armed_txt = f"寂静累计 {_quiet_now} 日（需 ≥ {_min_quiet}）{_gap_txt}，暂不会报警"
     if _qs.empty:
         st.caption(f"历史上无寂静后首峰信号。当前概率 {_cur_prob_txt}，{_armed_txt}。", unsafe_allow_html=True)
     else:
