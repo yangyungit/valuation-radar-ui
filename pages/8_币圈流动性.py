@@ -74,16 +74,20 @@ def load_net_liquidity(years: int, api_key: str) -> tuple:
     周报之间净流动性只跟着 RRP 动。
     """
     start = datetime.now() - timedelta(days=int(365.25 * years) + 30)
-    raw = {}
+    raw, errs = {}, []
     for sid in FRED_SERIES:
         try:
             s = _fetch_fred_series(sid, start, api_key)
-            if not s.empty:
-                raw[sid] = s
-        except Exception:
-            pass
-    if len(raw) < 3:
-        return pd.DataFrame(), {}
+        except Exception as e:
+            errs.append(f"{sid}: {str(e).replace(api_key, '***')[:200]}")
+            continue
+        if s.empty:
+            errs.append(f"{sid}: 返回空")
+        else:
+            raw[sid] = s
+    # 抛异常而不是返回空表：st.cache_data 不缓存异常，一次网络抖动不会把页面卡死 4 小时
+    if errs:
+        raise RuntimeError("；".join(errs))
 
     asof = {sid: raw[sid].index.max() for sid in raw}
     idx = pd.date_range(max(s.index.min() for s in raw.values()),
@@ -132,10 +136,14 @@ with c4:
     roll_win = st.slider("滚动相关窗口（周）", 26, 156, 52, step=13,
                          help="下方相关性曲线的样本长度。52 周 = 一年。")
 
-with st.spinner("拉 FRED 数据…"):
-    liq, asof = load_net_liquidity(years, api_key)
+try:
+    with st.spinner("拉 FRED 数据…"):
+        liq, asof = load_net_liquidity(years, api_key)
+except Exception as e:
+    st.error(f"FRED 没拉全，刷新重试：{e}")
+    st.stop()
 if liq.empty:
-    st.error("FRED 三个序列没拉全（WALCL / WTREGEN / RRPONTSYD），检查 Key 或网络。")
+    st.error("FRED 三个序列没有重叠日期。")
     st.stop()
 
 px = fetch_close_series(ticker, years)
