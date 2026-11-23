@@ -1695,7 +1695,7 @@ else:
     c2.metric("评级调整后（他推荐用这个）", f"{_lt['implied_erp_adj'] * 100:.2f}%")
     c3.metric("10 年美债", f"{_lt['tbond'] * 100:.2f}%")
     _fig = go.Figure()
-    _fig.add_trace(go.Scatter(x=_us["years"], y=[v * 100 for v in _us["implied_erp"]],
+    _fig.add_trace(go.Scatter(x=_us["years"], y=[None if v is None else v * 100 for v in _us["implied_erp"]],
                               name="隐含 ERP", line=dict(color="#FFD700", width=2.5)))
     _fig.add_trace(go.Scatter(x=_us["years"], y=[None if v is None else v * 100 for v in _us["tbond"]],
                               name="10 年美债", line=dict(color="#3498DB", width=1.5, dash="dot")))
