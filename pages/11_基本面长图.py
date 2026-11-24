@@ -463,26 +463,29 @@ FLOWS = [
 ]
 if all(_series(k) is not None for k in ("acq_usd", "debt_flow_usd", "debt_usd")):
     from plotly.subplots import make_subplots
-    st.markdown("**💸 钱从哪来、花到哪去（TTM，每根柱子是截至该披露日的过去 4 季合计）**")
+    # 按财报期末摆放：披露日不均匀（PDD 11 月到次年 3 月隔 4 个月、3 月到 5 月只隔 2 个月），
+    # 柱子会一边挤一边空
+    xc = pd.Series(pd.to_datetime(f.get("reportperiod") or [None] * len(fi))).fillna(pd.Series(fi))
+    st.markdown("**💸 钱从哪来、花到哪去（TTM，每根柱子是截至该季度末的过去 4 季合计，按财报期摆放）**")
     figc = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.68, 0.32],
                          vertical_spacing=0.04, specs=[[{}], [{"secondary_y": True}]])
     for label, key, color in FLOWS:
         if (ys := _series(key)) is not None:
-            figc.add_trace(go.Bar(x=fi, y=ys, name=label, marker_color=color, marker_line_width=0,
+            figc.add_trace(go.Bar(x=xc, y=ys, name=label, marker_color=color, marker_line_width=0,
                                   width=75 * 86400000), row=1, col=1)
-    figc.add_trace(go.Scatter(x=fi, y=f.get("fcf_usd"), name="自由现金流 FCF", mode="lines",
+    figc.add_trace(go.Scatter(x=xc, y=f.get("fcf_usd"), name="自由现金流 FCF", mode="lines",
                               line=dict(color="#17becf", width=2)), row=1, col=1)
     debt = pd.Series(f["debt_usd"], dtype=float)
     net_debt = debt - pd.Series(f.get("cash_usd"), dtype=float)
     fcf_s = pd.Series(f.get("fcf_usd"), dtype=float)
     # FCF ≤ 0 时「几年还清」没有意义；净现金（净债务为负）记 0
     payback = (net_debt.clip(lower=0) / fcf_s.where(fcf_s > 0)).where(net_debt.notna())
-    figc.add_trace(go.Scatter(x=fi, y=debt, name="总债务", fill="tozeroy", mode="lines",
+    figc.add_trace(go.Scatter(x=xc, y=debt, name="总债务", fill="tozeroy", mode="lines",
                               line=dict(color="#f28e2b", width=0.5), fillcolor="rgba(242,142,43,0.25)"),
                    row=2, col=1)
-    figc.add_trace(go.Scatter(x=fi, y=net_debt, name="净债务（债务 − 现金）", mode="lines",
+    figc.add_trace(go.Scatter(x=xc, y=net_debt, name="净债务（债务 − 现金）", mode="lines",
                               line=dict(color="#f28e2b", width=2)), row=2, col=1)
-    figc.add_trace(go.Scatter(x=fi, y=payback, name="净债务 ÷ FCF（几年还清，右轴）", mode="lines",
+    figc.add_trace(go.Scatter(x=xc, y=payback, name="净债务 ÷ FCF（几年还清，右轴）", mode="lines",
                               line=dict(color="#ddd", width=1.2, dash="dash")),
                    row=2, col=1, secondary_y=True)
     pb_vals = payback.dropna()
