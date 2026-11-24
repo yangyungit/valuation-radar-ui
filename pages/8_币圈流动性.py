@@ -299,7 +299,7 @@ def _render_inflation_rates(years: int) -> None:
         st.error(f"后端没返回通胀利率数据：{d.get('error')}")
         return
     lt = d["latest"]
-    st.caption(f"FRED · CPI 截至 {lt['cpi_month']} · 原油 / 利率截至 {lt['week']}")
+    st.caption(f"FRED · CPI 截至 {lt['cpi_month']} · PCE 截至 {lt['pce_month']} · 原油 / 利率截至 {lt['week']}")
 
     def _frame(block: dict) -> pd.DataFrame:
         f = pd.DataFrame(block)
@@ -316,10 +316,12 @@ def _render_inflation_rates(years: int) -> None:
     )
 
     f1 = make_subplots(specs=[[{"secondary_y": True}]])
-    for col, name, color in (("headline", "整体 CPI", "#e74c3c"), ("core", "核心 CPI", "#3498db")):
+    for col, name, color in (("headline", "整体 CPI", "#e74c3c"), ("core", "核心 CPI", "#3498db"),
+                             ("core_pce", "核心 PCE", "#2ecc71")):
         s = cpi[col].dropna()
         f1.add_trace(go.Scatter(x=s.index, y=s, name=name, line=dict(color=color, width=2)),
                      secondary_y=False)
+    f1.add_hline(y=2, line=dict(color="#666", dash="dot"), secondary_y=False)
     s = wk["wti"].dropna()
     f1.add_trace(go.Scatter(x=s.index, y=s, name="WTI", line=dict(color="#999", width=1.2), opacity=0.6),
                  secondary_y=True)
@@ -327,9 +329,11 @@ def _render_inflation_rates(years: int) -> None:
     f1.update_yaxes(title_text="美元/桶", secondary_y=True, showgrid=False)
     f1.update_xaxes(gridcolor="#222")
     f1.update_layout(
-        title=f"通胀　整体 {lt['headline']:.2f}% · 核心 {lt['core']:.2f}% · WTI {lt['wti']:.0f}", **layout)
+        title=f"通胀　整体 CPI {lt['headline']:.2f}% · 核心 CPI {lt['core']:.2f}% · "
+              f"核心 PCE {lt['core_pce']:.2f}% · WTI {lt['wti']:.0f}", **layout)
     st.plotly_chart(f1, width="stretch")
-    st.caption("核心 CPI 去掉食品和能源。整体和核心差得多，说明是油价在推。")
+    st.caption("核心 = 去掉食品和能源；整体和核心差得多，说明是油价在推。美联储 2% 目标按 PCE 定（虚线），"
+               "CPI 早两周公布，用来提前看。")
 
     f2 = go.Figure()
     s = wk["fed_upper"].dropna()
@@ -337,11 +341,16 @@ def _render_inflation_rates(years: int) -> None:
                             line=dict(color="#ddd", width=2, shape="hv")))
     s = wk["dgs2"].dropna()
     f2.add_trace(go.Scatter(x=s.index, y=s, name="2 年期美债", line=dict(color="#f39c12", width=2)))
+    s = wk["real"].dropna()
+    f2.add_trace(go.Scatter(x=s.index, y=s, name="实际利率（上限 − 核心 PCE）",
+                            line=dict(color="#2ecc71", width=1.5, dash="dash")))
+    f2.add_hline(y=0, line=dict(color="#666", dash="dot"))
     f2.update_yaxes(title_text="%", gridcolor="#222")
     f2.update_xaxes(gridcolor="#222")
-    f2.update_layout(title=f"利率　基金上限 {lt['fed_upper']:.2f}% · 2 年期 {lt['dgs2']:.2f}%", **layout)
+    f2.update_layout(title=f"利率　基金上限 {lt['fed_upper']:.2f}% · 2 年期 {lt['dgs2']:.2f}% · "
+                           f"实际 {lt['real']:.2f}%", **layout)
     st.plotly_chart(f2, width="stretch")
-    st.caption("2 年期在基金利率上方，市场在押继续加息。")
+    st.caption("2 年期在基金利率上方，市场在押继续加息。实际利率越高，对经济的刹车越重；低于 0 等于没踩刹车。")
 
 
 st.markdown("---")
