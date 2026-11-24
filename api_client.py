@@ -1115,7 +1115,7 @@ def fetch_hy_spread() -> dict:
 
 @st.cache_data(ttl=3600 * 4)
 def fetch_inflation_rates() -> dict:
-    """整体 / 核心 CPI、核心 PCE 同比（月）+ WTI、联邦基金利率上限、2 年期美债、实际利率（周）。失败返回 {"success": False, ...}。"""
+    """整体 / 核心 CPI、核心 PCE 同比和核心 CPI 近三月年化（月）+ WTI、联邦基金利率上限、2 年期美债、实际利率（日）。失败返回 {"success": False, ...}。"""
     try:
         r = requests.get(f"{API_BASE_URL}/api/v1/macro/inflation_rates", timeout=120)
         r.raise_for_status()

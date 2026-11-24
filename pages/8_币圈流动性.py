@@ -299,7 +299,9 @@ def _render_inflation_rates(years: int) -> None:
         st.error(f"后端没返回通胀利率数据：{d.get('error')}")
         return
     lt = d["latest"]
-    st.caption(f"FRED · CPI 截至 {lt['cpi_month']} · PCE 截至 {lt['pce_month']} · 原油 / 利率截至 {lt['week']}")
+    st.caption(f"FRED · CPI 同比截至 {lt['cpi_month']}（近三月年化截至 {lt['core_3m_month']}）· "
+               f"PCE 截至 {lt['pce_month']} · 基金利率 {lt['fed_date']} · 2 年期 {lt['dgs2_date']} · "
+               f"WTI {lt['wti_date']}")
 
     def _frame(block: dict) -> pd.DataFrame:
         f = pd.DataFrame(block)
@@ -308,7 +310,7 @@ def _render_inflation_rates(years: int) -> None:
 
     start = pd.Timestamp.today() - pd.DateOffset(years=years)
     cpi = _frame(d["cpi"]).loc[start:]
-    wk = _frame(d["weekly"]).loc[start:]
+    dy = _frame(d["daily"]).loc[start:]
     layout = dict(
         height=420, xaxis_tickformat="%Y-%m", legend=dict(orientation="h", y=1.12, x=0),
         margin=dict(l=60, r=60, t=70, b=40), hovermode="x unified",
@@ -321,8 +323,12 @@ def _render_inflation_rates(years: int) -> None:
         s = cpi[col].dropna()
         f1.add_trace(go.Scatter(x=s.index, y=s, name=name, line=dict(color=color, width=2)),
                      secondary_y=False)
+    s = cpi["core_3m"].dropna()
+    f1.add_trace(go.Scatter(x=s.index, y=s, name="核心 CPI 近三月年化",
+                            line=dict(color="#3498db", width=1.2, dash="dash"), opacity=0.7),
+                 secondary_y=False)
     f1.add_hline(y=2, line=dict(color="#666", dash="dot"), secondary_y=False)
-    s = wk["wti"].dropna()
+    s = dy["wti"].dropna()
     f1.add_trace(go.Scatter(x=s.index, y=s, name="WTI", line=dict(color="#999", width=1.2), opacity=0.6),
                  secondary_y=True)
     f1.update_yaxes(title_text="同比 %", gridcolor="#222", secondary_y=False)
@@ -330,18 +336,20 @@ def _render_inflation_rates(years: int) -> None:
     f1.update_xaxes(gridcolor="#222")
     f1.update_layout(
         title=f"通胀　整体 CPI {lt['headline']:.2f}% · 核心 CPI {lt['core']:.2f}% · "
-              f"核心 PCE {lt['core_pce']:.2f}% · WTI {lt['wti']:.0f}", **layout)
+              f"核心 PCE {lt['core_pce']:.2f}% · 核心 CPI 近三月年化 {lt['core_3m']:.2f}%（{lt['core_3m_month'][5:]} 月）"
+              f" · WTI {lt['wti']:.0f}", **layout)
     st.plotly_chart(f1, width="stretch")
     st.caption("核心 = 去掉食品和能源；整体和核心差得多，说明是油价在推。美联储 2% 目标按 PCE 定（虚线），"
-               "CPI 早两周公布，用来提前看。")
+               "CPI 早两周公布，用来提前看。同比是一年的平均，近三月年化看的是最近的涨速。"
+               "2025-10 停摆没发 CPI，2026-10 的同比和 2026-01 的近三月年化算不出来，图上留空。")
 
     f2 = go.Figure()
-    s = wk["fed_upper"].dropna()
+    s = dy["fed_upper"].dropna()
     f2.add_trace(go.Scatter(x=s.index, y=s, name="联邦基金利率上限",
                             line=dict(color="#ddd", width=2, shape="hv")))
-    s = wk["dgs2"].dropna()
+    s = dy["dgs2"].dropna()
     f2.add_trace(go.Scatter(x=s.index, y=s, name="2 年期美债", line=dict(color="#f39c12", width=2)))
-    s = wk["real"].dropna()
+    s = dy["real"].dropna()
     f2.add_trace(go.Scatter(x=s.index, y=s, name="实际利率（上限 − 核心 PCE）",
                             line=dict(color="#2ecc71", width=1.5, dash="dash")))
     f2.add_hline(y=0, line=dict(color="#666", dash="dot"))
