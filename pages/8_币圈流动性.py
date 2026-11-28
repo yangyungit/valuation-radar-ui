@@ -352,16 +352,16 @@ def _render_inflation_rates(years: int) -> None:
     s = dy["real"].dropna()
     f2.add_trace(go.Scatter(x=s.index, y=s, name="实际利率（上限 − 核心 PCE）",
                             line=dict(color="#2ecc71", width=1.5, dash="dash")))
-    s = cpi["headline"].dropna()
-    f2.add_trace(go.Scatter(x=s.index, y=s, name="整体 CPI 同比", line=dict(color="#e74c3c", width=1.5)))
+    s = cpi["core_pce"].dropna()
+    f2.add_trace(go.Scatter(x=s.index, y=s, name="核心 PCE 同比", line=dict(color="#e74c3c", width=1.5)))
     f2.add_hline(y=0, line=dict(color="#666", dash="dot"))
     f2.update_yaxes(title_text="%", gridcolor="#222")
     f2.update_xaxes(gridcolor="#222")
     f2.update_layout(title=f"利率　基金上限 {lt['fed_upper']:.2f}% · 2 年期 {lt['dgs2']:.2f}% · "
-                           f"实际 {lt['real']:.2f}% · 整体 CPI {lt['headline']:.2f}%", **layout)
+                           f"实际 {lt['real']:.2f}% · 核心 PCE {lt['core_pce']:.2f}%", **layout)
     st.plotly_chart(f2, width="stretch")
     st.caption("2 年期在基金利率上方，市场在押继续加息。实际利率越高，对经济的刹车越重；低于 0 等于没踩刹车。"
-               "基金利率低于整体 CPI，说明按老百姓感受到的物价算，利率还是负的。")
+               "白线和红线的差就是绿虚线。")
 
 
 st.markdown("---")
